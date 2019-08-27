@@ -4,7 +4,7 @@ About
 This contains all of the ROCm 2.6 source code, as downloaded by the repo tool.
 The source code was downloaded as follows:
 ```
-cd rocm_sources
+cd sources
 ./repo init -u https://github.com/RadeonOpenCompute/ROCm.git -b roc-2.6.0
 ./repo sync
 ```
@@ -21,7 +21,8 @@ Compilation
 First, set up some environment variables for convenience:
 ```
 export ROCM_INSTALL_DIR=`pwd`/install
-export PATH=$PATH:$ROCM_INSTALL_DIR
+export HCC_HOME=$ROCM_INSTALL_DIR
+export PATH=$PATH:$ROCM_INSTALL_DIR/bin
 ```
 
 Build and install each project in the following order, making sure to install
