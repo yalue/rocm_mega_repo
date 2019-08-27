@@ -1,0 +1,63 @@
+---
+include: rocblas_common.yaml
+include: known_bugs.yaml
+
+Definitions:
+  - &incx_incy_range
+    - { incx:  1, incy:  1 }
+    - { incx:  1, incy:  2 }
+    - { incx:  2, incy:  1 }
+    - { incx:  1, incy: -1 }
+    - { incx: -1, incy:  1 }
+    - { incx: -1, incy: -1 }
+
+  - &alpha_beta_range
+    - { alpha:  1.0, beta:  0.0 }
+    - { alpha:  2.0, beta: -1.0 }
+
+Tests:
+- name: blas1
+  category: quick
+  N: [ -1, 0, 5, 10, 500, 1000, 1024, 1025, 7111, 10000, 33792 ]
+  incx_incy: *incx_incy_range
+  alpha_beta: *alpha_beta_range
+  function:
+    - nrm2:  *single_double_precisions
+    - asum:  *single_double_precisions
+    - iamax: *single_double_precisions
+#   - iamin: *single_double_precisions
+    - axpy:  *half_single_double_precisions
+    - copy:  *single_double_precisions
+    - dot:   *single_double_precisions
+    - scal:  *single_double_precisions
+    - swap:  *single_double_precisions
+
+- name: blas1
+  category: pre_checkin
+  N: [ 1048576, 1049600, 4000000, 8000000 ]
+  incx_incy: *incx_incy_range
+  alpha_beta: *alpha_beta_range
+  function:
+    - nrm2:  *double_precision
+    - asum:  *double_precision
+    - iamax: *single_double_precisions
+#   - iamin: *single_double_precisions
+    - axpy:  *half_single_double_precisions
+    - copy:  *single_double_precisions
+    - dot:   *double_precision
+    - scal:  *single_double_precisions
+    - swap:  *single_double_precisions
+
+- name: blas1_bad_arg
+  category: pre_checkin
+  function:
+    - nrm2_bad_arg:  *single_double_precisions
+    - asum_bad_arg:  *single_double_precisions
+    - iamax_bad_arg: *single_double_precisions
+    - iamin_bad_arg: *single_double_precisions
+    - axpy_bad_arg:  *half_single_double_precisions
+    - copy_bad_arg:  *single_double_precisions
+    - dot_bad_arg:   *single_double_precisions
+    - scal_bad_arg:  *single_double_precisions
+    - swap_bad_arg:  *single_double_precisions
+...

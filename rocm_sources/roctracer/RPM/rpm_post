@@ -1,0 +1,1 @@
+echo /opt/rocm/roctracer/lib > /etc/ld.so.conf.d/libroctracer64.conf && ldconfig
