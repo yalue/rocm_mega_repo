@@ -85,7 +85,9 @@ add_subdirectory(api/opencl/khronos/icd)
 
 add_subdirectory(tools/clinfo)
 
-install(PROGRAMS $<TARGET_FILE:clang> $<TARGET_FILE:lld>
+# Removed lld from the install list because it doesn't seem to get compiled.
+# No idea why, because I don't understand this project or cmake.
+install(PROGRAMS $<TARGET_FILE:clang>
         DESTINATION bin/x86_64
         COMPONENT libraries)
 

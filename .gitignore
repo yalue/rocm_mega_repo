@@ -1,3 +1,6 @@
 **/.git/
 .repo/
+install/
+hip_vectoradd_test/vector_add
+**/build/
 

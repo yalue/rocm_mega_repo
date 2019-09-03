@@ -642,6 +642,10 @@ public:
            getOS() == Triple::PS4;
   }
 
+  bool isSPIR() const {
+    return (getArch() == Triple::spir) || (getArch() == Triple::spir64);
+  }
+
   /// Tests whether the target is the PS4 platform
   bool isPS4() const {
     return getVendor() == Triple::SCEI &&
