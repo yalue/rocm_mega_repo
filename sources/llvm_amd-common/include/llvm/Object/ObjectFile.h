@@ -94,11 +94,11 @@ public:
 
   void moveNext();
 
-  std::error_code getName(StringRef &Result) const;
+  Expected<StringRef> getName() const;
   uint64_t getAddress() const;
   uint64_t getIndex() const;
   uint64_t getSize() const;
-  std::error_code getContents(StringRef &Result) const;
+  Expected<StringRef> getContents() const;
 
   /// Get the alignment of this section as the actual value (not log 2).
   uint64_t getAlignment() const;
@@ -244,7 +244,7 @@ protected:
   friend class SymbolRef;
 
   virtual Expected<StringRef> getSymbolName(DataRefImpl Symb) const = 0;
-  std::error_code printSymbolName(raw_ostream &OS,
+  Error printSymbolName(raw_ostream &OS,
                                   DataRefImpl Symb) const override;
   virtual Expected<uint64_t> getSymbolAddress(DataRefImpl Symb) const = 0;
   virtual uint64_t getSymbolValueImpl(DataRefImpl Symb) const = 0;
@@ -262,8 +262,8 @@ protected:
   virtual uint64_t getSectionAddress(DataRefImpl Sec) const = 0;
   virtual uint64_t getSectionIndex(DataRefImpl Sec) const = 0;
   virtual uint64_t getSectionSize(DataRefImpl Sec) const = 0;
-  virtual std::error_code getSectionContents(DataRefImpl Sec,
-                                             StringRef &Res) const = 0;
+  virtual Expected<ArrayRef<uint8_t>>
+  getSectionContents(DataRefImpl Sec) const = 0;
   virtual uint64_t getSectionAlignment(DataRefImpl Sec) const = 0;
   virtual bool isSectionCompressed(DataRefImpl Sec) const = 0;
   virtual bool isSectionText(DataRefImpl Sec) const = 0;
@@ -331,11 +331,6 @@ public:
   /// Create a triple from the data in this object file.
   Triple makeTriple() const;
 
-  virtual std::error_code
-    getBuildAttributes(ARMAttributeParser &Attributes) const {
-      return std::error_code();
-    }
-
   /// Maps a debug section name to a standard DWARF section name.
   virtual StringRef mapDebugSectionName(StringRef Name) const { return Name; }
 
@@ -364,7 +359,7 @@ public:
   createCOFFObjectFile(MemoryBufferRef Object);
 
   static Expected<std::unique_ptr<ObjectFile>>
-  createXCOFFObjectFile(MemoryBufferRef Object);
+  createXCOFFObjectFile(MemoryBufferRef Object, unsigned FileType);
 
   static Expected<std::unique_ptr<ObjectFile>>
   createELFObjectFile(MemoryBufferRef Object);
@@ -439,12 +434,8 @@ inline void SectionRef::moveNext() {
   return OwningObject->moveSectionNext(SectionPimpl);
 }
 
-inline std::error_code SectionRef::getName(StringRef &Result) const {
-  Expected<StringRef> NameOrErr = OwningObject->getSectionName(SectionPimpl);
-  if (!NameOrErr)
-    return errorToErrorCode(NameOrErr.takeError());
-  Result = *NameOrErr;
-  return std::error_code();
+inline Expected<StringRef> SectionRef::getName() const {
+  return OwningObject->getSectionName(SectionPimpl);
 }
 
 inline uint64_t SectionRef::getAddress() const {
@@ -459,8 +450,12 @@ inline uint64_t SectionRef::getSize() const {
   return OwningObject->getSectionSize(SectionPimpl);
 }
 
-inline std::error_code SectionRef::getContents(StringRef &Result) const {
-  return OwningObject->getSectionContents(SectionPimpl, Result);
+inline Expected<StringRef> SectionRef::getContents() const {
+  Expected<ArrayRef<uint8_t>> Res =
+      OwningObject->getSectionContents(SectionPimpl);
+  if (!Res)
+    return Res.takeError();
+  return StringRef(reinterpret_cast<const char *>(Res->data()), Res->size());
 }
 
 inline uint64_t SectionRef::getAlignment() const {

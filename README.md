@@ -15,6 +15,13 @@ this step, make sure to do it *before* creating your own git repo!
 find . -type d -name *.git -exec rm -rf {} \;
 ```
 
+Other notes on obtaining the source code:
+
+ - I replaced the version of `llvm_amd-common` downloaded by `repo` with the
+   trunk version from the ROCm repos (in addition to `clang` and `lld`). I put
+   `clang` and `lld` sources in `llvm_amd-common/tools`, which also is not
+   where `repo` initially downloaded them.
+
 Compilation
 -----------
 

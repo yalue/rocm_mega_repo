@@ -11,11 +11,13 @@
 //
 //===----------------------------------------------------------------------===//
 
-#include "InstPrinter/LanaiInstPrinter.h"
-#include "Lanai.h"
+#include "MCTargetDesc/LanaiInstPrinter.h"
+#include "LanaiAluCode.h"
+#include "LanaiCondCode.h"
 #include "LanaiInstrInfo.h"
 #include "LanaiMCInstLower.h"
 #include "LanaiTargetMachine.h"
+#include "TargetInfo/LanaiTargetInfo.h"
 #include "llvm/CodeGen/AsmPrinter.h"
 #include "llvm/CodeGen/MachineConstantPool.h"
 #include "llvm/CodeGen/MachineFunctionPass.h"
@@ -131,7 +133,7 @@ bool LanaiAsmPrinter::PrintAsmOperand(const MachineInstr *MI, unsigned OpNo,
       const MachineOperand &MO = MI->getOperand(RegOp);
       if (!MO.isReg())
         return true;
-      unsigned Reg = MO.getReg();
+      Register Reg = MO.getReg();
       O << LanaiInstPrinter::getRegisterName(Reg);
       return false;
     }

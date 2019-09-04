@@ -1,2 +1,5 @@
-add_subdirectory(PromotePointerKernArgsToGlobal)
-add_subdirectory(SelectAcceleratorCode)
+if (UNIX)
+  set(LLVM_ENABLE_PLUGINS ON)
+  add_subdirectory(PromotePointerKernArgsToGlobal)
+  add_subdirectory(SelectAcceleratorCode)
+endif()

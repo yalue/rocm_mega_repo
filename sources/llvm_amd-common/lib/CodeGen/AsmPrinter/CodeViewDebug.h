@@ -17,6 +17,7 @@
 #include "llvm/ADT/DenseMap.h"
 #include "llvm/ADT/DenseSet.h"
 #include "llvm/ADT/MapVector.h"
+#include "llvm/ADT/PointerUnion.h"
 #include "llvm/ADT/SetVector.h"
 #include "llvm/ADT/SmallVector.h"
 #include "llvm/CodeGen/DbgEntityHistoryCalculator.h"
@@ -100,7 +101,7 @@ class LLVM_LIBRARY_VISIBILITY CodeViewDebug : public DebugHandlerBase {
 
   struct CVGlobalVariable {
     const DIGlobalVariable *DIGV;
-    const GlobalVariable *GV;
+    PointerUnion<const GlobalVariable *, const DIExpression *> GVInfo;
   };
 
   struct InlineSite {
@@ -147,7 +148,8 @@ class LLVM_LIBRARY_VISIBILITY CodeViewDebug : public DebugHandlerBase {
     SmallVector<LexicalBlock *, 1> ChildBlocks;
 
     std::vector<std::pair<MCSymbol *, MDNode *>> Annotations;
-    std::vector<std::tuple<MCSymbol *, MCSymbol *, DIType *>> HeapAllocSites;
+    std::vector<std::tuple<MCSymbol *, MCSymbol *, const DIType *>>
+        HeapAllocSites;
 
     const MCSymbol *Begin = nullptr;
     const MCSymbol *End = nullptr;
@@ -313,8 +315,7 @@ class LLVM_LIBRARY_VISIBILITY CodeViewDebug : public DebugHandlerBase {
 
   void emitDebugInfoForGlobals();
   void emitGlobalVariableList(ArrayRef<CVGlobalVariable> Globals);
-  void emitDebugInfoForGlobal(const DIGlobalVariable *DIGV,
-                              const GlobalVariable *GV, MCSymbol *GVSym);
+  void emitDebugInfoForGlobal(const CVGlobalVariable &CVGV);
 
   /// Opens a subsection of the given kind in a .debug$S codeview section.
   /// Returns an end label for use with endCVSubsection when the subsection is

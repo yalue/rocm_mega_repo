@@ -642,6 +642,8 @@ public:
            getOS() == Triple::PS4;
   }
 
+  // This seems to be referred to elsewhere in the project, no idea why it
+  // isn't defined.
   bool isSPIR() const {
     return (getArch() == Triple::spir) || (getArch() == Triple::spir64);
   }

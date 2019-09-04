@@ -148,6 +148,19 @@ cd $ROCM_INSTALL_DIR/..
 # Fix some hardcoded paths in the hipcc script
 sed -i 's@/opt/rocm@'"$ROCM_INSTALL_DIR"'@g' $ROCM_INSTALL_DIR/bin/hipcc
 
+cd sources/llvm_amd-common
+rm -r build
+mkdir build
+cmake \
+	-DCMAKE_PREFIX_PATH=$ROCM_INSTALL_DIR \
+	-DCMAKE_INSTALL_PREFIX=$ROCM_INSTALL_DIR \
+	-DCMAKE_BUILD_TYPE=Release \
+	-DLLVM_TARGETS_TO_BUILD="AMDGPU;X86" \
+	..
+make -j6
+make -j6 install
+cd $ROCM_INSTALL_DIR/..
+
 # Additional prerequisites that may need to be installed:
 # ocaml ocaml-findlib python-z3 git-svn
 

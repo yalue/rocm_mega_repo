@@ -238,45 +238,47 @@ Error JITLinkerBase::allocateSegments(const SegmentLayoutMap &Layout) {
 
     // Calculate segment content size.
     size_t SegContentSize = 0;
+    uint32_t SegContentAlign = 1;
     for (auto &SI : SegLayout.ContentSections) {
       assert(!SI.S->atoms_empty() && "Sections in layout must not be empty");
       assert(!SI.Atoms.empty() && "Section layouts must not be empty");
+
+      // Bump to section alignment before processing atoms.
+      SegContentSize = alignTo(SegContentSize, SI.S->getAlignment());
+      SegContentAlign = std::max(SegContentAlign, SI.S->getAlignment());
+
       for (auto *DA : SI.Atoms) {
         SegContentSize = alignTo(SegContentSize, DA->getAlignment());
         SegContentSize += DA->getSize();
+        SegContentAlign = std::max(SegContentAlign, DA->getAlignment());
       }
     }
-
-    // Get segment content alignment.
-    unsigned SegContentAlign = 1;
-    if (!SegLayout.ContentSections.empty())
-      SegContentAlign =
-          SegLayout.ContentSections.front().Atoms.front()->getAlignment();
 
     // Calculate segment zero-fill size.
     uint64_t SegZeroFillSize = 0;
+    uint32_t SegZeroFillAlign = 1;
+
     for (auto &SI : SegLayout.ZeroFillSections) {
       assert(!SI.S->atoms_empty() && "Sections in layout must not be empty");
       assert(!SI.Atoms.empty() && "Section layouts must not be empty");
+
+      // Bump to section alignment before processing atoms.
+      SegZeroFillSize = alignTo(SegZeroFillSize, SI.S->getAlignment());
+      SegZeroFillAlign = std::max(SegZeroFillAlign, SI.S->getAlignment());
+
       for (auto *DA : SI.Atoms) {
         SegZeroFillSize = alignTo(SegZeroFillSize, DA->getAlignment());
         SegZeroFillSize += DA->getSize();
+        SegZeroFillAlign = std::max(SegZeroFillAlign, SI.S->getAlignment());
       }
     }
 
-    // Calculate segment zero-fill alignment.
-    uint32_t SegZeroFillAlign = 1;
-    if (!SegLayout.ZeroFillSections.empty())
-      SegZeroFillAlign =
-          SegLayout.ZeroFillSections.front().Atoms.front()->getAlignment();
-
-    if (SegContentSize == 0)
-      SegContentAlign = SegZeroFillAlign;
-
-    if (SegContentAlign % SegZeroFillAlign != 0)
-      return make_error<JITLinkError>("First content atom alignment does not "
-                                      "accommodate first zero-fill atom "
-                                      "alignment");
+    assert(isPowerOf2_32(SegContentAlign) &&
+           "Expected content alignment to be power of 2");
+    assert(isPowerOf2_32(SegZeroFillAlign) &&
+           "Expected zero-fill alignment to be power of 2");
+    // Round content alignment up to segment alignment.
+    SegContentAlign = std::max(SegContentAlign, SegZeroFillAlign);
 
     Segments[Prot] = {SegContentSize, SegContentAlign, SegZeroFillSize,
                       SegZeroFillAlign};
@@ -314,12 +316,14 @@ Error JITLinkerBase::allocateSegments(const SegmentLayoutMap &Layout) {
         Alloc->getTargetMemory(static_cast<sys::Memory::ProtectionFlags>(Prot));
 
     for (auto *SIList : {&SL.ContentSections, &SL.ZeroFillSections})
-      for (auto &SI : *SIList)
+      for (auto &SI : *SIList) {
+        AtomTargetAddr = alignTo(AtomTargetAddr, SI.S->getAlignment());
         for (auto *DA : SI.Atoms) {
           AtomTargetAddr = alignTo(AtomTargetAddr, DA->getAlignment());
           DA->setAddress(AtomTargetAddr);
           AtomTargetAddr += DA->getSize();
         }
+      }
   }
 
   return Error::success();
@@ -433,28 +437,16 @@ void prune(AtomGraph &G) {
     //
     // We replace if all of the following hold:
     //   (1) The atom is marked should-discard,
-    //   (2) it is live, and
-    //   (3) it has edges pointing to it.
+    //   (2) it has live edges (i.e. edges from live atoms) pointing to it.
     //
     // Otherwise we simply delete the atom.
-    bool ReplaceWithExternal = DA->isLive() && DA->shouldDiscard();
-    std::vector<Edge *> *EdgesToUpdateForDA = nullptr;
-    if (ReplaceWithExternal) {
-      auto ETUItr = EdgesToUpdate.find(DA);
-      if (ETUItr == EdgesToUpdate.end())
-        ReplaceWithExternal = false;
-      else
-        EdgesToUpdateForDA = &ETUItr->second;
-    }
 
     G.removeDefinedAtom(*DA);
 
-    if (ReplaceWithExternal) {
-      assert(EdgesToUpdateForDA &&
-             "Replacing atom: There should be edges to update");
-
+    auto EdgesToUpdateItr = EdgesToUpdate.find(DA);
+    if (EdgesToUpdateItr != EdgesToUpdate.end()) {
       auto &ExternalReplacement = G.addExternalAtom(DA->getName());
-      for (auto *EdgeToUpdate : *EdgesToUpdateForDA)
+      for (auto *EdgeToUpdate : EdgesToUpdateItr->second)
         EdgeToUpdate->setTarget(ExternalReplacement);
       LLVM_DEBUG(dbgs() << "replaced with " << ExternalReplacement << "\n");
     } else

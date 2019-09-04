@@ -8,109 +8,10 @@
 
 #include "llvm/ObjectYAML/MinidumpYAML.h"
 #include "llvm/Support/Allocator.h"
-#include "llvm/Support/ConvertUTF.h"
 
 using namespace llvm;
 using namespace llvm::MinidumpYAML;
 using namespace llvm::minidump;
-
-namespace {
-/// A helper class to manage the placement of various structures into the final
-/// minidump binary. Space for objects can be allocated via various allocate***
-/// methods, while the final minidump file is written by calling the writeTo
-/// method. The plain versions of allocation functions take a reference to the
-/// data which is to be written (and hence the data must be available until
-/// writeTo is called), while the "New" versions allocate the data in an
-/// allocator-managed buffer, which is available until the allocator object is
-/// destroyed. For both kinds of functions, it is possible to modify the
-/// data for which the space has been "allocated" until the final writeTo call.
-/// This is useful for "linking" the allocated structures via their offsets.
-class BlobAllocator {
-public:
-  size_t tell() const { return NextOffset; }
-
-  size_t allocateCallback(size_t Size,
-                          std::function<void(raw_ostream &)> Callback) {
-    size_t Offset = NextOffset;
-    NextOffset += Size;
-    Callbacks.push_back(std::move(Callback));
-    return Offset;
-  }
-
-  size_t allocateBytes(ArrayRef<uint8_t> Data) {
-    return allocateCallback(
-        Data.size(), [Data](raw_ostream &OS) { OS << toStringRef(Data); });
-  }
-
-  size_t allocateBytes(yaml::BinaryRef Data) {
-    return allocateCallback(Data.binary_size(), [Data](raw_ostream &OS) {
-      Data.writeAsBinary(OS);
-    });
-  }
-
-  template <typename T> size_t allocateArray(ArrayRef<T> Data) {
-    return allocateBytes({reinterpret_cast<const uint8_t *>(Data.data()),
-                          sizeof(T) * Data.size()});
-  }
-
-  template <typename T, typename RangeType>
-  std::pair<size_t, MutableArrayRef<T>>
-  allocateNewArray(const iterator_range<RangeType> &Range);
-
-  template <typename T> size_t allocateObject(const T &Data) {
-    return allocateArray(makeArrayRef(Data));
-  }
-
-  template <typename T, typename... Types>
-  std::pair<size_t, T *> allocateNewObject(Types &&... Args) {
-    T *Object = new (Temporaries.Allocate<T>()) T(std::forward<Types>(Args)...);
-    return {allocateObject(*Object), Object};
-  }
-
-  size_t allocateString(StringRef Str);
-
-  void writeTo(raw_ostream &OS) const;
-
-private:
-  size_t NextOffset = 0;
-
-  BumpPtrAllocator Temporaries;
-  std::vector<std::function<void(raw_ostream &)>> Callbacks;
-};
-} // namespace
-
-template <typename T, typename RangeType>
-std::pair<size_t, MutableArrayRef<T>>
-BlobAllocator::allocateNewArray(const iterator_range<RangeType> &Range) {
-  size_t Num = std::distance(Range.begin(), Range.end());
-  MutableArrayRef<T> Array(Temporaries.Allocate<T>(Num), Num);
-  std::uninitialized_copy(Range.begin(), Range.end(), Array.begin());
-  return {allocateArray(Array), Array};
-}
-
-size_t BlobAllocator::allocateString(StringRef Str) {
-  SmallVector<UTF16, 32> WStr;
-  bool OK = convertUTF8ToUTF16String(Str, WStr);
-  assert(OK && "Invalid UTF8 in Str?");
-  (void)OK;
-
-  // The utf16 string is null-terminated, but the terminator is not counted in
-  // the string size.
-  WStr.push_back(0);
-  size_t Result =
-      allocateNewObject<support::ulittle32_t>(2 * (WStr.size() - 1)).first;
-  allocateNewArray<support::ulittle16_t>(make_range(WStr.begin(), WStr.end()));
-  return Result;
-}
-
-void BlobAllocator::writeTo(raw_ostream &OS) const {
-  size_t BeginOffset = OS.tell();
-  for (const auto &Callback : Callbacks)
-    Callback(OS);
-  assert(OS.tell() == BeginOffset + NextOffset &&
-         "Callbacks wrote an unexpected number of bytes.");
-  (void)BeginOffset;
-}
 
 /// Perform an optional yaml-mapping of an endian-aware type EndianType. The
 /// only purpose of this function is to avoid casting the Default value to the
@@ -168,6 +69,8 @@ Stream::~Stream() = default;
 
 Stream::StreamKind Stream::getKind(StreamType Type) {
   switch (Type) {
+  case StreamType::MemoryList:
+    return StreamKind::MemoryList;
   case StreamType::ModuleList:
     return StreamKind::ModuleList;
   case StreamType::SystemInfo:
@@ -180,6 +83,8 @@ Stream::StreamKind Stream::getKind(StreamType Type) {
   case StreamType::LinuxProcStat:
   case StreamType::LinuxProcUptime:
     return StreamKind::TextContent;
+  case StreamType::ThreadList:
+    return StreamKind::ThreadList;
   default:
     return StreamKind::RawContent;
   }
@@ -188,14 +93,18 @@ Stream::StreamKind Stream::getKind(StreamType Type) {
 std::unique_ptr<Stream> Stream::create(StreamType Type) {
   StreamKind Kind = getKind(Type);
   switch (Kind) {
+  case StreamKind::MemoryList:
+    return std::make_unique<MemoryListStream>();
   case StreamKind::ModuleList:
-    return llvm::make_unique<ModuleListStream>();
+    return std::make_unique<ModuleListStream>();
   case StreamKind::RawContent:
-    return llvm::make_unique<RawContentStream>(Type);
+    return std::make_unique<RawContentStream>(Type);
   case StreamKind::SystemInfo:
-    return llvm::make_unique<SystemInfoStream>();
+    return std::make_unique<SystemInfoStream>();
   case StreamKind::TextContent:
-    return llvm::make_unique<TextContentStream>(Type);
+    return std::make_unique<TextContentStream>(Type);
+  case StreamKind::ThreadList:
+    return std::make_unique<ThreadListStream>();
   }
   llvm_unreachable("Unhandled stream kind!");
 }
@@ -323,19 +232,19 @@ void yaml::MappingTraits<VSFixedFileInfo>::mapping(IO &IO,
   mapOptionalHex(IO, "File Date Low", Info.FileDateLow, 0);
 }
 
-void yaml::MappingTraits<ModuleListStream::ParsedModule>::mapping(
-    IO &IO, ModuleListStream::ParsedModule &M) {
-  mapRequiredHex(IO, "Base of Image", M.Module.BaseOfImage);
-  mapRequiredHex(IO, "Size of Image", M.Module.SizeOfImage);
-  mapOptionalHex(IO, "Checksum", M.Module.Checksum, 0);
-  IO.mapOptional("Time Date Stamp", M.Module.TimeDateStamp,
+void yaml::MappingTraits<ModuleListStream::entry_type>::mapping(
+    IO &IO, ModuleListStream::entry_type &M) {
+  mapRequiredHex(IO, "Base of Image", M.Entry.BaseOfImage);
+  mapRequiredHex(IO, "Size of Image", M.Entry.SizeOfImage);
+  mapOptionalHex(IO, "Checksum", M.Entry.Checksum, 0);
+  IO.mapOptional("Time Date Stamp", M.Entry.TimeDateStamp,
                  support::ulittle32_t(0));
   IO.mapRequired("Module Name", M.Name);
-  IO.mapOptional("Version Info", M.Module.VersionInfo, VSFixedFileInfo());
+  IO.mapOptional("Version Info", M.Entry.VersionInfo, VSFixedFileInfo());
   IO.mapRequired("CodeView Record", M.CvRecord);
   IO.mapOptional("Misc Record", M.MiscRecord, yaml::BinaryRef());
-  mapOptionalHex(IO, "Reserved0", M.Module.Reserved0, 0);
-  mapOptionalHex(IO, "Reserved1", M.Module.Reserved1, 0);
+  mapOptionalHex(IO, "Reserved0", M.Entry.Reserved0, 0);
+  mapOptionalHex(IO, "Reserved1", M.Entry.Reserved1, 0);
 }
 
 static void streamMapping(yaml::IO &IO, RawContentStream &Stream) {
@@ -349,8 +258,18 @@ static StringRef streamValidate(RawContentStream &Stream) {
   return "";
 }
 
+void yaml::MappingTraits<MemoryListStream::entry_type>::mapping(
+    IO &IO, MemoryListStream::entry_type &Range) {
+  MappingContextTraits<MemoryDescriptor, yaml::BinaryRef>::mapping(
+      IO, Range.Entry, Range.Content);
+}
+
+static void streamMapping(yaml::IO &IO, MemoryListStream &Stream) {
+  IO.mapRequired("Memory Ranges", Stream.Entries);
+}
+
 static void streamMapping(yaml::IO &IO, ModuleListStream &Stream) {
-  IO.mapRequired("Modules", Stream.Modules);
+  IO.mapRequired("Modules", Stream.Entries);
 }
 
 static void streamMapping(yaml::IO &IO, SystemInfoStream &Stream) {
@@ -386,6 +305,27 @@ static void streamMapping(yaml::IO &IO, TextContentStream &Stream) {
   IO.mapOptional("Text", Stream.Text);
 }
 
+void yaml::MappingContextTraits<MemoryDescriptor, yaml::BinaryRef>::mapping(
+    IO &IO, MemoryDescriptor &Memory, BinaryRef &Content) {
+  mapRequiredHex(IO, "Start of Memory Range", Memory.StartOfMemoryRange);
+  IO.mapRequired("Content", Content);
+}
+
+void yaml::MappingTraits<ThreadListStream::entry_type>::mapping(
+    IO &IO, ThreadListStream::entry_type &T) {
+  mapRequiredHex(IO, "Thread Id", T.Entry.ThreadId);
+  mapOptionalHex(IO, "Suspend Count", T.Entry.SuspendCount, 0);
+  mapOptionalHex(IO, "Priority Class", T.Entry.PriorityClass, 0);
+  mapOptionalHex(IO, "Priority", T.Entry.Priority, 0);
+  mapOptionalHex(IO, "Environment Block", T.Entry.EnvironmentBlock, 0);
+  IO.mapRequired("Context", T.Context);
+  IO.mapRequired("Stack", T.Entry.Stack, T.Stack);
+}
+
+static void streamMapping(yaml::IO &IO, ThreadListStream &Stream) {
+  IO.mapRequired("Threads", Stream.Entries);
+}
+
 void yaml::MappingTraits<std::unique_ptr<Stream>>::mapping(
     yaml::IO &IO, std::unique_ptr<MinidumpYAML::Stream> &S) {
   StreamType Type;
@@ -396,6 +336,9 @@ void yaml::MappingTraits<std::unique_ptr<Stream>>::mapping(
   if (!IO.outputting())
     S = MinidumpYAML::Stream::create(Type);
   switch (S->Kind) {
+  case MinidumpYAML::Stream::StreamKind::MemoryList:
+    streamMapping(IO, llvm::cast<MemoryListStream>(*S));
+    break;
   case MinidumpYAML::Stream::StreamKind::ModuleList:
     streamMapping(IO, llvm::cast<ModuleListStream>(*S));
     break;
@@ -408,6 +351,9 @@ void yaml::MappingTraits<std::unique_ptr<Stream>>::mapping(
   case MinidumpYAML::Stream::StreamKind::TextContent:
     streamMapping(IO, llvm::cast<TextContentStream>(*S));
     break;
+  case MinidumpYAML::Stream::StreamKind::ThreadList:
+    streamMapping(IO, llvm::cast<ThreadListStream>(*S));
+    break;
   }
 }
 
@@ -416,9 +362,11 @@ StringRef yaml::MappingTraits<std::unique_ptr<Stream>>::validate(
   switch (S->Kind) {
   case MinidumpYAML::Stream::StreamKind::RawContent:
     return streamValidate(cast<RawContentStream>(*S));
+  case MinidumpYAML::Stream::StreamKind::MemoryList:
   case MinidumpYAML::Stream::StreamKind::ModuleList:
   case MinidumpYAML::Stream::StreamKind::SystemInfo:
   case MinidumpYAML::Stream::StreamKind::TextContent:
+  case MinidumpYAML::Stream::StreamKind::ThreadList:
     return "";
   }
   llvm_unreachable("Fully covered switch above!");
@@ -432,95 +380,28 @@ void yaml::MappingTraits<Object>::mapping(IO &IO, Object &O) {
   IO.mapRequired("Streams", O.Streams);
 }
 
-static Directory layout(BlobAllocator &File, Stream &S) {
-  Directory Result;
-  Result.Type = S.Type;
-  Result.Location.RVA = File.tell();
-  Optional<size_t> DataEnd;
-  switch (S.Kind) {
-  case Stream::StreamKind::ModuleList: {
-    ModuleListStream &List = cast<ModuleListStream>(S);
-
-    File.allocateNewObject<support::ulittle32_t>(List.Modules.size());
-    for (ModuleListStream::ParsedModule &M : List.Modules)
-      File.allocateObject(M.Module);
-
-    // Module names and CodeView/Misc records are not a part of the stream.
-    DataEnd = File.tell();
-    for (ModuleListStream::ParsedModule &M : List.Modules) {
-      M.Module.ModuleNameRVA = File.allocateString(M.Name);
-
-      M.Module.CvRecord.RVA = File.allocateBytes(M.CvRecord);
-      M.Module.CvRecord.DataSize = M.CvRecord.binary_size();
-
-      M.Module.MiscRecord.RVA = File.allocateBytes(M.MiscRecord);
-      M.Module.MiscRecord.DataSize = M.MiscRecord.binary_size();
-    }
-    break;
-  }
-  case Stream::StreamKind::RawContent: {
-    RawContentStream &Raw = cast<RawContentStream>(S);
-    File.allocateCallback(Raw.Size, [&Raw](raw_ostream &OS) {
-      Raw.Content.writeAsBinary(OS);
-      assert(Raw.Content.binary_size() <= Raw.Size);
-      OS << std::string(Raw.Size - Raw.Content.binary_size(), '\0');
-    });
-    break;
-  }
-  case Stream::StreamKind::SystemInfo: {
-    SystemInfoStream &SystemInfo = cast<SystemInfoStream>(S);
-    File.allocateObject(SystemInfo.Info);
-    // The CSD string is not a part of the stream.
-    DataEnd = File.tell();
-    SystemInfo.Info.CSDVersionRVA = File.allocateString(SystemInfo.CSDVersion);
-    break;
-  }
-  case Stream::StreamKind::TextContent:
-    File.allocateArray(arrayRefFromStringRef(cast<TextContentStream>(S).Text));
-    break;
-  }
-  // If DataEnd is not set, we assume everything we generated is a part of the
-  // stream.
-  Result.Location.DataSize =
-      DataEnd.getValueOr(File.tell()) - Result.Location.RVA;
-  return Result;
-}
-
-void MinidumpYAML::writeAsBinary(Object &Obj, raw_ostream &OS) {
-  BlobAllocator File;
-  File.allocateObject(Obj.Header);
-
-  std::vector<Directory> StreamDirectory(Obj.Streams.size());
-  Obj.Header.StreamDirectoryRVA =
-      File.allocateArray(makeArrayRef(StreamDirectory));
-  Obj.Header.NumberOfStreams = StreamDirectory.size();
-
-  for (auto &Stream : enumerate(Obj.Streams))
-    StreamDirectory[Stream.index()] = layout(File, *Stream.value());
-
-  File.writeTo(OS);
-}
-
-Error MinidumpYAML::writeAsBinary(StringRef Yaml, raw_ostream &OS) {
-  yaml::Input Input(Yaml);
-  Object Obj;
-  Input >> Obj;
-  if (std::error_code EC = Input.error())
-    return errorCodeToError(EC);
-
-  writeAsBinary(Obj, OS);
-  return Error::success();
-}
-
 Expected<std::unique_ptr<Stream>>
 Stream::create(const Directory &StreamDesc, const object::MinidumpFile &File) {
   StreamKind Kind = getKind(StreamDesc.Type);
   switch (Kind) {
+  case StreamKind::MemoryList: {
+    auto ExpectedList = File.getMemoryList();
+    if (!ExpectedList)
+      return ExpectedList.takeError();
+    std::vector<MemoryListStream::entry_type> Ranges;
+    for (const MemoryDescriptor &MD : *ExpectedList) {
+      auto ExpectedContent = File.getRawData(MD.Memory);
+      if (!ExpectedContent)
+        return ExpectedContent.takeError();
+      Ranges.push_back({MD, *ExpectedContent});
+    }
+    return std::make_unique<MemoryListStream>(std::move(Ranges));
+  }
   case StreamKind::ModuleList: {
     auto ExpectedList = File.getModuleList();
     if (!ExpectedList)
       return ExpectedList.takeError();
-    std::vector<ModuleListStream::ParsedModule> Modules;
+    std::vector<ModuleListStream::entry_type> Modules;
     for (const Module &M : *ExpectedList) {
       auto ExpectedName = File.getString(M.ModuleNameRVA);
       if (!ExpectedName)
@@ -534,10 +415,10 @@ Stream::create(const Directory &StreamDesc, const object::MinidumpFile &File) {
       Modules.push_back(
           {M, std::move(*ExpectedName), *ExpectedCv, *ExpectedMisc});
     }
-    return llvm::make_unique<ModuleListStream>(std::move(Modules));
+    return std::make_unique<ModuleListStream>(std::move(Modules));
   }
   case StreamKind::RawContent:
-    return llvm::make_unique<RawContentStream>(StreamDesc.Type,
+    return std::make_unique<RawContentStream>(StreamDesc.Type,
                                                File.getRawStream(StreamDesc));
   case StreamKind::SystemInfo: {
     auto ExpectedInfo = File.getSystemInfo();
@@ -546,12 +427,28 @@ Stream::create(const Directory &StreamDesc, const object::MinidumpFile &File) {
     auto ExpectedCSDVersion = File.getString(ExpectedInfo->CSDVersionRVA);
     if (!ExpectedCSDVersion)
       return ExpectedInfo.takeError();
-    return llvm::make_unique<SystemInfoStream>(*ExpectedInfo,
+    return std::make_unique<SystemInfoStream>(*ExpectedInfo,
                                                std::move(*ExpectedCSDVersion));
   }
   case StreamKind::TextContent:
-    return llvm::make_unique<TextContentStream>(
+    return std::make_unique<TextContentStream>(
         StreamDesc.Type, toStringRef(File.getRawStream(StreamDesc)));
+  case StreamKind::ThreadList: {
+    auto ExpectedList = File.getThreadList();
+    if (!ExpectedList)
+      return ExpectedList.takeError();
+    std::vector<ThreadListStream::entry_type> Threads;
+    for (const Thread &T : *ExpectedList) {
+      auto ExpectedStack = File.getRawData(T.Stack.Memory);
+      if (!ExpectedStack)
+        return ExpectedStack.takeError();
+      auto ExpectedContext = File.getRawData(T.Context);
+      if (!ExpectedContext)
+        return ExpectedContext.takeError();
+      Threads.push_back({T, *ExpectedStack, *ExpectedContext});
+    }
+    return std::make_unique<ThreadListStream>(std::move(Threads));
+  }
   }
   llvm_unreachable("Unhandled stream kind!");
 }

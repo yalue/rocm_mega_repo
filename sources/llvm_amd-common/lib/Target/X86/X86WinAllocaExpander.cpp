@@ -81,12 +81,8 @@ static int64_t getWinAllocaAmount(MachineInstr *MI, MachineRegisterInfo *MRI) {
          MI->getOpcode() == X86::WIN_ALLOCA_64);
   assert(MI->getOperand(0).isReg());
 
-  unsigned AmountReg = MI->getOperand(0).getReg();
+  Register AmountReg = MI->getOperand(0).getReg();
   MachineInstr *Def = MRI->getUniqueVRegDef(AmountReg);
-
-  // Look through copies.
-  while (Def && Def->isCopy() && Def->getOperand(1).isReg())
-    Def = MRI->getUniqueVRegDef(Def->getOperand(1).getReg());
 
   if (!Def ||
       (Def->getOpcode() != X86::MOV32ri && Def->getOpcode() != X86::MOV64ri) ||
@@ -254,7 +250,7 @@ void X86WinAllocaExpander::lower(MachineInstr* MI, Lowering L) {
 
       // Do the probe.
       STI->getFrameLowering()->emitStackProbe(*MBB->getParent(), *MBB, MI, DL,
-                                              /*InPrologue=*/false);
+                                              /*InProlog=*/false);
     } else {
       // Sub
       BuildMI(*MBB, I, DL,
@@ -265,21 +261,13 @@ void X86WinAllocaExpander::lower(MachineInstr* MI, Lowering L) {
     break;
   }
 
-  unsigned AmountReg = MI->getOperand(0).getReg();
+  Register AmountReg = MI->getOperand(0).getReg();
   MI->eraseFromParent();
 
-  // Delete the definition of AmountReg, possibly walking a chain of copies.
-  for (;;) {
-    if (!MRI->use_empty(AmountReg))
-      break;
-    MachineInstr *AmountDef = MRI->getUniqueVRegDef(AmountReg);
-    if (!AmountDef)
-      break;
-    if (AmountDef->isCopy() && AmountDef->getOperand(1).isReg())
-      AmountReg = AmountDef->getOperand(1).isReg();
-    AmountDef->eraseFromParent();
-    break;
-  }
+  // Delete the definition of AmountReg.
+  if (MRI->use_empty(AmountReg))
+    if (MachineInstr *AmountDef = MRI->getUniqueVRegDef(AmountReg))
+      AmountDef->eraseFromParent();
 }
 
 bool X86WinAllocaExpander::runOnMachineFunction(MachineFunction &MF) {
