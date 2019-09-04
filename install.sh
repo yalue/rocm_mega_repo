@@ -64,22 +64,18 @@ make -j8
 make install
 cd $ROCM_INSTALL_DIR/..
 
-# I don't think this is necessary...
-#cd sources/llvm_amd-common
-#rm -r build
-#mkdir build
-#cd build
-#cmake \
-#	-DCMAKE_INSTALL_PREFIX=$ROCM_INSTALL_DIR \
-#	-DCMAKE_BUILD_TYPE=RelWithDebInfo \
-#	..
-## It's slow, but too many threads brought about memory trouble on my system
-## with 16 GB of memory... Alternatively, run make -j12, then cold reboot your
-## machine when it crashes near the end with the linker, then finish up the last
-## bit of work with a make -j2 :)
-#make -j2
-#make -j8 install
-#cd $ROCM_INSTALL_DIR/..
+cd sources/llvm_amd-common
+rm -r build
+mkdir build
+cmake \
+	-DCMAKE_PREFIX_PATH=$ROCM_INSTALL_DIR \
+	-DCMAKE_INSTALL_PREFIX=$ROCM_INSTALL_DIR \
+	-DCMAKE_BUILD_TYPE=Release \
+	-DLLVM_TARGETS_TO_BUILD="AMDGPU;X86" \
+	..
+make -j6
+make -j6 install
+cd $ROCM_INSTALL_DIR/..
 
 cd sources/ROCm-OpenCL-Runtime
 echo "Need sudo to copy a file to /etc/OpenCL/vendors"
@@ -148,14 +144,16 @@ cd $ROCM_INSTALL_DIR/..
 # Fix some hardcoded paths in the hipcc script
 sed -i 's@/opt/rocm@'"$ROCM_INSTALL_DIR"'@g' $ROCM_INSTALL_DIR/bin/hipcc
 
-cd sources/llvm_amd-common
+cd sources/ROCm-Device-Libs
 rm -r build
 mkdir build
-cmake \
+cd build
+LLVM_BUILD=$ROCM_INSTALL_DIR CC=$ROCM_INSTALL_DIR/bin/clang \
+	cmake \
 	-DCMAKE_PREFIX_PATH=$ROCM_INSTALL_DIR \
-	-DCMAKE_INSTALL_PREFIX=$ROCM_INSTALL_DIR \
 	-DCMAKE_BUILD_TYPE=Release \
-	-DLLVM_TARGETS_TO_BUILD="AMDGPU;X86" \
+	-DCMAKE_INSTALL_PREFIX=$ROCM_INSTALL_DIR \
+	-DLLVM_DIR=$ROCM_INSTALL_DIR \
 	..
 make -j6
 make -j6 install

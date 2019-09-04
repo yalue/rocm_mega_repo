@@ -63,6 +63,7 @@ each one to `$ROCM_INSTALL_DIR`:
  - `rocm-cmake`
  - `rocminfo`
  - `rocprofiler`
+ - `llvm_amd-common`
  - `ROCm-OpenCL-Runtime`
  - `clang-ocl`
  - `hcc`
