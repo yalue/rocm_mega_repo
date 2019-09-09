@@ -5,6 +5,7 @@ include(GNUInstallDirs)
 
 SET(CMAKE_MODULE_PATH "${PROJECT_SOURCE_DIR}/scripts/cmake")
 MESSAGE("Module path: ${CMAKE_MODULE_PATH}")
+set(CMAKE_CXX_STANDARD 14)
 
 # set as release build by default
 IF (NOT CMAKE_BUILD_TYPE)
