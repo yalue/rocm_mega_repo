@@ -1,4 +1,5 @@
 cmake_minimum_required(VERSION 3.2.0)
+set(CMAKE_CXX_STANDARD 14)
 
 # Build ROCM-Compiler-Support with ccache if the package is present.
 set(ROCM_COMPILER_SUPPORT_CCACHE_BUILD OFF CACHE BOOL "Set to ON for a ccache enabled build")

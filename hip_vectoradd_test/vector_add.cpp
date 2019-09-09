@@ -110,6 +110,10 @@ static void SetupDevice(void) {
   printf("Using AMD GPU architecture %d. Has %d multiprocessors, "
     "supporting %d threads each.\n", props.gcnArch, props.multiProcessorCount,
     props.maxThreadsPerMultiProcessor);
+  printf("Total global memory: %f MB\n", ((double) props.totalGlobalMem) /
+    (1024.0 * 1024.0));
+  printf("Supports concurrent kernels: %s\n",
+    props.concurrentKernels ? "yes" : "no");
 }
 
 int main(int argc, char **argv) {
