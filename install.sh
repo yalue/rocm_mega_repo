@@ -1,5 +1,15 @@
 # This script rebuilds all of ROCm from source, installing it to a pre-existing
 # ./install directory. Clean the directory manually before running this script.
+#
+# The following prerequisites must be installed on an Ubuntu 18.04 system in
+# order for this script to work:
+#    sudo apt install cmake pkg-config libpci-dev
+# Additionally, the following packages *may* be needed--I'm not sure.
+#    sudo apt install ocaml ocaml-findlib python-z3 git-svn
+# Z3 may need to be installed from source on some older systems. There also may
+# be ways to disable it manually, but I don't know if I've covered all of them.
+
+
 mkdir -p ./install
 export ROCM_INSTALL_DIR=`pwd`/install
 export HCC_HOME=$ROCM_INSTALL_DIR
@@ -148,11 +158,7 @@ cd $ROCM_INSTALL_DIR/..
 # Fix some hardcoded paths in the hipcc script
 sed -i 's@/opt/rocm@'"$ROCM_INSTALL_DIR"'@g' $ROCM_INSTALL_DIR/bin/hipcc
 
-# Additional prerequisites that may need to be installed:
-# ocaml ocaml-findlib python-z3 git-svn
-
-# z3 may need to be installed from source on older systems, need version 4.7.1
-# or later.
+# Steps for installing z3 from source:
 #cd sources/libz3_48_master
 #python scripts/mk_make.py
 #cd build
