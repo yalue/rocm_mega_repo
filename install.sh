@@ -74,7 +74,7 @@ make -j8
 make install
 cd $ROCM_INSTALL_DIR/..
 
-# I don't think this is necessary...
+# This isn't necessary when you're just building HIP based on hcc.
 #cd sources/llvm_amd-common
 #rm -r build
 #mkdir build
@@ -91,6 +91,7 @@ cd $ROCM_INSTALL_DIR/..
 #make -j8 install
 #cd $ROCM_INSTALL_DIR/..
 
+# This isn't necessary when you're just building HIP based on hcc.
 #cd sources/ROCm-OpenCL-Runtime
 #echo "Need sudo to copy a file to /etc/OpenCL/vendors"
 #sudo cp api/opencl/config/amdocl64.icd /etc/OpenCL/vendors
@@ -111,6 +112,7 @@ cd $ROCM_INSTALL_DIR/..
 ## clang-ocl expects the "clang" binary, not clang-9
 #ln -s -T $ROCM_INSTALL_DIR/bin/x86_64/clang-9 $ROCM_INSTALL_DIR/bin/x86_64/clang
 
+# This isn't necessary when you're just building HIP based on hcc.
 #cd sources/clang-ocl
 #rm -r build
 #mkdir build
@@ -164,3 +166,4 @@ sed -i 's@/opt/rocm@'"$ROCM_INSTALL_DIR"'@g' $ROCM_INSTALL_DIR/bin/hipcc
 #cd build
 #make -j8
 #sudo make install
+
