@@ -715,11 +715,23 @@ HSAKMT_STATUS HSAKMTAPI hsaKmtSetQueueCUMask(HSA_QUEUEID QueueId,
 {
 	struct queue *q = PORT_UINT64_TO_VPTR(QueueId);
 	struct kfd_ioctl_set_cu_mask_args args = {0};
+	HSAuint32 i;
+	int is_set;
+	printf("Setting %d-bit CU mask for queue %lu: ", (int) CUMaskCount,
+		(unsigned long) QueueId);
 
 	CHECK_KFD_OPEN();
 
-	if (CUMaskCount == 0 || !QueueCUMask || ((CUMaskCount % 32) != 0))
+	if (CUMaskCount == 0 || !QueueCUMask || ((CUMaskCount % 32) != 0)) {
+		printf("ERROR!\n");
 		return HSAKMT_STATUS_INVALID_PARAMETER;
+	}
+
+	for (i = 0; i < CUMaskCount; i++) {
+		is_set = (QueueCUMask[i / 32] & (1 << (i % 32))) != 0;
+		printf("%s", is_set ? "1" : "0");
+	}
+	printf("\n");
 
 	args.queue_id = q->queue_id;
 	args.num_cu_mask = CUMaskCount;

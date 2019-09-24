@@ -238,7 +238,7 @@ hipError_t hipStreamSetComputeUnitMask(hipStream_t stream, uint64_t mask) {
   auto av = ((ihipStream_t *) stream)->locked_getAv();
   std::vector<bool> mask_vector;
   while (mask != 0) {
-    mask_vector.push_back((mask & 1) == 0);
+    mask_vector.push_back((mask & 1) != 0);
     mask = mask >> 1;
   }
   if (!av->set_cu_mask(mask_vector)) {

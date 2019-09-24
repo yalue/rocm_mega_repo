@@ -10,8 +10,8 @@
 # be ways to disable it manually, but I don't know if I've covered all of them.
 
 
-mkdir -p ./install
 export ROCM_INSTALL_DIR=`pwd`/install
+mkdir -p $ROCM_INSTALL_DIR
 export HCC_HOME=$ROCM_INSTALL_DIR
 export PATH=$PATH:ROCM_INSTALL_DIR/bin
 
@@ -91,37 +91,37 @@ cd $ROCM_INSTALL_DIR/..
 #make -j8 install
 #cd $ROCM_INSTALL_DIR/..
 
-cd sources/ROCm-OpenCL-Runtime
-echo "Need sudo to copy a file to /etc/OpenCL/vendors"
-sudo cp api/opencl/config/amdocl64.icd /etc/OpenCL/vendors
-rm -r build
-mkdir build
-cd build
-cmake \
-	-DCMAKE_PREFIX_PATH=$ROCM_INSTALL_DIR \
-	-DCMAKE_INSTALL_PREFIX=$ROCM_INSTALL_DIR \
-	-DCMAKE_BUILD_TYPE=RelWithDebInfo \
-	-DCMAKE_LIBRARY_PATH=$ROCM_INSTALL_DIR/lib \
-	-DCMAKE_INCLUDE_PATH=$ROCM_INSTALL_DIR/include \
-	-DCLANG_ANALYZER_ENABLE_Z3_SOLVER=OFF \
-	..
-make -j8
-make install
-cd $ROCM_INSTALL_DIR/..
-# clang-ocl expects the "clang" binary, not clang-9
-ln -s -T $ROCM_INSTALL_DIR/bin/x86_64/clang-9 $ROCM_INSTALL_DIR/bin/x86_64/clang
+#cd sources/ROCm-OpenCL-Runtime
+#echo "Need sudo to copy a file to /etc/OpenCL/vendors"
+#sudo cp api/opencl/config/amdocl64.icd /etc/OpenCL/vendors
+#rm -r build
+#mkdir build
+#cd build
+#cmake \
+#	-DCMAKE_PREFIX_PATH=$ROCM_INSTALL_DIR \
+#	-DCMAKE_INSTALL_PREFIX=$ROCM_INSTALL_DIR \
+#	-DCMAKE_BUILD_TYPE=RelWithDebInfo \
+#	-DCMAKE_LIBRARY_PATH=$ROCM_INSTALL_DIR/lib \
+#	-DCMAKE_INCLUDE_PATH=$ROCM_INSTALL_DIR/include \
+#	-DCLANG_ANALYZER_ENABLE_Z3_SOLVER=OFF \
+#	..
+#make -j8
+#make install
+#cd $ROCM_INSTALL_DIR/..
+## clang-ocl expects the "clang" binary, not clang-9
+#ln -s -T $ROCM_INSTALL_DIR/bin/x86_64/clang-9 $ROCM_INSTALL_DIR/bin/x86_64/clang
 
-cd sources/clang-ocl
-rm -r build
-mkdir build
-cd build
-cmake \
-	-DCMAKE_PREFIX_PATH=$ROCM_INSTALL_DIR \
-	-DCMAKE_INSTALL_PREFIX=$ROCM_INSTALL_DIR \
-	..
-make -j8
-make install
-cd $ROCM_INSTALL_DIR/..
+#cd sources/clang-ocl
+#rm -r build
+#mkdir build
+#cd build
+#cmake \
+#	-DCMAKE_PREFIX_PATH=$ROCM_INSTALL_DIR \
+#	-DCMAKE_INSTALL_PREFIX=$ROCM_INSTALL_DIR \
+#	..
+#make -j8
+#make install
+#cd $ROCM_INSTALL_DIR/..
 
 cd sources/hcc
 rm -r build
@@ -131,11 +131,11 @@ cd build
 cmake \
 	-DCMAKE_PREFIX_PATH=$ROCM_INSTALL_DIR \
 	-DCMAKE_INSTALL_PREFIX=$ROCM_INSTALL_DIR \
-	-DCMAKE_BUILD_TYPE=Release \
+	-DCMAKE_BUILD_TYPE=RelWithDebInfo \
 	-DHSA_AMDGPU_GPU_TARGET="gfx803;gfx900" \
 	..
-make -j6
-make -j6 install
+make -j4
+make -j4 install
 cd $ROCM_INSTALL_DIR/..
 
 # To reinstall HIP, we first need to make sure old versions are gone, otherwise
