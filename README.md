@@ -44,6 +44,7 @@ variables for convenience:
 mkdir install
 export ROCM_INSTALL_DIR=`pwd`/install
 export HCC_HOME=$ROCM_INSTALL_DIR
+export HIP_PATH=$ROCM_INSTALL_DIR
 export PATH=$PATH:$ROCM_INSTALL_DIR/bin
 ```
 
