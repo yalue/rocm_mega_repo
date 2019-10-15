@@ -1,6 +1,24 @@
-################################################################################
-# Copyright (C) 2016 Advanced Micro Devices, Inc. All rights reserved.
-################################################################################
+# #############################################################################
+# Copyright (c) 2016 - present Advanced Micro Devices, Inc. All rights reserved.
+#
+# Permission is hereby granted, free of charge, to any person obtaining a copy
+# of this software and associated documentation files (the "Software"), to deal
+# in the Software without restriction, including without limitation the rights
+# to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+# copies of the Software, and to permit persons to whom the Software is
+# furnished to do so, subject to the following conditions:
+#
+# The above copyright notice and this permission notice shall be included in
+# all copies or substantial portions of the Software.
+#
+# THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+# IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+# FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.  IN NO EVENT SHALL THE
+# AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+# LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+# OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
+# THE SOFTWARE.
+# #############################################################################
 
 # set( Boost_DEBUG ON )
 set( Boost_USE_MULTITHREADED ON )
@@ -65,15 +83,14 @@ else( )
   target_link_libraries( rocfft-rider PRIVATE hip::hip_hcc )
 endif( )
 
-if( CMAKE_CXX_COMPILER MATCHES ".*/hcc$" )
-  # Remove following when hcc is fixed; hcc emits following spurious warning ROCm v1.6.1
-  # "clang-5.0: warning: argument unused during compilation: '-isystem /opt/rocm/include'"
-  target_compile_options( rocfft-rider PRIVATE -Wno-unused-command-line-argument )
-
-  # foreach( target ${AMDGPU_TARGETS} )
-  #   target_link_libraries( rocfft-rider PRIVATE --amdgpu-target=${target} )
-  # endforeach( )
+if(CMAKE_CXX_COMPILER MATCHES ".*/hcc$")
+  target_compile_options( rocfft-rider PRIVATE -Wno-unused-command-line-argument -hc)
 endif( )
+
+if(HIP_PLATFORM STREQUAL "hip-clang")
+  target_compile_options( rocfft-rider PRIVATE -Wno-unused-command-line-argument)
+endif( )
+
 
 set_target_properties( rocfft-rider PROPERTIES DEBUG_POSTFIX "-d" CXX_EXTENSIONS NO )
 set_target_properties( rocfft-rider PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${PROJECT_BINARY_DIR}/staging" )

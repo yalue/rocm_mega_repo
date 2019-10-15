@@ -23,11 +23,25 @@ endif()
 if(CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR)
 project(ROCm-Device-Libs)
 
+include(CMakePackageConfigHelpers)
+include(GNUInstallDirs)
+
+set(PROJECT_VERSION_MAJOR "1")
+set(PROJECT_VERSION_MINOR "0")
+set(PROJECT_VERSION_PATCH "0")
+set(PROJECT_VERSION "${PROJECT_VERSION_MAJOR}.${PROJECT_VERSION_MINOR}.${PROJECT_VERSION_PATCH}")
+
+find_package(ROCM PATHS "/opt/rocm")
+if (ROCM_FOUND)
+  include(ROCMSetupVersion)
+  rocm_setup_version(VERSION "${PROJECT_VERSION}")
+endif() # if (ROCM_FOUND)
+
 if(CMAKE_INSTALL_PREFIX_INITIALIZED_TO_DEFAULT)
   set(CMAKE_INSTALL_PREFIX ${CMAKE_BINARY_DIR}/dist CACHE INTERNAL "Prefix prepended to install directories")
 endif()
 
-find_package(LLVM REQUIRED CONFIG HINTS ${LLVM_DIR})
+find_package(LLVM REQUIRED PATHS ${LLVM_DIR} "/opt/rocm/llvm" NO_DEFAULT_PATH)
 list(APPEND CMAKE_MODULE_PATH ${LLVM_CMAKE_DIR})
 include(AddLLVM)
 
@@ -39,7 +53,6 @@ if (NOT DEFINED AMDGPU_TARGET_TRIPLE)
 endif()
 
 option(BUILD_HC_LIB "Build Heterogeneous Compute built-in library (hc)" ON)
-option(ROCM_DEVICELIB_INCLUDE_TESTS "Build tests" ON)
 
 if (NOT PREPARE_BUILTINS)
   add_subdirectory(utils/prepare-builtins)
@@ -71,18 +84,13 @@ endif()
 
 include(Packages.cmake)
 
-if(ROCM_DEVICELIB_INCLUDE_TESTS)
-  enable_testing()
-  add_subdirectory(test/opencl)
-  add_subdirectory(test/opencl_conformance)
-endif()
-
 ## CPack standard variables
 set ( CPACK_PACKAGE_NAME "rocm-device-libs" )
-set ( CPACK_PACKAGE_VERSION_MAJOR "0" )
-set ( CPACK_PACKAGE_VERSION_MINOR "0" )
-set ( CPACK_PACKAGE_VERSION_PATCH "1" )
-set ( CPACK_PACKAGE_CONTACT "" )
+set ( CPACK_PACKAGE_VERSION_MAJOR "${PROJECT_VERSION_MAJOR}" )
+set ( CPACK_PACKAGE_VERSION_MINOR "${PROJECT_VERSION_MINOR}" )
+set ( CPACK_PACKAGE_VERSION_PATCH "${PROJECT_VERSION_PATCH}" )
+set ( CPACK_PACKAGE_VERSION "${PROJECT_VERSION}" )
+set ( CPACK_PACKAGE_CONTACT "Advanced Micro Devices Inc." )
 set ( CPACK_PACKAGE_DESCRIPTION_SUMMARY "Radeon Open Compute - device libraries" )
 set ( CPACK_PACKAGE_DESCRIPTION "This package includes LLVM bitcode libraries." )
 set ( CPACK_DEBIAN_PACKAGE_HOMEPAGE "https://github.com/RadeonOpenCompute/ROCm-Device-Libs" )

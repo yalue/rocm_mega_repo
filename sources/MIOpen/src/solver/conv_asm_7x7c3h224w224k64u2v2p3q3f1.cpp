@@ -35,17 +35,15 @@ namespace solver {
 bool ConvAsm7x7c3h224w224k64u2v2p3q3f1::IsApplicable(const ConvolutionContext& params) const
 {
     if(!params.use_asm_kernels)
-    {
         return false;
-    }
-    if(!((params.rmv == rocm_meta_version::V3) || (params.rmv == rocm_meta_version::AMDHSA_1_0)))
-    {
+    if(!params.Is2d())
         return false;
-    }
+    if(params.rmv != rocm_meta_version::AMDHSA_1_0)
+        return false;
 
     const std::string name = params.GetStream().GetDeviceName();
     if(!(name == "gfx800" || name == "gfx802" || name == "gfx803" || name == "gfx804" ||
-         name == "gfx900" || name == "gfx904" || name == "gfx906"))
+         name == "gfx900" || name == "gfx904" || name == "gfx906" || name == "gfx908"))
     {
         return false;
     }
@@ -86,8 +84,7 @@ ConvSolution ConvAsm7x7c3h224w224k64u2v2p3q3f1::GetSolution(const ConvolutionCon
         params.kernel_stride_h; // (inp_h + 2*pad_h + inp_u - wei_h) / inp_u
 
     std::ostringstream options;
-    GenerateClangDefsym(
-        options, "ROCM_METADATA_VERSION", (params.rmv == rocm_meta_version::V3) ? 3 : 4);
+    GenerateClangDefsym(options, "ROCM_METADATA_VERSION", 4);
     KernelInfo constr_params;
     constr_params.comp_options = options.str();
 

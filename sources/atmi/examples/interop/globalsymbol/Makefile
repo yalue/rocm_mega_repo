@@ -34,13 +34,6 @@ AMDGPU_TARGET_TRIPLE ?= amdgpu--amdhsa
 MCPU ?= $(shell ${ATMI_RUNTIME_PATH}/bin/mygpu)
 #$(info MCPU $(MCPU))
 
-# Kernel format
-BRIG ?= 0
-ifeq ($(BRIG),1)
-	BRIGCLOPTS=-brig
-	BRIGCPPOPTS=-DUSE_BRIG
-endif
-
 # Kernel compiler
 CLC ?= 1
 
@@ -48,7 +41,7 @@ INC_FLAGS=-I${ATMI_INC} -I${HSA_RUNTIME_PATH}/include -I${HSA_RUNTIME_PATH}/incl
 
 # CLOC
 CLOC_PATH ?= ${ATMI_RUNTIME_PATH}/bin
-CLOCOPTS = -vv -hcc2 ${AMDLLVM} -triple ${AMDGPU_TARGET_TRIPLE} -libgcn ${ROCM_DEVICE_PATH}
+CLOCOPTS = -vv -aomp ${AMDLLVM} -triple ${AMDGPU_TARGET_TRIPLE} -libgcn ${ROCM_DEVICE_PATH}
 CLOCOPTS += -clopts "$(INC_FLAGS) -O2 -v"
 
 # ROCm-Device-lib
@@ -80,14 +73,14 @@ all: $(OBJS)
 
 globalsymbol: globalsymbol.cpp globalsymbol.cl 
 ifeq ($(CLC),1)
-	$(CLOC_PATH)/cloc.sh ${CLOCOPTS} ${BRIGCLOPTS} -opt 2 globalsymbol.cl
+	$(CLOC_PATH)/cloc.sh ${CLOCOPTS} -opt 2 globalsymbol.cl
 else
 	$(CLCC) ${CLCFLAGS} -o globalsymbol.hsaco globalsymbol.cl
 endif
-	$(CXX) -o $@ globalsymbol.cpp $(BRIGCPPOPTS) $(CXXFLAGS) $(LIBS) $(LIB_FLAGS) $(INC_FLAGS)
+	$(CXX) -o $@ globalsymbol.cpp $(CXXFLAGS) $(LIBS) $(LIB_FLAGS) $(INC_FLAGS)
 
 clean:
-	rm -rf *.o *.brig *.hsaco $(OBJS)
+	rm -rf *.o *.hsaco $(OBJS)
 
 test:
 	env LD_LIBRARY_PATH=${ATMI_RUNTIME_PATH}/lib:${HSA_RUNTIME_PATH}/lib:${LD_LIBRARY_PATH} ./globalsymbol

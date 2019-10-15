@@ -134,11 +134,7 @@ __global__ void csrsv_analysis_lower_kernel(rocsparse_int m,
     // Determine maximum local depth within the wavefront
     rocsparse_wfreduce_max<WF_SIZE>(&local_max);
 
-#if defined(__HIP_PLATFORM_HCC__)
     if(lid == WF_SIZE - 1)
-#elif defined(__HIP_PLATFORM_NVCC__)
-    if(lid == 0)
-#endif
     {
         // Write the local "row is done" flag
         atomicOr(&local_done_array[wid], local_max + 1);
@@ -262,11 +258,7 @@ __global__ void csrsv_analysis_upper_kernel(rocsparse_int m,
     // Determine maximum local depth within the wavefront
     rocsparse_wfreduce_max<WF_SIZE>(&local_max);
 
-#if defined(__HIP_PLATFORM_HCC__)
     if(lid == WF_SIZE - 1)
-#elif defined(__HIP_PLATFORM_NVCC__)
-    if(lid == 0)
-#endif
     {
         // Write the local "row is done" flag
         atomicOr(&local_done_array[wid], local_max + 1);
@@ -287,7 +279,7 @@ __global__ void csrsv_analysis_upper_kernel(rocsparse_int m,
 
 template <typename T, unsigned int BLOCKSIZE, unsigned int WF_SIZE>
 __device__ void csrsv_device(rocsparse_int m,
-                             T alpha,
+                             T             alpha,
                              const rocsparse_int* __restrict__ csr_row_ptr,
                              const rocsparse_int* __restrict__ csr_col_ind,
                              const T* __restrict__ csr_val,
@@ -298,8 +290,8 @@ __device__ void csrsv_device(rocsparse_int m,
                              rocsparse_int offset,
                              rocsparse_int* __restrict__ zero_pivot,
                              rocsparse_index_base idx_base,
-                             rocsparse_fill_mode fill_mode,
-                             rocsparse_diag_type diag_type)
+                             rocsparse_fill_mode  fill_mode,
+                             rocsparse_diag_type  diag_type)
 {
     int lid = hipThreadIdx_x & (WF_SIZE - 1);
     int wid = hipThreadIdx_x / WF_SIZE;
@@ -341,8 +333,8 @@ __device__ void csrsv_device(rocsparse_int m,
         T local_val = rocsparse_nontemporal_load(csr_val + j);
 
         // Check for numerical zero
-        if(local_val == static_cast<T>(0) && local_col == row &&
-           diag_type == rocsparse_diag_type_non_unit)
+        if(local_val == static_cast<T>(0) && local_col == row
+           && diag_type == rocsparse_diag_type_non_unit)
         {
             // Numerical zero pivot found, avoid division by 0
             // and store index for later use.
@@ -416,11 +408,7 @@ __device__ void csrsv_device(rocsparse_int m,
         local_sum *= diagonal[wid];
     }
 
-#if defined(__HIP_PLATFORM_HCC__)
     if(lid == WF_SIZE - 1)
-#elif defined(__HIP_PLATFORM_NVCC__)
-    if(lid == 0)
-#endif
     {
         // Write the "row is done" flag and store the rows result in y
         rocsparse_nontemporal_store(local_sum, &y[row]);

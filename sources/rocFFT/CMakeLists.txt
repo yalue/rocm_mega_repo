@@ -1,6 +1,24 @@
-# ########################################################################
-# Copyright 2016 Advanced Micro Devices, Inc.
-# ########################################################################
+# #############################################################################
+# Copyright (c) 2016 - present Advanced Micro Devices, Inc. All rights reserved.
+#
+# Permission is hereby granted, free of charge, to any person obtaining a copy
+# of this software and associated documentation files (the "Software"), to deal
+# in the Software without restriction, including without limitation the rights
+# to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+# copies of the Software, and to permit persons to whom the Software is
+# furnished to do so, subject to the following conditions:
+#
+# The above copyright notice and this permission notice shall be included in
+# all copies or substantial portions of the Software.
+#
+# THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+# IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+# FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.  IN NO EVENT SHALL THE
+# AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+# LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+# OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
+# THE SOFTWARE.
+# #############################################################################
 # Author: Kent Knox
 
 # The ROCm platform requires Ubuntu 16.04 or Fedora 24, which has cmake 3.5
@@ -100,21 +118,9 @@ include( ROCMInstallTargets )
 include( ROCMPackageConfigHelpers )
 include( ROCMInstallSymlinks )
 
-
-set ( VERSION_STRING "0.9.3." )
-# Check if BUILD_NUMBER is defined in a Jenkins envirnment
-if ($ENV{BUILD_NUMBER} )
-  string(CONCAT BUILD_VERSION ${VERSION_STRING} $ENV{BUILD_NUMBER}) 
-else ()
-  string(CONCAT BUILD_VERSION ${VERSION_STRING} "0") 
-endif ()
-rocm_setup_version( VERSION ${BUILD_VERSION} NO_GIT_TAG_VERSION )
-
-# Get the git tag version
-include ( cmake/version.cmake )
-rocm_get_git_commit_id ( ${PROJECT_NAME}_VERSION_COMMIT_ID )
-
-
+# Using standardized versioning from rocm-cmake
+set ( VERSION_STRING "0.9.7" )
+rocm_setup_version( VERSION ${VERSION_STRING} )
 
 # Append our library helper cmake path and the cmake path for hip (for convenience)
 # Users may override HIP path by specifying their own in CMAKE_MODULE_PATH
@@ -123,9 +129,11 @@ list( APPEND CMAKE_MODULE_PATH ${CMAKE_CURRENT_SOURCE_DIR}/cmake )
 # NOTE:  workaround until hcc & hip cmake modules fixes symlink logic in their config files; remove when fixed
 list( APPEND CMAKE_PREFIX_PATH /opt/rocm/hcc /opt/rocm/hip )
 
-# Building tensile can add significant compile time; this option allows to build
-# library without tensile to allow for rapid iteration without GEMM functionality
+# Enable verbose output
 option( BUILD_VERBOSE "Output additional build information" OFF )
+
+# Build the reference C++ kernel implementations.
+option( BUILD_CPUREF "Build CPU reference debug code" OFF )
 
 # BUILD_SHARED_LIBS is a cmake built-in; we make it an explicit option such that it shows in cmake-gui
 option( BUILD_SHARED_LIBS "Build rocFFT as a shared library" ON )
@@ -147,7 +155,7 @@ find_package( hip REQUIRED CONFIG PATHS /opt/rocm )
 find_package( CUDA QUIET )
 
 # CMake list of machine targets
-set( AMDGPU_TARGETS gfx803;gfx900;gfx906 CACHE STRING "List of specific machine types for library to target" )
+set( AMDGPU_TARGETS gfx803;gfx900;gfx906;gfx908 CACHE STRING "List of specific machine types for library to target" )
 
 add_subdirectory( library )
 

@@ -15,13 +15,13 @@ INCLUDES = \
 	-I$(HSA_DIR)/include \
 	-I$(HSA_DIR)/include/hsa \
 	-I$(HSA_DIR)/../include \
+	-I$(HSA_DIR)/../include/rocprofiler \
 	-I$(DYNAMICLIBRARYMODULE_DIR) \
 	-I$(TSINGLETON_DIR) \
 
 LIB_OBJS =  \
 	./$(OBJ_DIR)/HSAFunctionDefsUtils.o \
 	./$(OBJ_DIR)/HSAModule.o \
-	./$(OBJ_DIR)/HSAToolsRTModule.o \
 	./$(OBJ_DIR)/ROCProfilerModule.o \
 	./$(OBJ_DIR)/HSAAgentUtils.o \
 	./$(OBJ_DIR)/HSAAgentIterateReplacer.o \

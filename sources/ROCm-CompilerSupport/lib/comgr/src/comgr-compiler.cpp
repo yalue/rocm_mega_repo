@@ -37,6 +37,7 @@
  ******************************************************************************/
 
 #include "comgr-compiler.h"
+#include "comgr-env.h"
 #include "lld/Common/Driver.h"
 #include "clang/CodeGen/CodeGenAction.h"
 #include "clang/Driver/Compilation.h"
@@ -554,7 +555,7 @@ static amd_comgr_status_t linkWithLLD(llvm::ArrayRef<const char *> Args,
                                       llvm::raw_ostream &LogS) {
   ArgStringList LLDArgs(llvm::iterator_range<ArrayRef<const char *>::iterator>(
       Args.begin(), Args.end()));
-  LLDArgs.insert(LLDArgs.begin(), "");
+  LLDArgs.insert(LLDArgs.begin(), "lld");
   ArrayRef<const char *> ArgRefs = llvm::makeArrayRef(LLDArgs);
   static std::mutex MScreen;
   MScreen.lock();
@@ -572,6 +573,17 @@ InProcessDriver::InProcessDriver(raw_ostream &DiagOS)
       TheDriver(new Driver("", "", Diags)) {
   TheDriver->setTitle("AMDGPU Code Object Manager");
   TheDriver->setCheckInputsExist(false);
+}
+
+static void logArgv(raw_ostream &OS, StringRef ProgramName,
+                    ArrayRef<const char *> Argv) {
+  OS << "COMGR::InProcessDriver::Execute argv: " << ProgramName;
+  for (size_t I = 0; I < Argv.size(); ++I)
+    // Skip the first argument, which we replace with ProgramName, and the last
+    // argument, which is a null terminator.
+    if (I && Argv[I])
+      OS << " \"" << Argv[I] << '\"';
+  OS << '\n';
 }
 
 amd_comgr_status_t InProcessDriver::execute(ArrayRef<const char *> Args) {
@@ -593,13 +605,9 @@ amd_comgr_status_t InProcessDriver::execute(ArrayRef<const char *> Args) {
 
     clearLLVMOptions();
 
-    DiagOS << "COMGR::InProcessDriver::Execute argv:";
-    for (auto &Arg : Argv)
-      if (Arg)
-        DiagOS << " \"" << Arg << '\"';
-    DiagOS << '\n';
-
     if (Argv[1] == StringRef("-cc1")) {
+      if (env::shouldEmitVerboseLogs())
+        logArgv(DiagOS, "clang", Argv);
       std::unique_ptr<CompilerInstance> Clang(new CompilerInstance());
       Clang->createDiagnostics(DiagClient, /* ShouldOwnClient */ false);
       if (!Clang->hasDiagnostics())
@@ -611,6 +619,8 @@ amd_comgr_status_t InProcessDriver::execute(ArrayRef<const char *> Args) {
       if (!ExecuteCompilerInvocation(Clang.get()))
         return AMD_COMGR_STATUS_ERROR;
     } else if (Argv[1] == StringRef("-cc1as")) {
+      if (env::shouldEmitVerboseLogs())
+        logArgv(DiagOS, "clang", Argv);
       Argv.erase(Argv.begin() + 1);
       AssemblerInvocation Asm;
       if (!AssemblerInvocation::CreateFromArgs(Asm, Argv, Diags))
@@ -620,6 +630,8 @@ amd_comgr_status_t InProcessDriver::execute(ArrayRef<const char *> Args) {
       if (ExecuteAssembler(Asm, Diags, DiagOS))
         return AMD_COMGR_STATUS_ERROR;
     } else if (Job.getCreator().getName() == LinkerJobName) {
+      if (env::shouldEmitVerboseLogs())
+        logArgv(DiagOS, "lld", Argv);
       if (auto Status = linkWithLLD(Arguments, DiagOS))
         return Status;
     } else {
@@ -666,7 +678,7 @@ amd_comgr_status_t AMDGPUCompiler::processFile(const char *InputFilePath,
   for (auto &Arg : Args)
     Argv.push_back(Arg);
 
-  for (auto &Option : Options)
+  for (auto &Option : ActionInfo->getOptions())
     Argv.push_back(Option.c_str());
 
   Argv.push_back(InputFilePath);
@@ -723,16 +735,6 @@ AMDGPUCompiler::processFiles(amd_comgr_data_kind_t OutputKind,
   }
 
   return AMD_COMGR_STATUS_SUCCESS;
-}
-
-void AMDGPUCompiler::parseOptions() {
-  if (!ActionInfo->Options)
-    return;
-  StringRef OptionsRef(ActionInfo->Options);
-  SmallVector<StringRef, 16> OptionRefs;
-  OptionsRef.split(OptionRefs, ' ');
-  for (auto &Option : OptionRefs)
-    Options.push_back(Option);
 }
 
 amd_comgr_status_t AMDGPUCompiler::addIncludeFlags() {
@@ -951,7 +953,7 @@ amd_comgr_status_t AMDGPUCompiler::linkToRelocatable() {
   if (auto Status = createTmpDirs())
     return Status;
 
-  for (auto &Option : Options)
+  for (auto &Option : ActionInfo->getOptions())
     Args.push_back(Option.c_str());
 
   SmallVector<SmallString<128>, 128> Inputs;
@@ -996,7 +998,7 @@ amd_comgr_status_t AMDGPUCompiler::linkToExecutable() {
     if (auto Status = addTargetIdentifierFlags(ActionInfo->IsaName))
       return Status;
 
-  for (auto &Option : Options)
+  for (auto &Option : ActionInfo->getOptions())
     Args.push_back(Option.c_str());
 
   SmallVector<SmallString<128>, 128> Inputs;
@@ -1038,9 +1040,11 @@ AMDGPUCompiler::AMDGPUCompiler(DataAction *ActionInfo, DataSet *InSet,
     : ActionInfo(ActionInfo), InSet(InSet), OutSetT(DataSet::convert(OutSet)),
       LogS(LogS) {
   initializeCommandLineArgs(Args);
-  parseOptions();
 }
 
-AMDGPUCompiler::~AMDGPUCompiler() { removeTmpDirs(); }
+AMDGPUCompiler::~AMDGPUCompiler() {
+  if (!env::shouldSaveTemps())
+    removeTmpDirs();
+}
 
 } // namespace COMGR

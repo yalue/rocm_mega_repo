@@ -1,4 +1,4 @@
-#!/bin/sh
+#!/bin/bash
 
 ################################################################################
 # Copyright (c) 2018 Advanced Micro Devices, Inc. All rights reserved.
@@ -26,24 +26,32 @@ time_stamp=`date +%y%m%d_%H%M%S`
 BIN_DIR=$(dirname $(realpath $0))
 PKG_DIR=$(dirname $BIN_DIR)
 ROOT_DIR=$(dirname $PKG_DIR)
+TT_DIR=$ROOT_DIR/roctracer
 RUN_DIR=`pwd`
 TMP_DIR="/tmp"
 DATA_DIR="rpl_data_${time_stamp}_$$"
 
-# PATH to custom HSA and OpenCl runtimes
-HSA_PATH=$PKG_DIR/lib/hsa
+RPL_PATH=$PKG_DIR/lib
+TLIB_PATH=$PKG_DIR/tool
+TTLIB_PATH=$TT_DIR/tool
 
-# roctracer path
-if [ -z "$ROCTRACER_PATH" ] ; then ROCTRACER_PATH=$ROOT_DIR/roctracer; fi
+# Default HIP path
+if [ -z "$HIP_PATH" ] ; then
+  export HIP_PATH=/opt/rocm/hip
+fi
+# Default HCC path
+if [ -z "$HCC_HOME" ] ; then
+  export HCC_HOME=/opt/rocm/hcc
+fi
 
 # runtime API trace
 HSA_TRACE=0
+SYS_TRACE=0
 HIP_TRACE=0
 
 # Generate stats
 GEN_STATS=0
 
-export LD_LIBRARY_PATH=$PKG_DIR/lib:$PKG_DIR/tool:$ROCTRACER_PATH/lib:$ROCTRACER_PATH/tool:$HSA_PATH
 export PATH=.:$PATH
 
 # enable error logging
@@ -54,9 +62,9 @@ unset ROCPROFILER_SESS
 
 # ROC Profiler environment
 # Loading of ROC Profiler by HSA runtime
-export HSA_TOOLS_LIB=librocprofiler64.so
+export HSA_TOOLS_LIB=$RPL_PATH/librocprofiler64.so
 # Loading of the test tool by ROC Profiler
-export ROCP_TOOL_LIB=libtool.so
+export ROCP_TOOL_LIB=$TLIB_PATH/libtool.so
 # Enabling HSA dispatches intercepting by ROC PRofiler
 export ROCP_HSA_INTERCEPT=1
 # Disabling internal ROC Profiler proxy queue (simple version supported for testing purposes)
@@ -73,6 +81,7 @@ fatal() {
   echo "$0: Error: $1"
   echo ""
   usage
+  exit 1
 }
 
 error() {
@@ -129,10 +138,11 @@ usage() {
   echo "        ></metric>"
   echo ""
   echo "  -o <output file> - output CSV file [<input file base>.csv]"
-  echo "  -d <data directory> - directory where profiler store profiling data including thread treaces [/tmp]"
+  echo "  -d <data directory> - directory where profiler store profiling data including traces [/tmp]"
   echo "      The data directory is renoving autonatically if the directory is matching the temporary one, which is the default."
   echo "  -t <temporary directory> - to change the temporary directory [/tmp]"
   echo "      By changing the temporary directory you can prevent removing the profiling data from /tmp or enable removing from not '/tmp' directory."
+  echo "  -m <metric file> - file defining custom metrics to use in-place of defaults."
   echo ""
   echo "  --basenames <on|off> - to turn on/off truncating of the kernel full function names till the base ones [off]"
   echo "  --timestamp <on|off> - to turn on/off the kernel disoatches timestamps, dispatch/begin/end/complete [off]"
@@ -142,6 +152,7 @@ usage() {
   echo ""
   echo "  --stats - generating kernel execution stats, file <output name>.stats.csv"
   echo "  --hsa-trace - to trace HSA, generates API execution stats and JSON file chrome-tracing compatible"
+  echo "  --sys-trace - to trace HIP/HSA APIs and GPU activity, generates stats and JSON trace chrome-tracing compatible"
   echo "  --hip-trace - to trace HIP, generates API execution stats and JSON file chrome-tracing compatible"
   echo "    Generated files: <output name>.hsa_stats.txt <output name>.json"
   echo "    Traced API list can be set by input .txt or .xml files."
@@ -198,12 +209,16 @@ run() {
       fi
     fi
     mkdir -p "$ROCP_OUTPUT_DIR"
+
+    OUTPUT_LIST="$OUTPUT_LIST $ROCP_OUTPUT_DIR/results.txt"
   fi
 
   API_TRACE=""
-  PRELOAD_LIBS=""
   if [ "$HSA_TRACE" = 1 ] ; then
     API_TRACE="hsa"
+  fi
+  if [ "$SYS_TRACE" = 1 ] ; then
+    API_TRACE="sys"
   fi
   if [ "$HIP_TRACE" = 1 ] ; then
     if [ -z "$API_TRACE" ] ; then
@@ -211,25 +226,37 @@ run() {
     else
       API_TRACE="all"
     fi
-    if [ -z "$HCC_HOME" ] ; then error "env var HCC_HOME is not defined"; fi
-    PRELOAD_LIBS="$PRELOAD_LIBS $HCC_HOME/lib/libmcwamp_hsa.so"
   fi
   if [ -n "$API_TRACE" ] ; then
     API_TRACE=$(echo $API_TRACE | sed 's/all//')
     if [ -n "$API_TRACE" ] ; then export ROCTRACER_DOMAIN=$API_TRACE; fi
-    export HSA_TOOLS_LIB="libtracer_tool.so libroctracer64.so $HSA_TOOLS_LIB"
-    PRELOAD_LIBS="$PRELOAD_LIBS $HSA_TOOLS_LIB"
+    if [ "$API_TRACE" = "hip" -o "$API_TRACE" = "sys" ] ; then
+      OUTPUT_LIST="$ROCP_OUTPUT_DIR/"
+    fi
+    export HSA_TOOLS_LIB="$TTLIB_PATH/libtracer_tool.so"
   fi
 
   redirection_cmd=""
   if [ -n "$ROCP_OUTPUT_DIR" ] ; then
-    OUTPUT_LIST="$OUTPUT_LIST $ROCP_OUTPUT_DIR/results.txt"
     redirection_cmd="2>&1 | tee $ROCP_OUTPUT_DIR/log.txt"
   fi
 
   #unset ROCP_OUTPUT_DIR
-  CMD_LINE="LD_PRELOAD='$PRELOAD_LIBS' $APP_CMD $redirection_cmd"
+  CMD_LINE="$APP_CMD $redirection_cmd"
   eval "$CMD_LINE"
+}
+
+merge_output() {
+  output_dir=$(echo "$1" | sed "s/\/[^\/]*$//")
+  for file_name in `ls $output_dir` ; do
+    output_name=$(echo $file_name | sed -n "/\.txt$/ s/^[0-9]*_//p")
+    if [ -n "$output_name" ] ; then
+      trace_file=$output_dir/$file_name
+      output_file=$output_dir/$output_name
+      touch $output_file
+      cat $trace_file >> $output_file
+    fi
+  done
 }
 
 # main
@@ -262,6 +289,9 @@ while [ 1 ] ; do
     if [ "$OUTPUT_DIR" = "-" ] ; then
       DATA_PATH=$TMP_DIR
     fi
+  elif [ "$1" = "-m" ] ; then
+    unset ROCP_METRICS
+    export ROCP_METRICS="$2"
   elif [ "$1" = "--list-basic" ] ; then
     export ROCP_INFO=b
     eval "$PKG_DIR/tool/ctrl"
@@ -301,6 +331,11 @@ while [ 1 ] ; do
     export ROCP_TIMESTAMP_ON=1
     GEN_STATS=1
     HSA_TRACE=1
+  elif [ "$1" = "--sys-trace" ] ; then
+    ARG_VAL=0
+    export ROCP_TIMESTAMP_ON=1
+    GEN_STATS=1
+    SYS_TRACE=1
   elif [ "$1" = "--hip-trace" ] ; then
     ARG_VAL=0
     export ROCP_TIMESTAMP_ON=1
@@ -347,7 +382,14 @@ else
   csv_output=$RUN_DIR/${input_base}.csv
 fi
 
-APP_CMD=$*
+APP_CMD=""
+for i in `seq 1 $#`; do
+  if [ -n "$APP_CMD" ] ; then
+    APP_CMD=$APP_CMD" "
+  fi
+  eval "arg=\${$i}"
+  APP_CMD=$APP_CMD\"$arg\"
+done
 
 echo "RPL: profiling '$APP_CMD'"
 echo "RPL: input file '$INPUT_FILE'"
@@ -379,11 +421,13 @@ if [ -n "$csv_output" ] ; then
   rm -f $csv_output
 fi
 
+RET=0
 for name in $input_list; do
   run $name $OUTPUT_DIR $APP_CMD
   if [ -n "$ROCPROFILER_SESS" -a -e "$ROCPROFILER_SESS/error" ] ; then
     echo "Error found, profiling aborted."
     csv_output=""
+    RET=1
     break
   fi
 done
@@ -391,6 +435,7 @@ done
 if [ -n "$csv_output" ] ; then
   if [ "$GEN_STATS" = "1" ] ; then
     db_output=$(echo $csv_output | sed "s/\.csv/.db/")
+    merge_output $OUTPUT_LIST
     python $BIN_DIR/tblextr.py $db_output $OUTPUT_LIST
   else
     python $BIN_DIR/tblextr.py $csv_output $OUTPUT_LIST
@@ -408,4 +453,4 @@ if [ "$DATA_PATH" = "$TMP_DIR" ] ; then
   fi
 fi
 
-exit 0
+exit $RET

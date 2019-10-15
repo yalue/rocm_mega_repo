@@ -1,27 +1,28 @@
 /* ************************************************************************
- * Copyright 2016 Advanced Micro Devices, Inc.
+ * Copyright 2016-2019 Advanced Micro Devices, Inc.
  *
  * ************************************************************************ */
 
-#include <cstdlib>
-#include <cstdio>
 #include "rocblas.hpp"
-#include "utility.hpp"
 #include "rocblas_init.hpp"
+#include "utility.hpp"
+#include <cstdio>
+#include <cstdlib>
+#include <hip/hip_runtime.h>
 
 /* ============================================================================================ */
 
 int main()
 {
 
-    rocblas_int N         = 10240;
+    rocblas_int    N      = 10240;
     rocblas_status status = rocblas_status_success;
-    float alpha           = 10.0;
+    float          alpha  = 10.0;
 
     // Naming: dX is in GPU (device) memory. hK is in CPU (host) memory, plz follow this practice
     std::vector<float> hx(N);
     std::vector<float> hz(N);
-    float* dx;
+    float*             dx;
 
     double gpu_time_used;
 

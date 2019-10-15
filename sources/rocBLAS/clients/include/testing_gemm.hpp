@@ -1,20 +1,19 @@
 /* ************************************************************************
- * Copyright 2018 Advanced Micro Devices, Inc.
+ * Copyright 2018-2019 Advanced Micro Devices, Inc.
  * ************************************************************************ */
-
-#include "rocblas_test.hpp"
+#include "cblas_interface.hpp"
+#include "flops.hpp"
+#include "near.hpp"
+#include "norm.hpp"
+#include "rocblas.hpp"
+#include "rocblas_datatype2string.hpp"
+#include "rocblas_init.hpp"
 #include "rocblas_math.hpp"
 #include "rocblas_random.hpp"
+#include "rocblas_test.hpp"
 #include "rocblas_vector.hpp"
-#include "rocblas_init.hpp"
-#include "rocblas_datatype2string.hpp"
-#include "utility.hpp"
-#include "rocblas.hpp"
-#include "cblas_interface.hpp"
-#include "norm.hpp"
 #include "unit.hpp"
-#include "near.hpp"
-#include "flops.hpp"
+#include "utility.hpp"
 
 template <typename T>
 void testing_gemm_bad_arg(const Arguments& arg)
@@ -95,7 +94,7 @@ void testing_gemm(const Arguments& arg)
     if(std::is_same<T, rocblas_half>{})
     {
         h_alpha = float_to_half(arg.alpha);
-        h_beta  = rocblas_isnan(arg.beta) ? 0 : float_to_half(arg.beta);
+        h_beta  = float_to_half(rocblas_isnan(arg.beta) ? 0 : arg.beta);
     }
     else
     {
@@ -103,9 +102,9 @@ void testing_gemm(const Arguments& arg)
         h_beta  = rocblas_isnan(arg.beta) ? 0 : arg.beta;
     }
 
-    double gpu_time_used, cpu_time_used;
-    double rocblas_gflops, cblas_gflops;
-    double rocblas_error = 0.0;
+    double               gpu_time_used, cpu_time_used;
+    double               rocblas_gflops, cblas_gflops;
+    double               rocblas_error = 0.0;
     rocblas_local_handle handle;
 
     rocblas_int A_row = transA == rocblas_operation_none ? M : K;
@@ -135,9 +134,9 @@ void testing_gemm(const Arguments& arg)
         return;
     }
 
-    const auto size_A = static_cast<size_t>(lda) * static_cast<size_t>(A_col);
-    const auto size_B = static_cast<size_t>(ldb) * static_cast<size_t>(B_col);
-    const auto size_C = static_cast<size_t>(ldc) * static_cast<size_t>(N);
+    const auto size_A = size_t(lda) * size_t(A_col);
+    const auto size_B = size_t(ldb) * size_t(B_col);
+    const auto size_C = size_t(ldc) * size_t(N);
 
     // allocate memory on device
     device_vector<T> dA(size_A);
@@ -247,8 +246,8 @@ void testing_gemm(const Arguments& arg)
 
         if(arg.norm_check)
         {
-            auto err1     = fabs(norm_check_general<T>('F', M, N, ldc, hC_gold, hC_1));
-            auto err2     = fabs(norm_check_general<T>('F', M, N, ldc, hC_gold, hC_2));
+            auto err1     = std::abs(norm_check_general<T>('F', M, N, ldc, hC_gold, hC_1));
+            auto err2     = std::abs(norm_check_general<T>('F', M, N, ldc, hC_gold, hC_2));
             rocblas_error = err1 > err2 ? err1 : err2;
         }
     }

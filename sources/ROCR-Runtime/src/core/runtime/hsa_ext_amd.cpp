@@ -255,10 +255,12 @@ hsa_status_t hsa_amd_memory_async_copy(void* dst, hsa_agent_t dst_agent_handle, 
   core::Signal* out_signal_obj = core::Signal::Convert(completion_signal);
   IS_VALID(out_signal_obj);
 
+  bool rev_copy_dir = core::Runtime::runtime_singleton_->flag().rev_copy_dir();
   if (size > 0) {
     return core::Runtime::runtime_singleton_->CopyMemory(
-        dst, *dst_agent, src, *src_agent, size, dep_signal_list,
-        *out_signal_obj);
+        dst, (rev_copy_dir ? *src_agent  : *dst_agent),
+        src, (rev_copy_dir ? *dst_agent  : *src_agent),
+        size, dep_signal_list, *out_signal_obj);
   }
 
   return HSA_STATUS_SUCCESS;
@@ -380,18 +382,8 @@ hsa_status_t hsa_amd_profiling_get_async_copy_time(
 
   core::Agent* agent = signal->async_copy_agent();
 
-  if (agent == NULL) {
+  if (agent == nullptr) {
     return HSA_STATUS_ERROR;
-  }
-
-  // Validate the embedded agent pointer if the signal is IPC.
-  if (signal->isIPC()) {
-    for (auto it : core::Runtime::runtime_singleton_->gpu_agents()) {
-      if (it == agent) break;
-    }
-    // If the agent isn't a GPU then it is from a different process or it's a CPU.
-    // Assume it's a CPU and illegal uses will generate garbage data same as kernel completion.
-    agent = core::Runtime::runtime_singleton_->cpu_agents()[0];
   }
 
   if (agent->device_type() == core::Agent::DeviceType::kAmdGpuDevice) {
@@ -958,6 +950,31 @@ hsa_status_t HSA_API hsa_amd_queue_set_priority(hsa_queue_t* queue,
   }
 
   return cmd_queue->SetPriority(priority_it->second);
+  CATCH;
+}
+
+hsa_status_t hsa_amd_register_deallocation_callback(void* ptr,
+                                                    hsa_amd_deallocation_callback_t callback,
+                                                    void* user_data) {
+  TRY;
+  IS_OPEN();
+  IS_BAD_PTR(ptr);
+  IS_BAD_PTR(callback);
+
+  return core::Runtime::runtime_singleton_->RegisterReleaseNotifier(ptr, callback, user_data);
+
+  CATCH;
+}
+
+hsa_status_t hsa_amd_deregister_deallocation_callback(void* ptr,
+                                                      hsa_amd_deallocation_callback_t callback) {
+  TRY;
+  IS_OPEN();
+  IS_BAD_PTR(ptr);
+  IS_BAD_PTR(callback);
+
+  return core::Runtime::runtime_singleton_->DeregisterReleaseNotifier(ptr, callback);
+
   CATCH;
 }
 

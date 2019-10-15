@@ -22,21 +22,34 @@
 # THE SOFTWARE.
 ################################################################################
 
+# test filter input
+test_filter=-1
+if [ -n "$1" ] ; then
+  test_filter=$1
+fi
+
 # test check routin
 test_status=0
+test_runnum=0
 test_number=0
+xeval_test() {
+  test_number=$test_number
+}
 eval_test() {
   label=$1
   cmdline=$2
-  echo "$label: \"$cmdline\""
-  eval "$cmdline"
-  if [ $? != 0 ] ; then
-    echo "$label: FAILED"
-    test_status=$(($test_status + 1))
-  else
-    echo "$label: PASSED"
+  if [ $test_filter = -1  -o $test_filter = $test_number ] ; then
+    echo "$label: \"$cmdline\""
+    test_runnum=$((test_runnum + 1))
+    eval "$cmdline"
+    if [ $? != 0 ] ; then
+      echo "$label: FAILED"
+      test_status=$(($test_status + 1))
+    else
+      echo "$label: PASSED"
+    fi
   fi
-  test_number=$(($test_number + 1))
+  test_number=$((test_number + 1))
 }
 
 # enable tools load failure reporting
@@ -111,5 +124,5 @@ eval_test "libtool test, counter sets" ./test/ctrl
 #valgrind --tool=massif $tbin
 #ms_print massif.out.<N>
 
-echo "$test_number tests total / $test_status tests failed"
+echo "$test_number tests total / $test_runnum tests run / $test_status tests failed"
 exit $test_status

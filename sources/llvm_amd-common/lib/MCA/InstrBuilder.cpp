@@ -65,11 +65,22 @@ static void initializeUsedResources(InstrDesc &ID,
   for (unsigned I = 0, E = SCDesc.NumWriteProcResEntries; I < E; ++I) {
     const MCWriteProcResEntry *PRE = STI.getWriteProcResBegin(&SCDesc) + I;
     const MCProcResourceDesc &PR = *SM.getProcResource(PRE->ProcResourceIdx);
+    if (!PRE->Cycles) {
+#ifndef NDEBUG
+      WithColor::warning()
+          << "Ignoring invalid write of zero cycles on processor resource "
+          << PR.Name << "\n";
+      WithColor::note() << "found in scheduling class " << SCDesc.Name
+                        << " (write index #" << I << ")\n";
+#endif
+      continue;
+    }
+
     uint64_t Mask = ProcResourceMasks[PRE->ProcResourceIdx];
     if (PR.BufferSize < 0) {
       AllInOrderResources = false;
     } else {
-      Buffers.setBit(PRE->ProcResourceIdx);
+      Buffers.setBit(getResourceStateIndex(Mask));
       AnyDispatchHazards |= (PR.BufferSize == 0);
       AllInOrderResources &= (PR.BufferSize <= 1);
     }
@@ -128,9 +139,6 @@ static void initializeUsedResources(InstrDesc &ID,
     }
   }
 
-  ID.UsedProcResUnits = UsedResourceUnits;
-  ID.UsedProcResGroups = UsedResourceGroups;
-
   // A SchedWrite may specify a number of cycles in which a resource group
   // is reserved. For example (on target x86; cpu Haswell):
   //
@@ -166,20 +174,13 @@ static void initializeUsedResources(InstrDesc &ID,
 
       uint64_t Mask = ProcResourceMasks[I];
       if (Mask != SR.first && ((Mask & SR.first) == SR.first))
-        Buffers.setBit(I);
+        Buffers.setBit(getResourceStateIndex(Mask));
     }
   }
 
-  // Now set the buffers.
-  if (unsigned NumBuffers = Buffers.countPopulation()) {
-    ID.Buffers.resize(NumBuffers);
-    for (unsigned I = 0, E = NumProcResources; I < E && NumBuffers; ++I) {
-      if (Buffers[I]) {
-        --NumBuffers;
-        ID.Buffers[NumBuffers] = ProcResourceMasks[I];
-      }
-    }
-  }
+  ID.UsedBuffers = Buffers.getZExtValue();
+  ID.UsedProcResUnits = UsedResourceUnits;
+  ID.UsedProcResGroups = UsedResourceGroups;
 
   LLVM_DEBUG({
     for (const std::pair<uint64_t, ResourceUsage> &R : ID.Resources)
@@ -187,10 +188,15 @@ static void initializeUsedResources(InstrDesc &ID,
              << "Reserved=" << R.second.isReserved() << ", "
              << "#Units=" << R.second.NumUnits << ", "
              << "cy=" << R.second.size() << '\n';
-    for (const uint64_t R : ID.Buffers)
-      dbgs() << "\t\tBuffer Mask=" << format_hex(R, 16) << '\n';
-    dbgs()   << "\t\t Used Units=" << format_hex(ID.UsedProcResUnits, 16) << '\n';
-    dbgs()   << "\t\tUsed Groups=" << format_hex(ID.UsedProcResGroups, 16) << '\n';
+    uint64_t BufferIDs = ID.UsedBuffers;
+    while (BufferIDs) {
+      uint64_t Current = BufferIDs & (-BufferIDs);
+      dbgs() << "\t\tBuffer Mask=" << format_hex(Current, 16) << '\n';
+      BufferIDs ^= Current;
+    }
+    dbgs() << "\t\t Used Units=" << format_hex(ID.UsedProcResUnits, 16) << '\n';
+    dbgs() << "\t\tUsed Groups=" << format_hex(ID.UsedProcResGroups, 16)
+           << '\n';
   });
 }
 
@@ -481,7 +487,7 @@ Error InstrBuilder::verifyInstrDesc(const InstrDesc &ID,
     return ErrorSuccess();
 
   bool UsesMemory = ID.MayLoad || ID.MayStore;
-  bool UsesBuffers = !ID.Buffers.empty();
+  bool UsesBuffers = ID.UsedBuffers;
   bool UsesResources = !ID.Resources.empty();
   if (!UsesMemory && !UsesBuffers && !UsesResources)
     return ErrorSuccess();
@@ -580,7 +586,6 @@ InstrBuilder::createInstrDescImpl(const MCInst &MCI) {
     return std::move(Err);
 
   // Now add the new descriptor.
-  SchedClassID = MCDesc.getSchedClass();
   bool IsVariadic = MCDesc.isVariadic();
   if (!IsVariadic && !IsVariant) {
     Descriptors[MCI.getOpcode()] = std::move(ID);

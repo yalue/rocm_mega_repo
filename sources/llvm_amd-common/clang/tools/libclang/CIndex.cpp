@@ -45,7 +45,6 @@
 #include "llvm/Support/Format.h"
 #include "llvm/Support/ManagedStatic.h"
 #include "llvm/Support/MemoryBuffer.h"
-#include "llvm/Support/Mutex.h"
 #include "llvm/Support/Program.h"
 #include "llvm/Support/SaveAndRestore.h"
 #include "llvm/Support/Signals.h"
@@ -53,6 +52,7 @@
 #include "llvm/Support/Threading.h"
 #include "llvm/Support/Timer.h"
 #include "llvm/Support/raw_ostream.h"
+#include <mutex>
 
 #if LLVM_ENABLE_THREADS != 0 && defined(__APPLE__)
 #define USE_DARWIN_THREADS
@@ -1527,6 +1527,9 @@ bool CursorVisitor::VisitBuiltinTypeLoc(BuiltinTypeLoc TL) {
   case BuiltinType::OCLClkEvent:
   case BuiltinType::OCLQueue:
   case BuiltinType::OCLReserveID:
+#define SVE_TYPE(Name, Id, SingletonId) \
+  case BuiltinType::Id:
+#include "clang/Basic/AArch64SVEACLETypes.def"
 #define BUILTIN_TYPE(Id, SingletonId)
 #define SIGNED_TYPE(Id, SingletonId) case BuiltinType::Id:
 #define UNSIGNED_TYPE(Id, SingletonId) case BuiltinType::Id:
@@ -3134,18 +3137,22 @@ bool CursorVisitor::RunVisitorWorkList(VisitorWorkList &WL) {
       }
         
       case VisitorJob::LambdaExprPartsKind: {
-        // Visit captures.
+        // Visit non-init captures.
         const LambdaExpr *E = cast<LambdaExprParts>(&LI)->get();
         for (LambdaExpr::capture_iterator C = E->explicit_capture_begin(),
                                        CEnd = E->explicit_capture_end();
              C != CEnd; ++C) {
-          // FIXME: Lambda init-captures.
           if (!C->capturesVariable())
             continue;
 
           if (Visit(MakeCursorVariableRef(C->getCapturedVar(),
                                           C->getLocation(),
                                           TU)))
+            return true;
+        }
+        // Visit init captures
+        for (auto InitExpr : E->capture_inits()) {
+          if (Visit(InitExpr))
             return true;
         }
         
@@ -3352,7 +3359,7 @@ enum CXErrorCode clang_createTranslationUnit2(CXIndex CIdx,
       ASTUnit::LoadEverything, Diags,
       FileSystemOpts, /*UseDebugInfo=*/false,
       CXXIdx->getOnlyLocalDecls(), None,
-      /*CaptureDiagnostics=*/true,
+      CaptureDiagsKind::All,
       /*AllowPCHWithCompilerErrors=*/true,
       /*UserFilesAreVolatile=*/true);
   *out_TU = MakeCXTranslationUnit(CXXIdx, std::move(AU));
@@ -3424,6 +3431,10 @@ clang_parseTranslationUnit_Impl(CXIndex CIdx, const char *source_filename,
 
   if (options & CXTranslationUnit_KeepGoing)
     Diags->setFatalsAsError(true);
+
+  CaptureDiagsKind CaptureDiagnostics = CaptureDiagsKind::All;
+  if (options & CXTranslationUnit_IgnoreNonErrorsFromIncludedFiles)
+    CaptureDiagnostics = CaptureDiagsKind::AllWithoutNonErrorsFromIncludes;
 
   // Recover resources if we crash before exiting this function.
   llvm::CrashRecoveryContextCleanupRegistrar<DiagnosticsEngine,
@@ -3502,7 +3513,7 @@ clang_parseTranslationUnit_Impl(CXIndex CIdx, const char *source_filename,
       Args->data(), Args->data() + Args->size(),
       CXXIdx->getPCHContainerOperations(), Diags,
       CXXIdx->getClangResourcesPath(), CXXIdx->getOnlyLocalDecls(),
-      /*CaptureDiagnostics=*/true, *RemappedFiles.get(),
+      CaptureDiagnostics, *RemappedFiles.get(),
       /*RemappedFilesKeepOriginalName=*/true, PrecompilePreambleAfterNParses,
       TUKind, CacheCodeCompletionResults, IncludeBriefCommentsInCodeCompletion,
       /*AllowPCHWithCompilerErrors=*/true, SkipFunctionBodies, SingleFileParse,
@@ -3774,6 +3785,8 @@ static const ExprEvalResult* evaluateExpr(Expr *expr, CXCursor C) {
     return nullptr;
 
   expr = expr->IgnoreParens();
+  if (expr->isValueDependent())
+    return nullptr;
   if (!expr->EvaluateAsRValue(ER, ctx))
     return nullptr;
 
@@ -4222,7 +4235,10 @@ CXFile clang_getFile(CXTranslationUnit TU, const char *file_name) {
   ASTUnit *CXXUnit = cxtu::getASTUnit(TU);
 
   FileManager &FMgr = CXXUnit->getFileManager();
-  return const_cast<FileEntry *>(FMgr.getFile(file_name));
+  auto File = FMgr.getFile(file_name);
+  if (!File)
+    return nullptr;
+  return const_cast<FileEntry *>(*File);
 }
 
 const char *clang_getFileContents(CXTranslationUnit TU, CXFile file,
@@ -5186,6 +5202,8 @@ CXString clang_getCursorKindSpelling(enum CXCursorKind Kind) {
       return cxstring::createRef("CallExpr");
   case CXCursor_ObjCMessageExpr:
       return cxstring::createRef("ObjCMessageExpr");
+  case CXCursor_BuiltinBitCastExpr:
+    return cxstring::createRef("BuiltinBitCastExpr");
   case CXCursor_UnexposedStmt:
       return cxstring::createRef("UnexposedStmt");
   case CXCursor_DeclStmt:
@@ -6259,6 +6277,7 @@ CXCursor clang_getCursorDefinition(CXCursor C) {
   case Decl::PragmaComment:
   case Decl::PragmaDetectMismatch:
   case Decl::UsingPack:
+  case Decl::Concept:
     return C;
 
   // Declaration kinds that don't make any sense here, but are
@@ -8927,10 +8946,10 @@ Logger &cxindex::Logger::operator<<(const llvm::format_object_base &Fmt) {
   return *this;
 }
 
-static llvm::ManagedStatic<llvm::sys::Mutex> LoggingMutex;
+static llvm::ManagedStatic<std::mutex> LoggingMutex;
 
 cxindex::Logger::~Logger() {
-  llvm::sys::ScopedLock L(*LoggingMutex);
+  std::lock_guard<std::mutex> L(*LoggingMutex);
 
   static llvm::TimeRecord sBeginTR = llvm::TimeRecord::getCurrentTime();
 

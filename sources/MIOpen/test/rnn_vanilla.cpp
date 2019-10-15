@@ -30,7 +30,6 @@
 #include "test.hpp"
 #include "verify.hpp"
 #include "rnn_util.hpp"
-#include "gemm.hpp"
 #include <array>
 #include <cmath>
 #include <ctime>
@@ -2225,13 +2224,10 @@ struct rnn_vanilla_driver : test_driver
 
     rnn_vanilla_driver()
     {
-        // this->tolerance = 1024;
-        // this->batch_factor = 4;
         std::vector<int> modes(2, 0);
         modes[1] = 1;
         std::vector<int> defaultBS(1);
 
-        // this->verbose=true;
         add(batchSize, "batch-size", generate_data(get_rnn_batchSize(), {5}));
         add(seqLength, "seq-len", generate_data(get_rnn_seq_len(), {1}));
         add(inVecLen, "vector-len", generate_data(get_rnn_vector_len()));

@@ -507,6 +507,11 @@ struct Info : public amd::EmbeddedObject {
 
   //! Max numbers of threads per CU
   cl_uint maxThreadsPerCU_;
+
+  //! GPU device supports a launch of cooperative groups
+  cl_bool cooperativeGroups_;
+  //! GPU device supports a launch of cooperative groups on multiple devices
+  cl_bool cooperativeMultiDeviceGroups_;
 };
 
 //! Device settings
@@ -528,8 +533,13 @@ class Settings : public amd::HeapObject {
       uint singleFpDenorm_ : 1;       //!< Support Single FP Denorm
       uint hsailExplicitXnack_ : 1;   //!< Xnack in hsail path for this deivce
       uint useLightning_ : 1;         //!< Enable LC path for this device
+      uint enableWgpMode_ : 1;        //!< Enable WGP mode for this device
+      uint enableWave32Mode_ : 1;     //!< Enable Wave32 mode for this device
+      uint lcWavefrontSize64_ : 1;    //!< Enable Wave64 mode for this device
       uint enableXNACK_ : 1;          //!< Enable XNACK feature
-      uint reserved_ : 17;
+      uint enableCoopGroups_ : 1;     //!< Enable cooperative groups feature
+      uint enableCoopMultiDeviceGroups_ : 1; //!< Enable cooperative groups multi device
+      uint reserved_ : 12;
     };
     uint value_;
   };
@@ -1042,7 +1052,11 @@ class ThreadTrace : public amd::HeapObject {
 class VirtualDevice : public amd::HeapObject {
  public:
   //! Construct a new virtual device for the given physical device.
-  VirtualDevice(amd::Device& device) : device_(device), blitMgr_(NULL) {}
+  VirtualDevice(amd::Device& device)
+    : device_(device)
+    , blitMgr_(NULL)
+    , execution_("Virtual device execution lock", true)
+    , index_(0) {}
 
   //! Destroy this virtual device.
   virtual ~VirtualDevice() {}
@@ -1085,6 +1099,12 @@ class VirtualDevice : public amd::HeapObject {
   //! Get the blit manager object
   device::BlitManager& blitMgr() const { return *blitMgr_; }
 
+  //! Returns the monitor object for execution access by VirtualGPU
+  amd::Monitor& execution() { return execution_; }
+
+  //! Returns the virtual device unique index
+  uint index() const { return index_; }
+
  private:
   //! Disable default copy constructor
   VirtualDevice& operator=(const VirtualDevice&);
@@ -1097,6 +1117,9 @@ class VirtualDevice : public amd::HeapObject {
 
  protected:
   device::BlitManager* blitMgr_;  //!< Blit manager
+
+  amd::Monitor execution_;  //!< Lock to serialise access to all device objects
+  uint index_;              //!< The virtual device unique index
 };
 
 }  // namespace device
@@ -1215,7 +1238,7 @@ class Device : public RuntimeObject {
   virtual device::VirtualDevice* createVirtualDevice(CommandQueue* queue = NULL) = 0;
 
   //! Create a program for device.
-  virtual device::Program* createProgram(option::Options* options = NULL) = 0;
+  virtual device::Program* createProgram(amd::Program& owner, option::Options* options = NULL) = 0;
 
   //! Allocate a chunk of device memory as a cache for a CL memory object
   virtual device::Memory* createMemory(Memory& owner) const = 0;
@@ -1283,7 +1306,9 @@ class Device : public RuntimeObject {
   virtual void svmFree(void* ptr) const = 0;
 
   //! Validate kernel
-  virtual bool validateKernel(const amd::Kernel& kernel, const device::VirtualDevice* vdev) {
+  virtual bool validateKernel(const amd::Kernel& kernel,
+                              const device::VirtualDevice* vdev,
+                              bool coop_groups = false) {
     return true;
   };
 
@@ -1365,6 +1390,9 @@ class Device : public RuntimeObject {
   //! Returns the list of devices that can have access to the current
   const std::vector<Device*>& P2PAccessDevices() const { return p2p_access_devices_; }
 
+  //! Returns index of current device
+  uint32_t index() const { return index_; }
+
  protected:
   //! Enable the specified extension
   char* getExtensionString();
@@ -1395,6 +1423,7 @@ class Device : public RuntimeObject {
 
   Monitor* vaCacheAccess_;                            //!< Lock to serialize VA caching access
   std::map<uintptr_t, device::Memory*>* vaCacheMap_;  //!< VA cache map
+  uint32_t index_;  //!< Unique device index
 };
 
 #if defined(WITH_LIGHTNING_COMPILER) && !defined(USE_COMGR_LIBRARY)

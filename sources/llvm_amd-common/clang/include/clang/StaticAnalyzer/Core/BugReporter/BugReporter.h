@@ -87,6 +87,7 @@ public:
   using ranges_iterator = const SourceRange *;
   using VisitorList = SmallVector<std::unique_ptr<BugReporterVisitor>, 8>;
   using visitor_iterator = VisitorList::iterator;
+  using visitor_range = llvm::iterator_range<visitor_iterator>;
   using ExtraTextList = SmallVector<StringRef, 2>;
   using NoteList = SmallVector<std::shared_ptr<PathDiagnosticNotePiece>, 4>;
 
@@ -104,25 +105,23 @@ protected:
 
   const ExplodedNode *ErrorNode = nullptr;
   SmallVector<SourceRange, 4> Ranges;
+  const SourceRange ErrorNodeRange;
   ExtraTextList ExtraText;
   NoteList Notes;
-
-  using Symbols = llvm::DenseSet<SymbolRef>;
-  using Regions = llvm::DenseSet<const MemRegion *>;
 
   /// A (stack of) a set of symbols that are registered with this
   /// report as being "interesting", and thus used to help decide which
   /// diagnostics to include when constructing the final path diagnostic.
   /// The stack is largely used by BugReporter when generating PathDiagnostics
   /// for multiple PathDiagnosticConsumers.
-  SmallVector<Symbols *, 2> interestingSymbols;
+  llvm::DenseSet<SymbolRef> InterestingSymbols;
 
   /// A (stack of) set of regions that are registered with this report as being
   /// "interesting", and thus used to help decide which diagnostics
   /// to include when constructing the final path diagnostic.
   /// The stack is largely used by BugReporter when generating PathDiagnostics
   /// for multiple PathDiagnosticConsumers.
-  SmallVector<Regions *, 2> interestingRegions;
+  llvm::DenseSet<const MemRegion *> InterestingRegions;
 
   /// A set of location contexts that correspoind to call sites which should be
   /// considered "interesting".
@@ -153,26 +152,26 @@ protected:
   /// \sa removeInvalidation
   llvm::SmallSet<InvalidationRecord, 4> Invalidations;
 
-private:
-  // Used internally by BugReporter.
-  Symbols &getInterestingSymbols();
-  Regions &getInterestingRegions();
-
-  void lazyInitializeInterestingSets();
-  void pushInterestingSymbolsAndRegions();
-  void popInterestingSymbolsAndRegions();
+  /// Conditions we're already tracking.
+  llvm::SmallSet<const ExplodedNode *, 4> TrackedConditions;
 
 public:
-  BugReport(const BugType& bt, StringRef desc, const ExplodedNode *errornode)
-      : BT(bt), Description(desc), ErrorNode(errornode) {}
+  BugReport(const BugType &bt, StringRef desc, const ExplodedNode *errornode)
+      : BT(bt), Description(desc), ErrorNode(errornode),
+        ErrorNodeRange(getStmt() ? getStmt()->getSourceRange()
+                                 : SourceRange()) {}
 
-  BugReport(const BugType& bt, StringRef shortDesc, StringRef desc,
+  BugReport(const BugType &bt, StringRef shortDesc, StringRef desc,
             const ExplodedNode *errornode)
       : BT(bt), ShortDescription(shortDesc), Description(desc),
-        ErrorNode(errornode) {}
+        ErrorNode(errornode),
+        ErrorNodeRange(getStmt() ? getStmt()->getSourceRange()
+                                 : SourceRange()) {}
 
   BugReport(const BugType &bt, StringRef desc, PathDiagnosticLocation l)
-      : BT(bt), Description(desc), Location(l) {}
+      : BT(bt), Description(desc), Location(l),
+        ErrorNodeRange(getStmt() ? getStmt()->getSourceRange()
+                                 : SourceRange()) {}
 
   /// Create a BugReport with a custom uniqueing location.
   ///
@@ -181,12 +180,14 @@ public:
   /// to the user. This method allows to rest the location which should be used
   /// for uniquing reports. For example, memory leaks checker, could set this to
   /// the allocation site, rather then the location where the bug is reported.
-  BugReport(BugType& bt, StringRef desc, const ExplodedNode *errornode,
+  BugReport(BugType &bt, StringRef desc, const ExplodedNode *errornode,
             PathDiagnosticLocation LocationToUnique, const Decl *DeclToUnique)
       : BT(bt), Description(desc), UniqueingLocation(LocationToUnique),
-        UniqueingDecl(DeclToUnique), ErrorNode(errornode) {}
+        UniqueingDecl(DeclToUnique), ErrorNode(errornode),
+        ErrorNodeRange(getStmt() ? getStmt()->getSourceRange()
+                                 : SourceRange()) {}
 
-  virtual ~BugReport();
+  virtual ~BugReport() = default;
 
   const BugType& getBugType() const { return BT; }
   //BugType& getBugType() { return BT; }
@@ -225,10 +226,10 @@ public:
   void markInteresting(SVal V);
   void markInteresting(const LocationContext *LC);
 
-  bool isInteresting(SymbolRef sym);
-  bool isInteresting(const MemRegion *R);
-  bool isInteresting(SVal V);
-  bool isInteresting(const LocationContext *LC);
+  bool isInteresting(SymbolRef sym) const;
+  bool isInteresting(const MemRegion *R) const;
+  bool isInteresting(SVal V) const;
+  bool isInteresting(const LocationContext *LC) const;
 
   /// Returns whether or not this report should be considered valid.
   ///
@@ -331,7 +332,7 @@ public:
   }
 
   /// Get the SourceRanges associated with the report.
-  virtual llvm::iterator_range<ranges_iterator> getRanges();
+  virtual llvm::iterator_range<ranges_iterator> getRanges() const;
 
   /// Add custom or predefined bug report visitors to this report.
   ///
@@ -348,6 +349,14 @@ public:
   /// Iterators through the custom diagnostic visitors.
   visitor_iterator visitor_begin() { return Callbacks.begin(); }
   visitor_iterator visitor_end() { return Callbacks.end(); }
+  visitor_range visitors() { return {visitor_begin(), visitor_end()}; }
+
+  /// Notes that the condition of the CFGBlock associated with \p Cond is
+  /// being tracked.
+  /// \returns false if the condition is already being tracked.
+  bool addTrackedCondition(const ExplodedNode *Cond) {
+    return TrackedConditions.insert(Cond).second;
+  }
 
   /// Profile to identify equivalent bug reports for error report coalescing.
   /// Reports are uniqued to ensure that we do not emit multiple diagnostics
@@ -371,7 +380,6 @@ class BugReportEquivClass : public llvm::FoldingSetNode {
 
 public:
   BugReportEquivClass(std::unique_ptr<BugReport> R) { AddReport(std::move(R)); }
-  ~BugReportEquivClass();
 
   void Profile(llvm::FoldingSetNodeID& ID) const {
     assert(!Reports.empty());
@@ -394,7 +402,7 @@ public:
 
 class BugReporterData {
 public:
-  virtual ~BugReporterData();
+  virtual ~BugReporterData() = default;
 
   virtual DiagnosticsEngine& getDiagnostic() = 0;
   virtual ArrayRef<PathDiagnosticConsumer*> getPathDiagnosticConsumers() = 0;
@@ -470,9 +478,9 @@ public:
 
   ASTContext &getContext() { return D.getASTContext(); }
 
-  SourceManager &getSourceManager() { return D.getSourceManager(); }
+  const SourceManager &getSourceManager() { return D.getSourceManager(); }
 
-  AnalyzerOptions &getAnalyzerOptions() { return D.getAnalyzerOptions(); }
+  const AnalyzerOptions &getAnalyzerOptions() { return D.getAnalyzerOptions(); }
 
   virtual std::unique_ptr<DiagnosticForConsumerMapTy>
   generatePathDiagnostics(ArrayRef<PathDiagnosticConsumer *> consumers,
@@ -516,15 +524,17 @@ public:
   GRBugReporter(BugReporterData& d, ExprEngine& eng)
       : BugReporter(d, GRBugReporterKind), Eng(eng) {}
 
-  ~GRBugReporter() override;
+  ~GRBugReporter() override = default;
 
   /// getGraph - Get the exploded graph created by the analysis engine
   ///  for the analyzed method or function.
-  ExplodedGraph &getGraph();
+  const ExplodedGraph &getGraph() const;
 
   /// getStateManager - Return the state manager used by the analysis
   ///  engine.
   ProgramStateManager &getStateManager();
+
+  ProgramStateManager &getStateManager() const;
 
   /// \p bugReports A set of bug reports within a *single* equivalence class
   ///
@@ -567,25 +577,25 @@ public:
 
   GRBugReporter& getBugReporter() { return BR; }
 
-  ExplodedGraph &getGraph() { return BR.getGraph(); }
+  const ExplodedGraph &getGraph() const { return BR.getGraph(); }
 
-  ProgramStateManager& getStateManager() {
+  ProgramStateManager& getStateManager() const {
     return BR.getStateManager();
   }
 
-  SValBuilder &getSValBuilder() {
+  SValBuilder &getSValBuilder() const {
     return getStateManager().getSValBuilder();
   }
 
-  ASTContext &getASTContext() {
+  ASTContext &getASTContext() const {
     return BR.getContext();
   }
 
-  SourceManager& getSourceManager() {
+  const SourceManager& getSourceManager() const {
     return BR.getSourceManager();
   }
 
-  AnalyzerOptions &getAnalyzerOptions() {
+  const AnalyzerOptions &getAnalyzerOptions() const {
     return BR.getAnalyzerOptions();
   }
 
@@ -604,8 +614,10 @@ private:
   static int Kind;
 
   const Callback Cb;
+  const bool IsPrunable;
 
-  NoteTag(Callback &&Cb) : ProgramPointTag(&Kind), Cb(std::move(Cb)) {}
+  NoteTag(Callback &&Cb, bool IsPrunable)
+      : ProgramPointTag(&Kind), Cb(std::move(Cb)), IsPrunable(IsPrunable) {}
 
 public:
   static bool classof(const ProgramPointTag *T) {
@@ -628,15 +640,17 @@ public:
     return "Note Tag";
   }
 
+  bool isPrunable() const { return IsPrunable; }
+
   // Manage memory for NoteTag objects.
   class Factory {
     std::vector<std::unique_ptr<NoteTag>> Tags;
 
   public:
-    const NoteTag *makeNoteTag(Callback &&Cb) {
+    const NoteTag *makeNoteTag(Callback &&Cb, bool IsPrunable = false) {
       // We cannot use make_unique because we cannot access the private
       // constructor from inside it.
-      std::unique_ptr<NoteTag> T(new NoteTag(std::move(Cb)));
+      std::unique_ptr<NoteTag> T(new NoteTag(std::move(Cb), IsPrunable));
       Tags.push_back(std::move(T));
       return Tags.back().get();
     }

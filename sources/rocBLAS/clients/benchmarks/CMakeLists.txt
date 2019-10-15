@@ -1,5 +1,5 @@
 # ########################################################################
-# Copyright 2016 Advanced Micro Devices, Inc.
+# Copyright 2016-2019 Advanced Micro Devices, Inc.
 # ########################################################################
 
 # set( Boost_DEBUG ON )
@@ -53,6 +53,7 @@ target_include_directories( rocblas-bench
 target_include_directories( rocblas-bench
   SYSTEM PRIVATE
     $<BUILD_INTERFACE:${HIP_INCLUDE_DIRS}>
+    $<BUILD_INTERFACE:${HCC_INCLUDE_DIRS}>
     $<BUILD_INTERFACE:${Boost_INCLUDE_DIRS}>
     $<BUILD_INTERFACE:${CBLAS_INCLUDE_DIRS}>
     )

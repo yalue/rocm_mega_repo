@@ -1,29 +1,29 @@
 /* ************************************************************************
- * Copyright 2018 Advanced Micro Devices, Inc.
+ * Copyright 2018-2019 Advanced Micro Devices, Inc.
  * ************************************************************************ */
 
-#include "rocblas_test.hpp"
+#include "cblas_interface.hpp"
+#include "near.hpp"
+#include "rocblas.hpp"
+#include "rocblas_init.hpp"
 #include "rocblas_math.hpp"
 #include "rocblas_random.hpp"
+#include "rocblas_test.hpp"
 #include "rocblas_vector.hpp"
-#include "rocblas_init.hpp"
-#include "utility.hpp"
-#include "rocblas.hpp"
-#include "cblas_interface.hpp"
 #include "unit.hpp"
-#include <complex.h>
+#include "utility.hpp"
 
 template <typename T1, typename T2 = T1>
-void testing_asum_bad_arg(const Arguments& arg)
+void testing_asum_bad_arg_template(const Arguments& arg)
 {
-    rocblas_int N                 = 100;
-    rocblas_int incx              = 1;
-    static const size_t safe_size = 100;
-    T2 rocblas_result             = 10;
-    T2* h_rocblas_result          = &rocblas_result;
+    rocblas_int         N                = 100;
+    rocblas_int         incx             = 1;
+    static const size_t safe_size        = 100;
+    T2                  rocblas_result   = 10;
+    T2*                 h_rocblas_result = &rocblas_result;
 
     rocblas_local_handle handle;
-    device_vector<T1> dx(safe_size);
+    device_vector<T1>    dx(safe_size);
     if(!dx)
     {
         CHECK_HIP_ERROR(hipErrorOutOfMemory);
@@ -39,24 +39,24 @@ void testing_asum_bad_arg(const Arguments& arg)
 }
 
 template <typename T1, typename T2 = T1>
-void testing_asum(const Arguments& arg)
+void testing_asum_template(const Arguments& arg)
 {
     rocblas_int N    = arg.N;
     rocblas_int incx = arg.incx;
 
-    T2 rocblas_result_1;
-    T2 rocblas_result_2;
-    T2 cpu_result;
-    double rocblas_error_1;
-    double rocblas_error_2;
+    T2                   rocblas_result_1;
+    T2                   rocblas_result_2;
+    T2                   cpu_result;
+    double               rocblas_error_1;
+    double               rocblas_error_2;
     rocblas_local_handle handle;
 
     // check to prevent undefined memory allocation error
     if(N <= 0 || incx <= 0)
     {
         static const size_t safe_size = 100; // arbitrarily set to 100
-        device_vector<T1> dx(safe_size);
-        device_vector<T2> d_rocblas_result_2(1);
+        device_vector<T1>   dx(safe_size);
+        device_vector<T2>   d_rocblas_result_2(1);
         if(!dx || !d_rocblas_result_2)
         {
             CHECK_HIP_ERROR(hipErrorOutOfMemory);
@@ -68,7 +68,7 @@ void testing_asum(const Arguments& arg)
         return;
     }
 
-    size_t size_x = N * static_cast<size_t>(incx);
+    size_t size_x = N * size_t(incx);
 
     // allocate memory on device
     device_vector<T1> dx(size_x);
@@ -102,7 +102,7 @@ void testing_asum(const Arguments& arg)
         CHECK_ROCBLAS_ERROR(rocblas_set_pointer_mode(handle, rocblas_pointer_mode_device));
         CHECK_ROCBLAS_ERROR((rocblas_asum<T1, T2>(handle, N, dx, incx, d_rocblas_result_2)));
         CHECK_HIP_ERROR(
-            hipMemcpy(&rocblas_result_2, d_rocblas_result_2, sizeof(T1), hipMemcpyDeviceToHost));
+            hipMemcpy(&rocblas_result_2, d_rocblas_result_2, sizeof(T2), hipMemcpyDeviceToHost));
 
         // CPU BLAS
         cpu_time_used = get_time_us();
@@ -117,12 +117,12 @@ void testing_asum(const Arguments& arg)
 
         if(arg.norm_check)
         {
-            printf("cpu=%e, gpu_host_ptr,=%e, gup_dev_ptr=%e\n",
-                   cpu_result,
-                   rocblas_result_1,
-                   rocblas_result_2);
-            rocblas_error_1 = fabs((cpu_result - rocblas_result_1) / cpu_result);
-            rocblas_error_2 = fabs((cpu_result - rocblas_result_2) / cpu_result);
+            std::cout << "cpu=" << std::scientific << cpu_result
+                      << ", gpu_host_ptr=" << rocblas_result_1
+                      << ", gpu_dev_ptr=" << rocblas_result_2 << "\n";
+
+            rocblas_error_1 = std::abs((cpu_result - rocblas_result_1) / cpu_result);
+            rocblas_error_2 = std::abs((cpu_result - rocblas_result_2) / cpu_result);
         }
     }
 
@@ -159,4 +159,40 @@ void testing_asum(const Arguments& arg)
 
         std::cout << std::endl;
     }
+}
+
+template <typename T>
+void testing_asum_bad_arg(const Arguments& arg)
+{
+    testing_asum_bad_arg_template<T>(arg);
+}
+
+template <>
+void testing_asum_bad_arg<rocblas_float_complex>(const Arguments& arg)
+{
+    testing_asum_bad_arg_template<rocblas_float_complex, float>(arg);
+}
+
+template <>
+void testing_asum_bad_arg<rocblas_double_complex>(const Arguments& arg)
+{
+    testing_asum_bad_arg_template<rocblas_double_complex, double>(arg);
+}
+
+template <typename T>
+void testing_asum(const Arguments& arg)
+{
+    return testing_asum_template<T>(arg);
+}
+
+template <>
+void testing_asum<rocblas_float_complex>(const Arguments& arg)
+{
+    return testing_asum_template<rocblas_float_complex, float>(arg);
+}
+
+template <>
+void testing_asum<rocblas_double_complex>(const Arguments& arg)
+{
+    return testing_asum_template<rocblas_double_complex, double>(arg);
 }

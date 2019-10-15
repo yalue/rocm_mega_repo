@@ -20,8 +20,13 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE.
 */
 
+#include "ArgParse.h"
 #include "LLVMCompat.h"
 #include "llvm/Support/Path.h"
+#include "clang/Lex/PreprocessorOptions.h"
+#include "clang/Frontend/CompilerInstance.h"
+
+const std::string sHipify = "[HIPIFY] ", sConflict = "conflict: ", sError = "error: ", sWarning = "warning: ";
 
 namespace llcompat {
 
@@ -59,7 +64,11 @@ void EnterPreprocessorTokenStream(clang::Preprocessor& _pp, const clang::Token *
 #if (LLVM_VERSION_MAJOR == 3) && (LLVM_VERSION_MINOR == 8)
   _pp.EnterTokenStream(start, len, false, DisableMacroExpansion);
 #else
-  _pp.EnterTokenStream(clang::ArrayRef<clang::Token>{start, len}, DisableMacroExpansion);
+  #if (LLVM_VERSION_MAJOR < 9)
+    _pp.EnterTokenStream(clang::ArrayRef<clang::Token>{start, len}, DisableMacroExpansion);
+  #else
+    _pp.EnterTokenStream(clang::ArrayRef<clang::Token>{start, len}, DisableMacroExpansion, false);
+  #endif
 #endif
 }
 
@@ -116,6 +125,22 @@ bool pragma_once_outside_header() {
 #else
   return true;
 #endif
+}
+
+void RetainExcludedConditionalBlocks(clang::CompilerInstance &CI) {
+#if LLVM_VERSION_MAJOR > 9
+  clang::PreprocessorOptions &PPOpts = CI.getPreprocessorOpts();
+  PPOpts.RetainExcludedConditionalBlocks = !SkipExcludedPPConditionalBlocks;
+#endif
+}
+
+bool CheckCompatibility() {
+#if LLVM_VERSION_MAJOR < 10
+  if (SkipExcludedPPConditionalBlocks) {
+    llvm::errs() << "\n" << sHipify << sWarning << "Option '" << SkipExcludedPPConditionalBlocks.ArgStr.str() << "' is supported starting from LLVM version 10.0\n";
+  }
+#endif
+  return true;
 }
 
 } // namespace llcompat

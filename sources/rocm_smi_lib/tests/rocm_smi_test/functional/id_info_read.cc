@@ -88,6 +88,7 @@ void TestIdInfoRead::Run(void) {
   rsmi_status_t err;
   uint16_t id;
   uint64_t val_ui64;
+  uint32_t drm_render_minor;
 
   char buffer[kBufferLen];
 
@@ -118,12 +119,28 @@ void TestIdInfoRead::Run(void) {
         std::cout << "\t**Device Marketing name: " << buffer << std::endl;
       }
     }
+    err = rsmi_dev_brand_get(i, buffer, kBufferLen);
+    if(err != RSMI_STATUS_SUCCESS) {
+      CHK_ERR_ASRT(err)
+    } else {
+      IF_VERB(STANDARD) {
+        std::cout << "\t**Device Brand name: " << buffer << std::endl;
+      }
+    }
     err = rsmi_dev_vendor_id_get(i, &id);
     if (err != RSMI_STATUS_SUCCESS) {
         CHK_ERR_ASRT(err)
     } else {
       IF_VERB(STANDARD) {
         std::cout << "\t**Vendor ID: 0x" << std::hex << id << std::endl;
+      }
+    }
+    err = rsmi_dev_drm_render_minor_get(i, &drm_render_minor);
+    if (err != RSMI_STATUS_SUCCESS) {
+        CHK_ERR_ASRT(err)
+    } else {
+      IF_VERB(STANDARD) {
+        std::cout << "\t**DRM Render Minor: " << drm_render_minor << std::endl;
       }
     }
     err = rsmi_dev_vendor_name_get(i, buffer, kBufferLen);
@@ -185,6 +202,18 @@ void TestIdInfoRead::Run(void) {
     IF_VERB(STANDARD) {
       std::cout << "\t**PCI ID (BDFID): 0x" << std::hex << val_ui64;
       std::cout << " (" << std::dec << val_ui64 << ")" << std::endl;
+    }
+
+    err = rsmi_dev_serial_number_get(i, buffer, kBufferLen);
+    if (err == RSMI_STATUS_NOT_SUPPORTED) {
+      std::cout <<
+        "\t**Serial Number string not supported on this system." << std::endl;
+    } else if (err != RSMI_STATUS_SUCCESS) {
+        CHK_ERR_ASRT(err)
+    } else {
+      IF_VERB(STANDARD) {
+        std::cout << "\t**Device Serial Number:" << buffer << std::endl;
+      }
     }
   }
 }

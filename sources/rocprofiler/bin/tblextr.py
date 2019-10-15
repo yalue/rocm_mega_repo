@@ -56,12 +56,19 @@ var_table = {}
 def fatal(msg):
   sys.stderr.write(sys.argv[0] + ": " + msg + "\n");
   sys.exit(1)
+
+dbglog_count = 0
+def dbglog(msg):
+  global dbglog_count
+  dbglog_count += 1
+  sys.stderr.write(sys.argv[0] + ": " + msg + "\n");
+  fatal("error")
 #############################################################
 
 # parse results method
 def parse_res(infile):
   global max_gpu_id
-  if not os.path.isfile(infile): fatal("Error: input file '" + infile + "' not found")
+  if not os.path.isfile(infile): return # fatal("Error: input file '" + infile + "' not found")
   inp = open(infile, 'r')
 
   beg_pattern = re.compile("^dispatch\[(\d*)\], (.*) kernel-name\(\"([^\"]*)\"\)")
@@ -224,7 +231,7 @@ def fill_api_db(table_name, db, indir, api_name, api_pid, dep_pid, dep_list, dep
           dep_tid_list.append(int(rec_vals[3]))
           dep_id_list.append(record_id) 
         record_id += 1
-      else: fatal("hsa bad record")
+      else: fatal(api_name + " bad record: '" + record + "'")
 
   for (tid, from_ns) in dep_list:
     db.insert_entry(table_handle, [from_ns, from_ns, api_pid, tid, 'hsa_dispatch', '', record_id])
@@ -249,6 +256,8 @@ def fill_copy_db(table_name, db, indir):
   ptrn_val = re.compile(r'(\d+):(\d+) (.*)$')
   ptrn_id = re.compile(r'^async-copy(\d+)$')
 
+  if not os.path.isfile(file_name): return 0
+
   if not COPY_PID in dep_dict: dep_dict[COPY_PID] = {}
   dep_to_us_dict = {}
 
@@ -267,7 +276,7 @@ def fill_copy_db(table_name, db, indir):
         else: fatal("bad async-copy entry")
         rec_vals.append(m.group(1))
         db.insert_entry(table_handle, rec_vals)
-      else: fatal("async-copy bad record")
+      else: fatal("async-copy bad record: '" + record + "'")
 
   dep_dict[COPY_PID]['to'] = dep_to_us_dict
 #############################################################
@@ -313,16 +322,17 @@ def fill_ops_db(table_name, db, indir):
           dep_dict[gpu_pid]['to'] = {}
         dep_dict[gpu_pid]['to'][corr_id] = int(rec_vals[0]) / 1000
         dep_dict[gpu_pid]['bsp'] = OPS_PID
-      else: fatal("async-copy bad record")
+      else: fatal("hcc ops bad record: '" + record + "'")
 
   return filtr
 #############################################################
 # main
-if (len(sys.argv) < 3): fatal("Usage: " + sys.argv[0] + " <output CSV file> <input result files list>")
+if (len(sys.argv) < 2): fatal("Usage: " + sys.argv[0] + " <output CSV file> <input result files list>")
 
 outfile = sys.argv[1]
 infiles = sys.argv[2:]
 indir = re.sub(r'\/[^\/]*$', r'', infiles[0])
+inext = re.sub(r'^[^\.]*', r'', infiles[0])
 
 dbfile = ''
 csvfile = ''
@@ -335,9 +345,9 @@ elif re.search(r'\.db$', outfile):
 else:
   fatal("Bad output file '" + outfile + "'")
 
-for f in infiles: parse_res(f)
-if len(var_table) == 0: sys.exit(1)
-merge_table()
+if inext == '.txt':
+  for f in infiles: parse_res(f)
+  if len(var_table) != 0: merge_table()
 
 if dbfile == '':
   dump_csv(csvfile)
@@ -349,8 +359,7 @@ else:
   db = SQLiteDB(dbfile)
 
   hsa_trace_found = fill_api_db('HSA', db, indir, 'hsa', HSA_PID, COPY_PID, kern_dep_list, {}, 0)
-  if hsa_trace_found:
-    fill_copy_db('COPY', db, indir) 
+  hsa_activity_found = fill_copy_db('COPY', db, indir)
 
   ops_filtr = fill_ops_db('OPS', db, indir)
   hip_trace_found = fill_api_db('HIP', db, indir, 'hip', HIP_PID, OPS_PID, [], ops_filtr, 1)
@@ -363,6 +372,7 @@ else:
 
   if hsa_trace_found:
     db.label_json(HSA_PID, "CPU HSA API", jsonfile)
+  if hsa_activity_found:
     db.label_json(COPY_PID, "COPY", jsonfile)
 
   if hip_trace_found:
@@ -372,17 +382,19 @@ else:
     for ind in range(0, int(max_gpu_id) + 1):
       db.label_json(int(ind) + int(GPU_BASE_PID), "GPU" + str(ind), jsonfile)
 
-  dform.post_process_data(db, 'A', csvfile)
-  dform.gen_table_bins(db, 'A', statfile, 'KernelName', 'DurationNs')
-  if hsa_trace_found and 'BeginNs' in var_list:
-    dform.gen_kernel_json_trace(db, 'A', GPU_BASE_PID, START_US, jsonfile)
+  if len(var_table) != 0:
+    dform.post_process_data(db, 'A', csvfile)
+    dform.gen_table_bins(db, 'A', statfile, 'KernelName', 'DurationNs')
+    if hsa_trace_found and 'BeginNs' in var_list:
+      dform.gen_kernel_json_trace(db, 'A', GPU_BASE_PID, START_US, jsonfile)
 
   if hsa_trace_found:
     statfile = re.sub(r'stats', r'hsa_stats', statfile)
     dform.post_process_data(db, 'HSA')
     dform.gen_table_bins(db, 'HSA', statfile, 'Name', 'DurationNs')
     dform.gen_api_json_trace(db, 'HSA', START_US, jsonfile)
-  
+
+  if hsa_activity_found:
     dform.post_process_data(db, 'COPY')
     dform.gen_api_json_trace(db, 'COPY', START_US, jsonfile)
 
@@ -391,7 +403,7 @@ else:
     dform.post_process_data(db, 'HIP')
     dform.gen_table_bins(db, 'HIP', statfile, 'Name', 'DurationNs')
     dform.gen_api_json_trace(db, 'HIP', START_US, jsonfile)
-  
+
     dform.post_process_data(db, 'OPS')
     dform.gen_ops_json_trace(db, 'OPS', GPU_BASE_PID, START_US, jsonfile)
 
@@ -407,12 +419,15 @@ else:
     dep_id = 0
     for (to_pid, dep_str) in dep_dict.items():
       if 'inv' in dep_str: continue
+      if not 'to' in dep_str: continue
+
+      to_us_dict = dep_str['to']
+      from_us_list = dep_str['from']
       from_pid = dep_str['pid']
       tid_list = dep_str['tid']
-      from_us_list = dep_str['from']
-      to_us_dict = dep_str['to']
       corr_id_list = []
       if 'id' in dep_str: corr_id_list = dep_str['id']
+
       db.flow_json(dep_id, from_pid, tid_list, from_us_list, to_pid, to_us_dict, corr_id_list, START_US, jsonfile)
       dep_id += len(tid_list)
 

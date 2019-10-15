@@ -1,38 +1,41 @@
 /* ************************************************************************
- * Copyright 2018 Advanced Micro Devices, Inc.
+ * Copyright 2018-2019 Advanced Micro Devices, Inc.
  *
  * ************************************************************************ */
 
-#include "rocblas_test.hpp"
+#include "cblas_interface.hpp"
+#include "flops.hpp"
+#include "near.hpp"
+#include "norm.hpp"
+#include "rocblas.hpp"
+#include "rocblas_datatype2string.hpp"
+#include "rocblas_init.hpp"
 #include "rocblas_math.hpp"
 #include "rocblas_random.hpp"
+#include "rocblas_test.hpp"
 #include "rocblas_vector.hpp"
-#include "rocblas_init.hpp"
-#include "rocblas_datatype2string.hpp"
-#include "utility.hpp"
-#include "rocblas.hpp"
-#include "cblas_interface.hpp"
-#include "norm.hpp"
 #include "unit.hpp"
-#include "flops.hpp"
+#include "utility.hpp"
 
 template <typename T>
 void testing_gemv_bad_arg(const Arguments& arg)
 {
-    const rocblas_int M            = 100;
-    const rocblas_int N            = 100;
-    const rocblas_int lda          = 100;
-    const rocblas_int incx         = 1;
-    const rocblas_int incy         = 1;
-    const T alpha                  = 1.0;
-    const T beta                   = 1.0;
+    const rocblas_int M    = 100;
+    const rocblas_int N    = 100;
+    const rocblas_int lda  = 100;
+    const rocblas_int incx = 1;
+    const rocblas_int incy = 1;
+    T                 alpha;
+    T                 beta;
+    alpha = beta = 1.0;
+
     const rocblas_operation transA = rocblas_operation_none;
 
     rocblas_local_handle handle;
 
-    size_t size_A = lda * static_cast<size_t>(N);
-    size_t size_x = N * static_cast<size_t>(incx);
-    size_t size_y = M * static_cast<size_t>(incy);
+    size_t size_A = lda * size_t(N);
+    size_t size_x = N * size_t(incx);
+    size_t size_y = M * size_t(incy);
 
     // Naming: dK is in GPU (device) memory. hK is in CPU (host) memory
     host_vector<T> hA(size_A);
@@ -88,14 +91,14 @@ void testing_gemv_bad_arg(const Arguments& arg)
 template <typename T>
 void testing_gemv(const Arguments& arg)
 {
-    rocblas_int M            = arg.M;
-    rocblas_int N            = arg.N;
-    rocblas_int lda          = arg.lda;
-    rocblas_int incx         = arg.incx;
-    rocblas_int incy         = arg.incy;
-    T h_alpha                = static_cast<T>(arg.alpha);
-    T h_beta                 = rocblas_isnan(arg.beta) ? 0 : static_cast<T>(arg.beta);
-    rocblas_operation transA = char2rocblas_operation(arg.transA);
+    rocblas_int       M       = arg.M;
+    rocblas_int       N       = arg.N;
+    rocblas_int       lda     = arg.lda;
+    rocblas_int       incx    = arg.incx;
+    rocblas_int       incy    = arg.incy;
+    T                 h_alpha = arg.get_alpha<T>();
+    T                 h_beta  = arg.get_beta<T>();
+    rocblas_operation transA  = char2rocblas_operation(arg.transA);
 
     rocblas_local_handle handle;
 
@@ -103,9 +106,9 @@ void testing_gemv(const Arguments& arg)
     if(M < 0 || N < 0 || lda < M || lda < 1 || !incx || !incy)
     {
         static const size_t safe_size = 100; // arbitrarily set to 100
-        device_vector<T> dA1(safe_size);
-        device_vector<T> dx1(safe_size);
-        device_vector<T> dy1(safe_size);
+        device_vector<T>    dA1(safe_size);
+        device_vector<T>    dx1(safe_size);
+        device_vector<T>    dy1(safe_size);
         if(!dA1 || !dx1 || !dy1)
         {
             CHECK_HIP_ERROR(hipErrorOutOfMemory);
@@ -120,7 +123,7 @@ void testing_gemv(const Arguments& arg)
         return;
     }
 
-    size_t size_A = lda * static_cast<size_t>(N);
+    size_t size_A = lda * size_t(N);
     size_t size_x, dim_x, abs_incx;
     size_t size_y, dim_y, abs_incy;
 

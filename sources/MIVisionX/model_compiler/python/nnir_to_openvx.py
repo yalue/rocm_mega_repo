@@ -27,7 +27,8 @@ tensor_type_nnir2openvx = {
     'F016' : 'VX_TYPE_FLOAT16',
     'U016' : 'VX_TYPE_UINT16',
     'I016' : 'VX_TYPE_INT16',
-    'U008' : 'VX_TYPE_UINT8'
+    'U008' : 'VX_TYPE_UINT8',
+    'I064' : 'VX_TYPE_INT64',
 }
 
 def generateLicenseForCPP(f):
@@ -244,6 +245,9 @@ static vx_status initializeTensor(vx_context context, vx_tensor tensor, FILE * f
     else if(data_type == VX_TYPE_UINT16 || data_type == VX_TYPE_INT16 || data_type == VX_TYPE_FLOAT16) {
         itemsize = sizeof(vx_uint16);
     }
+    else if(data_type == VX_TYPE_INT64) {
+        itemsize = sizeof(vx_int64);
+    }
     vx_size count = dims[0] * dims[1] * dims[2] * dims[3];
 
     vx_uint32 h[2] = { 0 };
@@ -357,6 +361,14 @@ VX_API_ENTRY vx_status VX_API_CALL annAddToGraph(vx_graph graph, %s, %s, const c
       ERROR_CHECK_STATUS(vxSetParameterByIndex(node, 5, (vx_reference) s_alpha));
       ERROR_CHECK_STATUS(vxReleaseScalar(&s_alpha));
 """)
+                if (node.attr.get('group') > 1):
+                    group = node.attr.get('group');
+                    f.write( \
+"""      vx_int32 groupCount = %d;
+      vx_scalar s_groupCount = vxCreateScalarWithSize(context, VX_TYPE_INT32, &groupCount, sizeof(groupCount));
+      ERROR_CHECK_STATUS(vxSetParameterByIndex(node, 6, (vx_reference) s_groupCount));
+      ERROR_CHECK_STATUS(vxReleaseScalar(&s_groupCount));
+""" % (group))
                 f.write( \
 """      ERROR_CHECK_STATUS(vxReleaseNode(&node));
     }
@@ -1082,7 +1094,7 @@ if __name__ == '__main__':
     inputTensorFile = sys.argv[3]
     outputTensorFile = sys.argv[4]
     api = AnnAPI(annlibPythonName)
-    input_info,output_info = api.annQueryInference().decode("utf-8").split(';')
+    input_info,output_info,temp = api.annQueryInference().decode("utf-8").split(';')
     input,name,ni,ci,hi,wi = input_info.split(',')
     hdl = api.annCreateInference(weightsFile)
     im = np.fromfile(inputTensorFile, dtype=np.float32)
@@ -1233,7 +1245,7 @@ static vx_status copyTensor(std::string tensorName, vx_tensor tensor, std::strin
                         }
                     } else
                     {
-                        short * dstR = (short *)ptr + ((n * stride[3] + y * stride[1]) >> 2);
+                        short * dstR = (short *)ptr + ((n * stride[3] + y * stride[1]) >> 1);
                         short * dstG = dstR + (stride[2] >> 2);
                         short * dstB = dstG + (stride[2] >> 2);                    
                         for(vx_size x = 0; x < dims[0]; x++, src += 3) {
@@ -1264,7 +1276,7 @@ static vx_status copyTensor(std::string tensorName, vx_tensor tensor, std::strin
                                 return -1;
                             }
                         } else {
-                            short * ptrY = (short *)ptr + ((n * stride[3] + c * stride[2] + y * stride[1]) >> 2);
+                            short * ptrY = (short *)ptr + ((n * stride[3] + c * stride[2] + y * stride[1]) >> 1);
                             vx_size n = fread(ptrY, sizeof(short), dims[0], fp);
                             if(n != dims[0]) {
                                 std::cerr << "ERROR: expected char[" << count*sizeof(short) << "], but got less in " << fileName << std::endl;
@@ -1423,7 +1435,7 @@ static vx_status copyTensor(std::string tensorName, vx_tensor tensor, std::strin
         }
         else if(num_of_dims == 4) {
             W = dims[0], H = dims[1], C = dims[2], N = dims[3];
-        }		
+        }
         vx_size HW = H * W;
         vx_size NHW = N * HW;
         vx_size CHW = C * HW;
@@ -1830,7 +1842,14 @@ Usage: python nnir2openvx.py [OPTIONS] <nnirInputFolder> <outputFolder>
     outputFolder = sys.argv[pos+1]
     print('reading IR model from ' + inputFolder + ' ...')
     graph = IrGraph()
-    graph.fromFile(inputFolder)   
+    graph.fromFile(inputFolder)
+    for tensor in graph.outputs:
+        if len(tensor.shape) == 1:
+            print('#OUTPUT-TENSOR: %s %d %d %d %d ' %(tensor.name, tensor.shape[0], 1, 1, 1));    
+        elif len(tensor.shape) == 2:
+            print('#OUTPUT-TENSOR: %s %d %d %d %d ' %(tensor.name, tensor.shape[0], tensor.shape[1], 1, 1));
+        elif len(tensor.shape) == 4:
+            print('#OUTPUT-TENSOR: %s %d %d %d %d ' %(tensor.name, tensor.shape[0], tensor.shape[1], tensor.shape[2], tensor.shape[3]));
     print('creating C code in ' + outputFolder + ' ...')
     generateCode(graph,argmaxOutput,outputFolder)
 

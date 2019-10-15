@@ -1,18 +1,18 @@
 /* ************************************************************************
- * Copyright 2018 Advanced Micro Devices, Inc.
+ * Copyright 2018-2019 Advanced Micro Devices, Inc.
  * ************************************************************************ */
 
-#include "rocblas_test.hpp"
+#include "cblas_interface.hpp"
+#include "flops.hpp"
+#include "norm.hpp"
+#include "rocblas.hpp"
+#include "rocblas_init.hpp"
 #include "rocblas_math.hpp"
 #include "rocblas_random.hpp"
+#include "rocblas_test.hpp"
 #include "rocblas_vector.hpp"
-#include "rocblas_init.hpp"
-#include "utility.hpp"
-#include "rocblas.hpp"
-#include "cblas_interface.hpp"
-#include "norm.hpp"
 #include "unit.hpp"
-#include "flops.hpp"
+#include "utility.hpp"
 
 template <typename T>
 void testing_set_get_matrix(const Arguments& arg)
@@ -25,8 +25,8 @@ void testing_set_get_matrix(const Arguments& arg)
 
     // argument sanity check, quick return if input parameters are invalid before allocating invalid
     // memory
-    if(rows < 0 || lda <= 0 || lda < rows || cols < 0 || ldb <= 0 || ldb < rows || ldc <= 0 ||
-       ldc < rows)
+    if(rows < 0 || lda <= 0 || lda < rows || cols < 0 || ldb <= 0 || ldb < rows || ldc <= 0
+       || ldc < rows)
     {
         static const size_t safe_size = 100; // arbritrarily set to 100
 
@@ -49,17 +49,17 @@ void testing_set_get_matrix(const Arguments& arg)
     }
 
     // Naming: dK is in GPU (device) memory. hK is in CPU (host) memory
-    host_vector<T> ha(cols * static_cast<size_t>(lda));
-    host_vector<T> hb(cols * static_cast<size_t>(ldb));
-    host_vector<T> hc(cols * static_cast<size_t>(ldc));
-    host_vector<T> hb_gold(cols * static_cast<size_t>(ldb));
+    host_vector<T> ha(cols * size_t(lda));
+    host_vector<T> hb(cols * size_t(ldb));
+    host_vector<T> hc(cols * size_t(ldc));
+    host_vector<T> hb_gold(cols * size_t(ldb));
 
     double gpu_time_used, cpu_time_used;
     double rocblas_bandwidth, cpu_bandwidth;
     double rocblas_error = 0.0;
 
     // allocate memory on device
-    device_vector<T> dc(cols * static_cast<size_t>(ldc));
+    device_vector<T> dc(cols * size_t(ldc));
     if(!dc)
     {
         CHECK_HIP_ERROR(hipErrorOutOfMemory);
@@ -85,7 +85,7 @@ void testing_set_get_matrix(const Arguments& arg)
         // reference calculation
         cpu_time_used = get_time_us();
         for(int i1 = 0; i1 < rows; i1++)
-            for(int i2                 = 0; i2 < cols; i2++)
+            for(int i2 = 0; i2 < cols; i2++)
                 hb_gold[i1 + i2 * ldb] = ha[i1 + i2 * lda];
 
         cpu_time_used = get_time_us() - cpu_time_used;
@@ -114,8 +114,8 @@ void testing_set_get_matrix(const Arguments& arg)
         }
 
         gpu_time_used = get_time_us() - gpu_time_used;
-        rocblas_bandwidth =
-            (rows * cols * sizeof(T)) / gpu_time_used / 1e3 / number_timing_iterations;
+        rocblas_bandwidth
+            = (rows * cols * sizeof(T)) / gpu_time_used / 1e3 / number_timing_iterations;
 
         std::cout << "rows,cols,lda,ldb,rocblas-GB/s";
 

@@ -52,10 +52,11 @@ LOOP:\n\
 end\n\
 ";
 
+//This shader can be used by gfx9 and gfx10
 static const char* iterate_isa_gfx9 = \
 "\
 shader iterate_isa\n\
-asic(GFX9)\n\
+wave_size(32)\n\
 type(CS)\n\
 /*copy the parameters from scalar registers to vector registers*/\n\
     v_mov_b32 v0, s0\n\
@@ -76,6 +77,7 @@ LOOP:\n\
     s_endpgm\n\
 end\n\
 ";
+
 
 /*
 v[0:1] = target iteration value
@@ -129,9 +131,14 @@ TEST_F(KFDCWSRTest, BasicTest) {
 
         unsigned int* iter = iterateBuf.As<unsigned int*>();
         unsigned int* result = resultBuf.As<unsigned int*>();
+        const char *pIterateIsa;
 
-        m_pIsaGen->CompileShader((m_FamilyId >= FAMILY_AI) ? iterate_isa_gfx9 : iterate_isa_gfx8 ,
-                "iterate_isa", isaBuffer);
+        if (m_FamilyId < FAMILY_AI)
+            pIterateIsa = iterate_isa_gfx8;
+        else
+            pIterateIsa = iterate_isa_gfx9;
+
+        m_pIsaGen->CompileShader(pIterateIsa, "iterate_isa", isaBuffer);
 
         PM4Queue queue1, queue2;
 

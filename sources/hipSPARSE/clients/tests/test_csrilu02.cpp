@@ -24,14 +24,14 @@
 #include "testing_csrilu02.hpp"
 #include "utility.hpp"
 
-#include <hipsparse.h>
 #include <gtest/gtest.h>
+#include <hipsparse.h>
+#include <string>
 #include <unistd.h>
 #include <vector>
-#include <string>
 
-typedef hipsparseIndexBase_t base;
-typedef std::tuple<int, base> csrilu02_tuple;
+typedef hipsparseIndexBase_t          base;
+typedef std::tuple<int, base>         csrilu02_tuple;
 typedef std::tuple<base, std::string> csrilu02_bin_tuple;
 
 int csrilu02_M_range[] = {-1, 0, 50, 647};
@@ -54,11 +54,13 @@ std::string csrilu02_bin[] = {"mac_econ_fwd500.bin",
                               "nos4.bin",
                               "nos5.bin",
                               "nos6.bin",
-                              "nos7.bin"};
+                              "nos7.bin",
+                              "amazon0312.bin",
+                              "sme3Dc.bin"};
 
 class parameterized_csrilu02 : public testing::TestWithParam<csrilu02_tuple>
 {
-    protected:
+protected:
     parameterized_csrilu02() {}
     virtual ~parameterized_csrilu02() {}
     virtual void SetUp() {}
@@ -67,7 +69,7 @@ class parameterized_csrilu02 : public testing::TestWithParam<csrilu02_tuple>
 
 class parameterized_csrilu02_bin : public testing::TestWithParam<csrilu02_bin_tuple>
 {
-    protected:
+protected:
     parameterized_csrilu02_bin() {}
     virtual ~parameterized_csrilu02_bin() {}
     virtual void SetUp() {}
@@ -94,7 +96,7 @@ Arguments setup_csrilu02_arguments(csrilu02_bin_tuple tup)
     std::string bin_file = std::get<1>(tup);
 
     // Get current executables absolute path
-    char path_exe[PATH_MAX];
+    char    path_exe[PATH_MAX];
     ssize_t len = readlink("/proc/self/exe", path_exe, sizeof(path_exe) - 1);
     if(len < 14)
     {
@@ -106,12 +108,15 @@ Arguments setup_csrilu02_arguments(csrilu02_bin_tuple tup)
     }
 
     // Matrices are stored at the same path in matrices directory
-    arg.filename = std::string(path_exe) + "matrices/" + bin_file;
+    arg.filename = std::string(path_exe) + "../matrices/" + bin_file;
 
     return arg;
 }
 
-TEST(csrilu02_bad_arg, csrilu02_float) { testing_csrilu02_bad_arg<float>(); }
+TEST(csrilu02_bad_arg, csrilu02_float)
+{
+    testing_csrilu02_bad_arg<float>();
+}
 
 TEST_P(parameterized_csrilu02, csrilu02_float)
 {
@@ -145,12 +150,12 @@ TEST_P(parameterized_csrilu02_bin, csrilu02_bin_double)
     EXPECT_EQ(status, HIPSPARSE_STATUS_SUCCESS);
 }
 
-INSTANTIATE_TEST_CASE_P(csrilu02,
+INSTANTIATE_TEST_CASE_P(DISABLED_csrilu02,
                         parameterized_csrilu02,
                         testing::Combine(testing::ValuesIn(csrilu02_M_range),
                                          testing::ValuesIn(csrilu02_idxbase_range)));
 
-INSTANTIATE_TEST_CASE_P(csrilu02_bin,
+INSTANTIATE_TEST_CASE_P(DISABLED_csrilu02_bin,
                         parameterized_csrilu02_bin,
                         testing::Combine(testing::ValuesIn(csrilu02_idxbase_range),
                                          testing::ValuesIn(csrilu02_bin)));

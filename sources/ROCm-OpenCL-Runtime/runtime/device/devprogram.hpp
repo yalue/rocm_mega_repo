@@ -8,11 +8,12 @@
 #include "platform/object.hpp"
 #include "platform/memory.hpp"
 #include "devwavelimiter.hpp"
-#include "comgrctx.hpp"
 
 #if defined(WITH_LIGHTNING_COMPILER) || defined(USE_COMGR_LIBRARY)
 #ifndef USE_COMGR_LIBRARY
 #include "driver/AmdCompiler.h"
+#else
+#include "amd_comgr.h"
 #endif
 //#include "llvm/Support/AMDGPUMetadata.h"
 
@@ -61,6 +62,11 @@ namespace device {
 class ClBinary;
 class Kernel;
 
+struct SymbolInfo {
+  size_t sym_type;
+  std::vector<std::string>* var_names;
+};
+
 //! A program object for a specific device.
 class Program : public amd::HeapObject {
  public:
@@ -78,6 +84,7 @@ class Program : public amd::HeapObject {
  private:
   //! The device target for this binary.
   amd::SharedReference<amd::Device> device_;
+  amd::Program& owner_; //!< owner of this program
 
   kernels_t kernels_; //!< The kernel entry points this binary.
   type_t type_;       //!< type of this program
@@ -124,15 +131,19 @@ class Program : public amd::HeapObject {
   CodeObjectMD* metadata_;  //!< Runtime metadata
 #endif
 
+  std::vector<amd::Memory*> undef_mem_obj_;
+
  public:
   //! Construct a section.
-  Program(amd::Device& device);
+  Program(amd::Device& device, amd::Program& owner);
 
   //! Destroy this binary image.
   virtual ~Program();
 
   //! Destroy all the kernels
   void clear();
+
+  amd::Program* owner() const { return &owner_; }
 
   //! Return the compiler options passed to build this program
   amd::option::Options* getCompilerOptions() const { return programOptions_; }
@@ -227,6 +238,9 @@ class Program : public amd::HeapObject {
   //! Check if SRAM ECC is enable
   const bool sramEccEnable() const { return (sramEccEnabled_ == 1); }
 
+  bool getGlobalVarFromCodeObj(std::vector<std::string>* var_names) const;
+  bool getUndefinedVarFromCodeObj(std::vector<std::string>* var_names) const;
+
   virtual bool createGlobalVarObj(amd::Memory** amd_mem_obj, void** dptr,
                                   size_t* bytes, const char* globalName) const {
     ShouldNotReachHere();
@@ -278,7 +292,11 @@ class Program : public amd::HeapObject {
     amd::option::Options* options, void* binary, size_t binSize) { return true; }
 
   //! Returns all the options to be appended while passing to the compiler library
-  std::string ProcessOptions(amd::option::Options* options);
+  std::vector<std::string> ProcessOptions(amd::option::Options* options);
+
+  //! Returns all the options to be appended while passing to the compiler library,
+  //! flattened into one string.
+  std::string ProcessOptionsFlattened(amd::option::Options* options);
 
   //! At linking time, get the set of compile options to be used from
   //! the set of input program, warn if they have inconsisten compile options.
@@ -309,6 +327,17 @@ class Program : public amd::HeapObject {
 
   bool isElf(const char* bin) const { return amd::isElfMagic(bin); }
 
+  virtual bool defineGlobalVar(const char* name, void* dptr) {
+    ShouldNotReachHere();
+    return false;
+  }
+
+#if defined(USE_COMGR_LIBRARY)
+  bool getSymbolsFromCodeObj(std::vector<std::string>* var_names, amd_comgr_symbol_type_t sym_type) const;
+#endif
+  bool getUndefinedVarInfo(std::string var_name, void** var_addr, size_t* var_size);
+  bool defineUndefinedVars();
+
  private:
   //! Compile the device program with LC path
   bool compileImplLC(const std::string& sourceCode,
@@ -335,8 +364,8 @@ class Program : public amd::HeapObject {
   bool linkImplHSAIL(amd::option::Options* options);
 
 #if defined(USE_COMGR_LIBRARY)
-  //! Dump the log data object to the build log, if both are present
-  void extractBuildLog(const char* buildLog, amd_comgr_data_set_t dataSet);
+  //! Dump the log data object to the build log, if a log data object is present
+  void extractBuildLog(amd_comgr_data_set_t dataSet);
   //! Dump the code object data
   amd_comgr_status_t extractByteCodeBinary(const amd_comgr_data_set_t inDataSet,
     const amd_comgr_data_kind_t dataKind, const std::string& outFileName,
@@ -353,23 +382,23 @@ class Program : public amd::HeapObject {
 
   //! Create action for the specified language, target and options
   amd_comgr_status_t createAction(const amd_comgr_language_t oclvar,
-    const std::string& targetIdent, const std::string& options,
+    const std::string& targetIdent, const std::vector<std::string>& options,
     amd_comgr_action_info_t* action, bool* hasAction);
 
   //! Create the bitcode of the linked input dataset
   bool linkLLVMBitcode(const amd_comgr_data_set_t inputs,
-    const std::string& options, const bool requiredDump,
+    const std::vector<std::string>& options, const bool requiredDump,
     amd::option::Options* amdOptions, amd_comgr_data_set_t* output,
     char* binary[] = nullptr, size_t* binarySize = nullptr);
 
   //! Create the bitcode of the compiled input dataset
   bool compileToLLVMBitcode(const amd_comgr_data_set_t inputs,
-    const std::string& options, amd::option::Options* amdOptions,
+    const std::vector<std::string>& options, amd::option::Options* amdOptions,
     char* binary[], size_t* binarySize);
 
   //! Compile and create the excutable of the input dataset
   bool compileAndLinkExecutable(const amd_comgr_data_set_t inputs,
-    const std::string& options, amd::option::Options* amdOptions,
+    const std::vector<std::string>& options, amd::option::Options* amdOptions,
     char* executable[], size_t* executableSize);
 
   //! Create the map for the kernel name and its metadata for fast access

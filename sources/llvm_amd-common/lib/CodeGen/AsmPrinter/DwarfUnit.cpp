@@ -205,6 +205,10 @@ void DwarfUnit::insertDIE(const DINode *Desc, DIE *D) {
   MDNodeToDieMap.insert(std::make_pair(Desc, D));
 }
 
+void DwarfUnit::insertDIE(DIE *D) {
+  MDNodeToDieMap.insert(std::make_pair(nullptr, D));
+}
+
 void DwarfUnit::addFlag(DIE &Die, dwarf::Attribute Attribute) {
   if (DD->getDwarfVersion() >= 4)
     Die.addValue(DIEValueAllocator, Attribute, dwarf::DW_FORM_flag_present,
@@ -531,6 +535,10 @@ void DwarfUnit::addConstantValue(DIE &Die, const MachineOperand &MO,
   addConstantValue(Die, isUnsignedDIType(DD, Ty), MO.getImm());
 }
 
+void DwarfUnit::addConstantValue(DIE &Die, uint64_t Val, const DIType *Ty) {
+  addConstantValue(Die, isUnsignedDIType(DD, Ty), Val);
+}
+
 void DwarfUnit::addConstantValue(DIE &Die, bool Unsigned, uint64_t Val) {
   // FIXME: This is a bit conservative/simple - it emits negative values always
   // sign extended to 64 bits rather than minimizing the number of bytes.
@@ -639,7 +647,8 @@ DIE *DwarfUnit::createTypeDIE(const DIScope *Context, DIE &ContextDIE,
   else if (auto *STy = dyn_cast<DISubroutineType>(Ty))
     constructTypeDIE(TyDIE, STy);
   else if (auto *CTy = dyn_cast<DICompositeType>(Ty)) {
-    if (DD->generateTypeUnits() && !Ty->isForwardDecl()) {
+    if (DD->generateTypeUnits() && !Ty->isForwardDecl() &&
+        (Ty->getRawName() || CTy->getRawIdentifier())) {
       // Skip updating the accelerator tables since this is not the full type.
       if (MDString *TypeId = CTy->getRawIdentifier())
         DD->addDwarfTypeUnitType(getCU(), TypeId->getString(), TyDIE, CTy);
@@ -1388,6 +1397,9 @@ void DwarfUnit::constructEnumTypeDIE(DIE &Buffer, const DICompositeType *CTy) {
       addFlag(Buffer, dwarf::DW_AT_enum_class);
   }
 
+  auto *Context = CTy->getScope();
+  bool IndexEnumerators = !Context || isa<DICompileUnit>(Context) || isa<DIFile>(Context) ||
+      isa<DINamespace>(Context) || isa<DICommonBlock>(Context);
   DINodeArray Elements = CTy->getElements();
 
   // Add enumerators to enumeration type.
@@ -1399,6 +1411,8 @@ void DwarfUnit::constructEnumTypeDIE(DIE &Buffer, const DICompositeType *CTy) {
       addString(Enumerator, dwarf::DW_AT_name, Name);
       auto Value = static_cast<uint64_t>(Enum->getValue());
       addConstantValue(Enumerator, IsUnsigned, Value);
+      if (IndexEnumerators)
+        addGlobalName(Name, Enumerator, Context);
     }
   }
 }

@@ -39,7 +39,6 @@
  * DEALINGS WITH THE SOFTWARE.
  *
  */
-#include <sys/stat.h>
 #include <dirent.h>
 #include <assert.h>
 #include <string.h>
@@ -58,8 +57,10 @@
 #include <cerrno>
 
 #include "rocm_smi/rocm_smi.h"
+#include "rocm_smi/rocm_smi_device.h"
 #include "rocm_smi/rocm_smi_main.h"
 #include "rocm_smi/rocm_smi_exception.h"
+#include "rocm_smi/rocm_smi_utils.h"
 
 static const char *kPathDRMRoot = "/sys/class/drm";
 static const char *kPathHWMonRoot = "/sys/class/hwmon";
@@ -72,11 +73,6 @@ static const char *kAMDMonitorTypes[] = {"radeon", "amdgpu", ""};
 namespace amd {
 namespace smi {
 
-static bool FileExists(char const *filename) {
-  struct stat buf;
-  return (stat(filename, &buf) == 0);
-}
-
 static uint32_t GetDeviceIndex(const std::string s) {
   std::string t = s;
   size_t tmp = t.find_last_not_of("0123456789");
@@ -85,31 +81,37 @@ static uint32_t GetDeviceIndex(const std::string s) {
   return stoi(t);
 }
 
-// Return 0 if same file, 1 if not, and -1 for error
-static int SameFile(const std::string fileA, const std::string fileB) {
-  struct stat aStat;
-  struct stat bStat;
-  int ret;
+// Find the drm minor from from sysfs path "/sys/class/drm/cardX/device/drm".
+// From the directory renderDN in that sysfs path, the drm minor can be
+// computed for cardX.
+// On success, return drm_minor which is >= 128 otherwise return 0
+static uint32_t  GetDrmRenderMinor(const std::string s) {
+  std::string drm_path = s;
+  int drm_minor = 0;
+  const std::string render_file_prefix = "renderD";
+  const uint32_t prefix_size = render_file_prefix.size();
+  drm_path += "/device/drm";
 
-  ret = stat(fileA.c_str(), &aStat);
-  if (ret) {
-      return -1;
+  auto drm_dir = opendir(drm_path.c_str());
+  if (drm_dir == nullptr)
+    return 0;
+
+  auto dentry = readdir(drm_dir);
+
+  while (dentry != nullptr) {
+    std::string render_file = dentry->d_name;
+    if (!render_file.compare(0, prefix_size, render_file_prefix)) {
+      drm_minor = stoi(render_file.substr(prefix_size));
+      if (drm_minor)
+        break;
+    }
+    dentry = readdir(drm_dir);
   }
 
-  ret = stat(fileB.c_str(), &bStat);
-  if (ret) {
-      return -1;
-  }
+  if (closedir(drm_dir))
+    return 0;
 
-  if (aStat.st_dev != bStat.st_dev) {
-      return 1;
-  }
-
-  if (aStat.st_ino != bStat.st_ino) {
-      return 1;
-  }
-
-  return 0;
+  return drm_minor;
 }
 
 static int SameDevice(const std::string fileA, const std::string fileB) {
@@ -120,12 +122,13 @@ static int SameDevice(const std::string fileA, const std::string fileB) {
 //  XXXX:XX:XX.X,
 //  domain:bus:device.function
 //
-//  where X is a hex integer (lower case is expected)
-static bool is_bdfid_path_str(const std::string in_name, uint64_t *bdfid) {
+//  where X is a hex integer (lower case is expected). If so, write the value
+//  to bdfid
+static bool bdfid_from_path(const std::string in_name, uint64_t *bdfid) {
   char *p = nullptr;
   char *name_start;
   char name[13] = {'\0'};
-  uint32_t tmp;
+  uint64_t tmp;
 
   assert(bdfid != nullptr);
 
@@ -136,7 +139,7 @@ static bool is_bdfid_path_str(const std::string in_name, uint64_t *bdfid) {
   tmp = in_name.copy(name, 12);
   assert(tmp == 12);
 
-  // BDFID = ((<DOMAIN> & 0xffff) << 13) | ((<BUS> & 0x1f) << 8) |
+  // BDFID = ((<DOMAIN> & 0xffff) << 32) | ((<BUS> & 0xff) << 8) |
             //                        ((device& 0x1f) <<3 ) | (function & 0x7)
   *bdfid = 0;
   name_start = name;
@@ -147,7 +150,7 @@ static bool is_bdfid_path_str(const std::string in_name, uint64_t *bdfid) {
   if (*p != ':' || p - name_start != 4) {
     return false;
   }
-  *bdfid |= tmp << 13;
+  *bdfid |= tmp << 32;
 
   // Match this: xxxx:XX:xx.x
   p++;  // Skip past ':'
@@ -202,7 +205,7 @@ static uint32_t ConstructBDFID(std::string path, uint64_t *bdfid) {
     slash_i = tpath_str.find_last_of('/', end_i);
     tmp = tpath_str.substr(slash_i + 1, end_i - slash_i);
 
-    if (is_bdfid_path_str(tmp, bdfid)) {
+    if (bdfid_from_path(tmp, bdfid)) {
       return 0;
     }
     end_i = slash_i - 1;
@@ -330,8 +333,9 @@ RocmSMI::AddToDeviceList(std::string dev_name) {
 
   std::string d_name = dev_name;
   uint32_t d_index = GetDeviceIndex(d_name);
+  dev->set_drm_render_minor(GetDrmRenderMinor(dev_path));
   dev->set_index(d_index);
-
+  GetSupportedEventGroups(d_index, dev->supported_event_groups());
   devices_.push_back(dev);
 
   return;

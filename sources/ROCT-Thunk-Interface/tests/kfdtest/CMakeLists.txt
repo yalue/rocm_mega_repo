@@ -60,7 +60,6 @@ else()
 endif()
 
 if( DEFINED LIBHSAKMT_PATH )
-    set ( HSAKMT_INCLUDE_DIRS ${LIBHSAKMT_PATH}/include )
     set ( HSAKMT_LIBRARY_DIRS ${LIBHSAKMT_PATH}/lib )
     set ( HSAKMT_LIBRARIES hsakmt )
 endif()
@@ -71,9 +70,9 @@ set ( SP3_DIR ${PROJECT_SOURCE_DIR}/sp3 )
 
 include_directories(${PROJECT_SOURCE_DIR}/gtest-1.6.0)
 include_directories(${PROJECT_SOURCE_DIR}/include)
+include_directories(${PROJECT_SOURCE_DIR}/../../include)
 include_directories(${SP3_DIR})
 
-include_directories(${HSAKMT_INCLUDE_DIRS})
 include_directories(${DRM_INCLUDE_DIRS})
 
 aux_source_directory(${PROJECT_SOURCE_DIR}/gtest-1.6.0 SRC_FILES)
@@ -104,7 +103,7 @@ link_directories(${SP3_DIR})
 
 add_executable(kfdtest ${SRC_FILES})
 
-target_link_libraries(kfdtest ${HSAKMT_LIBRARIES} ${DRM_LIBRARIES} ${DRM_AMDGPU_LIBRARIES} pthread m stdc++ rt amdsp3)
+target_link_libraries(kfdtest ${HSAKMT_LIBRARIES} ${DRM_LIBRARIES} ${DRM_AMDGPU_LIBRARIES} pthread m stdc++ rt amdsp3 numa)
 
 configure_file ( scripts/kfdtest.exclude kfdtest.exclude COPYONLY )
 configure_file ( scripts/run_kfdtest.sh run_kfdtest.sh COPYONLY )

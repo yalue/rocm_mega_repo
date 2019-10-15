@@ -129,10 +129,7 @@ class GpuAgentInt : public core::Agent {
   //
   // @param [in] signal Pointer to signal that provides the async copy timing.
   // @param [out] time Structure to be populated with the host domain value.
-  virtual void TranslateTime(core::Signal* signal,
-                             hsa_amd_profiling_async_copy_time_t& time) {
-    return TranslateTime(signal, (hsa_amd_profiling_dispatch_time_t&)time);
-  }
+  virtual void TranslateTime(core::Signal* signal, hsa_amd_profiling_async_copy_time_t& time) = 0;
 
   // @brief Translate timestamp agent domain to host domain.
   //
@@ -206,8 +203,7 @@ class GpuAgent : public GpuAgentInt {
   // @param [out] code_buf_size Size of code object buffer in bytes.
   enum class AssembleTarget { ISA, AQL };
 
-  void AssembleShader(const char* src_sp3, const char* func_name,
-                      AssembleTarget assemble_target, void*& code_buf,
+  void AssembleShader(const char* func_name, AssembleTarget assemble_target, void*& code_buf,
                       size_t& code_buf_size) const;
 
   // @brief Frees code object created by AssembleShader.
@@ -249,9 +245,6 @@ class GpuAgent : public GpuAgentInt {
   // @brief Override from core::Agent.
   hsa_status_t DmaFill(void* ptr, uint32_t value, size_t count) override;
 
-  // @brief Get the next available end timestamp object.
-  uint64_t* ObtainEndTsObject();
-
   // @brief Override from core::Agent.
   hsa_status_t GetInfo(hsa_agent_info_t attribute, void* value) const override;
 
@@ -286,6 +279,9 @@ class GpuAgent : public GpuAgentInt {
                      hsa_amd_profiling_dispatch_time_t& time) override;
 
   // @brief Override from amd::GpuAgentInt.
+  void TranslateTime(core::Signal* signal, hsa_amd_profiling_async_copy_time_t& time) override;
+
+  // @brief Override from amd::GpuAgentInt.
   uint64_t TranslateTime(uint64_t tick) override;
 
   // @brief Override from amd::GpuAgentInt.
@@ -299,6 +295,9 @@ class GpuAgent : public GpuAgentInt {
   }
 
   // Getter & setters.
+
+  // @brief Returns Hive ID
+  __forceinline uint64_t HiveId() const override { return  properties_.HiveID; }
 
   // @brief Returns node property.
   __forceinline const HsaNodeProperties& properties() const {
@@ -349,7 +348,7 @@ class GpuAgent : public GpuAgentInt {
   // @brief Create SDMA blit object.
   //
   // @retval NULL if SDMA blit creation and initialization failed.
-  core::Blit* CreateBlitSdma(bool h2d);
+  core::Blit* CreateBlitSdma(bool use_xgmi);
 
   // @brief Create Kernel blit object using provided compute queue.
   //
@@ -403,9 +402,13 @@ class GpuAgent : public GpuAgentInt {
   size_t scratch_per_thread_;
 
   // @brief Blit interfaces for each data path.
-  enum BlitEnum { BlitHostToDev, BlitDevToHost, BlitDevToDev, BlitCount };
+  enum BlitEnum { BlitDevToDev, BlitHostToDev, BlitDevToHost, DefaultBlitCount };
 
-  lazy_ptr<core::Blit> blits_[BlitCount];
+  // Blit objects managed by an instance of GpuAgent
+  std::vector<lazy_ptr<core::Blit>> blits_;
+
+  // List of agents connected via xGMI
+  std::vector<const core::Agent*> xgmi_peer_list_;
 
   // @brief AQL queues for cache management and blit compute usage.
   enum QueueEnum {
@@ -433,6 +436,8 @@ class GpuAgent : public GpuAgentInt {
 
   HsaClockCounters t1_;
 
+  double historical_clock_ratio_;
+
   // @brief Array of GPU cache property.
   std::vector<HsaCacheProperties> cache_props_;
 
@@ -454,6 +459,10 @@ class GpuAgent : public GpuAgentInt {
   void* trap_code_buf_;
 
   size_t trap_code_buf_size_;
+
+  // @brief Mappings from doorbell index to queue, for trap handler.
+  // Correlates with output of s_sendmsg(MSG_GET_DOORBELL) for queue identification.
+  amd_queue_t** doorbell_queue_map_;
 
   // @brief The GPU memory bus width in bit.
   uint32_t memory_bus_width_;
@@ -478,25 +487,21 @@ class GpuAgent : public GpuAgentInt {
   // @brief Create internal queues and blits.
   void InitDma();
 
-  // @brief Initialize memory pool for end timestamp object.
-  // @retval True if the memory pool for end timestamp object is initialized.
-  bool InitEndTsPool();
 
+  // Bind index of peer device that is connected via xGMI links
+  lazy_ptr<core::Blit>& GetXgmiBlit(const core::Agent& peer_agent);
+
+  // Bind the Blit object that will drive the copy operation
+  // across PCIe links (H2D or D2H) or is within same device D2D
+  lazy_ptr<core::Blit>& GetPcieBlit(const core::Agent& dst_agent, const core::Agent& src_agent);
+
+  // Bind the Blit object that will drive the copy operation
+  lazy_ptr<core::Blit>& GetBlitObject(const core::Agent& dst_agent, const core::Agent& src_agent);
   // @brief Alternative aperture base address. Only on KV.
   uintptr_t ape1_base_;
 
   // @brief Alternative aperture size. Only on KV.
   size_t ape1_size_;
-
-  // Each end ts is 32 bytes.
-  static const size_t kTsSize = 32;
-
-  // Number of element in the pool.
-  uint32_t end_ts_pool_size_;
-
-  std::atomic<uint32_t> end_ts_pool_counter_;
-
-  std::atomic<uint64_t*> end_ts_base_addr_;
 
   DISALLOW_COPY_AND_ASSIGN(GpuAgent);
 };

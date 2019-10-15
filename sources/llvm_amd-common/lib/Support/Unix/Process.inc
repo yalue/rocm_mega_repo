@@ -16,7 +16,7 @@
 #include "llvm/Config/config.h"
 #include "llvm/Support/ManagedStatic.h"
 #include "llvm/Support/Mutex.h"
-#include "llvm/Support/MutexGuard.h"
+#include <mutex>
 #if HAVE_FCNTL_H
 #include <fcntl.h>
 #endif
@@ -291,7 +291,8 @@ static unsigned getColumns(int FileID) {
 
   unsigned Columns = 0;
 
-#if defined(HAVE_SYS_IOCTL_H) && defined(HAVE_TERMIOS_H)
+#if defined(HAVE_SYS_IOCTL_H) && defined(HAVE_TERMIOS_H) \
+  && !(defined(_XOPEN_SOURCE) || defined(_POSIX_C_SOURCE))
   // Try to determine the width of the terminal.
   struct winsize ws;
   if (ioctl(FileID, TIOCGWINSZ, &ws) == 0)
@@ -332,7 +333,7 @@ static ManagedStatic<sys::Mutex> TermColorMutex;
 static bool terminalHasColors(int fd) {
 #ifdef HAVE_TERMINFO
   // First, acquire a global lock because these C routines are thread hostile.
-  MutexGuard G(*TermColorMutex);
+  std::lock_guard<sys::Mutex> G(*TermColorMutex);
 
   int errret = 0;
   if (setupterm(nullptr, fd, &errret) != 0)

@@ -301,7 +301,9 @@ typedef struct _HsaNodeProperties
                                        // number hash created by the PSP
     HSAuint32       NumSdmaEngines;    // number of PCIe optimized SDMA engines
     HSAuint32       NumSdmaXgmiEngines;// number of XGMI optimized SDMA engines
-    HSAuint8        Reserved[36];
+    HSAuint32       NumGws;            // number of GWS barriers
+    HSAuint32       Domain;            // PCI domain of the GPU
+    HSAuint8        Reserved[28];
 } HsaNodeProperties;
 
 
@@ -864,6 +866,18 @@ typedef enum _HSA_EVENTTYPE
     HSA_EVENTTYPE_MAXID,
     HSA_EVENTTYPE_TYPE_SIZE                  = 0xFFFFFFFF
 } HSA_EVENTTYPE;
+
+
+//
+// Definitions for types of pending debug events
+//
+typedef enum _HSA_DEBUG_EVENT_TYPE
+{
+	HSA_DEBUG_EVENT_TYPE_NONE				= 0,
+	HSA_DEBUG_EVENT_TYPE_TRAP				= 1,
+	HSA_DEBUG_EVENT_TYPE_VMFAULT			= 2,
+	HSA_DEBUG_EVENT_TYPE_TRAP_VMFAULT		= 3
+} HSA_DEBUG_EVENT_TYPE;
 
 typedef HSAuint32  HSA_EVENTID;
 

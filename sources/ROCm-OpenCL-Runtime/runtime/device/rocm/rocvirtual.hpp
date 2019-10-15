@@ -167,7 +167,8 @@ class VirtualGPU : public device::VirtualDevice {
                             const amd::Kernel& kernel,           //!< Kernel for execution
                             const_address parameters,            //!< Parameters for the kernel
                             void* event_handle,  //!< Handle to OCL event for debugging
-                            uint32_t sharedMemBytes = 0 //!< Shared memory size
+                            uint32_t sharedMemBytes = 0, //!< Shared memory size
+                            bool cooperativeGroups = false //!< TRUE if cooperative groups mode is required
                             );
   void submitNativeFn(amd::NativeFnCommand& cmd);
   void submitMarker(amd::Marker& cmd);
@@ -220,10 +221,9 @@ class VirtualGPU : public device::VirtualDevice {
   //! Detects memory dependency for HSAIL kernels and uses appropriate AQL header
   bool processMemObjects(const amd::Kernel& kernel,  //!< AMD kernel object for execution
                          const_address params,       //!< Pointer to the param's store
-                         size_t& ldsAddress          //!< LDS usage
+                         size_t& ldsAddress,         //!< LDS usage
+                         bool cooperativeGroups      //!< Dispatch with cooperative groups
                          );
-  // Retun the virtual gpu unique index
-  uint index() const { return index_; }
 
   //! Adds a stage write buffer into a list
   void addXferWrite(Memory& memory);
@@ -242,11 +242,12 @@ class VirtualGPU : public device::VirtualDevice {
 
   void enableSyncBlit() const;
 
+
   // } roc OpenCL integration
  private:
-  bool dispatchAqlPacket(hsa_kernel_dispatch_packet_t* packet, bool blocking = true);
-  bool dispatchAqlPacket(hsa_barrier_and_packet_t* packet, bool blocking = true);
-  template <typename AqlPacket> bool dispatchGenericAqlPacket(AqlPacket* packet, bool blocking, size_t size = 1);
+  bool dispatchAqlPacket(hsa_kernel_dispatch_packet_t* packet, uint16_t header, uint16_t rest, bool blocking = true);
+  bool dispatchAqlPacket(hsa_barrier_and_packet_t* packet, uint16_t header, uint16_t rest, bool blocking = true);
+  template <typename AqlPacket> bool dispatchGenericAqlPacket(AqlPacket* packet, uint16_t header, uint16_t rest, bool blocking, size_t size = 1);
   void dispatchBarrierPacket(const hsa_barrier_and_packet_t* packet);
   bool dispatchCounterAqlPacket(hsa_ext_amd_aql_pm4_packet_t* packet, const uint32_t gfxVersion, bool blocking, const hsa_ven_amd_aqlprofile_1_00_pfn_t* extApi);
   void initializeDispatchPacket(hsa_kernel_dispatch_packet_t* packet, amd::NDRangeContainer& sizes);
@@ -321,7 +322,6 @@ class VirtualGPU : public device::VirtualDevice {
   uint kernarg_pool_cur_offset_;
 
   std::vector<ProfilingSignal> signal_pool_;  //!< Pool of signals for profiling
-  const uint index_;                          //!< Virtual gpu unique index
   friend class Timestamp;
 
   //  PM4 packet for gfx8 performance counter

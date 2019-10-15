@@ -23,7 +23,7 @@ using namespace clang::driver::tools;
 using namespace clang;
 using namespace llvm::opt;
 
-#if _WIN32 || _WIN64
+#if defined(_WIN32) || defined(_WIN64)
 #define NULL_FILE "nul"
 #else
 #define NULL_FILE "/dev/null"
@@ -126,12 +126,8 @@ const char *AMDGCN::Linker::constructLlcCommand(
     const llvm::opt::ArgList &Args, llvm::StringRef SubArchName,
     llvm::StringRef OutputFilePrefix, const char *InputFileName) const {
   // Construct llc command.
-  // FIXME: -disable-promote-alloca-to-lds is a workaround for issues in
-  // AMDGPUPromoteAlloca pass which cause invalid memory access in PyTorch.
-  // Remove this once the issue is fixed.
   ArgStringList LlcArgs{InputFileName, "-mtriple=amdgcn-amd-amdhsa",
-                        "-filetype=obj", "-mattr=-code-object-v3",
-                        "-disable-promote-alloca-to-lds",
+                        "-filetype=obj",
                         Args.MakeArgString("-mcpu=" + SubArchName)};
 
   // Extract all the -m options
@@ -174,9 +170,8 @@ void AMDGCN::Linker::constructLldCommand(Compilation &C, const JobAction &JA,
                                           const char *InputFileName) const {
   // Construct lld command.
   // The output from ld.lld is an HSA code object file.
-  ArgStringList LldArgs{"-flavor",    "gnu", "--no-undefined",
-                        "-shared",    "-o",  Output.getFilename(),
-                        InputFileName};
+  ArgStringList LldArgs{
+      "-flavor", "gnu", "-shared", "-o", Output.getFilename(), InputFileName};
   SmallString<128> LldPath(C.getDriver().Dir);
   llvm::sys::path::append(LldPath, "lld");
   const char *Lld = Args.MakeArgString(LldPath);
@@ -285,6 +280,7 @@ void HIPToolChain::addClangTargetOptions(
     CC1Args.push_back("-fgpu-rdc");
 
   CC1Args.push_back("-fcuda-allow-variadic-functions");
+  CC1Args.push_back("-fcuda-force-lambda-odr");
 
   // Default to "hidden" visibility, as object level linking will not be
   // supported for the foreseeable future.
@@ -322,11 +318,18 @@ void HIPToolChain::addClangTargetOptions(
     else
       FlushDenormalControlBC = "oclc_daz_opt_off.amdgcn.bc";
 
+    llvm::StringRef WaveFrontSizeBC;
+    if (stoi(GFXVersion) < 1000)
+      WaveFrontSizeBC = "oclc_wavefrontsize64_on.amdgcn.bc";
+    else
+      WaveFrontSizeBC = "oclc_wavefrontsize64_off.amdgcn.bc";
+
     BCLibs.append({"hip.amdgcn.bc", "opencl.amdgcn.bc", "ocml.amdgcn.bc",
                    "ockl.amdgcn.bc", "oclc_finite_only_off.amdgcn.bc",
                    FlushDenormalControlBC,
                    "oclc_correctly_rounded_sqrt_on.amdgcn.bc",
-                   "oclc_unsafe_math_off.amdgcn.bc", ISAVerBC});
+                   "oclc_unsafe_math_off.amdgcn.bc", ISAVerBC,
+                   WaveFrontSizeBC});
   }
   for (auto Lib : BCLibs)
     addBCLib(getDriver(), DriverArgs, CC1Args, LibraryPaths, Lib);

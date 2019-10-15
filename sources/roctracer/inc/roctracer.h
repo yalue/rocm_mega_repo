@@ -64,6 +64,7 @@ typedef enum {
   ROCTRACER_STATUS_BAD_PARAMETER = 5,
   ROCTRACER_STATUS_HIP_API_ERR = 6,
   ROCTRACER_STATUS_HCC_OPS_ERR = 7,
+  ROCTRACER_STATUS_ROCTX_ERR = 8,
 } roctracer_status_t;
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -89,11 +90,6 @@ roctracer_status_t roctracer_op_code(
   const char* str,                                        // [in] op string
   uint32_t* op,                                           // [out] op code
   uint32_t* kind = NULL);                                 // [out] op kind code
-
-// Set properties
-roctracer_status_t roctracer_set_properties(
-    roctracer_domain_t domain,                            // tracing domain
-    void* propertes);                                     // tracing properties
 
 ////////////////////////////////////////////////////////////////////////////////
 // Callback API
@@ -213,6 +209,21 @@ roctracer_status_t roctracer_disable_activity();
 // Flush available activity records
 roctracer_status_t roctracer_flush_activity(
     roctracer_pool_t* pool = NULL);                       // memory pool, NULL is a default one
+
+// Load/Unload methods
+// Set properties
+roctracer_status_t roctracer_set_properties(
+    roctracer_domain_t domain,                            // tracing domain
+    void* propertes);                                     // tracing properties
+
+struct HsaApiTable;
+bool roctracer_load(
+    HsaApiTable* table,
+    uint64_t runtime_version,
+    uint64_t failed_tool_count,
+    const char* const* failed_tool_names);
+
+void roctracer_unload(bool destruct);
 
 #ifdef __cplusplus
 }  // extern "C" block

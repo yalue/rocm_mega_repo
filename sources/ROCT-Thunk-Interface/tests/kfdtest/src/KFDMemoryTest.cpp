@@ -30,6 +30,7 @@
 #include <unistd.h>
 #include <sys/types.h>
 #include <signal.h>
+#include <numa.h>
 #include <vector>
 #include "Dispatch.hpp"
 #include "PM4Queue.hpp"
@@ -83,6 +84,31 @@ type(CS)\n\
     \n\
 end\n\
 ";
+const char* gfx10_ScratchCopyDword =
+"\
+shader ScratchCopyDword\n\
+asic(GFX10)\n\
+type(CS)\n\
+wave_size(32)\n\
+/*copy the parameters from scalar registers to vector registers*/\n\
+    v_mov_b32 v0, s0\n\
+    v_mov_b32 v1, s1\n\
+    v_mov_b32 v2, s2\n\
+    v_mov_b32 v3, s3\n\
+/*set up the scratch parameters. This assumes a single 16-reg block.*/\n\
+    s_setreg_b32 hwreg(HW_REG_SHADER_FLAT_SCRATCH_LO), s4\n\
+    s_setreg_b32 hwreg(HW_REG_SHADER_FLAT_SCRATCH_HI), s5\n\
+/*copy a dword between the passed addresses*/\n\
+    flat_load_dword v4, v[0:1] slc\n\
+    s_waitcnt vmcnt(0)&lgkmcnt(0)\n\
+    flat_store_dword v[2:3], v4 slc\n\
+    \n\
+    s_endpgm\n\
+    \n\
+end\n\
+";
+
+
 
 /* Continuously poll src buffer and check buffer value
  * After src buffer is filled with specific value (0x5678,
@@ -92,7 +118,7 @@ end\n\
 const char* gfx9_PollMemory =
 "\
 shader ReadMemory\n\
-asic(GFX9)\n\
+wave_size(32)\n\
 type(CS)\n\
 /* Assume src address in s0, s1 and dst address in s2, s3*/\n\
     s_movk_i32 s18, 0x5678\n\
@@ -106,10 +132,10 @@ type(CS)\n\
 ";
 
 /* Input: A buffer of at least 3 dwords.
- * DW0: used as a signal b/t host and device. Host
- * write 0xcafe to signal device.
- * DW1: Input buffer for host/device to read/write.
+ * DW0: used as a signal. 0xcafe means it is signaled
+ * DW1: Input buffer for device to read.
  * DW2: Output buffer for device to write.
+ * Once receive signal, device will copy DW1 to DW2
  * This shader continously poll the signal buffer,
  * Once signal buffer is signaled, it copies input buffer
  * to output buffer
@@ -117,19 +143,44 @@ type(CS)\n\
 const char* gfx9_CopyOnSignal =
 "\
 shader CopyOnSignal\n\
-asic(GFX9)\n\
+wave_size(32)\n\
 type(CS)\n\
 /* Assume input buffer in s0, s1 */\n\
-    s_movk_i32 s18, 0xcafe\n\
-    POLLSIGNAL:\n\
+    s_mov_b32 s18, 0xcafe\n\
+POLLSIGNAL:\n\
     s_load_dword s16, s[0:1], 0x0 glc\n\
     s_cmp_eq_i32 s16, s18\n\
     s_cbranch_scc0   POLLSIGNAL\n\
     s_load_dword s17, s[0:1], 0x4 glc\n\
+    s_waitcnt vmcnt(0) & lgkmcnt(0)\n\
     s_store_dword s17, s[0:1], 0x8 glc\n\
+    s_waitcnt vmcnt(0) & lgkmcnt(0)\n\
     s_endpgm\n\
     end\n\
 ";
+
+/* Input0: A buffer of at least 2 dwords.
+ * DW0: used as a signal. Write 0xcafe to signal
+ * DW1: Write to this buffer for other device to read.
+ * Input1: mmio base address
+ */
+const char* gfx9_WriteAndSignal =
+"\
+shader WriteAndSignal\n\
+wave_size(32)\n\
+type(CS)\n\
+/* Assume input buffer in s0, s1 */\n\
+    s_mov_b32 s18, 0xbeef\n\
+    s_store_dword s18, s[0:1], 0x4 glc\n\
+    s_mov_b32 s18, 0x1\n\
+    s_store_dword s18, s[2:3], 0 glc\n\
+    s_mov_b32 s18, 0xcafe\n\
+    s_store_dword s18, s[0:1], 0x0 glc\n\
+    s_endpgm\n\
+    end\n\
+";
+
+//These gfx9_PullMemory, gfx9_CopyOnSignal, gfx9_WriteAndSignal shaders can be used by both gfx9 and gfx10
 
 void KFDMemoryTest::SetUp() {
     ROUTINE_START
@@ -235,8 +286,8 @@ TEST_F(KFDMemoryTest, MMapLarge) {
  */
 TEST_F(KFDMemoryTest, MapUnmapToNodes) {
     TEST_START(TESTPROFILE_RUNALL)
-    if (m_FamilyId != FAMILY_AI) {
-        LOG() << "Skipping test: GFX9-based shader not supported on other ASICs." << std::endl;
+    if (m_FamilyId < FAMILY_AI) {
+        LOG() << "Skipping test: Test requires gfx9 and later asics." << std::endl;
         return;
     }
 
@@ -381,11 +432,6 @@ TEST_F(KFDMemoryTest, AccessPPRMem) {
 // Linux OS-specific Test for registering OS allocated memory
 TEST_F(KFDMemoryTest, MemoryRegister) {
     const HsaNodeProperties *pNodeProperties = m_NodeInfo.HsaDefaultGPUNodeProperties();
-    if (isTonga(pNodeProperties)) {
-        LOG() << "Skipping test: Workaround in thunk for Tonga causes failure." << std::endl;
-        return;
-    }
-
     TEST_START(TESTPROFILE_RUNALL)
 
     int defaultGPUNode = m_NodeInfo.HsaDefaultGPUNode();
@@ -429,7 +475,7 @@ TEST_F(KFDMemoryTest, MemoryRegister) {
     dispatch0.Submit(pm4Queue);
     dispatch0.Sync(g_TestTimeOut);
 
-    sdmaQueue.PlaceAndSubmitPacket(SDMAWriteDataPacket(sdmaBuffer.As<HSAuint32 *>(), 0x12345678));
+    sdmaQueue.PlaceAndSubmitPacket(SDMAWriteDataPacket(sdmaQueue.GetFamilyId(), sdmaBuffer.As<HSAuint32 *>(), 0x12345678));
     sdmaQueue.Wait4PacketConsumption();
     EXPECT_TRUE(WaitOnValue(&stackData[sdmaOffset], 0x12345678));
 
@@ -472,7 +518,7 @@ TEST_F(KFDMemoryTest, MemoryRegister) {
     dispatch1.Submit(pm4Queue);
     dispatch1.Sync(g_TestTimeOut);
 
-    sdmaQueue.PlaceAndSubmitPacket(SDMAWriteDataPacket(sdmaBuffer.As<HSAuint32 *>(), 0xD0BED0BE));
+    sdmaQueue.PlaceAndSubmitPacket(SDMAWriteDataPacket(sdmaQueue.GetFamilyId(), sdmaBuffer.As<HSAuint32 *>(), 0xD0BED0BE));
     sdmaQueue.Wait4PacketConsumption();
 
     EXPECT_SUCCESS(pm4Queue.Destroy());
@@ -540,7 +586,7 @@ TEST_F(KFDMemoryTest, MemoryRegisterSamePtr) {
     mem[2] = 0x0;
     queue.PlaceAndSubmitPacket(PM4WriteDataPacket(reinterpret_cast<unsigned int *>(gpuva2),
                                                   0xdeadbeef));
-    queue.PlaceAndSubmitPacket(PM4ReleaseMemoryPacket(true, 0, 0));
+    queue.PlaceAndSubmitPacket(PM4ReleaseMemoryPacket(m_FamilyId, true, 0, 0));
     queue.Wait4PacketConsumption();
     EXPECT_EQ(true, WaitOnValue((unsigned int *)(&mem[2]), 0xdeadbeef));
     EXPECT_SUCCESS(queue.Destroy());
@@ -599,9 +645,14 @@ TEST_F(KFDMemoryTest, FlatScratchAccess) {
     // Initialize the srcBuffer to some fixed value
     srcMemBuffer.Fill(0x01010101);
 
-    // Initialize a buffer with a dword copy ISA
-    m_pIsaGen->CompileShader((m_FamilyId >= FAMILY_AI) ? gfx9_ScratchCopyDword : gfx8_ScratchCopyDword,
-            "ScratchCopyDword", isaBuffer);
+    const char *pScratchCopyDword;
+    if (m_FamilyId < FAMILY_AI)
+        pScratchCopyDword = gfx8_ScratchCopyDword;
+    else if (m_FamilyId < FAMILY_NV)
+        pScratchCopyDword = gfx9_ScratchCopyDword;
+    else
+        pScratchCopyDword = gfx10_ScratchCopyDword;
+    m_pIsaGen->CompileShader(pScratchCopyDword, "ScratchCopyDword", isaBuffer);
 
     const HsaNodeProperties *pNodeProperties = m_NodeInfo.GetNodeProperties(defaultGPUNode);
 
@@ -618,7 +669,7 @@ TEST_F(KFDMemoryTest, FlatScratchAccess) {
 
         for (unsigned int bank = 0; bank < pNodeProperties->NumMemoryBanks; bank++) {
             if (memoryProperties[bank].HeapType == HSA_HEAPTYPE_GPU_SCRATCH) {
-                int numWaves = 4;  // WAVES must be >= # SE
+                int numWaves = pNodeProperties->NumShaderBanks;  // WAVES must be >= # SE
                 int waveSize = 1;  // Amount of space used by each wave in units of 256 dwords
 
                 PM4Queue queue;
@@ -809,6 +860,24 @@ void KFDMemoryTest::BigBufferVRAM(int defaultGPUNode, HSAuint64 granularityMB,
             << vramSizeMB * 15 / 16 << "MB" << std::endl;
 }
 
+void KFDMemoryTest::NumaNodeBind(const char *nodeStr) {
+    if (numa_available() != -1) {
+        int num_node = numa_num_task_nodes();
+
+        if (num_node > 1) {
+            struct bitmask *nodemask;
+
+            LOG() << "NUMA total nodes " << num_node << ", bind to " << nodeStr << std::endl;
+
+            nodemask = numa_parse_nodestring(nodeStr);
+            if (nodemask) {
+                numa_bind(nodemask);
+                numa_free_nodemask(nodemask);
+            }
+        }
+    }
+}
+
 /* BigBufferStressTest allocs, maps/unmaps, and frees the biggest possible system
  * buffers. Its size is found using binary search in the range (0, RAM SIZE) with
  * a granularity of 128M. Repeat the similar logic on local buffers (VRAM).
@@ -831,6 +900,7 @@ TEST_F(KFDMemoryTest, BigBufferStressTest) {
     TEST_START(TESTPROFILE_RUNALL);
 
     HSAuint64 AlternateVAGPU;
+    HSAuint64 Available_size;
     HsaMemMapFlags mapFlags = {0};
     int ret;
 
@@ -839,7 +909,14 @@ TEST_F(KFDMemoryTest, BigBufferStressTest) {
     int defaultGPUNode = m_NodeInfo.HsaDefaultGPUNode();
     ASSERT_GE(defaultGPUNode, 0) << "failed to get default GPU Node";
 
-    BigBufferSystemMemory(defaultGPUNode, granularityMB, NULL);
+    /* Don't run on node 0 on multiple NUMA node machine because dma32 zone is on node 0,
+     * Use all memory including dma32 zone on node 0 will cause TTM eviction to free dma32
+     * zone for other devices which supports 32bit physical address. The eviction and
+     * restore may retry if busy and cause queue timeout and test failure.
+     */
+    NumaNodeBind("!0");
+
+    BigBufferSystemMemory(defaultGPUNode, granularityMB, &Available_size);
 
     BigBufferVRAM(defaultGPUNode, granularityMB, NULL);
 
@@ -853,10 +930,18 @@ TEST_F(KFDMemoryTest, BigBufferStressTest) {
     HSAuint64 block_size_mb = 128;
     HSAuint64 block_size = block_size_mb * 1024 * 1024;
     PM4Queue queue;
-    ASSERT_SUCCESS(queue.Create(defaultGPUNode));
+
+    /* In non-numa system to avoid TTM eviction,
+     * we have to keep half of dma32 zone (2GB) out of allocation.
+     */
+    if (((numa_available() == -1) || (numa_num_task_nodes() < 2)) &&
+            (Available_size > 0x80000000))
+        Available_size -= 0x80000000;
 
     /* Test 4 times to see if there is any memory leak.*/
     for (int repeat = 1; repeat < 5; repeat++) {
+        ASSERT_SUCCESS(queue.Create(defaultGPUNode));
+
         for (i = 0; i < ARRAY_ENTRIES; i++) {
             ret = hsaKmtAllocMemory(0 /* system */, block_size, m_MemoryFlags,
                     reinterpret_cast<void**>(&pDb_array[i]));
@@ -869,6 +954,9 @@ TEST_F(KFDMemoryTest, BigBufferStressTest) {
                 EXPECT_SUCCESS(hsaKmtFreeMemory(pDb_array[i], block_size));
                 break;
             }
+
+            if ((i + 2) * block_size > Available_size)
+                break;
         }
 
         LOG() << "Allocated system buffers time " << std::dec << repeat << ": " << i << "x"
@@ -878,20 +966,26 @@ TEST_F(KFDMemoryTest, BigBufferStressTest) {
             allocationCount = i;
         EXPECT_GE(i, allocationCount) << "There might be memory leak!" << std::endl;
 
-        while (i--) {
+        for (int j = 0; j < i; j++) {
             /* To see if GPU can access the memory correctly*/
-            unsigned int *begin = pDb_array[i];
+            unsigned int *begin = pDb_array[j];
             *begin = 0;
             queue.PlaceAndSubmitPacket(
                     PM4WriteDataPacket(begin, 0xdeadbeaf));
-            queue.Wait4PacketConsumption();
+            queue.Wait4PacketConsumption(NULL, 300000);
             EXPECT_TRUE(WaitOnValue(begin, 0xdeadbeaf));
+        }
 
-            EXPECT_SUCCESS(hsaKmtUnmapMemoryToGPU(pDb_array[i]));
-            EXPECT_SUCCESS(hsaKmtFreeMemory(pDb_array[i], block_size));
+        EXPECT_SUCCESS(queue.Destroy());
+
+        for (int j = 0; j < i; j++) {
+            EXPECT_SUCCESS(hsaKmtUnmapMemoryToGPU(pDb_array[j]));
+            EXPECT_SUCCESS(hsaKmtFreeMemory(pDb_array[j], block_size));
         }
     }
-    EXPECT_SUCCESS(queue.Destroy());
+
+    /* Reset to run on all task nodes */
+    NumaNodeBind("all");
 
     TEST_END
 }
@@ -900,17 +994,30 @@ TEST_F(KFDMemoryTest, MMBench) {
     TEST_REQUIRE_ENV_CAPABILITIES(ENVCAPS_64BITLINUX);
     TEST_START(TESTPROFILE_RUNALL);
 
-    const unsigned nBufs = 1000; /* measure us, report ns */
     unsigned testIndex, sizeIndex, memType, nMemTypes;
     const char *memTypeStrings[2] = {"SysMem", "VRAM"};
-    const unsigned nSizes = 4;
-    const unsigned bufSizes[nSizes] = {PAGE_SIZE, PAGE_SIZE*4, PAGE_SIZE*16, PAGE_SIZE*64};
+    const struct {
+        unsigned size;
+        unsigned num;
+    } bufParams[] = {
+        /* Buffer sizes in x16 increments. Limit memory usage to about
+         * 1GB. For small sizes we use 1000 buffers, which means we
+         * conveniently measure microseconds and report nanoseconds.
+         */
+        {PAGE_SIZE      , 1000},  /*  4KB */
+        {PAGE_SIZE <<  4, 1000},  /* 64KB */
+        {PAGE_SIZE <<  9,  500},  /*  2MB */
+        {PAGE_SIZE << 13,   32},  /* 32MB */
+        {PAGE_SIZE << 18,    1},  /*  1GB */
+    };
+    const unsigned nSizes = sizeof(bufParams) / sizeof(bufParams[0]);
     const unsigned nTests = nSizes << 2;
-#define TEST_BUFSIZE(index) (bufSizes[(index) & (nSizes-1)])
+#define TEST_BUFSIZE(index) (bufParams[(index) % nSizes].size)
+#define TEST_NBUFS(index)  (bufParams[(index) % nSizes].num)
 #define TEST_MEMTYPE(index) ((index / nSizes) & 0x1)
 #define TEST_SDMA(index)    (((index / nSizes) >> 1) & 0x1)
 
-    void *bufs[nBufs];
+    void *bufs[1000];
     HSAuint64 start, end;
     unsigned i;
     HSAKMT_STATUS ret;
@@ -952,10 +1059,10 @@ TEST_F(KFDMemoryTest, MMBench) {
 #define INTERLEAVE_SDMA() do {                                          \
         if (interleaveSDMA) {                                           \
             sdmaQueue[0].PlaceAndSubmitPacket(                          \
-                SDMAWriteDataPacket(sdmaBuffer.As<HSAuint32 *>(),       \
+                SDMAWriteDataPacket(sdmaQueue[0].GetFamilyId(), sdmaBuffer.As<HSAuint32 *>(),       \
                                     0x12345678));                       \
             sdmaQueue[1].PlaceAndSubmitPacket(                          \
-                SDMAWriteDataPacket(sdmaBuffer.As<HSAuint32 *>()+16,    \
+                SDMAWriteDataPacket(sdmaQueue[1].GetFamilyId(), sdmaBuffer.As<HSAuint32 *>()+16,    \
                                     0x12345678));                       \
         }                                                               \
     } while (0)
@@ -966,16 +1073,17 @@ TEST_F(KFDMemoryTest, MMBench) {
         }                                                               \
     } while (0)
 
-    LOG() << "Test (avg. ns)\t   alloc  mapOne umapOne  mapAll umapAll    free" << std::endl;
+    LOG() << "Test (avg. ns)\t    alloc   mapOne  umapOne   mapAll  umapAll     free" << std::endl;
     for (testIndex = 0; testIndex < nTests; testIndex++) {
         unsigned bufSize = TEST_BUFSIZE(testIndex);
+        unsigned nBufs = TEST_NBUFS(testIndex);
         unsigned memType = TEST_MEMTYPE(testIndex);
         bool interleaveSDMA = TEST_SDMA(testIndex);
         HSAuint64 allocTime, map1Time, unmap1Time, mapAllTime, unmapAllTime, freeTime;
         HSAuint32 allocNode;
 
-        if ((testIndex & (nSizes-1)) == 0)
-            LOG() << "--------------------------------------------------------------------" << std::endl;
+        if ((testIndex % nSizes) == 0)
+            LOG() << "--------------------------------------------------------------------------" << std::endl;
 
         if (memType >= nMemTypes)
             continue;  // skip unsupported mem types
@@ -1051,16 +1159,36 @@ TEST_F(KFDMemoryTest, MMBench) {
         freeTime = GetSystemTickCountInMicroSec() - start;
         IDLE_SDMA();
 
+        allocTime = allocTime * 1000 / nBufs;
+        map1Time = map1Time * 1000 / nBufs;
+        unmap1Time = unmap1Time * 1000 / nBufs;
+        mapAllTime = mapAllTime * 1000 / nBufs;
+        unmapAllTime = unmapAllTime * 1000 / nBufs;
+        freeTime = freeTime * 1000 / nBufs;
+
+        unsigned bufSizeLog;
+        char bufSizeUnit;
+        if (bufSize < (1 << 20)) {
+            bufSizeLog = bufSize >> 10;
+            bufSizeUnit = 'K';
+        } else if (bufSize < (1 << 30)) {
+            bufSizeLog = bufSize >> 20;
+            bufSizeUnit = 'M';
+        } else {
+            bufSizeLog = bufSize >> 30;
+            bufSizeUnit = 'G';
+        }
+
         LOG() << std::dec << std::setiosflags(std::ios::right)
-              << std::setw(3) << (bufSize >> 10) << "K-"
+              << std::setw(3) << bufSizeLog << bufSizeUnit << "-"
               << memTypeStrings[memType] << "-"
               << (interleaveSDMA ? "SDMA\t" : "noSDMA\t")
-              << std::setw(8) << allocTime
-              << std::setw(8) << map1Time
-              << std::setw(8) << unmap1Time
-              << std::setw(8) << mapAllTime
-              << std::setw(8) << unmapAllTime
-              << std::setw(8) << freeTime << std::endl;
+              << std::setw(9) << allocTime
+              << std::setw(9) << map1Time
+              << std::setw(9) << unmap1Time
+              << std::setw(9) << mapAllTime
+              << std::setw(9) << unmapAllTime
+              << std::setw(9) << freeTime << std::endl;
 
 #define MMBENCH_KEY_PREFIX memTypeStrings[memType] << "-" \
                            << (interleaveSDMA ? "SDMA" : "noSDMA") << "-" \
@@ -1360,7 +1488,7 @@ TEST_F(KFDMemoryTest, PtraceAccessInvisibleVram) {
                                                   data0[0], data0[1]));
     queue.PlaceAndSubmitPacket(PM4WriteDataPacket((unsigned int *)mem1,
                                                   data1[0], data1[1]));
-    queue.PlaceAndSubmitPacket(PM4ReleaseMemoryPacket(true, 0, 0));
+    queue.PlaceAndSubmitPacket(PM4ReleaseMemoryPacket(m_FamilyId, true, 0, 0));
     queue.Wait4PacketConsumption();
 
     /* Allow any process to trace this one. If kernel is built without
@@ -1430,8 +1558,16 @@ TEST_F(KFDMemoryTest, PtraceAccessInvisibleVram) {
     HsaMemoryBuffer isaBuffer(PAGE_SIZE, defaultGPUNode, true/*zero*/, false/*local*/, true/*exec*/);
     // dstBuffer is cpu accessible gtt memory
     HsaMemoryBuffer dstBuffer(PAGE_SIZE, defaultGPUNode);
-    m_pIsaGen->CompileShader((m_FamilyId >= FAMILY_AI) ? gfx9_ScratchCopyDword : gfx8_ScratchCopyDword,
-            "ScratchCopyDword", isaBuffer);
+
+    const char *pScratchCopyDword;
+    if (m_FamilyId < FAMILY_AI)
+        pScratchCopyDword = gfx8_ScratchCopyDword;
+    else if (m_FamilyId < FAMILY_NV)
+        pScratchCopyDword = gfx9_ScratchCopyDword;
+    else
+        pScratchCopyDword = gfx10_ScratchCopyDword;
+
+    m_pIsaGen->CompileShader(pScratchCopyDword, "ScratchCopyDword", isaBuffer);
     Dispatch dispatch0(isaBuffer);
     dispatch0.SetArgs(mem0, dstBuffer.As<void*>());
     dispatch0.Submit(queue);
@@ -1511,7 +1647,7 @@ TEST_F(KFDMemoryTest, SignalHandling) {
 
     pDb[0] = 0x02020202;
     ASSERT_SUCCESS(queue.Create(defaultGPUNode));
-    queue.PlaceAndSubmitPacket(SDMAWriteDataPacket(pDb, 0x01010101) );
+    queue.PlaceAndSubmitPacket(SDMAWriteDataPacket(queue.GetFamilyId(), pDb, 0x01010101) );
     queue.Wait4PacketConsumption();
     EXPECT_TRUE(WaitOnValue(pDb, 0x01010101));
     EXPECT_SUCCESS(queue.Destroy());
@@ -1761,7 +1897,7 @@ TEST_F(KFDMemoryTest, HostHdpFlush) {
     for (unsigned int bank = 0; bank < pNodeProperties->NumMemoryBanks; bank++) {
         if (memoryProperties[bank].HeapType == HSA_HEAPTYPE_MMIO_REMAP) {
             mmioBase = (unsigned int *)memoryProperties[bank].VirtualBaseAddress;
-	    break;
+            break;
         }
     }
     ASSERT_NE(mmioBase, nullPtr) << "mmio base is NULL";
@@ -1780,7 +1916,7 @@ TEST_F(KFDMemoryTest, HostHdpFlush) {
     PM4Queue queue;
     ASSERT_SUCCESS(queue.Create(defaultGPUNode));
     HsaMemoryBuffer isaBuffer(PAGE_SIZE, defaultGPUNode, true/*zero*/, false/*local*/, true/*exec*/);
-    m_pIsaGen->CompileShader(gfx9_CopyOnSignal,"CopyOnSignal", isaBuffer);
+    m_pIsaGen->CompileShader(gfx9_CopyOnSignal, "CopyOnSignal", isaBuffer);
     Dispatch dispatch0(isaBuffer);
     dispatch0.SetArgs(buffer, NULL);
     dispatch0.Submit(queue);
@@ -1788,15 +1924,138 @@ TEST_F(KFDMemoryTest, HostHdpFlush) {
     buffer[1] = 0xbeef;
     /* Flush HDP */
     mmioBase[KFD_MMIO_REMAP_HDP_MEM_FLUSH_CNTL/4] = 0x1;
-    /* Give cafe to wake up */
     buffer[0] = 0xcafe;
 
     /* Check test result*/
     dispatch0.Sync();
+    mmioBase[KFD_MMIO_REMAP_HDP_MEM_FLUSH_CNTL/4] = 0x1;
     EXPECT_EQ(0xbeef, buffer[2]);
 
     // Clean up
     EXPECT_SUCCESS(queue.Destroy());
+    delete [] memoryProperties;
+    EXPECT_SUCCESS(hsaKmtUnmapMemoryToGPU(buffer));
+    EXPECT_SUCCESS(hsaKmtFreeMemory(buffer, PAGE_SIZE));
+
+    TEST_END
+}
+
+/* Test HDP flush from device.
+ * Use shader on device 1 to write vram of device 0
+ * and flush HDP of device 0. Read vram from device 0
+ * and write back to vram to check the result from CPU.
+ * Asic before gfx9 doesn't support device HDP flush
+ * so only run on vega10 and after.
+ * This should only run on system with at least one
+ * large bar node (which is used as device 0).
+ */
+TEST_F(KFDMemoryTest, DeviceHdpFlush) {
+    TEST_REQUIRE_ENV_CAPABILITIES(ENVCAPS_64BITLINUX);
+    TEST_START(TESTPROFILE_RUNALL);
+
+    HsaMemFlags memoryFlags = m_MemoryFlags;
+    /* buffer is physically on device 0.
+     * buffer[0]: Use as signaling b/t devices;
+     * buffer[1]: Device 1 write to buffer[1] and device 0 read it
+     * buffer[2]: Device 0 copy buffer[1] to buffer[2] for CPU to check
+     */
+    unsigned int *buffer = NULL;
+    const HsaNodeProperties *pNodeProperties;
+    HSAuint32 *mmioBase = NULL;
+    unsigned int *nullPtr = NULL;
+    std::vector<HSAuint32> nodes;
+
+    const std::vector<int> gpuNodes = m_NodeInfo.GetNodesWithGPU();
+    if (gpuNodes.size() < 2) {
+        LOG() << "Skipping test: At least two GPUs are required." << std::endl;
+        return;
+    }
+
+     /* Users can use "--node=gpu1 --dst_node=gpu2" to specify devices */
+    if (g_TestDstNodeId != -1 && g_TestNodeId != -1) {
+        nodes.push_back(g_TestNodeId);
+        nodes.push_back(g_TestDstNodeId);
+        if (!m_NodeInfo.IsGPUNodeLargeBar(nodes[0])) {
+            LOG() << "Skipping test: first GPU specified is not a large bar GPU." << std::endl;
+            return;
+        }
+        if (nodes[0] == nodes[1]) {
+            LOG() << "Skipping test: Different GPUs must be specified (2 GPUs required)." << std::endl;
+            return;
+        }
+    } else {
+        HSAint32 defaultGPU = m_NodeInfo.HsaDefaultGPUNode();
+        if (!m_NodeInfo.IsGPUNodeLargeBar(defaultGPU)) {
+            LOG() << "Skipping test: Default GPUs must be large bar." << std::endl;
+            return;
+        }
+        nodes.push_back(defaultGPU);
+        for (unsigned i = 0; i < gpuNodes.size(); i++)
+            if (gpuNodes.at(i) != defaultGPU)
+                nodes.push_back(gpuNodes.at(i));
+        if (nodes.size() < 2) {
+            LOG() << "Skipping test: At least 2 GPUs required." << std::endl;
+            return;
+        }
+    }
+
+    pNodeProperties = m_NodeInfo.GetNodeProperties(nodes[0]);
+    if (!pNodeProperties) {
+        LOG() << "Failed to get gpu node properties." << std::endl;
+        return;
+    }
+
+    if (m_FamilyId < FAMILY_AI) {
+        LOG() << "Skipping test: Test requires gfx9 and later asics." << std::endl;
+        return;
+    }
+
+    HsaMemoryProperties *memoryProperties = new HsaMemoryProperties[pNodeProperties->NumMemoryBanks];
+    EXPECT_SUCCESS(hsaKmtGetNodeMemoryProperties(nodes[0], pNodeProperties->NumMemoryBanks,
+                   memoryProperties));
+    for (unsigned int bank = 0; bank < pNodeProperties->NumMemoryBanks; bank++) {
+        if (memoryProperties[bank].HeapType == HSA_HEAPTYPE_MMIO_REMAP) {
+            mmioBase = (unsigned int *)memoryProperties[bank].VirtualBaseAddress;
+            break;
+        }
+    }
+    ASSERT_NE(mmioBase, nullPtr) << "mmio base is NULL";
+
+    memoryFlags.ui32.NonPaged = 1;
+    memoryFlags.ui32.CoarseGrain = 0;
+    ASSERT_SUCCESS(hsaKmtAllocMemory(nodes[0], PAGE_SIZE, memoryFlags,
+                   reinterpret_cast<void**>(&buffer)));
+    ASSERT_SUCCESS(hsaKmtMapMemoryToGPU(buffer, PAGE_SIZE, NULL));
+
+    /* Signal is dead from the beginning*/
+    buffer[0] = 0xdead;
+    buffer[1] = 0xfeeb;
+    buffer[2] = 0xfeeb;
+    /* Submit shaders*/
+    PM4Queue queue;
+    ASSERT_SUCCESS(queue.Create(nodes[0]));
+    HsaMemoryBuffer isaBuffer(PAGE_SIZE, nodes[0], true/*zero*/, false/*local*/, true/*exec*/);
+    m_pIsaGen->CompileShader(gfx9_CopyOnSignal, "CopyOnSignal", isaBuffer);
+    Dispatch dispatch(isaBuffer);
+    dispatch.SetArgs(buffer, NULL);
+    dispatch.Submit(queue);
+
+    PM4Queue queue0;
+    ASSERT_SUCCESS(queue0.Create(nodes[1]));
+    HsaMemoryBuffer isaBuffer0(PAGE_SIZE, nodes[1], true/*zero*/, false/*local*/, true/*exec*/);
+    m_pIsaGen->CompileShader(gfx9_WriteAndSignal, "WriteAndSignal", isaBuffer0);
+    Dispatch dispatch0(isaBuffer0);
+    dispatch0.SetArgs(buffer, mmioBase);
+    dispatch0.Submit(queue0);
+
+    /* Check test result*/
+    dispatch0.Sync();
+    dispatch.Sync();
+    EXPECT_EQ(0xbeef, buffer[2]);
+
+    // Clean up
+    EXPECT_SUCCESS(queue.Destroy());
+    EXPECT_SUCCESS(queue0.Destroy());
     delete [] memoryProperties;
     EXPECT_SUCCESS(hsaKmtUnmapMemoryToGPU(buffer));
     EXPECT_SUCCESS(hsaKmtFreeMemory(buffer, PAGE_SIZE));

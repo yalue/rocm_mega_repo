@@ -59,7 +59,7 @@ void RocmBandwidthTest::PrintHelpScreen() {
   std::cout << "\t -v    Run the test in validation mode" << std::endl;
   std::cout << "\t -l    Run test to collect Latency data" << std::endl;
   std::cout << "\t -c    Time the operation using CPU Timers" << std::endl;
-  std::cout << "\t -i    Initialize copy buffer with specified byte pattern" << std::endl;
+  std::cout << "\t -i    Initialize copy buffer with specified 'long double' pattern" << std::endl;
   std::cout << "\t -t    Prints system topology and allocatable memory info" << std::endl;
   std::cout << "\t -m    List of buffer sizes to use, specified in Megabytes" << std::endl;
   std::cout << "\t -b    List devices to use in bidirectional copy operations" << std::endl;
@@ -79,9 +79,39 @@ void RocmBandwidthTest::PrintHelpScreen() {
   std::cout << "\t\t Case 7: rocm_bandwidth_test -a or -s x -d y with -l and -v" << std::endl;
   std::cout << std::endl;
 
-
   std::cout << std::endl;
 
+}
+
+// @brief: Print the cmdline used to run the test
+void RocmBandwidthTest::PrintLaunchCmd() const {
+
+  uint32_t format = 10;
+  std::cout.setf(ios::left);
+
+  std::cout << std::endl;
+  std::cout.width(format);
+  std::cout << "";
+  std::cout << "Launch Command is: ";
+
+  // Print the exe value
+  std::cout << usr_argv_[0];
+
+  // Return for default run
+  if (bw_default_run_ != NULL) {
+    std::cout << " (rocm_bandwidth -a + rocm_bandwidth -A)";
+    std::cout << std::endl;
+    std::cout << std::endl;
+    return;
+  }
+
+  // Print launch parameters for non-default runs
+  for (uint32_t idx = 1; idx < usr_argc_; idx++) {
+    std::cout << " " << usr_argv_[idx];
+  }
+  
+  std::cout << std::endl;
+  std::cout << std::endl;
 }
 
 // @brief: Print the version of the test
@@ -94,6 +124,9 @@ void RocmBandwidthTest::PrintVersion() const {
   std::cout.width(format);
   std::cout << "";
   std::cout << "RocmBandwidthTest Version: " << GetVersion() << std::endl;
+  
+  // Print launch command
+  PrintLaunchCmd();
 }
 
 // @brief: Print the topology of Memory Pools and Devices present in system
@@ -171,6 +204,7 @@ std::string GetValueAsString(uint32_t key, uint32_t value) {
   }
   std::cout << "An illegal key to get value for" << std::endl;
   assert(false);
+  return "";
 }
 
 void RocmBandwidthTest::PrintLinkPropsMatrix(uint32_t key) const {
@@ -306,6 +340,11 @@ void RocmBandwidthTest::PrintTransList() {
       std::cout << "   Dst Buffer used in Copy: " << trans.copy.dst_idx_ << std::endl;
     }
     if ((trans.req_type_ == REQ_COPY_ALL_BIDIR) || (trans.req_type_ == REQ_COPY_ALL_UNIDIR)) {
+      std::cout << "   Src Memory Pool used in Copy: " << trans.copy.src_idx_ << std::endl;
+      std::cout << "   Dst Memory Pool used in Copy: " << trans.copy.dst_idx_ << std::endl;
+    }
+    if ((trans.req_type_ == REQ_CONCURRENT_COPY_BIDIR) ||
+        (trans.req_type_ == REQ_CONCURRENT_COPY_UNIDIR)) {
       std::cout << "   Src Memory Pool used in Copy: " << trans.copy.src_idx_ << std::endl;
       std::cout << "   Dst Memory Pool used in Copy: " << trans.copy.dst_idx_ << std::endl;
     }

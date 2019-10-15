@@ -24,19 +24,19 @@
 #include "testing_coo2csr.hpp"
 #include "utility.hpp"
 
-#include <rocsparse.h>
 #include <gtest/gtest.h>
-#include <vector>
+#include <rocsparse.h>
 #include <string>
+#include <vector>
 
-typedef std::tuple<int, int, rocsparse_index_base> coo2csr_tuple;
-typedef std::tuple<rocsparse_index_base, std::string> coo2csr_bin_tuple;
+typedef std::tuple<rocsparse_int, rocsparse_int, rocsparse_index_base> coo2csr_tuple;
+typedef std::tuple<rocsparse_index_base, std::string>                  coo2csr_bin_tuple;
 
-int coo2csr_M_range[] = {-1, 0, 10, 500, 872, 1000};
-int coo2csr_N_range[] = {-3, 0, 33, 242, 623, 1000};
+rocsparse_int coo2csr_M_range[] = {-1, 0, 10, 500, 872, 1000};
+rocsparse_int coo2csr_N_range[] = {-3, 0, 33, 242, 623, 1000};
 
-rocsparse_index_base coo2csr_idx_base_range[] = {rocsparse_index_base_zero,
-                                                 rocsparse_index_base_one};
+rocsparse_index_base coo2csr_idx_base_range[]
+    = {rocsparse_index_base_zero, rocsparse_index_base_one};
 
 std::string coo2csr_bin[] = {"rma10.bin",
                              "mac_econ_fwd500.bin",
@@ -51,11 +51,16 @@ std::string coo2csr_bin[] = {"rma10.bin",
                              "nos4.bin",
                              "nos5.bin",
                              "nos6.bin",
-                             "nos7.bin"};
+                             "nos7.bin",
+                             "amazon0312.bin",
+                             "Chebyshev4.bin",
+                             "sme3Dc.bin",
+                             "webbase-1M.bin",
+                             "shipsec1.bin"};
 
 class parameterized_coo2csr : public testing::TestWithParam<coo2csr_tuple>
 {
-    protected:
+protected:
     parameterized_coo2csr() {}
     virtual ~parameterized_coo2csr() {}
     virtual void SetUp() {}
@@ -64,7 +69,7 @@ class parameterized_coo2csr : public testing::TestWithParam<coo2csr_tuple>
 
 class parameterized_coo2csr_bin : public testing::TestWithParam<coo2csr_bin_tuple>
 {
-    protected:
+protected:
     parameterized_coo2csr_bin() {}
     virtual ~parameterized_coo2csr_bin() {}
     virtual void SetUp() {}
@@ -93,7 +98,7 @@ Arguments setup_coo2csr_arguments(coo2csr_bin_tuple tup)
     std::string bin_file = std::get<1>(tup);
 
     // Get current executables absolute path
-    char path_exe[PATH_MAX];
+    char    path_exe[PATH_MAX];
     ssize_t len = readlink("/proc/self/exe", path_exe, sizeof(path_exe) - 1);
     if(len < 14)
     {
@@ -105,12 +110,15 @@ Arguments setup_coo2csr_arguments(coo2csr_bin_tuple tup)
     }
 
     // Matrices are stored at the same path in matrices directory
-    arg.filename = std::string(path_exe) + "matrices/" + bin_file;
+    arg.filename = std::string(path_exe) + "../matrices/" + bin_file;
 
     return arg;
 }
 
-TEST(coo2csr_bad_arg, coo2csr) { testing_coo2csr_bad_arg(); }
+TEST(coo2csr_bad_arg, coo2csr)
+{
+    testing_coo2csr_bad_arg();
+}
 
 TEST_P(parameterized_coo2csr, coo2csr)
 {

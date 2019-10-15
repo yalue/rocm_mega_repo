@@ -12,6 +12,18 @@ You may find rocm-smi at the following location after installing the rocm packag
 
 Alternatively, you may clone this repository and run the tool directly.
 
+### Version
+The SMI will report a "version" which is the version of the kernel installed:
+```shell
+AMD ROCm System Management Interface v$(uname)
+```
+For ROCk installations, this will be the AMDGPU module version (e.g. 5.0.71)
+For non-ROCk or monolithic ROCk installations, this will be the kernel version,
+which will be equivalent to the following bash command:
+```shell
+$(uname -a) | cut -d ' ' -f 3)
+```
+
 #### Usage
 
 For detailed and up to date usage information, we recommend consulting the help:
@@ -19,19 +31,23 @@ For detailed and up to date usage information, we recommend consulting the help:
 /opt/rocm/bin/rocm-smi -h
 ```
 
-For convenience purposes, following is a quick excerpt:
+For convenience purposes, following is the output from the -h flag:
 ```shell
 usage: rocm-smi [-h] [-d DEVICE [DEVICE ...]] [-i] [-v] [--showhw] [-t] [-c] [-g] [-f] [-p] [-P] [-o] [-m] [-M] [-l]
-                [-s] [-u] [-b] [--showreplaycount] [-S] [--showvoltage] [--showrasinfo BLOCK [BLOCK ...]]
-                [--showfwinfo [BLOCK [BLOCK ...]]] [-a] [--showmeminfo TYPE [TYPE ...]] [--showdriverversion]
-                [--alldevices] [-r] [--setsclk LEVEL [LEVEL ...]] [--setmclk LEVEL [LEVEL ...]]
-                [--setpcie LEVEL [LEVEL ...]] [--setslevel SCLKLEVEL SCLK SVOLT] [--setmlevel MCLKLEVEL MCLK MVOLT]
-                [--resetfans] [--setfan LEVEL] [--setperflevel LEVEL] [--setoverdrive %] [--setmemoverdrive %]
-                [--setpoweroverdrive WATTS] [--resetpoweroverdrive] [--setprofile SETPROFILE] [--resetprofile]
-                [--rasenable BLOCK ERRTYPE] [--rasdisable BLOCK ERRTYPE] [--rasinject BLOCK] [--gpureset]
-                [--load FILE | --save FILE] [--autorespond RESPONSE] [--loglevel ILEVEL] [--json]
+                [-s] [-u] [--showmemuse] [-b] [--showreplaycount] [-S] [--showvoltage] [--showrasinfo BLOCK [BLOCK ...]]
+                [--showfwinfo [BLOCK [BLOCK ...]]] [--showproductname] [-a] [--showmeminfo TYPE [TYPE ...]]
+                [--showdriverversion] [--showuniqueid] [--showserial] [--showpids] [--showxgmierr] [--showpagesinfo]
+                [--showretiredpages] [--showpendingpages] [--showvoltagerange] [--showvc] [--showsclkrange]
+                [--showmclkrange] [--showunreservablepages] [--alldevices] [-r] [--setsclk LEVEL [LEVEL ...]]
+                [--setmclk LEVEL [LEVEL ...]] [--setpcie LEVEL [LEVEL ...]] [--setslevel SCLKLEVEL SCLK SVOLT]
+                [--setmlevel MCLKLEVEL MCLK MVOLT] [--setvc POINT SCLK SVOLT] [--setsrange MINMAX SCLK]
+                [--setmrange MINMAX SCLK] [--resetfans] [--setfan LEVEL] [--setperflevel LEVEL] [--setoverdrive %]
+                [--setmemoverdrive %] [--setpoweroverdrive WATTS] [--resetpoweroverdrive] [--setprofile SETPROFILE]
+                [--resetprofile] [--rasenable BLOCK ERRTYPE] [--rasdisable BLOCK ERRTYPE] [--rasinject BLOCK]
+                [--gpureset] [--resetxgmierr] [--load FILE | --save FILE] [--autorespond RESPONSE] [--loglevel ILEVEL]
+                [--json]
 
-AMD ROCm System Management Interface
+AMD ROCm System Management Interface | ROCM-SMI version: 1.3.0 | Kernel version:
 
 optional arguments:
   -h, --help                                            show this help message and exit
@@ -55,6 +71,7 @@ optional arguments:
   -l, --showprofile                                     Show Compute Profile attributes
   -s, --showclkfrq                                      Show supported GPU and Memory Clock
   -u, --showuse                                         Show current GPU use
+  --showmemuse                                          Show current GPU memory used
   -b, --showbw                                          Show estimated PCIe use
   --showreplaycount                                     Show PCIe Replay Count
   -S, --showclkvolt                                     Show supported GPU and Memory Clocks and Voltages
@@ -62,10 +79,24 @@ optional arguments:
   --showrasinfo BLOCK [BLOCK ...]                       Show RAS enablement information and error counts for the
                                                         specified block(s)
   --showfwinfo [BLOCK [BLOCK ...]]                      Show FW information
+  --showproductname                                     Show SKU/Vendor name
   -a, --showallinfo                                     Show Temperature, Fan and Clock values
   --showmeminfo TYPE [TYPE ...]                         Show Memory usage information for given block(s) TYPE
   --showdriverversion                                   Show kernel driver version
+  --showuniqueid                                        Show GPU's Unique ID
+  --showserial                                          Show GPU's Serial Number
+  --showpids                                            Show current running KFD PIDs
+  --showxgmierr                                         Show XGMI error information since last read
+  --showpagesinfo                                       Show retired, pending and unreservable pages
+  --showretiredpages                                    Show retired pages
+  --showpendingpages                                    Show pending retired pages
+  --showvoltagerange                                    Show voltage range
+  --showvc                                              Show voltage curve
+  --showsclkrange                                       Show sclk range
+  --showmclkrange                                       Show mclk range
+  --showunreservablepages                               Show unreservable pages
   --alldevices                                          Execute command on non-AMD devices as well as AMD devices
+  --resetxgmierr                                        Reset XGMI error count
 
   -r, --resetclocks                                     Reset clocks and OverDrive to default
   --setsclk LEVEL [LEVEL ...]                           Set GPU Clock Frequency Level(s) (requires manual Perf level)
@@ -76,6 +107,9 @@ optional arguments:
                                                         Level
   --setmlevel MCLKLEVEL MCLK MVOLT                      Change GPU Memory clock frequency (MHz) and Voltage for (mV) a
                                                         specific Level
+  --setvc POINT SCLK SVOLT                              Change SCLK Voltage Curve (MHz mV) for a specific point
+  --setsrange MINMAX SCLK                               Set min(0) or max(1) SCLK speed
+  --setmrange MINMAX SCLK                               Set min(0) or max(1) MCLK speed
   --resetfans                                           Reset fans to automatic (driver) control
   --setfan LEVEL                                        Set GPU Fan Speed (Level or %)
   --setperflevel LEVEL                                  Set Performance Level
@@ -252,11 +286,45 @@ This flag will attempt to reset the GPU for a specified device. This will invoke
 the kernel debugfs file amdgpu_gpu_recover. Note that GPU reset will not always work, depending on the
 manner in which the GPU is hung.
 
----showdriverversion:
+--showdriverversion:
 This flag will print out the AMDGPU module version for amdgpu-pro or ROCK kernels. For other kernels,
 it will simply print out the name of the kernel (uname)
 
+--showserial:
+This flag will print out the serial number for the graphics card
+    NOTE: This is currently only supported on Vega20 server cards that support it. Consumer cards and
+          cards older than Vega20 will not support this feature.
+
+--showproductname:
+This uses the pci.ids file to print out more information regarding the GPUs on the system.
+'update-pciids' may need to be executed on the machine to get the latest PCI ID snapshot,
+as certain newer GPUs will not be present in the stock pci.ids file, and the file may even
+be absent on certain OS installation types
+
+--showpagesinfo | --showretiredpages | --showpendingpages | --showunreservablepages:
+These flags display the different "bad pages" as reported by the kernel. The three
+types of pages are:
+Retired pages (reserved pages) - These pages are reserved and are unable to be used
+Pending pages - These pages are pending for reservation, and will be reserved/retired
+Unreservable pages - These pages are not reservable for some reason
+
+--showmemuse | --showuse | --showmeminfo
+--showuse and --showmemuse are used to indicate how busy the respective blocks are. For
+example, for --showuse (gpu_busy_percent sysfs file), the SMU samples every ms or so to see
+if any GPU block (RLC, MEC, PFP, CP) is busy. If so, that's 1 (or high). If not, that's 0 (low).
+If we have 5 high and 5 low samples, that means 50% utilization (50% GPU busy, or 50% GPU use).
+The windows and sampling vary from generation to generation, but that is how GPU and VRAM use
+is calculated in a generic sense.
+--showmeminfo (and VRAM% in concise output) will show the amount of VRAM used (visible, total, GTT),
+as well as the total available for those partitions. The percentage shown there indicates the
+amount of used memory in terms of current allocations
+
 ### OverDrive settings ####
+
+Enabling OverDrive requires both a card that support OverDrive and a driver parameter that enables its use.
+Because OverDrive features can damage your card, most workstation and server GPUs cannot use OverDrive.
+Consumer GPUs that can use OverDrive must enable this feature by setting bit 14 in the amdgpu driver's
+ppfeaturemask module parameter
 
 For OverDrive functionality, the OverDrive bit (bit 14) must be enabled (by default, the
 OverDrive bit is disabled on the ROCK and upstream kernels). This can be done by setting
@@ -265,6 +333,21 @@ inside amdgpu_drv.c (if building your own kernel).
 
 As an example, if the ppfeaturemask is set to 0xffffbfff (11111111111111111011111111111111),
 then enabling the OverDrive bit would make it 0xffffffff (11111111111111111111111111111111).
+
+These are the flags that require OverDrive functionality to be enabled for the flag to work:
+--showclkvolt
+--showvoltagerange
+--showvc
+--showsclkrange
+--showmclkrange
+--setslevel
+--setmlevel
+--setoverdrive
+--setpoweroverdrive
+--resetpoweroverdrive
+--setvc
+--setsrange
+--setmrange
 
 #### Testing changes
 

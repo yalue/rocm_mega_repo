@@ -67,23 +67,23 @@ public:
 /// @warning No more than one public method should be called on a constructed
 /// object before it is destructed.
 class AMDGPUCompiler {
-  struct AMDGPUCompilerDiagnosticHandler : public DiagnosticHandler {
+  struct AMDGPUCompilerDiagnosticHandler : public llvm::DiagnosticHandler {
     AMDGPUCompiler *Compiler = nullptr;
 
     AMDGPUCompilerDiagnosticHandler(AMDGPUCompiler *Compiler)
         : Compiler(Compiler) {}
 
-    bool handleDiagnostics(const DiagnosticInfo &DI) override {
+    bool handleDiagnostics(const llvm::DiagnosticInfo &DI) override {
       assert(Compiler && "Compiler cannot be nullptr");
       unsigned Severity = DI.getSeverity();
       switch (Severity) {
-      case DS_Error:
+      case llvm::DS_Error:
         Compiler->LogS << "ERROR: ";
         break;
       default:
         llvm_unreachable("Only expecting errors");
       }
-      DiagnosticPrinterRawOStream DP(Compiler->LogS);
+      llvm::DiagnosticPrinterRawOStream DP(Compiler->LogS);
       DI.print(DP);
       Compiler->LogS << "\n";
       return true;
@@ -99,8 +99,6 @@ class AMDGPUCompiler {
   std::string CPU;
   /// Precompiled header file paths.
   llvm::SmallVector<llvm::SmallString<128>, 2> PrecompiledHeaders;
-  /// User supplied options to the compiler.
-  llvm::SmallVector<llvm::SmallString<128>, 16> Options;
   /// Arguments common to all driver invocations in the current action.
   llvm::SmallVector<const char *, 128> Args;
   llvm::SmallString<128> TmpDir;
@@ -116,13 +114,12 @@ class AMDGPUCompiler {
   /// Process each file in @c InSet individually, placing output in @c OutSet.
   amd_comgr_status_t processFiles(amd_comgr_data_kind_t OutputKind,
                                   const char *OutputSuffix);
-  void parseOptions();
   amd_comgr_status_t addIncludeFlags();
   amd_comgr_status_t addTargetIdentifierFlags(llvm::StringRef IdentStr);
 
 public:
   AMDGPUCompiler(DataAction *ActionInfo, DataSet *InSet, DataSet *OutSet,
-                 raw_ostream &LogS);
+                 llvm::raw_ostream &LogS);
   ~AMDGPUCompiler();
 
   amd_comgr_status_t preprocessToSource();

@@ -1,11 +1,31 @@
-/*******************************************************************************
- * Copyright (C) 2016 Advanced Micro Devices, Inc. All rights reserved.
- ******************************************************************************/
+/******************************************************************************
+* Copyright (c) 2016 - present Advanced Micro Devices, Inc. All rights reserved.
+*
+* Permission is hereby granted, free of charge, to any person obtaining a copy
+* of this software and associated documentation files (the "Software"), to deal
+* in the Software without restriction, including without limitation the rights
+* to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+* copies of the Software, and to permit persons to whom the Software is
+* furnished to do so, subject to the following conditions:
+*
+* The above copyright notice and this permission notice shall be included in
+* all copies or substantial portions of the Software.
+*
+* THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+* IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+* FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.  IN NO EVENT SHALL THE
+* AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+* LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+* OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
+* THE SOFTWARE.
+*******************************************************************************/
 
 #include "hipfft.h"
 #include "plan.h"
 #include "private.h"
 #include "rocfft.h"
+#include "transform.h"
+#include "tree_node.h"
 #include <sstream>
 
 #define ROC_FFT_CHECK_ALLOC_FAILED(ret)  \
@@ -48,6 +68,7 @@ struct hipfftHandle_t
     rocfft_plan           op_inverse;
     rocfft_execution_info info;
     void*                 workBuffer;
+    bool                  autoAllocate;
 
     hipfftHandle_t()
         : ip_forward(nullptr)
@@ -56,6 +77,7 @@ struct hipfftHandle_t
         , op_inverse(nullptr)
         , info(nullptr)
         , workBuffer(nullptr)
+        , autoAllocate(true)
     {
     }
 };
@@ -326,11 +348,14 @@ hipfftResult hipfftMakePlan_internal(hipfftHandle            plan,
 
     if(workBufferSize > 0)
     {
-        if(plan->workBuffer)
-            if(hipFree(plan->workBuffer) != HIP_SUCCESS)
+        if(plan->autoAllocate)
+        {
+            if(plan->workBuffer)
+                if(hipFree(plan->workBuffer) != HIP_SUCCESS)
+                    return HIPFFT_ALLOC_FAILED;
+            if(hipMalloc(&plan->workBuffer, workBufferSize) != HIP_SUCCESS)
                 return HIPFFT_ALLOC_FAILED;
-        if(hipMalloc(&plan->workBuffer, workBufferSize) != HIP_SUCCESS)
-            return HIPFFT_ALLOC_FAILED;
+        }
         ROC_FFT_CHECK_INVALID_VALUE(
             rocfft_execution_info_set_work_buffer(plan->info, plan->workBuffer, workBufferSize));
     }
@@ -465,7 +490,6 @@ hipfftResult hipfftMakePlanMany(hipfftHandle plan,
                                 int          batch,
                                 size_t*      workSize)
 {
-
     size_t lengths[3];
     for(size_t i = 0; i < rank; i++)
         lengths[i] = n[rank - 1 - i];
@@ -587,17 +611,23 @@ hipfftResult hipfftMakePlanMany64(hipfftHandle   plan,
 
 hipfftResult hipfftEstimate1d(int nx, hipfftType type, int batch, size_t* workSize)
 {
-    return HIPFFT_NOT_IMPLEMENTED;
+    hipfftHandle plan = nullptr;
+    hipfftResult ret  = hipfftGetSize1d(plan, nx, type, batch, workSize);
+    return ret;
 }
 
 hipfftResult hipfftEstimate2d(int nx, int ny, hipfftType type, size_t* workSize)
 {
-    return HIPFFT_NOT_IMPLEMENTED;
+    hipfftHandle plan = nullptr;
+    hipfftResult ret  = hipfftGetSize2d(plan, nx, ny, type, workSize);
+    return ret;
 }
 
 hipfftResult hipfftEstimate3d(int nx, int ny, int nz, hipfftType type, size_t* workSize)
 {
-    return HIPFFT_NOT_IMPLEMENTED;
+    hipfftHandle plan = nullptr;
+    hipfftResult ret  = hipfftGetSize3d(plan, nx, ny, nz, type, workSize);
+    return ret;
 }
 
 hipfftResult hipfftEstimateMany(int        rank,
@@ -612,7 +642,10 @@ hipfftResult hipfftEstimateMany(int        rank,
                                 int        batch,
                                 size_t*    workSize)
 {
-    return HIPFFT_NOT_IMPLEMENTED;
+    hipfftHandle plan = nullptr;
+    hipfftResult ret  = hipfftGetSizeMany(
+        plan, rank, n, inembed, istride, idist, onembed, ostride, odist, type, batch, workSize);
+    return ret;
 }
 
 hipfftResult hipfftCreate(hipfftHandle* plan)
@@ -679,8 +712,8 @@ hipfftResult
     }
 
     hipfftHandle p;
-    HIP_FFT_CHECK_AND_RETURN(hipfftPlan1d(&p, nx, type, batch));
-    ROC_FFT_CHECK_INVALID_VALUE(rocfft_plan_get_work_buffer_size(p->ip_forward, workSize));
+    HIP_FFT_CHECK_AND_RETURN(hipfftCreate(&p));
+    HIP_FFT_CHECK_AND_RETURN(hipfftMakePlan1d(p, nx, type, batch, workSize));
     HIP_FFT_CHECK_AND_RETURN(hipfftDestroy(p));
 
     return HIPFFT_SUCCESS;
@@ -697,8 +730,8 @@ hipfftResult hipfftGetSize2d(hipfftHandle plan, int nx, int ny, hipfftType type,
     }
 
     hipfftHandle p;
-    HIP_FFT_CHECK_AND_RETURN(hipfftPlan2d(&p, nx, ny, type));
-    ROC_FFT_CHECK_INVALID_VALUE(rocfft_plan_get_work_buffer_size(p->ip_forward, workSize));
+    HIP_FFT_CHECK_AND_RETURN(hipfftCreate(&p));
+    HIP_FFT_CHECK_AND_RETURN(hipfftMakePlan2d(p, nx, ny, type, workSize));
     HIP_FFT_CHECK_AND_RETURN(hipfftDestroy(p));
 
     return HIPFFT_SUCCESS;
@@ -716,8 +749,8 @@ hipfftResult
     }
 
     hipfftHandle p;
-    HIP_FFT_CHECK_AND_RETURN(hipfftPlan3d(&p, nx, ny, nz, type));
-    ROC_FFT_CHECK_INVALID_VALUE(rocfft_plan_get_work_buffer_size(p->ip_forward, workSize));
+    HIP_FFT_CHECK_AND_RETURN(hipfftCreate(&p));
+    HIP_FFT_CHECK_AND_RETURN(hipfftMakePlan3d(p, nx, ny, nz, type, workSize));
     HIP_FFT_CHECK_AND_RETURN(hipfftDestroy(p));
 
     return HIPFFT_SUCCESS;
@@ -751,9 +784,9 @@ hipfftResult hipfftGetSizeMany(hipfftHandle plan,
 
 hipfftResult hipfftGetSize(hipfftHandle plan, size_t* workSize)
 {
-
-    ROC_FFT_CHECK_INVALID_VALUE(rocfft_plan_get_work_buffer_size(plan->ip_forward, workSize));
     // return hipfftGetSize_internal(plan, type, workArea);
+
+    *workSize = plan->info->workBufferSize;
     return HIPFFT_SUCCESS;
 }
 
@@ -770,20 +803,25 @@ hipfftResult hipfftGetSizeMany64(hipfftHandle   plan,
                                  long long int  batch,
                                  size_t*        workSize)
 {
-    ROC_FFT_CHECK_INVALID_VALUE(rocfft_plan_get_work_buffer_size(plan->ip_forward, workSize));
-    return HIPFFT_SUCCESS;
+    return HIPFFT_NOT_IMPLEMENTED;
 }
 
 /*============================================================================================*/
 
 hipfftResult hipfftSetWorkArea(hipfftHandle plan, void* workArea)
 {
-    return HIPFFT_NOT_IMPLEMENTED;
+    ROC_FFT_CHECK_INVALID_VALUE(
+        rocfft_execution_info_set_work_buffer(plan->info, workArea, plan->info->workBufferSize));
+    return HIPFFT_SUCCESS;
 }
 
 hipfftResult hipfftSetAutoAllocation(hipfftHandle plan, int autoAllocate)
 {
-    return HIPFFT_NOT_IMPLEMENTED;
+    if(plan != nullptr && autoAllocate == 0)
+    {
+        plan->autoAllocate = false;
+    }
+    return HIPFFT_SUCCESS;
 }
 
 /*============================================================================================*/
@@ -954,7 +992,9 @@ hipfftResult hipfftDestroy(hipfftHandle plan)
         ROC_FFT_CHECK_INVALID_VALUE(rocfft_plan_destroy(plan->ip_inverse));
         ROC_FFT_CHECK_INVALID_VALUE(rocfft_plan_destroy(plan->op_inverse));
 
-        hipFree(plan->workBuffer);
+        if(plan->autoAllocate)
+            hipFree(plan->workBuffer);
+
         ROC_FFT_CHECK_INVALID_VALUE(rocfft_execution_info_destroy(plan->info));
 
         delete plan;
@@ -968,7 +1008,7 @@ hipfftResult hipfftGetVersion(int* version)
     char v[256];
     ROC_FFT_CHECK_INVALID_VALUE(rocfft_get_version_string(v, 256));
 
-    // assume maximum 2 digts for each, so xx.xx.xx.xx -> xxxxxxxx
+    //export major.minor.patch only, ignore tweak
     std::ostringstream       result;
     std::vector<std::string> sections;
 
@@ -979,23 +1019,35 @@ hipfftResult hipfftGetVersion(int* version)
         sections.push_back(tmp_str);
     }
 
-    for(size_t i = 0; i < sections.size(); i++)
+    for(size_t i = 0; i < sections.size() - 1; i++)
     {
-        std::vector<std::string> sl;
-        // remove potential git tag string
-        std::istringstream iss(sections[i]);
-        while(std::getline(iss, tmp_str, '-'))
-        {
-            sl.push_back(tmp_str);
-        }
-        if(sl[0].size() == 0)
-            result << "00";
-        else if(sl[0].size() == 1)
-            result << "0" << sl[0][0];
+        if(sections[i].size() == 1)
+            result << "0" << sections[i];
         else
-            result << sl[0].at(sl[0].size() - 2) << sl[0].at(sl[0].size() - 1);
+            result << sections[i];
     }
 
     *version = std::stoi(result.str());
+    return HIPFFT_SUCCESS;
+}
+
+hipfftResult hipfftGetProperty(hipfftLibraryPropertyType type, int* value)
+{
+    int full;
+    hipfftGetVersion(&full);
+
+    int major = full / 10000;
+    int minor = (full - major * 10000) / 100;
+    int patch = (full - major * 10000 - minor * 100);
+
+    if(type == MAJOR_VERSION)
+        *value = major;
+    else if(type == MINOR_VERSION)
+        *value = minor;
+    else if(type == PATCH_LEVEL)
+        *value = patch;
+    else
+        return HIPFFT_INVALID_TYPE;
+
     return HIPFFT_SUCCESS;
 }

@@ -242,7 +242,7 @@ protected:
   using DomTreeNodeMapType =
      DenseMap<NodeT *, std::unique_ptr<DomTreeNodeBase<NodeT>>>;
   DomTreeNodeMapType DomTreeNodes;
-  DomTreeNodeBase<NodeT> *RootNode;
+  DomTreeNodeBase<NodeT> *RootNode = nullptr;
   ParentPtr Parent = nullptr;
 
   mutable bool DFSInfoValid = false;
@@ -669,14 +669,12 @@ protected:
 
     // The postdom tree can have a null root if there are no returns.
     if (getRootNode()) PrintDomTree<NodeT>(getRootNode(), O, 1);
-    if (IsPostDominator) {
-      O << "Roots: ";
-      for (const NodePtr Block : Roots) {
-        Block->printAsOperand(O, false);
-        O << " ";
-      }
-      O << "\n";
+    O << "Roots: ";
+    for (const NodePtr Block : Roots) {
+      Block->printAsOperand(O, false);
+      O << " ";
     }
+    O << "\n";
   }
 
 public:

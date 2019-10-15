@@ -10,6 +10,7 @@
 #include "utils/options.hpp"
 #include "utils/bif_section_labels.hpp"
 #include "utils/libUtils.h"
+#include "comgrctx.hpp"
 
 #if defined(WITH_LIGHTNING_COMPILER) || defined(USE_COMGR_LIBRARY)
 #ifndef USE_COMGR_LIBRARY
@@ -42,11 +43,31 @@
 typedef llvm::AMDGPU::HSAMD::Kernel::Arg::Metadata KernelArgMD;
 #endif  // defined(WITH_LIGHTNING_COMPILER) || defined(USE_COMGR_LIBRARY)
 
+#ifdef EARLY_INLINE
+#define AMDGPU_EARLY_INLINE_ALL_OPTION " -mllvm -amdgpu-early-inline-all"
+#else
+#define AMDGPU_EARLY_INLINE_ALL_OPTION
+#endif
+
 namespace device {
 
+// TODO: Can this be unified with the copies in:
+// runtime/device/pal/palprogram.cpp, runtime/device/gpu/gpuprogram.cpp,
+// compiler/lib/utils/v0_8/libUtils.h, compiler/lib/backends/gpu/hsail_be.cpp,
+// compiler/legacy-lib/utils/v0_8/libUtils.h,
+// and compiler/legacy-lib/backends/gpu/hsail_be.cpp ?
+inline static std::vector<std::string> splitSpaceSeparatedString(const char *str) {
+  std::string s(str);
+  std::stringstream ss(s);
+  std::istream_iterator<std::string> beg(ss), end;
+  std::vector<std::string> vec(beg, end);
+  return vec;
+}
+
 // ================================================================================================
-Program::Program(amd::Device& device)
+Program::Program(amd::Device& device, amd::Program& owner)
     : device_(device),
+      owner_(owner),
       type_(TYPE_NONE),
       flags_(0),
       clBinary_(nullptr),
@@ -74,6 +95,12 @@ Program::Program(amd::Device& device)
 // ================================================================================================
 Program::~Program() {
   clear();
+
+  /* Delete the undefined memory object */
+  for (auto it = undef_mem_obj_.begin(); it != undef_mem_obj_.end(); ++it) {
+    (*it)->release();
+  }
+
 #if defined(USE_COMGR_LIBRARY)
   for (auto const& kernelMeta : kernelMetadataMap_) {
     amd::Comgr::destroy_metadata(kernelMeta.second);
@@ -105,26 +132,6 @@ bool Program::compileImpl(const std::string& sourceCode,
 // ================================================================================================
 #if defined(WITH_LIGHTNING_COMPILER) || defined(USE_COMGR_LIBRARY)
 static std::string llvmBin_(amd::Os::getEnvironment("LLVM_BIN"));
-
-#if defined(ATI_OS_WIN)
-static BOOL CALLBACK checkLLVM_BIN(PINIT_ONCE InitOnce, PVOID Parameter, PVOID* lpContex) {
-  if (llvmBin_.empty()) {
-    HMODULE hm = nullptr;
-    if (GetModuleHandleExA(
-      GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS | GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
-      (LPCSTR)&amd::Device::init, &hm)) {
-      char path[1024];
-      GetModuleFileNameA(hm, path, sizeof(path));
-      llvmBin_ = path;
-      size_t pos = llvmBin_.rfind('\\');
-      if (pos != std::string::npos) {
-        llvmBin_.resize(pos);
-      }
-    }
-  }
-  return TRUE;
-}
-#endif  // defined (ATI_OS_WINDOWS)
 
 #if defined(ATI_OS_LINUX)
 static pthread_once_t once = PTHREAD_ONCE_INIT;
@@ -165,10 +172,6 @@ static void checkLLVM_BIN() {
 
 #if !defined(USE_COMGR_LIBRARY)
 std::unique_ptr<amd::opencl_driver::Compiler> Program::newCompilerInstance() {
-#if defined(ATI_OS_WIN)
-  static INIT_ONCE initOnce;
-  InitOnceExecuteOnce(&initOnce, checkLLVM_BIN, nullptr, nullptr);
-#endif  // defined(ATI_OS_WIN)
 #if defined(ATI_OS_LINUX)
   pthread_once(&once, checkLLVM_BIN);
 #endif  // defined(ATI_OS_LINUX)
@@ -193,16 +196,17 @@ std::unique_ptr<amd::opencl_driver::Compiler> Program::newCompilerInstance() {
 // If buildLog is not null, and dataSet contains a log object, extract the
 // first log data object from dataSet and process it with
 // extractByteCodeBinary.
-void Program::extractBuildLog(const char* buildLog, amd_comgr_data_set_t dataSet) {
+void Program::extractBuildLog(amd_comgr_data_set_t dataSet) {
   amd_comgr_status_t status = AMD_COMGR_STATUS_SUCCESS;
-  if (buildLog != nullptr) {
-    size_t count;
-    status = amd::Comgr::action_data_count(dataSet, AMD_COMGR_DATA_KIND_LOG, &count);
+  size_t count;
+  status = amd::Comgr::action_data_count(dataSet, AMD_COMGR_DATA_KIND_LOG, &count);
 
-    if (status == AMD_COMGR_STATUS_SUCCESS && count > 0) {
-      const std::string logName(buildLog);
-      status = extractByteCodeBinary(dataSet, AMD_COMGR_DATA_KIND_LOG, logName);
-    }
+  if (status == AMD_COMGR_STATUS_SUCCESS && count > 0) {
+    char* logData = nullptr;
+    size_t logSize;
+    status = extractByteCodeBinary(dataSet, AMD_COMGR_DATA_KIND_LOG, "", &logData, &logSize);
+    buildLog_ += logData;
+    free(logData);
   }
   if (status != AMD_COMGR_STATUS_SUCCESS) {
     buildLog_ += "Warning: extracting build log failed.\n";
@@ -254,36 +258,13 @@ amd_comgr_status_t Program::extractByteCodeBinary(const amd_comgr_data_set_t inD
   }
 
   // save the binary to the file as output file name is specified
-  // For log dataset, outputs are directed to stdout and stderr if
-  // the file name is "stdout" and "stderr", respectively.
   if (!outFileName.empty()) {
-    std::ios_base::openmode mode = std::ios::trunc | std::ios::binary;
-
-    bool done = false;
-    // handle the log outputs
-    if (dataKind == AMD_COMGR_DATA_KIND_LOG) {
-      if (binarySize == 0) {  // nothing to output
-        done = true;
-      } else if (outFileName.compare("stdout") == 0) {
-        std::cout << binary << std::endl;
-        done = true;
-      } else if (outFileName.compare("stderr") == 0) {
-        std::cerr << binary << std::endl;
-        done = true;
-      } else {
-        mode = std::ios::app;   // use append mode for the log outputs
-      }
-    }
-
-    // output to file
-    if (!done) {
-      std::ofstream f(outFileName.c_str(), mode);
-      if (f.is_open()) {
-        f.write(binary, binarySize);
-        f.close();
-      } else {
-        buildLog_ += "Warning: opening the file to dump the code failed.\n";
-      }
+    std::ofstream f(outFileName.c_str(), std::ios::trunc | std::ios::binary);
+    if (f.is_open()) {
+      f.write(binary, binarySize);
+      f.close();
+    } else {
+      buildLog_ += "Warning: opening the file to dump the code failed.\n";
     }
   }
 
@@ -363,7 +344,7 @@ void Program::setLangAndTargetStr(const char* clStd, amd_comgr_language_t* oclve
 
 amd_comgr_status_t Program::createAction(const amd_comgr_language_t oclver,
                                          const std::string& targetIdent,
-                                         const std::string& options,
+                                         const std::vector<std::string>& options,
                                          amd_comgr_action_info_t* action,
                                          bool* hasAction) {
 
@@ -381,15 +362,24 @@ amd_comgr_status_t Program::createAction(const amd_comgr_language_t oclver,
     status = amd::Comgr::action_info_set_isa_name(*action, targetIdent.c_str());
   }
 
-  if (!options.empty() && (status == AMD_COMGR_STATUS_SUCCESS)) {
-    status = amd::Comgr::action_info_set_options(*action, options.c_str());
+  if (status == AMD_COMGR_STATUS_SUCCESS) {
+    std::vector<const char *> optionsArgv;
+    optionsArgv.reserve(options.size());
+    for (auto &option : options) {
+      optionsArgv.push_back(option.c_str());
+    }
+    status = amd::Comgr::action_info_set_option_list(*action, optionsArgv.data(), optionsArgv.size());
+  }
+
+  if (status == AMD_COMGR_STATUS_SUCCESS) {
+    status = amd::Comgr::action_info_set_logging(*action, true);
   }
 
   return status;
 }
 
 bool Program::linkLLVMBitcode(const amd_comgr_data_set_t inputs,
-                              const std::string& options, const bool requiredDump,
+                              const std::vector<std::string>& options, const bool requiredDump,
                               amd::option::Options* amdOptions, amd_comgr_data_set_t* output,
                               char* binaryData[], size_t* binarySize) {
 
@@ -409,11 +399,6 @@ bool Program::linkLLVMBitcode(const amd_comgr_data_set_t inputs,
 
   amd_comgr_status_t status = createAction(oclver, targetIdent, options, &action, &hasAction);
 
-  const char* buildLog = amdOptions->oVariables->BuildLog;
-  if (status == AMD_COMGR_STATUS_SUCCESS && buildLog != nullptr) {
-    status = amd::Comgr::action_info_set_logging(action, true);
-  }
-
   if (status == AMD_COMGR_STATUS_SUCCESS) {
     status = amd::Comgr::create_data_set(&dataSetDevLibs);
   }
@@ -422,12 +407,12 @@ bool Program::linkLLVMBitcode(const amd_comgr_data_set_t inputs,
     hasDataSetDevLibs = true;
     status = amd::Comgr::do_action(AMD_COMGR_ACTION_ADD_DEVICE_LIBRARIES, action, inputs,
                                    dataSetDevLibs);
-    extractBuildLog(buildLog, dataSetDevLibs);
+    extractBuildLog(dataSetDevLibs);
   }
 
   if (status == AMD_COMGR_STATUS_SUCCESS) {
     status = amd::Comgr::do_action(AMD_COMGR_ACTION_LINK_BC_TO_BC, action, dataSetDevLibs, *output);
-    extractBuildLog(buildLog, *output);
+    extractBuildLog(*output);
   }
 
   if (status == AMD_COMGR_STATUS_SUCCESS) {
@@ -452,7 +437,7 @@ bool Program::linkLLVMBitcode(const amd_comgr_data_set_t inputs,
 }
 
 bool Program::compileToLLVMBitcode(const amd_comgr_data_set_t inputs,
-                                   const std::string& options, amd::option::Options* amdOptions,
+                                   const std::vector<std::string>& options, amd::option::Options* amdOptions,
                                    char* binaryData[], size_t* binarySize) {
 
   //  get the lanuage and target name
@@ -472,11 +457,6 @@ bool Program::compileToLLVMBitcode(const amd_comgr_data_set_t inputs,
   bool hasDataSetPCH = false;
 
   amd_comgr_status_t status = createAction(oclver, targetIdent, options, &action, &hasAction);
-
-  const char* buildLog = amdOptions->oVariables->BuildLog;
-  if (status == AMD_COMGR_STATUS_SUCCESS && buildLog != nullptr) {
-    status = amd::Comgr::action_info_set_logging(action, true);
-  }
 
   if (status == AMD_COMGR_STATUS_SUCCESS) {
     status = amd::Comgr::create_data_set(&output);
@@ -505,7 +485,7 @@ bool Program::compileToLLVMBitcode(const amd_comgr_data_set_t inputs,
         hasDataSetPreprocessor = true;
         status = amd::Comgr::do_action(AMD_COMGR_ACTION_SOURCE_TO_PREPROCESSOR,
                                        action, inputs, dataSetPreprocessor);
-        extractBuildLog(buildLog, dataSetPreprocessor);
+        extractBuildLog(dataSetPreprocessor);
       }
 
       if (status == AMD_COMGR_STATUS_SUCCESS) {
@@ -523,14 +503,14 @@ bool Program::compileToLLVMBitcode(const amd_comgr_data_set_t inputs,
   if (status == AMD_COMGR_STATUS_SUCCESS) {
     status = amd::Comgr::do_action(AMD_COMGR_ACTION_ADD_PRECOMPILED_HEADERS,
                                    action, inputs, dataSetPCH);
-    extractBuildLog(buildLog, dataSetPCH);
+    extractBuildLog(dataSetPCH);
   }
 
   //  Compiling the source codes with precompiled headers
   if (status == AMD_COMGR_STATUS_SUCCESS) {
     status = amd::Comgr::do_action(AMD_COMGR_ACTION_COMPILE_SOURCE_TO_BC,
                                  action, dataSetPCH, output);
-    extractBuildLog(buildLog, output);
+    extractBuildLog(output);
   }
 
   if (status == AMD_COMGR_STATUS_SUCCESS) {
@@ -561,7 +541,7 @@ bool Program::compileToLLVMBitcode(const amd_comgr_data_set_t inputs,
 //  the input data set is converted to relocatable code, then executable binary.
 //  If assembly code is required, the input data set is converted to assembly.
 bool Program::compileAndLinkExecutable(const amd_comgr_data_set_t inputs,
-                                       const std::string& options, amd::option::Options* amdOptions,
+                                       const std::vector<std::string>& options, amd::option::Options* amdOptions,
                                        char* executable[], size_t* executableSize) {
 
   //  get the language and target name
@@ -578,11 +558,6 @@ bool Program::compileAndLinkExecutable(const amd_comgr_data_set_t inputs,
 
   amd_comgr_status_t status = createAction(AMD_COMGR_LANGUAGE_NONE, targetIdent, options,
                                            &action, &hasAction);
-
-  const char* buildLog = amdOptions->oVariables->BuildLog;
-  if (status == AMD_COMGR_STATUS_SUCCESS && buildLog != nullptr) {
-    status = amd::Comgr::action_info_set_logging(action, true);
-  }
 
   if (status == AMD_COMGR_STATUS_SUCCESS) {
     status = amd::Comgr::create_data_set(&output);
@@ -601,7 +576,7 @@ bool Program::compileAndLinkExecutable(const amd_comgr_data_set_t inputs,
         hasAssemblyData = true;
         status = amd::Comgr::do_action(AMD_COMGR_ACTION_CODEGEN_BC_TO_ASSEMBLY,
                                        action, inputs, assemblyData);
-        extractBuildLog(buildLog, assemblyData);
+        extractBuildLog(assemblyData);
       }
 
       // dump the ISA
@@ -625,7 +600,7 @@ bool Program::compileAndLinkExecutable(const amd_comgr_data_set_t inputs,
     hasRelocatableData = true;
     status = amd::Comgr::do_action(AMD_COMGR_ACTION_CODEGEN_BC_TO_RELOCATABLE,
                                  action, inputs, relocatableData);
-    extractBuildLog(buildLog, relocatableData);
+    extractBuildLog(relocatableData);
   }
 
   // Create executable from the relocatable data set
@@ -633,7 +608,7 @@ bool Program::compileAndLinkExecutable(const amd_comgr_data_set_t inputs,
   if (status == AMD_COMGR_STATUS_SUCCESS) {
     status = amd::Comgr::do_action(AMD_COMGR_ACTION_LINK_RELOCATABLE_TO_EXECUTABLE,
                                  action, relocatableData, output);
-    extractBuildLog(buildLog, output);
+    extractBuildLog(output);
   }
 
   if (status == AMD_COMGR_STATUS_SUCCESS) {
@@ -690,24 +665,32 @@ bool Program::compileImplLC(const std::string& sourceCode,
     return false;
   }
 
-  // Set the options for the compiler
-  // Some options are set in Clang AMDGPUToolChain (like -m64)
-  std::ostringstream ostrstr;
-  std::copy(options->clangOptions.begin(), options->clangOptions.end(),
-            std::ostream_iterator<std::string>(ostrstr, " "));
-
-  std::string driverOptions(ostrstr.str());
+  std::vector<std::string> driverOptions(options->clangOptions);
 
   // Set the -O#
   std::ostringstream optLevel;
-  optLevel << " -O" << options->oVariables->OptLevel;
-  driverOptions.append(optLevel.str());
+  optLevel << "-O" << options->oVariables->OptLevel;
+  driverOptions.push_back(optLevel.str());
 
-  driverOptions.append(options->llvmOptions);
-  driverOptions.append(ProcessOptions(options));
+  // TODO: Can this be fixed at the source? options->llvmOptions is a flat
+  // string, but should really be a vector of strings.
+  std::vector<std::string> splitLlvmOptions = splitSpaceSeparatedString(options->llvmOptions.c_str());
+  driverOptions.insert(driverOptions.end(), splitLlvmOptions.begin(), splitLlvmOptions.end());
+
+  std::vector<std::string> processedOptions = ProcessOptions(options);
+  driverOptions.insert(driverOptions.end(), processedOptions.begin(), processedOptions.end());
 
   // Set whole program mode
-  driverOptions.append(" -mllvm -amdgpu-early-inline-all -mllvm -amdgpu-prelink");
+#ifdef EARLY_INLINE
+  driverOptions.push_back("-mllvm");
+  driverOptions.push_back("-amdgpu-early-inline-all");
+#endif
+  driverOptions.push_back("-mllvm");
+  driverOptions.push_back("-amdgpu-prelink");
+
+  if (device().settings().lcWavefrontSize64_) {
+    driverOptions.push_back("-mwavefrontsize64");
+  }
 
   // Iterate through each source code and dump it into tmp
   std::fstream f;
@@ -732,11 +715,15 @@ bool Program::compileImplLC(const std::string& sourceCode,
   }
 
   if (options->isDumpFlagSet(amd::option::DUMP_CL)) {
+    std::ostringstream driverOptionsOStrStr;
+    std::copy(driverOptions.begin(), driverOptions.end(),
+      std::ostream_iterator<std::string>(driverOptionsOStrStr, " "));
+
     std::ofstream f(options->getDumpFileName(".cl").c_str(), std::ios::trunc);
     if (f.is_open()) {
       f << "/* Compiler options:\n"
            "-c -emit-llvm -target amdgcn-amd-amdhsa -x cl "
-        << driverOptions << " -include opencl-c.h "
+        << driverOptionsOStrStr.str() << " -include opencl-c.h "
         << "\n*/\n\n"
         << sourceCode;
       f.close();
@@ -839,10 +826,11 @@ bool Program::compileImplLC(const std::string& sourceCode,
   }
 
   driverOptions.append(options->llvmOptions);
-  driverOptions.append(ProcessOptions(options));
+
+  driverOptions.append(ProcessOptionsFlattened(options));
 
   // Set whole program mode
-  driverOptions.append(" -mllvm -amdgpu-early-inline-all -mllvm -amdgpu-prelink");
+  driverOptions.append(AMDGPU_EARLY_INLINE_ALL_OPTION " -mllvm -amdgpu-prelink");
 
   // Find the temp folder for the OS
   std::string tempFolder = amd::Os::getTempPath();
@@ -1066,7 +1054,7 @@ bool Program::compileImplHSAIL(const std::string& sourceCode,
 #endif
 
   // Compile source to IR
-  compileOptions_.append(ProcessOptions(options));
+  compileOptions_.append(ProcessOptionsFlattened(options));
   errorCode = aclCompile(device().compiler(), binaryElf_, compileOptions_.c_str(), ACL_TYPE_OPENCL,
     ACL_TYPE_LLVMIR_BINARY, nullptr /* logFunction */);
   buildLog_ += aclGetCompilerLog(device().compiler());
@@ -1160,7 +1148,7 @@ bool Program::linkImplLC(const std::vector<Program*>& inputPrograms,
   //       This parameter should not contain any dyanamically generated filename.
   char* binaryData = nullptr;
   size_t binarySize = 0;
-  std::string linkOptions;
+  std::vector<std::string> linkOptions;
   bool ret = linkLLVMBitcode(inputs, linkOptions, false, options, &output, &binaryData,
                              &binarySize);
 
@@ -1395,6 +1383,17 @@ bool Program::linkImpl(amd::option::Options* options) {
   }
 }
 
+static void dumpCodeObject(const std::string& image) {
+    char fname[30];
+    static std::atomic<int> index;
+    sprintf(fname, "_code_object%04d.o", index++);
+    LogPrintfInfo("Code object saved in %s\n", fname);
+    std::ofstream ofs;
+    ofs.open(fname, std::ios::binary);
+    ofs << image;
+    ofs.close();
+}
+
 // ================================================================================================
 #if defined(USE_COMGR_LIBRARY)
 bool Program::linkImplLC(amd::option::Options* options) {
@@ -1437,6 +1436,9 @@ bool Program::linkImplLC(amd::option::Options* options) {
     case ACL_TYPE_ISA: {
       amd::Comgr::destroy_data_set(inputs);
       binary_t isaBinary = binary();
+      if (GPU_DUMP_CODE_OBJECT) {
+        dumpCodeObject(std::string{(const char*)isaBinary.first, isaBinary.second});
+      }
       return setKernels(options, const_cast<void *>(isaBinary.first), isaBinary.second);
       break;
     }
@@ -1449,23 +1451,23 @@ bool Program::linkImplLC(amd::option::Options* options) {
   // call LinkLLVMBitcode
   if (bLinkLLVMBitcode) {
     // open the bitcode libraries
-    std::string linkOptions;
+    std::vector<std::string> linkOptions;
 
     if (options->oVariables->FP32RoundDivideSqrt) {
-        linkOptions += "correctly_rounded_sqrt,";
+        linkOptions.push_back("correctly_rounded_sqrt");
     }
     if (options->oVariables->DenormsAreZero || AMD_GPU_FORCE_SINGLE_FP_DENORM == 0 ||
         (device().info().gfxipVersion_ < 900 && AMD_GPU_FORCE_SINGLE_FP_DENORM < 0)) {
-        linkOptions += "daz_opt,";
+        linkOptions.push_back("daz_opt");
     }
     if (options->oVariables->FiniteMathOnly || options->oVariables->FastRelaxedMath) {
-        linkOptions += "finite_only,";
+        linkOptions.push_back("finite_only");
     }
     if (options->oVariables->UnsafeMathOpt || options->oVariables->FastRelaxedMath) {
-        linkOptions += "unsafe_math,";
+        linkOptions.push_back("unsafe_math");
     }
-    if (!linkOptions.empty()) {
-        linkOptions.pop_back();     // remove the last comma
+    if (device().settings().lcWavefrontSize64_) {
+        linkOptions.push_back("wavefrontsize64");
     }
 
     amd_comgr_status_t status = addCodeObjData(llvmBinary_.data(), llvmBinary_.size(),
@@ -1498,29 +1500,41 @@ bool Program::linkImplLC(amd::option::Options* options) {
     inputs = linked_bc;
   }
 
-  std::string codegenOptions(options->llvmOptions);
+  std::vector<std::string> codegenOptions;
+
+  // TODO: Can this be fixed at the source? options->llvmOptions is a flat
+  // string, but should really be a vector of strings.
+  std::vector<std::string> splitLlvmOptions = splitSpaceSeparatedString(options->llvmOptions.c_str());
+  codegenOptions.insert(codegenOptions.end(), splitLlvmOptions.begin(), splitLlvmOptions.end());
 
   // Set the -O#
   std::ostringstream optLevel;
   optLevel << "-O" << options->oVariables->OptLevel;
-  codegenOptions.append(" ").append(optLevel.str());
+  codegenOptions.push_back(optLevel.str());
 
   // Pass clang options
-  std::ostringstream ostrstr;
-  std::copy(options->clangOptions.begin(), options->clangOptions.end(),
-            std::ostream_iterator<std::string>(ostrstr, " "));
-  codegenOptions.append(" ").append(ostrstr.str());
+  codegenOptions.insert(codegenOptions.end(),
+      options->clangOptions.begin(), options->clangOptions.end());
 
   // Set SRAM ECC option if needed
   if (sramEccEnabled_) {
-    codegenOptions.append(" -msram-ecc");
+    codegenOptions.push_back("-msram-ecc");
   }
   else {
-    codegenOptions.append(" -mno-sram-ecc");
+    codegenOptions.push_back("-mno-sram-ecc");
   }
 
   // Set whole program mode
-  codegenOptions.append(" -mllvm -amdgpu-internalize-symbols -mllvm -amdgpu-early-inline-all");
+  codegenOptions.push_back("-mllvm");
+  codegenOptions.push_back("-amdgpu-internalize-symbols");
+#ifdef EARLY_INLINE
+  codegenOptions.push_back("-mllvm");
+  codegenOptions.push_back("-amdgpu-early-inline-all");
+#endif
+
+  if (device().settings().lcWavefrontSize64_) {
+    codegenOptions.push_back("-mwavefrontsize64");
+  }
 
   // NOTE: The params is also used to identy cached code object. This parameter
   //       should not contain any dyanamically generated filename.
@@ -1654,7 +1668,12 @@ bool Program::linkImplLC(amd::option::Options* options) {
     Data* unsafe_math_bc = C->NewBufferReference(DT_LLVM_BC,
       reinterpret_cast<const char*>(std::get<1>(unsafe_math)), std::get<2>(unsafe_math));
 
-    if (!correctly_rounded_sqrt_bc || !daz_opt_bc || !finite_only_bc || !unsafe_math_bc) {
+    auto wavefrontsize64 = get_oclc_wavefrontsize64(device().settings().lcWavefrontSize64_);
+    Data* wavefrontsize64_bc = C->NewBufferReference(DT_LLVM_BC,
+      reinterpret_cast<const char*>(std::get<1>(wavefrontsize64)), std::get<2>(wavefrontsize64));
+
+    if (!correctly_rounded_sqrt_bc || !daz_opt_bc || !finite_only_bc || !unsafe_math_bc ||
+        !wavefrontsize64_bc) {
       buildLog_ += "Error: Failed to open the control functions.\n";
       return false;
     }
@@ -1663,6 +1682,7 @@ bool Program::linkImplLC(amd::option::Options* options) {
     inputs.push_back(daz_opt_bc);
     inputs.push_back(finite_only_bc);
     inputs.push_back(unsafe_math_bc);
+    inputs.push_back(wavefrontsize64_bc);
 
     // open the linked output
     std::vector<std::string> linkOptions;
@@ -1738,7 +1758,11 @@ bool Program::linkImplLC(amd::option::Options* options) {
   // Force object code v2.
   codegenOptions.append(" -mno-code-object-v3");
   // Set whole program mode
-  codegenOptions.append(" -mllvm -amdgpu-internalize-symbols -mllvm -amdgpu-early-inline-all");
+  codegenOptions.append(" -mllvm -amdgpu-internalize-symbols" AMDGPU_EARLY_INLINE_ALL_OPTION);
+
+  if (device().settings().lcWavefrontSize64_) {
+    codegenOptions.append(" -mwavefrontsize64");
+  }
 
   // Tokenize the options string into a vector of strings
   std::istringstream strstr(codegenOptions);
@@ -1822,7 +1846,7 @@ bool Program::linkImplHSAIL(amd::option::Options* options) {
     // 1. if the program is created with binary and contains only hsail text
   case ACL_TYPE_HSAIL_TEXT: {
     std::string curOptions =
-      options->origOptionStr + ProcessOptions(options);
+      options->origOptionStr + ProcessOptionsFlattened(options);
     errorCode = aclCompile(device().compiler(), binaryElf_, curOptions.c_str(),
       continueCompileFrom, ACL_TYPE_CG, logFunction);
     buildLog_ += aclGetCompilerLog(device().compiler());
@@ -1843,7 +1867,7 @@ bool Program::linkImplHSAIL(amd::option::Options* options) {
   }
 
   if (finalize) {
-    std::string fin_options(options->origOptionStr + ProcessOptions(options));
+    std::string fin_options(options->origOptionStr + ProcessOptionsFlattened(options));
     // Append an option so that we can selectively enable a SCOption on CZ
     // whenever IOMMUv2 is enabled.
     if (device().isFineGrainedSystem(true)) {
@@ -2238,35 +2262,39 @@ cl_int Program::build(const std::string& sourceCode, const char* origOptions,
 }
 
 // ================================================================================================
-std::string Program::ProcessOptions(amd::option::Options* options) {
-  std::string optionsStr;
+std::vector<std::string> Program::ProcessOptions(amd::option::Options* options) {
+  std::string scratchStr;
+  std::vector<std::string> optionsVec;
 
   if (!isLC()) {
-    optionsStr.append(" -D__AMD__=1");
+    optionsVec.push_back("-D__AMD__=1");
 
-    optionsStr.append(" -D__").append(machineTarget_).append("__=1");
-    optionsStr.append(" -D__").append(machineTarget_).append("=1");
+    scratchStr.clear();
+    optionsVec.push_back(scratchStr.append("-D__").append(machineTarget_).append("__=1"));
+
+    scratchStr.clear();
+    optionsVec.push_back(scratchStr.append("-D__").append(machineTarget_).append("=1"));
   } else {
     int major, minor;
     ::sscanf(device().info().version_, "OpenCL %d.%d ", &major, &minor);
 
     std::stringstream ss;
-    ss << " -D__OPENCL_VERSION__=" << (major * 100 + minor * 10);
-    optionsStr.append(ss.str());
+    ss << "-D__OPENCL_VERSION__=" << (major * 100 + minor * 10);
+    optionsVec.push_back(ss.str());
   }
 
   if (device().info().imageSupport_ && options->oVariables->ImageSupport) {
-    optionsStr.append(" -D__IMAGE_SUPPORT__=1");
+    optionsVec.push_back("-D__IMAGE_SUPPORT__=1");
   }
 
   if (!isLC()) {
     // Set options for the standard device specific options
     // All our devices support these options now
     if (device().settings().reportFMAF_) {
-      optionsStr.append(" -DFP_FAST_FMAF=1");
+      optionsVec.push_back("-DFP_FAST_FMAF=1");
     }
     if (device().settings().reportFMA_) {
-      optionsStr.append(" -DFP_FAST_FMA=1");
+      optionsVec.push_back("-DFP_FAST_FMA=1");
     }
   }
 
@@ -2276,18 +2304,18 @@ std::string Program::ProcessOptions(amd::option::Options* options) {
   if (clcStd >= 200) {
     std::stringstream opts;
     // Add only for CL2.0 and later
-    opts << " -D"
+    opts << "-D"
       << "CL_DEVICE_MAX_GLOBAL_VARIABLE_SIZE=" << device().info().maxGlobalVariableSize_;
-    optionsStr.append(opts.str());
+    optionsVec.push_back(opts.str());
   }
 
   if (!device().settings().useLightning_) {
     if (!device().settings().singleFpDenorm_) {
-      optionsStr.append(" -cl-denorms-are-zero");
+      optionsVec.push_back("-cl-denorms-are-zero");
     }
 
     // Check if the host is 64 bit or 32 bit
-    LP64_ONLY(optionsStr.append(" -m64"));
+    LP64_ONLY(optionsVec.push_back("-m64"));
   }
 
   // Tokenize the extensions string into a vector of strings
@@ -2306,20 +2334,31 @@ std::string Program::ProcessOptions(amd::option::Options* options) {
     if (!extensions.empty()) {
       std::ostringstream clext;
 
-      clext << " -Xclang -cl-ext=+";
+      clext << "-cl-ext=+";
       std::copy(extensions.begin(), extensions.end() - 1,
         std::ostream_iterator<std::string>(clext, ",+"));
       clext << extensions.back();
 
-      optionsStr.append(clext.str());
+      optionsVec.push_back("-Xclang");
+      optionsVec.push_back(clext.str());
     }
   } else {
     for (auto e : extensions) {
-      optionsStr.append(" -D").append(e).append("=1");
+      scratchStr.clear();
+      optionsVec.push_back(scratchStr.append("-D").append(e).append("=1"));
     }
   }
 
-  return optionsStr;
+  return optionsVec;
+}
+
+std::string Program::ProcessOptionsFlattened(amd::option::Options* options) {
+  std::vector<std::string> processOptions = ProcessOptions(options);
+  std::ostringstream processOptionsOStrStr;
+  processOptionsOStrStr << " ";
+  std::copy(processOptions.begin(), processOptions.end(),
+    std::ostream_iterator<std::string>(processOptionsOStrStr, " "));
+  return processOptionsOStrStr.str();
 }
 
 // ================================================================================================
@@ -3021,4 +3060,168 @@ bool Program::FindGlobalVarSize(void* binary, size_t binSize) {
 #endif // defined(WITH_LIGHTNING_COMPILER) || defined(USE_COMGR_LIBRARY)
   return true;
 }
+
+#if defined(USE_COMGR_LIBRARY)
+amd_comgr_status_t getSymbolFromModule(amd_comgr_symbol_t symbol, void* userData) {
+  size_t nlen = 0;
+  size_t* userDataInfo = nullptr;
+  amd_comgr_status_t status;
+  amd_comgr_symbol_type_t type;
+  std::vector<std::string>* var_names = nullptr;
+
+  /* Unpack the user data */
+  SymbolInfo* sym_info = reinterpret_cast<SymbolInfo*>(userData);
+
+  if (!sym_info) {
+    return AMD_COMGR_STATUS_ERROR_INVALID_ARGUMENT;
+  }
+
+  /* Retrieve the symbol info */
+  status = amd::Comgr::symbol_get_info(symbol, AMD_COMGR_SYMBOL_INFO_NAME_LENGTH, &nlen);
+  if (status != AMD_COMGR_STATUS_SUCCESS) {
+    return status;
+  }
+
+  /* Retrieve the symbol name */
+  char* name = new char[nlen + 1];
+  status = amd::Comgr::symbol_get_info(symbol, AMD_COMGR_SYMBOL_INFO_NAME, name);
+  if (status != AMD_COMGR_STATUS_SUCCESS) {
+    return status;
+  }
+
+  /* Retrieve the symbol type*/
+  status = amd::Comgr::symbol_get_info(symbol, AMD_COMGR_SYMBOL_INFO_TYPE, &type);
+  if (status != AMD_COMGR_STATUS_SUCCESS) {
+    return status;
+  }
+
+  /* If symbol type is object(Variable) add it to vector */
+  if ((std::strcmp(name, "") != 0) && (type == sym_info->sym_type)) {
+    sym_info->var_names->push_back(std::string(name));
+  }
+
+  delete[] name;
+  return status;
 }
+
+bool Program::getSymbolsFromCodeObj(std::vector<std::string>* var_names, amd_comgr_symbol_type_t sym_type) const {
+  amd_comgr_status_t status = AMD_COMGR_STATUS_SUCCESS;
+  amd_comgr_data_t dataObject;
+  SymbolInfo sym_info;
+  bool ret_val = true;
+
+  do {
+    /* Create comgr data */
+    status = amd::Comgr::create_data(AMD_COMGR_DATA_KIND_EXECUTABLE, &dataObject);
+    if (status != AMD_COMGR_STATUS_SUCCESS) {
+      buildLog_ += "COMGR:  Cannot create comgr data \n";
+      ret_val = false;
+      break;
+    }
+
+    /* Set the binary as a dataObject */
+    status = amd::Comgr::set_data(dataObject,static_cast<size_t>(clBinary_->data().second),
+                                  reinterpret_cast<const char*>(clBinary_->data().first));
+    if (status != AMD_COMGR_STATUS_SUCCESS) {
+      buildLog_ += "COMGR:  Cannot set comgr data \n";
+      ret_val = false;
+      break;
+    }
+
+    /* Pack the user data */
+    sym_info.sym_type = sym_type;
+    sym_info.var_names = var_names;
+
+  /* Iterate through list of symbols */
+    status = amd::Comgr::iterate_symbols(dataObject, getSymbolFromModule, &sym_info);
+    if (status != AMD_COMGR_STATUS_SUCCESS) {
+      buildLog_ += "COMGR:  Cannot iterate comgr symbols \n";
+      ret_val = false;
+      break;
+    }
+  } while (0);
+
+  return ret_val;
+}
+#endif /* USE_COMGR_LIBRARY */
+
+bool Program::getGlobalVarFromCodeObj(std::vector<std::string>* var_names) const {
+#if defined(USE_COMGR_LIBRARY)
+  return getSymbolsFromCodeObj(var_names, AMD_COMGR_SYMBOL_TYPE_OBJECT);
+#else
+  return true;
+#endif
+}
+
+bool Program::getUndefinedVarFromCodeObj(std::vector<std::string>* var_names) const {
+#if defined(USE_COMGR_LIBRARY)
+  return getSymbolsFromCodeObj(var_names, AMD_COMGR_SYMBOL_TYPE_NOTYPE);
+#else
+  return true;
+#endif
+}
+
+bool Program::getUndefinedVarInfo(std::string var_name, void** var_addr, size_t* var_size) {
+  if (owner()->varcallback != nullptr) {
+    return owner()->varcallback(as_cl(owner()), var_name.c_str(), var_addr, var_size);
+  } else {
+    buildLog_ += "SVAR HIP Call back is not set \n";
+    return false;
+  }
+}
+
+bool Program::defineUndefinedVars() {
+  size_t address = 0;
+  size_t hsize = 0;
+  void* dptr = nullptr;
+  void* hptr = nullptr;
+  device::Memory* dev_mem = nullptr;
+  amd::Memory* amd_mem_obj = nullptr;
+  std::vector<std::string> var_names;
+
+  if (!getUndefinedVarFromCodeObj(&var_names)) {
+    return false;
+  }
+
+  for (auto it = var_names.begin(); it != var_names.end(); ++it) {
+    if (!getUndefinedVarInfo(*it, &hptr, &hsize)) {
+      continue;
+    }
+
+    amd_mem_obj = new (owner()->context()) amd::Buffer(const_cast<amd::Context&>(owner()->context()),
+                                                       CL_MEM_USE_HOST_PTR, hsize);
+    if (amd_mem_obj == nullptr) {
+      LogError("[OCL] failed to create a mem object!");
+      return false;
+    }
+
+    if (!amd_mem_obj->create(hptr)) {
+      LogError("[OCL] failed to create a svm hidden buffer!");
+      amd_mem_obj->release();
+      return false;
+    }
+
+    undef_mem_obj_.push_back(amd_mem_obj);
+
+    dev_mem = amd_mem_obj->getDeviceMemory(device());
+    if (dev_mem == nullptr) {
+      LogError("[OCL] failed to create a mem object!");
+      return false;
+    }
+
+    dptr = reinterpret_cast<void*>(dev_mem->virtualAddress());
+    if (dev_mem == nullptr) {
+      LogError("[OCL] failed to create a mem object!");
+      return false;
+    }
+
+    if(!defineGlobalVar(it->c_str(), dptr)) {
+      LogError("[OCL] failed to define global var");
+      return false;
+    }
+  }
+
+  return true;
+}
+
+} /* namespace device*/

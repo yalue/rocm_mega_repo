@@ -46,15 +46,41 @@
 #include <assert.h>
 #include <algorithm>
 #include <sstream>
+#include <iomanip>
 #include <unistd.h>
+//#include <strings.h>
 
-// Parse option value string. The string has one decimal
-// value as in example: -i 0x33
-static bool ParseInitValue(char* value_str, uint8_t&value) {
+// Parse option value string. The string has to be either
+// sin or cos literal
+// value as in example: -I sin or -I cos
+/*
+static bool ParseTrigValue(char* value_str, uint32_t&value) {
  
   // Capture the option value string
-  uint32_t value_read = strtoul(value_str, NULL, 0);
-  return ((value = value_read) && (value_read > 255)) ? false : true;
+  std::cout << "Value of Trig: " << value_str << std::endl;
+  int32_t cmp = strncasecmp("sin", value_str, 3);
+  if (cmp == 0) {
+    value = 1;
+    return true;
+  }
+
+  cmp = strncasecmp("cos", value_str, 3);
+  if (cmp == 0) {
+    value = 2;
+    return true;
+  }
+  
+  return false;
+}
+*/
+
+// Parse option value string. The string has one decimal
+// value as in example: -i 11.231926
+static bool ParseInitValue(char* value_str, long double&value) {
+ 
+  // Capture the option value string
+  value = strtold(value_str, NULL);
+  return true;
 }
 
 // Parse option value string. The string has one more decimal
@@ -216,6 +242,22 @@ void RocmBandwidthTest::ValidateInputFlags(uint32_t pf_cnt,
     return ValidateCopyAllUnidirFlags(copy_ctrl_mask);
   }
 
+  // Input is requesting to run concurrent copies
+  // rocm_bandwidth_test -k or -K
+  // It is illegal to specify secondary flags
+  if ((req_concurrent_copy_bidir_ == REQ_CONCURRENT_COPY_BIDIR) ||
+      (req_concurrent_copy_unidir_ == REQ_CONCURRENT_COPY_UNIDIR)) {
+    if ((copy_ctrl_mask & DEV_COPY_LATENCY) ||
+        (copy_ctrl_mask & USR_BUFFER_INIT)  ||
+        (copy_ctrl_mask & USR_BUFFER_SIZE)  ||
+        (copy_ctrl_mask & CPU_VISIBLE_TIME) ||
+        (copy_ctrl_mask & VALIDATE_COPY_OP)) {
+        PrintHelpScreen();
+        exit(0);
+    }
+    return;
+  }
+
   std::cout << "ValidateInputFlags: This should not be happening" << std::endl;
   assert(false);
   return;
@@ -274,6 +316,11 @@ void RocmBandwidthTest::BuildBufferList() {
     if (req_copy_bidir_ == REQ_COPY_BIDIR) {
       size_list_.push_back(SIZE_LIST[idx]);
     }
+    
+    if ((req_concurrent_copy_bidir_ == REQ_CONCURRENT_COPY_BIDIR) ||
+        (req_concurrent_copy_unidir_ == REQ_CONCURRENT_COPY_UNIDIR)) {
+      size_list_.push_back(SIZE_LIST[idx]);
+    }
   }
 }
 
@@ -291,7 +338,7 @@ void RocmBandwidthTest::ParseArguments() {
   
   int opt;
   bool status;
-  while ((opt = getopt(usr_argc_, usr_argv_, "hqtclvaAb:i:s:d:r:w:m:")) != -1) {
+  while ((opt = getopt(usr_argc_, usr_argv_, "hqtclvaAb:i:s:d:r:w:m:k:K:")) != -1) {
     switch (opt) {
 
       // Print help screen
@@ -358,6 +405,22 @@ void RocmBandwidthTest::ParseArguments() {
         print_help = true;
         break;
 
+      // Collect list of agents involved in concurrent copy operation
+      case 'k':
+      case 'K':
+        status = ParseOptionValue(optarg, bidir_list_);
+        if ((status) && ((bidir_list_.size() % 2) == 0)) {
+          num_primary_flags++;
+          if (opt == 'K') {
+            req_concurrent_copy_bidir_ = REQ_CONCURRENT_COPY_BIDIR;
+          } else {
+            req_concurrent_copy_unidir_ = REQ_CONCURRENT_COPY_UNIDIR;
+          }
+          break;
+        }
+        print_help = true;
+        break;
+
       // Size of buffers to use in copy and read/write operations
       case 'm':
         status = ParseOptionValue(optarg, size_list_);
@@ -419,8 +482,9 @@ void RocmBandwidthTest::ParseArguments() {
       case '?':
         std::cout << "Argument is illegal or needs value: " << '?' << std::endl;
         if ((optopt == 'b') || (optopt == 's') ||
-            (optopt == 'd') || (optopt == 'm') || (optopt == 'i')) {
-          std::cout << "Error: Options -b -s -d and -m -i require argument" << std::endl;
+            (optopt == 'd') || (optopt == 'm') ||
+            (optopt == 'i') || (false)) {
+          std::cout << "Error: Options -b -s -d -m -i -k and -K require argument" << std::endl;
         }
         print_help = true;
         break;

@@ -162,6 +162,8 @@ public:
   void EmitCOFFSectionIndex(MCSymbol const *Symbol) override;
   void EmitCOFFSecRel32(MCSymbol const *Symbol, uint64_t Offset) override;
   void EmitCOFFImgRel32(MCSymbol const *Symbol, int64_t Offset) override;
+  void EmitXCOFFLocalCommonSymbol(MCSymbol *Symbol, uint64_t Size,
+                                  unsigned ByteAlign) override;
   void emitELFSize(MCSymbol *Symbol, const MCExpr *Value) override;
   void EmitCommonSymbol(MCSymbol *Symbol, uint64_t Size,
                         unsigned ByteAlignment) override;
@@ -188,6 +190,7 @@ public:
   void EmitValueImpl(const MCExpr *Value, unsigned Size,
                      SMLoc Loc = SMLoc()) override;
   void EmitIntValue(uint64_t Value, unsigned Size) override;
+  void EmitIntValueInHex(uint64_t Value, unsigned Size) override;
 
   void EmitULEB128Value(const MCExpr *Value) override;
 
@@ -253,9 +256,26 @@ public:
                                       unsigned SourceLineNum,
                                       const MCSymbol *FnStartSym,
                                       const MCSymbol *FnEndSym) override;
+
+  void PrintCVDefRangePrefix(
+      ArrayRef<std::pair<const MCSymbol *, const MCSymbol *>> Ranges);
+
   void EmitCVDefRangeDirective(
       ArrayRef<std::pair<const MCSymbol *, const MCSymbol *>> Ranges,
-      StringRef FixedSizePortion) override;
+      codeview::DefRangeRegisterRelSym::Header DRHdr) override;
+
+  void EmitCVDefRangeDirective(
+      ArrayRef<std::pair<const MCSymbol *, const MCSymbol *>> Ranges,
+      codeview::DefRangeSubfieldRegisterSym::Header DRHdr) override;
+
+  void EmitCVDefRangeDirective(
+      ArrayRef<std::pair<const MCSymbol *, const MCSymbol *>> Ranges,
+      codeview::DefRangeRegisterSym::Header DRHdr) override;
+
+  void EmitCVDefRangeDirective(
+      ArrayRef<std::pair<const MCSymbol *, const MCSymbol *>> Ranges,
+      codeview::DefRangeFramePointerRelSym::Header DRHdr) override;
+
   void EmitCVStringTableDirective() override;
   void EmitCVFileChecksumsDirective() override;
   void EmitCVFileChecksumOffsetDirective(unsigned FileNo) override;
@@ -541,6 +561,7 @@ static const char *getPlatformName(MachO::PlatformType Type) {
   case MachO::PLATFORM_TVOS:             return "tvos";
   case MachO::PLATFORM_WATCHOS:          return "watchos";
   case MachO::PLATFORM_BRIDGEOS:         return "bridgeos";
+  case MachO::PLATFORM_MACCATALYST:      return "macCatalyst";
   case MachO::PLATFORM_IOSSIMULATOR:     return "iossimulator";
   case MachO::PLATFORM_TVOSSIMULATOR:    return "tvossimulator";
   case MachO::PLATFORM_WATCHOSSIMULATOR: return "watchossimulator";
@@ -738,6 +759,24 @@ void MCAsmStreamer::EmitCOFFImgRel32(MCSymbol const *Symbol, int64_t Offset) {
   EmitEOL();
 }
 
+// We need an XCOFF-specific version of this directive as the AIX syntax
+// requires a QualName argument identifying the csect name and storage mapping
+// class to appear before the alignment if we are specifying it.
+void MCAsmStreamer::EmitXCOFFLocalCommonSymbol(MCSymbol *Symbol, uint64_t Size,
+                                               unsigned ByteAlignment) {
+  assert(MAI->getLCOMMDirectiveAlignmentType() == LCOMM::Log2Alignment &&
+         "We only support writing log base-2 alignment format with XCOFF.");
+  assert(isPowerOf2_32(ByteAlignment) && "Alignment must be a power of 2.");
+
+  OS << "\t.lcomm\t";
+  Symbol->print(OS, MAI);
+  OS << ',' << Size;
+  OS << ',' << Symbol->getName();
+  OS << ',' << Log2_32(ByteAlignment);
+
+  EmitEOL();
+}
+
 void MCAsmStreamer::emitELFSize(MCSymbol *Symbol, const MCExpr *Value) {
   assert(MAI->hasDotTypeDotSizeDirective());
   OS << "\t.size\t";
@@ -920,6 +959,10 @@ void MCAsmStreamer::EmitBinaryData(StringRef Data) {
 
 void MCAsmStreamer::EmitIntValue(uint64_t Value, unsigned Size) {
   EmitValue(MCConstantExpr::create(Value, getContext()), Size);
+}
+
+void MCAsmStreamer::EmitIntValueInHex(uint64_t Value, unsigned Size) {
+  EmitValue(MCConstantExpr::create(Value, getContext(), true), Size);
 }
 
 void MCAsmStreamer::EmitValueImpl(const MCExpr *Value, unsigned Size,
@@ -1370,9 +1413,8 @@ void MCAsmStreamer::EmitCVInlineLinetableDirective(unsigned PrimaryFunctionId,
       PrimaryFunctionId, SourceFileId, SourceLineNum, FnStartSym, FnEndSym);
 }
 
-void MCAsmStreamer::EmitCVDefRangeDirective(
-    ArrayRef<std::pair<const MCSymbol *, const MCSymbol *>> Ranges,
-    StringRef FixedSizePortion) {
+void MCAsmStreamer::PrintCVDefRangePrefix(
+    ArrayRef<std::pair<const MCSymbol *, const MCSymbol *>> Ranges) {
   OS << "\t.cv_def_range\t";
   for (std::pair<const MCSymbol *, const MCSymbol *> Range : Ranges) {
     OS << ' ';
@@ -1380,10 +1422,43 @@ void MCAsmStreamer::EmitCVDefRangeDirective(
     OS << ' ';
     Range.second->print(OS, MAI);
   }
-  OS << ", ";
-  PrintQuotedString(FixedSizePortion, OS);
+}
+
+void MCAsmStreamer::EmitCVDefRangeDirective(
+    ArrayRef<std::pair<const MCSymbol *, const MCSymbol *>> Ranges,
+    codeview::DefRangeRegisterRelSym::Header DRHdr) {
+  PrintCVDefRangePrefix(Ranges);
+  OS << ", reg_rel, ";
+  OS << DRHdr.Register << ", " << DRHdr.Flags << ", "
+     << DRHdr.BasePointerOffset;
   EmitEOL();
-  this->MCStreamer::EmitCVDefRangeDirective(Ranges, FixedSizePortion);
+}
+
+void MCAsmStreamer::EmitCVDefRangeDirective(
+    ArrayRef<std::pair<const MCSymbol *, const MCSymbol *>> Ranges,
+    codeview::DefRangeSubfieldRegisterSym::Header DRHdr) {
+  PrintCVDefRangePrefix(Ranges);
+  OS << ", subfield_reg, ";
+  OS << DRHdr.Register << ", " << DRHdr.OffsetInParent;
+  EmitEOL();
+}
+
+void MCAsmStreamer::EmitCVDefRangeDirective(
+    ArrayRef<std::pair<const MCSymbol *, const MCSymbol *>> Ranges,
+    codeview::DefRangeRegisterSym::Header DRHdr) {
+  PrintCVDefRangePrefix(Ranges);
+  OS << ", reg, ";
+  OS << DRHdr.Register;
+  EmitEOL();
+}
+
+void MCAsmStreamer::EmitCVDefRangeDirective(
+    ArrayRef<std::pair<const MCSymbol *, const MCSymbol *>> Ranges,
+    codeview::DefRangeFramePointerRelSym::Header DRHdr) {
+  PrintCVDefRangePrefix(Ranges);
+  OS << ", frame_ptr_rel, ";
+  OS << DRHdr.Offset;
+  EmitEOL();
 }
 
 void MCAsmStreamer::EmitCVStringTableDirective() {

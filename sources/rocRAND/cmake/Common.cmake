@@ -1,16 +1,3 @@
-# Creates PREFIX_VERSION[_MAJOR|_MINOR|_PATCH] variables
-function(create_version_vars PREFIX VERSION_MAJOR VERSION_MINOR VERSION_PATCH)
-    set(${PREFIX}_VERSION_MAJOR ${VERSION_MAJOR} PARENT_SCOPE)
-    set(${PREFIX}_VERSION_MINOR ${VERSION_MINOR} PARENT_SCOPE)
-    set(${PREFIX}_VERSION_PATCH ${VERSION_PATCH} PARENT_SCOPE)
-    set(${PREFIX}_VERSION
-        "${VERSION_MAJOR}.${VERSION_MINOR}.${VERSION_PATCH}"
-        PARENT_SCOPE
-    )
-    math(EXPR temp "${VERSION_MAJOR} * 100000 + ${VERSION_MINOR} * 100 + ${VERSION_PATCH}")
-    set(${PREFIX}_VERSION_NUMBER ${temp} PARENT_SCOPE)
-endfunction()
-
 #
 function(package_set_postinst_prerm LIB_NAMES LIB_DIRS INCLUDE_DIRS)
     list(LENGTH LIB_NAMES len1)
@@ -21,7 +8,9 @@ function(package_set_postinst_prerm LIB_NAMES LIB_DIRS INCLUDE_DIRS)
     math(EXPR len3 "${len1} - 1")
 
     set(POSTINST_SOURCE "")
+    set(PREINST_SOURCE "")
     set(PRERM_SOURCE "")
+    set(PRERM_RPM_SOURCE "")
     foreach(val RANGE ${len3})
         list(GET LIB_NAMES ${val} lib_name)
         list(GET LIB_DIRS  ${val} lib_dir)
@@ -33,16 +22,43 @@ function(package_set_postinst_prerm LIB_NAMES LIB_DIRS INCLUDE_DIRS)
         set(POSTINST_SOURCE "${POSTINST_SOURCE}\nln -sr ${inc_dir} ${inc_dir}/../../include/${lib_name}")
         set(POSTINST_SOURCE "${POSTINST_SOURCE}\nln -sr ${lib_dir}/lib${lib_name}.so ${lib_dir}/../../lib/lib${lib_name}.so")
         set(POSTINST_SOURCE "${POSTINST_SOURCE}\nln -sr ${lib_dir}/cmake/${lib_name} ${lib_dir}/../../lib/cmake/${lib_name}\n")
+	#For preinstall script, first argument is 1 for install and 2 for upgrade
+	#Skip removal of symlinks if install command is called
+        set(PREINST_SOURCE "${PREINST_SOURCE}\nif [ $1 == 2 ]; then")
+        set(PREINST_SOURCE "${PREINST_SOURCE}\n\trm -f /etc/ld.so.conf.d/${lib_name}.conf")
+        set(PREINST_SOURCE "${PREINST_SOURCE}\n\tunlink ${inc_dir}/../../include/${lib_name}")
+        set(PREINST_SOURCE "${PREINST_SOURCE}\n\tunlink ${lib_dir}/../../lib/lib${lib_name}.so")
+        set(PREINST_SOURCE "${PREINST_SOURCE}\n\tunlink ${lib_dir}/../../lib/cmake/${lib_name}/${lib_name}")
+        set(PREINST_SOURCE "${PREINST_SOURCE}\n\trm -f ${lib_dir}/lib${lib_name}.so*")
+        set(PREINST_SOURCE "${PREINST_SOURCE}\n\trm -d ${lib_dir}/../../lib/cmake/${lib_name}\n")
+        set(PREINST_SOURCE "${PREINST_SOURCE}\nfi")
 
-        set(PRERM_SOURCE "${PRERM_SOURCE}\nrm /etc/ld.so.conf.d/${lib_name}.conf")
+        set(PRERM_SOURCE "${PRERM_SOURCE}\nrm -f /etc/ld.so.conf.d/${lib_name}.conf")
         set(PRERM_SOURCE "${PRERM_SOURCE}\nunlink ${inc_dir}/../../include/${lib_name}")
         set(PRERM_SOURCE "${PRERM_SOURCE}\nunlink ${lib_dir}/../../lib/lib${lib_name}.so")
         set(PRERM_SOURCE "${PRERM_SOURCE}\nunlink ${lib_dir}/../../lib/cmake/${lib_name}/${lib_name}")
         set(PRERM_SOURCE "${PRERM_SOURCE}\nrm -d ${lib_dir}/../../lib/cmake/${lib_name}\n")
+
+	#For pre uninstall script, first argument is 0 for uninstall and 1 for upgrade
+	#Skip removal of symlinks if upgrade command is called (only for RPM)
+        set(PRERM_RPM_SOURCE "${PRERM_RPM_SOURCE}\nif [ $1 == 0 ]; then")
+        set(PRERM_RPM_SOURCE "${PRERM_RPM_SOURCE}\n\trm -f /etc/ld.so.conf.d/${lib_name}.conf")
+        set(PRERM_RPM_SOURCE "${PRERM_RPM_SOURCE}\n\tunlink ${inc_dir}/../../include/${lib_name}")
+        set(PRERM_RPM_SOURCE "${PRERM_RPM_SOURCE}\n\tunlink ${lib_dir}/../../lib/lib${lib_name}.so")
+        set(PRERM_RPM_SOURCE "${PRERM_RPM_SOURCE}\n\tunlink ${lib_dir}/../../lib/cmake/${lib_name}/${lib_name}")
+        set(PRERM_RPM_SOURCE "${PRERM_RPM_SOURCE}\n\trm -d ${lib_dir}/../../lib/cmake/${lib_name}\n")
+        set(PRERM_RPM_SOURCE "${PRERM_RPM_SOURCE}\nfi")
     endforeach()
+    #For Deb package, POSTINST_SOURCE and PRERM_SOURCE are used
+    #For RPM package, POSTINST_SOURCE, PREINST_SOURCE, PRERM_RPM_SOURCE are used
     file(WRITE ${PROJECT_BINARY_DIR}/deb/postinst ""
         "#!/bin/bash\n"
         "${POSTINST_SOURCE}\n"
+        "ldconfig\n"
+    )
+    file(WRITE ${PROJECT_BINARY_DIR}/deb/preinst ""
+        "#!/bin/bash\n"
+        "${PREINST_SOURCE}\n"
         "ldconfig\n"
     )
     file(WRITE ${PROJECT_BINARY_DIR}/deb/prerm ""
@@ -50,8 +66,14 @@ function(package_set_postinst_prerm LIB_NAMES LIB_DIRS INCLUDE_DIRS)
         "${PRERM_SOURCE}\n"
         "ldconfig\n"
     )
+    file(WRITE ${PROJECT_BINARY_DIR}/deb/prermrpm ""
+        "#!/bin/bash\n"
+        "${PRERM_RPM_SOURCE}\n"
+        "ldconfig\n"
+    )
 
     set(CPACK_DEBIAN_PACKAGE_CONTROL_EXTRA "${PROJECT_BINARY_DIR}/deb/postinst;${PROJECT_BINARY_DIR}/deb/prerm" PARENT_SCOPE)
     set(CPACK_RPM_POST_INSTALL_SCRIPT_FILE "${PROJECT_BINARY_DIR}/deb/postinst" PARENT_SCOPE)
-    set(CPACK_RPM_PRE_UNINSTALL_SCRIPT_FILE "${PROJECT_BINARY_DIR}/deb/prerm" PARENT_SCOPE)
+    set(CPACK_RPM_PRE_INSTALL_SCRIPT_FILE "${PROJECT_BINARY_DIR}/deb/preinst" PARENT_SCOPE)
+    set(CPACK_RPM_PRE_UNINSTALL_SCRIPT_FILE "${PROJECT_BINARY_DIR}/deb/prermrpm" PARENT_SCOPE)
 endfunction()

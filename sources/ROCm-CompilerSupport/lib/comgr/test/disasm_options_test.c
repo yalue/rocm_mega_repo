@@ -45,29 +45,28 @@ const char *expectedOut = "\n"
                           "Disassembly of section .text:\n"
                           "foo:\n"
                           "\ts_load_dwordx2 s[0:1], s[4:5], 0x0               "
-                          "          // 000000000100: C0060002 00000000 \n"
+                          "          // 000000000000: C0060002 00000000 \n"
                           "\tv_mov_b32_e32 v2, 42                             "
-                          "          // 000000000108: 7E0402AA \n"
+                          "          // 000000000008: 7E0402AA \n"
                           "\ts_waitcnt lgkmcnt(0)                             "
-                          "          // 00000000010C: BF8C007F \n"
+                          "          // 00000000000C: BF8C007F \n"
                           "\tv_mov_b32_e32 v0, s0                             "
-                          "          // 000000000110: 7E000200 \n"
+                          "          // 000000000010: 7E000200 \n"
                           "\tv_mov_b32_e32 v1, s1                             "
-                          "          // 000000000114: 7E020201 \n"
+                          "          // 000000000014: 7E020201 \n"
                           "\tflat_store_dword v[0:1], v2                      "
-                          "          // 000000000118: DC700000 00000200 \n"
+                          "          // 000000000018: DC700000 00000200 \n"
                           "\ts_endpgm                                         "
-                          "          // 000000000120: BF810000 \n";
+                          "          // 000000000020: BF810000 \n";
 
+// TODO: Fix Options
 const char *expectedLog =
-    "amd_comgr_do_action:\n"
-    "\tActionKind: AMD_COMGR_ACTION_DISASSEMBLE_RELOCATABLE_TO_SOURCE\n"
-    "\t   IsaName: amdgcn-amd-amdhsa--gfx803\n"
-    "\t   Options: -file-headers -invalid-option\n"
-    "\t      Path: \n"
-    "\t  Language: AMD_COMGR_LANGUAGE_NONE\n"
-    ": Unknown command line argument '-invalid-option'.  Try: ' --help'\n"
-    ": Did you mean '  --print-all-options'?\n";
+    ": Unknown command line argument '-file-header'.  Try: ' --help'\n"
+    ": Did you mean '  --file-headers'?\n"
+    ": Unknown command line argument '-file headers'.  Try: ' --help'\n"
+    ": Did you mean '  --file-headers'?\n"
+    ": Unknown command line argument '-file\\headers'.  Try: ' --help'\n"
+    ": Did you mean '  --file-headers'?\n";
 
 void printChars(const char *bytes, size_t count) {
   for (size_t i = 0; i < count; i++)
@@ -93,9 +92,12 @@ int main(int argc, char *argv[]) {
   amd_comgr_data_set_t dataSetIn, dataSetOut;
   amd_comgr_action_info_t dataAction;
   amd_comgr_status_t status;
+  const char *disAsmOptions[] = {"-file-headers", "-file-header",
+                                 "-file headers", "-file\\headers"};
+  size_t disAsmOptionsCount = sizeof(disAsmOptions) / sizeof(disAsmOptions[0]);
 
   // Read input file
-  size = setBuf(TEST_OBJ_DIR "/reloc1.o", &buf);
+  size = setBuf(TEST_OBJ_DIR "/reloc-asm.o", &buf);
 
   status = amd_comgr_create_data_set(&dataSetIn);
   checkError(status, "amd_cogmr_create_data_set");
@@ -119,9 +121,9 @@ int main(int argc, char *argv[]) {
   checkError(status, "amd_comgr_action_info_set_isa_name");
   status = amd_comgr_action_info_set_logging(dataAction, true);
   checkError(status, "amd_comgr_action_info_set_logging");
-  status = amd_comgr_action_info_set_options(dataAction,
-                                             "-file-headers -invalid-option");
-  checkError(status, "amd_comgr_action_info_set_options");
+  status = amd_comgr_action_info_set_option_list(dataAction, disAsmOptions,
+                                                 disAsmOptionsCount);
+  checkError(status, "amd_comgr_action_info_set_option_list");
 
   status =
       amd_comgr_do_action(AMD_COMGR_ACTION_DISASSEMBLE_RELOCATABLE_TO_SOURCE,

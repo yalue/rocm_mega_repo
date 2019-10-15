@@ -52,6 +52,10 @@
 #include "core/inc/exceptions.h"
 
 namespace amd {
+
+// Tracks aggregate size of system memory available on platform
+size_t MemoryRegion::max_sysmem_alloc_size_ = 0;
+
 void* MemoryRegion::AllocateKfdMemory(const HsaMemFlags& flag,
                                       HSAuint32 node_id, size_t size) {
   void* ret = NULL;
@@ -119,7 +123,7 @@ MemoryRegion::MemoryRegion(bool fine_grain, bool full_profile, core::Agent* owne
     virtual_size_ = kGpuVmSize;
   } else if (IsSystem()) {
     mem_flag_.ui32.PageSize = HSA_PAGE_SIZE_4KB;
-    mem_flag_.ui32.NoSubstitute = 1;
+    mem_flag_.ui32.NoSubstitute = 0;
     mem_flag_.ui32.HostAccess = 1;
     mem_flag_.ui32.CachePolicy = HSA_CACHING_CACHED;
 
@@ -127,9 +131,20 @@ MemoryRegion::MemoryRegion(bool fine_grain, bool full_profile, core::Agent* owne
         (full_profile) ? os::GetUserModeVirtualMemorySize() : kGpuVmSize;
   }
 
+  // Bind if memory region is coarse or fine grain
+  mem_flag_.ui32.CoarseGrain = (fine_grain) ? 0 : 1;
+
+  // Adjust allocatable size per page align
   max_single_alloc_size_ = AlignDown(static_cast<size_t>(GetPhysicalSize()), kPageSize_);
 
-  mem_flag_.ui32.CoarseGrain = (fine_grain) ? 0 : 1;
+  // Keep track of total system memory available
+  // @note: System memory is surfaced as both coarse
+  // and fine grain memory regions. To track total system
+  // memory only fine grain is considered as it avoids
+  // double counting
+  if (IsSystem() && (fine_grain)) {
+    max_sysmem_alloc_size_ += max_single_alloc_size_;
+  }
 
   assert(GetVirtualSize() != 0);
   assert(GetPhysicalSize() <= GetVirtualSize());
@@ -147,7 +162,10 @@ hsa_status_t MemoryRegion::Allocate(size_t& size, AllocateFlags alloc_flags, voi
     return HSA_STATUS_ERROR_INVALID_ALLOCATION;
   }
 
-  if (size > max_single_alloc_size_) {
+  // Alocation requests for system memory considers aggregate
+  // memory available on all CPU devices
+  if (size > ((IsSystem() ?
+                max_sysmem_alloc_size_ : max_single_alloc_size_))) {
     return HSA_STATUS_ERROR_INVALID_ALLOCATION;
   }
 
@@ -285,9 +303,11 @@ hsa_status_t MemoryRegion::GetInfo(hsa_region_info_t attribute,
       break;
     case HSA_REGION_INFO_ALLOC_MAX_SIZE:
       switch (mem_props_.HeapType) {
+        case HSA_HEAPTYPE_SYSTEM:
+          *((size_t*)value) = max_sysmem_alloc_size_;
+          break;
         case HSA_HEAPTYPE_FRAME_BUFFER_PRIVATE:
         case HSA_HEAPTYPE_FRAME_BUFFER_PUBLIC:
-        case HSA_HEAPTYPE_SYSTEM:
         case HSA_HEAPTYPE_GPU_SCRATCH:
           *((size_t*)value) = max_single_alloc_size_;
           break;
@@ -365,15 +385,89 @@ hsa_status_t MemoryRegion::GetPoolInfo(hsa_amd_memory_pool_info_t attribute,
     case HSA_AMD_MEMORY_POOL_INFO_RUNTIME_ALLOC_GRANULE:
     case HSA_AMD_MEMORY_POOL_INFO_RUNTIME_ALLOC_ALIGNMENT:
       return GetInfo(static_cast<hsa_region_info_t>(attribute), value);
-      break;
     case HSA_AMD_MEMORY_POOL_INFO_ACCESSIBLE_BY_ALL:
       *((bool*)value) = IsSystem() ? true : false;
+      break;
+    case HSA_AMD_MEMORY_POOL_INFO_ALLOC_MAX_SIZE:
+      switch (mem_props_.HeapType) {
+        case HSA_HEAPTYPE_FRAME_BUFFER_PRIVATE:
+        case HSA_HEAPTYPE_FRAME_BUFFER_PUBLIC:
+        case HSA_HEAPTYPE_GPU_SCRATCH:
+          return GetInfo(HSA_REGION_INFO_ALLOC_MAX_SIZE, value);
+        case HSA_HEAPTYPE_SYSTEM:
+          // Aggregate size available for allocation
+          *((size_t*)value) = max_sysmem_alloc_size_;
+          break;
+        default:
+          *((size_t*)value) = 0;
+      }
       break;
     default:
       return HSA_STATUS_ERROR_INVALID_ARGUMENT;
   }
 
   return HSA_STATUS_SUCCESS;
+}
+
+hsa_amd_memory_pool_access_t MemoryRegion::GetAccessInfo(
+    const core::Agent& agent, const core::Runtime::LinkInfo& link_info) const {
+
+  // Return allowed by default if memory pool is owned by requesting device
+  if (agent.public_handle().handle == owner()->public_handle().handle) {
+    return HSA_AMD_MEMORY_POOL_ACCESS_ALLOWED_BY_DEFAULT;
+  }
+
+  // Requesting device does not have a link
+  if (link_info.num_hop < 1) {
+    return HSA_AMD_MEMORY_POOL_ACCESS_NEVER_ALLOWED;
+  }
+
+  // Determine access to fine and coarse grained system memory
+  // Return allowed by default if requesting device is a CPU
+  // Return disallowed by default if requesting device is not a CPU
+  if (IsSystem()) {
+    return (agent.device_type() == core::Agent::kAmdCpuDevice) ?
+            (HSA_AMD_MEMORY_POOL_ACCESS_ALLOWED_BY_DEFAULT) :
+            (HSA_AMD_MEMORY_POOL_ACCESS_DISALLOWED_BY_DEFAULT);
+  }
+
+  // Determine access type for device local memory which is
+  // guaranteed to be HSA_HEAPTYPE_FRAME_BUFFER_PUBLIC
+  // Return disallowed by default if framebuffer is coarse grained
+  // without regard to type of requesting device (CPU / GPU)
+  // Return disallowed by default if framebuffer is fine grained
+  // and requesting device is connected via xGMI link
+  // Return never allowed if framebuffer is fine grained and
+  // requesting device is connected via PCIe link
+  if (IsLocalMemory()) {
+
+    // Return disallowed by default if memory is coarse
+    // grained without regard to link type
+    if  (fine_grain() == false) {
+      return HSA_AMD_MEMORY_POOL_ACCESS_DISALLOWED_BY_DEFAULT;
+    }
+
+    // Determine if pool is pseudo fine-grained due to env flag
+    // Return disallowed by default
+    if (core::Runtime::runtime_singleton_->flag().fine_grain_pcie()) {
+      return HSA_AMD_MEMORY_POOL_ACCESS_DISALLOWED_BY_DEFAULT;
+    }
+
+    // Return disallowed by default if memory is fine
+    // grained and link type is xGMI.
+    if (agent.HiveId() == owner()->HiveId()) {
+      return HSA_AMD_MEMORY_POOL_ACCESS_DISALLOWED_BY_DEFAULT;
+    }
+
+    // Return never allowed if memory is fine grained
+    // link type is not xGMI i.e. link is PCIe
+    return HSA_AMD_MEMORY_POOL_ACCESS_NEVER_ALLOWED;
+  }
+
+  // Return never allowed if above conditions are not satisified
+  // This can happen when memory pool references neither system
+  // or device local memory
+  return HSA_AMD_MEMORY_POOL_ACCESS_NEVER_ALLOWED;
 }
 
 hsa_status_t MemoryRegion::GetAgentPoolInfo(
@@ -385,26 +479,7 @@ hsa_status_t MemoryRegion::GetAgentPoolInfo(
   const core::Runtime::LinkInfo link_info =
       core::Runtime::runtime_singleton_->GetLinkInfo(node_id_from, node_id_to);
 
-  /**
-   *  ---------------------------------------------------
-   *  |              |CPU        |GPU (owner)|GPU (peer) |
-   *  ---------------------------------------------------
-   *  |system memory |allowed    |disallowed |disallowed |
-   *  ---------------------------------------------------
-   *  |fb private    |never      |allowed    |never      |
-   *  ---------------------------------------------------
-   *  |fb public     |disallowed |allowed    |disallowed |
-   *  ---------------------------------------------------
-   *  |others        |never      |allowed    |never      |
-   *  ---------------------------------------------------
-   */
-  const hsa_amd_memory_pool_access_t access_type =
-      ((IsSystem() && (agent.device_type() == core::Agent::kAmdCpuDevice)) ||
-       (agent.node_id() == owner()->node_id()))
-          ? HSA_AMD_MEMORY_POOL_ACCESS_ALLOWED_BY_DEFAULT
-          : (IsSystem() || (IsLocalMemory() && link_info.num_hop > 0))
-                ? HSA_AMD_MEMORY_POOL_ACCESS_DISALLOWED_BY_DEFAULT
-                : HSA_AMD_MEMORY_POOL_ACCESS_NEVER_ALLOWED;
+  const hsa_amd_memory_pool_access_t access_type = GetAccessInfo(agent, link_info);
 
   switch (attribute) {
     case HSA_AMD_AGENT_MEMORY_POOL_INFO_ACCESS:

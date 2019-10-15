@@ -21,8 +21,8 @@
  *
  * ************************************************************************ */
 
-#include "definitions.h"
 #include "handle.h"
+#include "definitions.h"
 #include "logging.h"
 
 #include <hip/hip_runtime.h>
@@ -69,17 +69,20 @@ _rocsparse_handle::_rocsparse_handle()
     THROW_IF_HIP_ERROR(hipMalloc(&done, sizeof(double)));
 
     // Execute empty kernel for initialization
-    hipLaunchKernelGGL(init_kernel, dim3(1), dim3(1), 0, 0);
+    hipLaunchKernelGGL(init_kernel, dim3(1), dim3(1), 0, stream);
 
     // Execute memset for initialization
-    THROW_IF_HIP_ERROR(hipMemset(sone, 0, sizeof(float)));
-    THROW_IF_HIP_ERROR(hipMemset(done, 0, sizeof(double)));
+    THROW_IF_HIP_ERROR(hipMemsetAsync(sone, 0, sizeof(float), stream));
+    THROW_IF_HIP_ERROR(hipMemsetAsync(done, 0, sizeof(double), stream));
 
-    float hsone  = 1.0f;
+    float  hsone = 1.0f;
     double hdone = 1.0;
 
-    THROW_IF_HIP_ERROR(hipMemcpy(sone, &hsone, sizeof(float), hipMemcpyHostToDevice));
-    THROW_IF_HIP_ERROR(hipMemcpy(done, &hdone, sizeof(double), hipMemcpyHostToDevice));
+    THROW_IF_HIP_ERROR(hipMemcpyAsync(sone, &hsone, sizeof(float), hipMemcpyHostToDevice, stream));
+    THROW_IF_HIP_ERROR(hipMemcpyAsync(done, &hdone, sizeof(double), hipMemcpyHostToDevice, stream));
+
+    // Wait for device transfer to finish
+    THROW_IF_HIP_ERROR(hipStreamSynchronize(stream));
 
     // Open log file
     if(layer_mode & rocsparse_layer_mode_log_trace)
@@ -248,6 +251,55 @@ rocsparse_status rocsparse_destroy_csrtr_info(rocsparse_csrtr_info info)
     {
         RETURN_IF_HIP_ERROR(hipFree(info->zero_pivot));
         info->zero_pivot = nullptr;
+    }
+
+    // Destruct
+    try
+    {
+        delete info;
+    }
+    catch(const rocsparse_status& status)
+    {
+        return status;
+    }
+    return rocsparse_status_success;
+}
+
+/********************************************************************************
+ * \brief rocsparse_csrgemm_info is a structure holding the rocsparse csrgemm
+ * info data gathered during csrgemm_buffer_size. It must be initialized using
+ * the rocsparse_create_csrgemm_info() routine. It should be destroyed at the
+ * end using rocsparse_destroy_csrgemm_info().
+ *******************************************************************************/
+rocsparse_status rocsparse_create_csrgemm_info(rocsparse_csrgemm_info* info)
+{
+    if(info == nullptr)
+    {
+        return rocsparse_status_invalid_pointer;
+    }
+    else
+    {
+        // Allocate
+        try
+        {
+            *info = new _rocsparse_csrgemm_info;
+        }
+        catch(const rocsparse_status& status)
+        {
+            return status;
+        }
+        return rocsparse_status_success;
+    }
+}
+
+/********************************************************************************
+ * \brief Destroy csrgemm info.
+ *******************************************************************************/
+rocsparse_status rocsparse_destroy_csrgemm_info(rocsparse_csrgemm_info info)
+{
+    if(info == nullptr)
+    {
+        return rocsparse_status_success;
     }
 
     // Destruct

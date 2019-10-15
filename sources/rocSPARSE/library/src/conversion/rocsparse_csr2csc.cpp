@@ -20,12 +20,12 @@
  * THE SOFTWARE.
  *
  * ************************************************************************ */
-
 #include "rocsparse.h"
+
 #include "rocsparse_csr2csc.hpp"
 
 #include <hip/hip_runtime_api.h>
-#include <hipcub/hipcub.hpp>
+#include <rocprim/rocprim.hpp>
 
 /*
  * ===========================================================================
@@ -33,14 +33,14 @@
  * ===========================================================================
  */
 
-extern "C" rocsparse_status rocsparse_csr2csc_buffer_size(rocsparse_handle handle,
-                                                          rocsparse_int m,
-                                                          rocsparse_int n,
-                                                          rocsparse_int nnz,
+extern "C" rocsparse_status rocsparse_csr2csc_buffer_size(rocsparse_handle     handle,
+                                                          rocsparse_int        m,
+                                                          rocsparse_int        n,
+                                                          rocsparse_int        nnz,
                                                           const rocsparse_int* csr_row_ptr,
                                                           const rocsparse_int* csr_col_ind,
-                                                          rocsparse_action copy_values,
-                                                          size_t* buffer_size)
+                                                          rocsparse_action     copy_values,
+                                                          size_t*              buffer_size)
 {
     // Check for valid handle
     if(handle == nullptr)
@@ -73,6 +73,12 @@ extern "C" rocsparse_status rocsparse_csr2csc_buffer_size(rocsparse_handle handl
         return rocsparse_status_invalid_size;
     }
 
+    // Check buffer size argument
+    if(buffer_size == nullptr)
+    {
+        return rocsparse_status_invalid_pointer;
+    }
+
     // Quick return if possible
     if(m == 0 || n == 0 || nnz == 0)
     {
@@ -90,19 +96,16 @@ extern "C" rocsparse_status rocsparse_csr2csc_buffer_size(rocsparse_handle handl
     {
         return rocsparse_status_invalid_pointer;
     }
-    else if(buffer_size == nullptr)
-    {
-        return rocsparse_status_invalid_pointer;
-    }
 
     hipStream_t stream = handle->stream;
 
-    // Determine hipcub buffer size
+    // Determine rocprim buffer size
     rocsparse_int* ptr = reinterpret_cast<rocsparse_int*>(buffer_size);
-    hipcub::DoubleBuffer<rocsparse_int> dummy(ptr, ptr);
 
-    RETURN_IF_HIP_ERROR(hipcub::DeviceRadixSort::SortPairs(
-        nullptr, *buffer_size, dummy, dummy, nnz, 0, 32, stream));
+    rocprim::double_buffer<rocsparse_int> dummy(ptr, ptr);
+
+    RETURN_IF_HIP_ERROR(
+        rocprim::radix_sort_pairs(nullptr, *buffer_size, dummy, dummy, nnz, 0, 32, stream));
 
     *buffer_size = ((*buffer_size - 1) / 256 + 1) * 256;
 
@@ -121,19 +124,19 @@ extern "C" rocsparse_status rocsparse_csr2csc_buffer_size(rocsparse_handle handl
     return rocsparse_status_success;
 }
 
-extern "C" rocsparse_status rocsparse_scsr2csc(rocsparse_handle handle,
-                                               rocsparse_int m,
-                                               rocsparse_int n,
-                                               rocsparse_int nnz,
-                                               const float* csr_val,
+extern "C" rocsparse_status rocsparse_scsr2csc(rocsparse_handle     handle,
+                                               rocsparse_int        m,
+                                               rocsparse_int        n,
+                                               rocsparse_int        nnz,
+                                               const float*         csr_val,
                                                const rocsparse_int* csr_row_ptr,
                                                const rocsparse_int* csr_col_ind,
-                                               float* csc_val,
-                                               rocsparse_int* csc_row_ind,
-                                               rocsparse_int* csc_col_ptr,
-                                               rocsparse_action copy_values,
+                                               float*               csc_val,
+                                               rocsparse_int*       csc_row_ind,
+                                               rocsparse_int*       csc_col_ptr,
+                                               rocsparse_action     copy_values,
                                                rocsparse_index_base idx_base,
-                                               void* temp_buffer)
+                                               void*                temp_buffer)
 {
     return rocsparse_csr2csc_template<float>(handle,
                                              m,
@@ -150,19 +153,19 @@ extern "C" rocsparse_status rocsparse_scsr2csc(rocsparse_handle handle,
                                              temp_buffer);
 }
 
-extern "C" rocsparse_status rocsparse_dcsr2csc(rocsparse_handle handle,
-                                               rocsparse_int m,
-                                               rocsparse_int n,
-                                               rocsparse_int nnz,
-                                               const double* csr_val,
+extern "C" rocsparse_status rocsparse_dcsr2csc(rocsparse_handle     handle,
+                                               rocsparse_int        m,
+                                               rocsparse_int        n,
+                                               rocsparse_int        nnz,
+                                               const double*        csr_val,
                                                const rocsparse_int* csr_row_ptr,
                                                const rocsparse_int* csr_col_ind,
-                                               double* csc_val,
-                                               rocsparse_int* csc_row_ind,
-                                               rocsparse_int* csc_col_ptr,
-                                               rocsparse_action copy_values,
+                                               double*              csc_val,
+                                               rocsparse_int*       csc_row_ind,
+                                               rocsparse_int*       csc_col_ptr,
+                                               rocsparse_action     copy_values,
                                                rocsparse_index_base idx_base,
-                                               void* temp_buffer)
+                                               void*                temp_buffer)
 {
     return rocsparse_csr2csc_template<double>(handle,
                                               m,

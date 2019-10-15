@@ -24,22 +24,22 @@
 #include "testing_identity.hpp"
 #include "utility.hpp"
 
-#include <rocsparse.h>
 #include <gtest/gtest.h>
+#include <rocsparse.h>
 #include <vector>
 
-int identity_N_range[] = {-3, 0, 33, 242, 623, 1000};
+rocsparse_int identity_N_range[] = {-3, 0, 33, 242, 623, 1000};
 
-class parameterized_identity : public testing::TestWithParam<int>
+class parameterized_identity : public testing::TestWithParam<rocsparse_int>
 {
-    protected:
+protected:
     parameterized_identity() {}
     virtual ~parameterized_identity() {}
     virtual void SetUp() {}
     virtual void TearDown() {}
 };
 
-Arguments setup_identity_arguments(int n)
+Arguments setup_identity_arguments(rocsparse_int n)
 {
     Arguments arg;
     arg.N      = n;
@@ -47,7 +47,10 @@ Arguments setup_identity_arguments(int n)
     return arg;
 }
 
-TEST(identity_bad_arg, identity) { testing_identity_bad_arg(); }
+TEST(identity_bad_arg, identity)
+{
+    testing_identity_bad_arg();
+}
 
 TEST_P(parameterized_identity, identity)
 {

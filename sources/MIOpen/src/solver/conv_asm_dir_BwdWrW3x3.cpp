@@ -336,16 +336,14 @@ bool ConvAsmBwdWrW3x3::IsValidPerformanceConfig(const ConvolutionContext& proble
 bool ConvAsmBwdWrW3x3::IsApplicable(const ConvolutionContext& params) const
 {
     if(!params.use_asm_kernels)
-    {
         return false;
-    }
+    if(!params.Is2d())
+        return false;
+    if(params.rmv != rocm_meta_version::AMDHSA_1_0)
+        return false;
 
-    if(!(params.rmv == rocm_meta_version::V3 || params.rmv == rocm_meta_version::AMDHSA_1_0))
-    {
-        return false;
-    }
     const std::string name = params.GetStream().GetDeviceName();
-    if(name.find("gfx8") == std::string::npos && name.find("gfx9") == std::string::npos)
+    if(name.find("gfx9") == std::string::npos)
     {
         return false;
     }
@@ -427,8 +425,7 @@ ConvSolution ConvAsmBwdWrW3x3::GetSolution(const ConvolutionContext& params,
     GenerateClangDefsym(options, "stride_w", params.kernel_stride_w);
     GenerateClangDefsym(options, "weights_layout", 0);
     GenerateClangDefsym(options, "reverse_weights", 0);
-    GenerateClangDefsym(
-        options, "ROCM_METADATA_VERSION", (params.rmv == rocm_meta_version::V3) ? 3 : 4);
+    GenerateClangDefsym(options, "ROCM_METADATA_VERSION", 4);
     // Perf tune:
     const PerformanceConfigAsmDirect3x3WrW* pcfg = &config;
     PerformanceConfigAsmDirect3x3WrW fromEnv;
@@ -503,11 +500,12 @@ ConvSolution ConvAsmBwdWrW3x3::GetSolution(const ConvolutionContext& params,
     return result;
 }
 
+template <typename B, typename T>
 int ConvAsmBwdWrW3x3::RunAndMeasureSolution(miopen::Handle& profile_h,
-                                            Data_t bot_ocl_buf,
-                                            Data_t top_ocl_buf,
+                                            B bot_ocl_buf,
+                                            T top_ocl_buf,
                                             Data_t wei_ocl_buf,
-                                            Data_t bias_ocl_buf,
+                                            ConstData_t bias_ocl_buf,
                                             const ConvolutionContext& params,
                                             const ConvSolution& solution,
                                             float& elapsed_time) const
@@ -559,7 +557,7 @@ int ConvAsmBwdWrW3x3::RunAndMeasureSolution(miopen::Handle& profile_h,
 
 PerformanceConfigAsmDirect3x3WrW ConvAsmBwdWrW3x3::Search(const ConvolutionContext& context) const
 {
-    return GenericSearch(*this, context);
+    return GenericSearchWrW(*this, context);
 }
 
 } // namespace solver

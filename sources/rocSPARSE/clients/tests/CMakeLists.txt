@@ -23,6 +23,10 @@
 
 # Download some test matrices
 set(TEST_MATRICES
+  SNAP/amazon0312
+  Muite/Chebyshev4
+  FEMLAB/sme3Dc
+  Williams/webbase-1M
   Bova/rma10
   JGD_BIBD/bibd_22_8
   Williams/mac_econ_fwd500
@@ -37,6 +41,7 @@ set(TEST_MATRICES
   HB/nos5
   HB/nos6
   HB/nos7
+  DNVS/shipsec1
 )
 
 if(NOT TARGET rocsparse)
@@ -51,18 +56,19 @@ foreach(m ${TEST_MATRICES})
   list(GET sep_m 1 mat)
 
   # Download test matrices if not already downloaded
-  if(NOT EXISTS "${CMAKE_CURRENT_BINARY_DIR}/matrices/${mat}.bin")
+  set(CMAKE_MATRICES_DIR ${PROJECT_BINARY_DIR}/matrices)
+  if(NOT EXISTS "${CMAKE_MATRICES_DIR}/${mat}.bin")
     message("  Downloading and extracting test matrix ${m}.tar.gz")
     file(DOWNLOAD http://www.cise.ufl.edu/research/sparse/MM/${m}.tar.gz
-         ${CMAKE_CURRENT_BINARY_DIR}/matrices/${mat}.tar.gz)
+         ${CMAKE_MATRICES_DIR}/${mat}.tar.gz)
     execute_process(COMMAND tar xf ${mat}.tar.gz
-                    WORKING_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}/matrices)
+                    WORKING_DIRECTORY ${CMAKE_MATRICES_DIR})
     execute_process(COMMAND mv ${mat}/${mat}.mtx .
-                    WORKING_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}/matrices)
+                    WORKING_DIRECTORY ${CMAKE_MATRICES_DIR})
     execute_process(COMMAND ${CONVERT} ${mat}.mtx ${mat}.bin
-                    WORKING_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}/matrices)
+                    WORKING_DIRECTORY ${CMAKE_MATRICES_DIR})
     execute_process(COMMAND rm ${mat}.tar.gz ${mat} ${mat}.mtx -rf
-                    WORKING_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}/matrices)
+                    WORKING_DIRECTORY ${CMAKE_MATRICES_DIR})
   endif()
 endforeach()
 
@@ -94,6 +100,7 @@ set(ROCSPARSE_TEST_SOURCES
   test_csrsort.cpp
   test_coosort.cpp
   test_csrilusv.cpp
+  test_csrgemm.cpp
 )
 
 set(ROCSPARSE_CLIENTS_COMMON
@@ -107,6 +114,10 @@ add_executable(rocsparse-test ${ROCSPARSE_TEST_SOURCES} ${ROCSPARSE_CLIENTS_COMM
 
 target_compile_definitions(rocsparse-test PRIVATE GOOGLE_TEST)
 
+if(OPENMP_FOUND)
+  target_compile_options(rocsparse-test PRIVATE ${OpenMP_CXX_FLAGS})
+endif()
+
 target_include_directories(rocsparse-test
   PRIVATE
     $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/../include>
@@ -116,7 +127,7 @@ target_include_directories(rocsparse-test
   SYSTEM
     PRIVATE
       $<BUILD_INTERFACE:${GTEST_INCLUDE_DIRS}>
-      $<BUILD_INTERFACE:${hip_INCLUDE_DIRS}>
+      $<BUILD_INTERFACE:${HIP_INCLUDE_DIRS}>
 )
 
 if(NOT TARGET rocsparse)
@@ -125,14 +136,25 @@ else()
   target_link_libraries(rocsparse-test PRIVATE roc::rocsparse)
 endif()
 
-if(HIP_PLATFORM STREQUAL "nvcc")
-  target_link_libraries(rocsparse-test PRIVATE ${GTEST_BOTH_LIBRARIES})
-else()
-  target_link_libraries(rocsparse-test PRIVATE ${GTEST_BOTH_LIBRARIES} ${hip_LIBRARIES})
+set(THREADS_PREFER_PTHREAD_FLAG ON)
+find_package(Threads REQUIRED)
+target_link_libraries(rocsparse-test PRIVATE ${GTEST_BOTH_LIBRARIES} Threads::Threads)
 
-  foreach(amdgpu_target ${AMDGPU_TARGETS})
-    target_link_libraries(rocsparse-test PRIVATE --amdgpu-target=${amdgpu_target})
-  endforeach()
+if(OPENMP_FOUND)
+  target_link_libraries(rocsparse-test PRIVATE ${OpenMP_CXX_FLAGS})
 endif()
+
+if(CMAKE_CXX_COMPILER MATCHES ".*/hcc$")
+  target_link_libraries(rocsparse-test PRIVATE ${HIP_LIBRARIES})
+  foreach(target ${AMDGPU_TARGETS})
+    target_link_libraries(rocsparse-test PRIVATE --amdgpu-target=${target})
+  endforeach()
+elseif(NOT CMAKE_CXX_COMPILER MATCHES ".*/hipcc$")
+  target_compile_definitions(rocsparse-test PRIVATE __HIP_PLATFORM_HCC__)
+  get_target_property(HIPHCC_LOCATION hip::hip_hcc IMPORTED_LOCATION_RELEASE)
+  target_link_libraries(rocsparse-test PRIVATE ${HIPHCC_LOCATION})
+endif()
+
+set_target_properties(rocsparse-test PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${PROJECT_BINARY_DIR}/staging")
 
 add_test(rocsparse-test rocsparse-test)

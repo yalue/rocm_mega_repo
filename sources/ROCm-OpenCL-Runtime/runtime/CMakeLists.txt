@@ -7,14 +7,22 @@ if(CMAKE_BUILD_TYPE MATCHES "^Debug$")
   add_definitions(-DDEBUG)
 endif()
 
-include_directories(${ROCR_INCLUDE_DIRS})
+include_directories(${ROCR_INCLUDES})
+if (DEFINED LLVM_INCLUDES AND NOT ${LLVM_INCLUDES} STREQUAL "")
+  include_directories(${LLVM_INCLUDES})
+endif() # if (DEFINED LLVM_INCLUDES AND NOT ${LLVM_INCLUDES} STREQUAL "")
 
 include_directories(${CMAKE_SOURCE_DIR}/runtime)
 include_directories(${CMAKE_SOURCE_DIR}/api/opencl)
 include_directories(${CMAKE_SOURCE_DIR}/api/opencl/khronos)
 include_directories(${CMAKE_SOURCE_DIR}/api/opencl/khronos/headers)
 include_directories(${CMAKE_SOURCE_DIR}/api/opencl/khronos/headers/opencl2.2)
-include_directories(${CMAKE_SOURCE_DIR}/compiler/llvm/include)
+
+# FIXME: Remove following if block after enabling COMGR by default
+if (${USE_COMGR_LIBRARY} STREQUAL "no")
+  include_directories(${CMAKE_SOURCE_DIR}/compiler/llvm/include)
+endif() # if (${USE_COMGR_LIBRARY} STREQUAL "no")
+
 include_directories(${CMAKE_SOURCE_DIR}/compiler/driver/src)
 include_directories(${CMAKE_SOURCE_DIR}/compiler/lib)
 include_directories(${CMAKE_SOURCE_DIR}/compiler/lib/include)
@@ -30,6 +38,7 @@ include_directories(${CMAKE_SOURCE_DIR}/compiler/lib/loaders/elf/utils/libelf)
 add_subdirectory(device/rocm)
 
 if(${USE_COMGR_LIBRARY} MATCHES "yes")
+  add_definitions(-DUSE_COMGR_LIBRARY -DCOMGR_DYN_DLL)
   find_package(amd_comgr REQUIRED CONFIG)
   include_directories("$<TARGET_PROPERTY:amd_comgr,INTERFACE_INCLUDE_DIRECTORIES>")
   set(COMGR_CPP device/comgrctx.cpp)
@@ -49,6 +58,7 @@ add_library(oclruntime OBJECT
   device/devkernel.cpp
   device/devwavelimiter.cpp
   device/devprogram.cpp
+  platform/activity.cpp
   platform/kernel.cpp
   platform/context.cpp
   platform/command.cpp

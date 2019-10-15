@@ -48,7 +48,10 @@ typedef enum
 } DebugAgentStatus;
 
 // This is the instance of the structure probed by the GDB.
-extern RocmGpuDebug _r_rocm_debug_info;
+extern "C" RocmGpuDebug _r_rocm_debug_info;
+
+// GDB attached
+extern "C" bool g_gdbAttached;
 
 // Temp direcoty path for code object files
 extern char g_codeObjDir[92];
@@ -65,13 +68,20 @@ const char gfx900[] = "amdgcn-amd-amdhsa--gfx900";
 // ISA name of gfx906
 const char gfx906[] = "amdgcn-amd-amdhsa--gfx906";
 
-// GDB attached
-extern bool g_gdbAttached;
+// ISA name of gfx908
+const char gfx908[] = "amdgcn-amd-amdhsa--gfx908";
+
+// Agent name of gfx900
+const char gfx900AgentName[] = "AMD gfx900";
+
+// Agent name of gfx906
+const char gfx906AgentName[] = "AMD gfx906";
+
+// Agent name of gfx908
+const char gfx908AgentName[] = "AMD gfx908";
 
 // lock for access debug agenet
 extern std::mutex debugAgentAccessLock;
-
-extern hsa_signal_t debugTrapSignal;
 
 extern "C" bool OnLoad(void *pTable,
                        uint64_t runtimeVersion, uint64_t failedToolCount,

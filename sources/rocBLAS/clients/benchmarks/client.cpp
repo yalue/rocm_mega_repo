@@ -1,50 +1,51 @@
 /* ************************************************************************
- * Copyright 2016 Advanced Micro Devices, Inc.
+ * Copyright 2016-2019 Advanced Micro Devices, Inc.
  * ************************************************************************ */
 
-#include <iostream>
-#include <cstdio>
-#include <cstring>
-#include <string>
-#include <cctype>
-#include <boost/program_options.hpp>
-#include <algorithm>
-#include <stdexcept>
-#include <type_traits>
 #include "rocblas.h"
-#include "utility.hpp"
 #include "rocblas.hpp"
 #include "rocblas_data.hpp"
 #include "rocblas_datatype2string.hpp"
-#include "testing_iamax_iamin.hpp"
+#include "rocblas_parse_data.hpp"
 #include "testing_asum.hpp"
 #include "testing_axpy.hpp"
 #include "testing_copy.hpp"
 #include "testing_dot.hpp"
-#include "testing_swap.hpp"
+#include "testing_geam.hpp"
 #include "testing_gemv.hpp"
 #include "testing_ger.hpp"
-#include "testing_syr.hpp"
+#include "testing_iamax_iamin.hpp"
 #include "testing_nrm2.hpp"
 #include "testing_scal.hpp"
+#include "testing_set_get_matrix.hpp"
+#include "testing_set_get_vector.hpp"
+#include "testing_swap.hpp"
+#include "testing_syr.hpp"
 #include "testing_trtri.hpp"
 #include "testing_trtri_batched.hpp"
-#include "testing_geam.hpp"
-#include "testing_set_get_vector.hpp"
-#include "testing_set_get_matrix.hpp"
 #include "type_dispatch.hpp"
-#include "rocblas_parse_data.hpp"
+#include "utility.hpp"
+#include <algorithm>
+#undef I
+#include <boost/program_options.hpp>
+#include <cctype>
+#include <cstdio>
+#include <cstring>
+#include <iostream>
+#include <stdexcept>
+#include <string>
+#include <type_traits>
 
 using namespace std::literals;
 
 #if BUILD_WITH_TENSILE
 #include "testing_gemm.hpp"
+#include "testing_gemm_ex.hpp"
 #include "testing_gemm_strided_batched.hpp"
+#include "testing_gemm_strided_batched_ex.hpp"
 #include "testing_trsm.hpp"
 #include "testing_trsm_ex.hpp"
 #include "testing_trsv.hpp"
-#include "testing_gemm_ex.hpp"
-#include "testing_gemm_strided_batched_ex.hpp"
 
 // Template to dispatch testing_gemm_ex for performance tests
 // When Ti == void or complex, the test is marked invalid
@@ -59,8 +60,14 @@ struct perf_gemm_ex<Ti,
                     Tc,
                     typename std::enable_if<!std::is_same<Ti, void>{} && !is_complex<Ti>>::type>
 {
-    explicit operator bool() { return true; }
-    void operator()(const Arguments& arg) { testing_gemm_ex<Ti, To, Tc>(arg); }
+    explicit operator bool()
+    {
+        return true;
+    }
+    void operator()(const Arguments& arg)
+    {
+        testing_gemm_ex<Ti, To, Tc>(arg);
+    }
 };
 
 // Template to dispatch testing_gemm_strided_batched_ex for performance tests
@@ -77,23 +84,33 @@ struct perf_gemm_strided_batched_ex<
     Tc,
     typename std::enable_if<!std::is_same<Ti, void>{} && !is_complex<Ti>>::type>
 {
-    explicit operator bool() { return true; }
-    void operator()(const Arguments& arg) { testing_gemm_strided_batched_ex<Ti, To, Tc>(arg); }
+    explicit operator bool()
+    {
+        return true;
+    }
+    void operator()(const Arguments& arg)
+    {
+        testing_gemm_strided_batched_ex<Ti, To, Tc>(arg);
+    }
 };
 
 #endif
 
-template <typename T, typename = void>
+template <typename T, typename U = T, typename = void>
 struct perf_blas : rocblas_test_invalid
 {
 };
 
-template <typename T>
+template <typename T, typename U>
 struct perf_blas<
     T,
+    U,
     typename std::enable_if<std::is_same<T, float>{} || std::is_same<T, double>{}>::type>
 {
-    explicit operator bool() { return true; }
+    explicit operator bool()
+    {
+        return true;
+    }
     void operator()(const Arguments& arg)
     {
         if(!strcmp(arg.function, "gemm"))
@@ -122,8 +139,6 @@ struct perf_blas<
             testing_iamin<T>(arg);
         else if(!strcmp(arg.function, "nrm2"))
             testing_nrm2<T>(arg);
-        else if(!strcmp(arg.function, "scal"))
-            testing_scal<T>(arg);
         else if(!strcmp(arg.function, "gemv"))
             testing_gemv<T>(arg);
         else if(!strcmp(arg.function, "ger"))
@@ -141,15 +156,18 @@ struct perf_blas<
         else if(!strcmp(arg.function, "set_get_matrix"))
             testing_set_get_matrix<T>(arg);
         else
-            throw std::invalid_argument("Invalid combination --function "s + arg.function +
-                                        " --a_type "s + rocblas_datatype2string(arg.a_type));
+            throw std::invalid_argument("Invalid combination --function "s + arg.function
+                                        + " --a_type "s + rocblas_datatype2string(arg.a_type));
     }
 };
 
-template <typename T>
-struct perf_blas<T, typename std::enable_if<std::is_same<T, rocblas_half>{}>::type>
+template <typename T, typename U>
+struct perf_blas<T, U, typename std::enable_if<std::is_same<T, rocblas_half>{}>::type>
 {
-    explicit operator bool() { return true; }
+    explicit operator bool()
+    {
+        return true;
+    }
     void operator()(const Arguments& arg)
     {
         if(!strcmp(arg.function, "axpy"))
@@ -159,8 +177,77 @@ struct perf_blas<T, typename std::enable_if<std::is_same<T, rocblas_half>{}>::ty
         else if(!strcmp(arg.function, "gemm_strided_batched"))
             testing_gemm_strided_batched<T>(arg);
         else
-            throw std::invalid_argument("Invalid combination --function "s + arg.function +
-                                        " --a_type "s + rocblas_datatype2string(arg.a_type));
+            throw std::invalid_argument("Invalid combination --function "s + arg.function
+                                        + " --a_type "s + rocblas_datatype2string(arg.a_type));
+    }
+};
+
+template <typename T, typename U>
+struct perf_blas<T,
+                 U,
+                 typename std::enable_if<std::is_same<T, rocblas_double_complex>{}
+                                         || std::is_same<T, rocblas_float_complex>{}>::type>
+{
+    explicit operator bool()
+    {
+        return true;
+    }
+    void operator()(const Arguments& arg)
+    {
+        if(!strcmp(arg.function, "asum"))
+            testing_asum<T>(arg);
+        else if(!strcmp(arg.function, "axpy"))
+            testing_axpy<T>(arg);
+        else if(!strcmp(arg.function, "copy"))
+            testing_copy<T>(arg);
+        else if(!strcmp(arg.function, "dot"))
+            testing_dot<T>(arg);
+        else if(!strcmp(arg.function, "dotc"))
+            testing_dotc<T>(arg);
+        else if(!strcmp(arg.function, "nrm2"))
+            testing_nrm2<T>(arg);
+        else if(!strcmp(arg.function, "swap"))
+            testing_swap<T>(arg);
+        else if(!strcmp(arg.function, "iamax"))
+            testing_iamax<T>(arg);
+        else if(!strcmp(arg.function, "iamin"))
+            testing_iamin<T>(arg);
+        else if(!strcmp(arg.function, "gemv"))
+            testing_gemv<T>(arg);
+        else
+            throw std::invalid_argument("Invalid combination --function "s + arg.function
+                                        + " --a_type "s + rocblas_datatype2string(arg.a_type));
+    }
+};
+
+template <typename Ta, typename Tb = Ta, typename = void>
+struct perf_blas_scal : rocblas_test_invalid
+{
+};
+
+template <typename Ta, typename Tb>
+struct perf_blas_scal<
+    Ta,
+    Tb,
+    typename std::enable_if<
+        (std::is_same<Ta, double>{} && std::is_same<Tb, rocblas_double_complex>{})
+        || (std::is_same<Ta, float>{} && std::is_same<Tb, rocblas_float_complex>{})
+        || (std::is_same<Ta, Tb>{} && std::is_same<Ta, float>{})
+        || (std::is_same<Ta, Tb>{} && std::is_same<Ta, double>{})
+        || (std::is_same<Ta, Tb>{} && std::is_same<Ta, rocblas_float_complex>{})
+        || (std::is_same<Ta, Tb>{} && std::is_same<Ta, rocblas_double_complex>{})>::type>
+{
+    explicit operator bool()
+    {
+        return true;
+    }
+    void operator()(const Arguments& arg)
+    {
+        if(!strcmp(arg.function, "scal"))
+            testing_scal<Ta, Tb>(arg);
+        else
+            throw std::invalid_argument("Invalid combination --function "s + arg.function
+                                        + " --a_type "s + rocblas_datatype2string(arg.a_type));
     }
 };
 
@@ -174,7 +261,7 @@ int run_bench_test(Arguments& arg)
 
     // Skip past any testing_ prefix in function
     static constexpr char prefix[] = "testing_";
-    const char* function           = arg.function;
+    const char*           function = arg.function;
     if(!strncmp(function, prefix, sizeof(prefix) - 1))
         function += sizeof(prefix) - 1;
 
@@ -323,7 +410,10 @@ int run_bench_test(Arguments& arg)
     else
 #endif
     {
-        rocblas_simple_dispatch<perf_blas>(arg);
+        if(!strcmp(function, "scal"))
+            rocblas_blas1_dispatch<perf_blas_scal>(arg);
+        else
+            rocblas_simple_dispatch<perf_blas>(arg);
     }
     return 0;
 }
@@ -339,7 +429,8 @@ int rocblas_bench_datafile()
 
 using namespace boost::program_options;
 
-int main(int argc, char* argv[]) try
+int main(int argc, char* argv[])
+try
 {
     Arguments arg;
 
@@ -353,7 +444,7 @@ int main(int argc, char* argv[]) try
     std::string initialization;
 
     rocblas_int device_id;
-    bool datafile = rocblas_parse_data(argc, argv);
+    bool        datafile = rocblas_parse_data(argc, argv);
 
     options_description desc("rocblas-bench command line options");
     desc.add_options()
@@ -420,8 +511,14 @@ int main(int argc, char* argv[]) try
         ("alpha",
           value<double>(&arg.alpha)->default_value(1.0), "specifies the scalar alpha")
 
+        ("alphai",
+         value<double>(&arg.alphai)->default_value(0.0), "specifies the imaginary part of the scalar alpha")
+
         ("beta",
          value<double>(&arg.beta)->default_value(0.0), "specifies the scalar beta")
+
+        ("betai",
+         value<double>(&arg.beta)->default_value(0.0), "specifies the imaginary part of the scalar beta")
 
         ("function,f",
          value<std::string>(&function),
@@ -429,27 +526,27 @@ int main(int argc, char* argv[]) try
 
         ("precision,r",
          value<std::string>(&precision)->default_value("f32_r"), "Precision. "
-         "Options: h,s,d,c,z,f16_r,f32_r,f64_r,f32_c,f64_c,i8_r,i32_r")
+         "Options: h,s,d,c,z,f16_r,f32_r,f64_r,bf16_r,f32_c,f64_c,i8_r,i32_r")
 
         ("a_type",
          value<std::string>(&a_type), "Precision of matrix A. "
-         "Options: h,s,d,c,z,f16_r,f32_r,f64_r,f32_c,f64_c,i8_r,i32_r")
+         "Options: h,s,d,c,z,f16_r,f32_r,f64_r,bf16_r,f32_c,f64_c,i8_r,i32_r")
 
         ("b_type",
          value<std::string>(&b_type), "Precision of matrix B. "
-         "Options: h,s,d,c,z,f16_r,f32_r,f64_r,f32_c,f64_c,i8_r,i32_r")
+         "Options: h,s,d,c,z,f16_r,f32_r,f64_r,bf16_r,f32_c,f64_c,i8_r,i32_r")
 
         ("c_type",
          value<std::string>(&c_type), "Precision of matrix C. "
-         "Options: h,s,d,c,z,f16_r,f32_r,f64_r,f32_c,f64_c,i8_r,i32_r")
+         "Options: h,s,d,c,z,f16_r,f32_r,f64_r,bf16_r,f32_c,f64_c,i8_r,i32_r")
 
         ("d_type",
          value<std::string>(&d_type), "Precision of matrix D. "
-         "Options: h,s,d,c,z,f16_r,f32_r,f64_r,f32_c,f64_c,i8_r,i32_r")
+         "Options: h,s,d,c,z,f16_r,f32_r,f64_r,bf16_r,f32_c,f64_c,i8_r,i32_r")
 
         ("compute_type",
          value<std::string>(&compute_type), "Precision of computation. "
-         "Options: h,s,d,c,z,f16_r,f32_r,f64_r,f32_c,f64_c,i8_r,i32_r")
+         "Options: h,s,d,c,z,f16_r,f32_r,f64_r,bf16_r,f32_c,f64_c,i8_r,i32_r")
 
         ("initialization",
          value<std::string>(&initialization)->default_value("rand_int"),
@@ -499,10 +596,6 @@ int main(int argc, char* argv[]) try
         ("flags",
          value<uint32_t>(&arg.flags)->default_value(10),
          "extended precision gemm flags")
-
-        ("workspace_size",
-         value<size_t>(&arg.workspace_size)->default_value(10),
-         "extended precision gemm workspace size")
 
         ("device",
          value<rocblas_int>(&device_id)->default_value(0),

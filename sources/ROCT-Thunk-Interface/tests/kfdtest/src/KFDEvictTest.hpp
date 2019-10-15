@@ -26,47 +26,35 @@
 
 #include <string>
 #include <vector>
-#include "KFDLocalMemoryTest.hpp"
-#include "KFDBaseComponentTest.hpp"
+#include "KFDMultiProcessTest.hpp"
 #include "IsaGenerator.hpp"
+#include "PM4Queue.hpp"
 
 // @class KFDEvictTest
 // Test eviction and restore procedure using two processes
-class KFDEvictTest :  public KFDLocalMemoryTest {
+class KFDEvictTest :  public KFDMultiProcessTest {
  public:
-    KFDEvictTest(void): m_ChildStatus(HSAKMT_STATUS_ERROR), m_IsParent(true) {}
+    KFDEvictTest(void): m_pIsaGen(NULL) {}
 
-    ~KFDEvictTest(void) {
-        if (!m_IsParent) {
-            /* Child process has to exit
-             * otherwise gtest will continue other tests
-             */
-            exit(m_ChildStatus);
-        }
-
-        try {
-            WaitChildProcesses();
-        } catch (...) {}
-    }
+    ~KFDEvictTest(void) {}
 
  protected:
+    virtual void SetUp();
+    virtual void TearDown();
+
     std::string CreateShader();
     void AllocBuffers(HSAuint32 defaultGPUNode, HSAuint32 count, HSAuint64 vramBufSize,
                       std::vector<void *> &pBuffers);
     void FreeBuffers(std::vector<void *> &pBuffers, HSAuint64 vramBufSize);
     void AllocAmdgpuBo(int rn, HSAuint64 vramBufSize, amdgpu_bo_handle &handle);
     void FreeAmdgpuBo(amdgpu_bo_handle handle);
-    void AmdgpuCommandSubmissionComputeNop(int rn, amdgpu_bo_handle handle);
-    void ForkChildProcesses(int nprocesses);
-    void WaitChildProcesses();
+    void AmdgpuCommandSubmissionSdmaNop(int rn, amdgpu_bo_handle handle,
+                                           PM4Queue *computeQueue);
 
  protected:  // Members
-    std::string     m_psName;
-    std::vector<pid_t> m_ChildPids;
+    IsaGenerator*   m_pIsaGen;
     HsaMemFlags     m_Flags;
     void*           m_pBuf;
-    HSAKMT_STATUS   m_ChildStatus;
-    bool            m_IsParent;
 };
 
 #endif  // __KFD_EVICT_TEST__H__

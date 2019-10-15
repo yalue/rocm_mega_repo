@@ -1,6 +1,24 @@
-/*******************************************************************************
- * Copyright (C) 2016 Advanced Micro Devices, Inc. All rights reserved.
- ******************************************************************************/
+/******************************************************************************
+* Copyright (c) 2016 - present Advanced Micro Devices, Inc. All rights reserved.
+*
+* Permission is hereby granted, free of charge, to any person obtaining a copy
+* of this software and associated documentation files (the "Software"), to deal
+* in the Software without restriction, including without limitation the rights
+* to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+* copies of the Software, and to permit persons to whom the Software is
+* furnished to do so, subject to the following conditions:
+*
+* The above copyright notice and this permission notice shall be included in
+* all copies or substantial portions of the Software.
+*
+* THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+* IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+* FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.  IN NO EVENT SHALL THE
+* AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+* LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+* OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
+* THE SOFTWARE.
+*******************************************************************************/
 
 #ifndef __HIPFFT_H__
 #define __HIPFFT_H__
@@ -46,6 +64,13 @@ typedef enum hipfftType_t
     HIPFFT_Z2Z = 0x69 // Double-complex to double-complex (interleaved)
 } hipfftType;
 
+typedef enum hipfftLibraryPropertyType_t
+{
+    MAJOR_VERSION,
+    MINOR_VERSION,
+    PATCH_LEVEL
+} hipfftLibraryPropertyType;
+
 #define HIPFFT_FORWARD -1
 #define HIPFFT_BACKWARD 1
 
@@ -84,10 +109,10 @@ DLL_PUBLIC hipfftResult hipfftMakePlan1d(hipfftHandle plan,
                                          size_t*      workSize);
 
 DLL_PUBLIC hipfftResult
-           hipfftMakePlan2d(hipfftHandle plan, int nx, int ny, hipfftType type, size_t* workSize);
+    hipfftMakePlan2d(hipfftHandle plan, int nx, int ny, hipfftType type, size_t* workSize);
 
 DLL_PUBLIC hipfftResult
-           hipfftMakePlan3d(hipfftHandle plan, int nx, int ny, int nz, hipfftType type, size_t* workSize);
+    hipfftMakePlan3d(hipfftHandle plan, int nx, int ny, int nz, hipfftType type, size_t* workSize);
 
 DLL_PUBLIC hipfftResult hipfftMakePlanMany(hipfftHandle plan,
                                            int          rank,
@@ -158,10 +183,10 @@ DLL_PUBLIC hipfftResult hipfftGetSize1d(hipfftHandle plan,
                                         size_t*      workSize);
 
 DLL_PUBLIC hipfftResult
-           hipfftGetSize2d(hipfftHandle plan, int nx, int ny, hipfftType type, size_t* workSize);
+    hipfftGetSize2d(hipfftHandle plan, int nx, int ny, hipfftType type, size_t* workSize);
 
 DLL_PUBLIC hipfftResult
-           hipfftGetSize3d(hipfftHandle plan, int nx, int ny, int nz, hipfftType type, size_t* workSize);
+    hipfftGetSize3d(hipfftHandle plan, int nx, int ny, int nz, hipfftType type, size_t* workSize);
 
 DLL_PUBLIC hipfftResult hipfftGetSizeMany(hipfftHandle plan,
                                           int          rank,
@@ -215,6 +240,8 @@ DLL_PUBLIC hipfftResult hipfftSetCompatibilityMode(hipfftHandle plan,
 DLL_PUBLIC hipfftResult hipfftDestroy(hipfftHandle plan);
 
 DLL_PUBLIC hipfftResult hipfftGetVersion(int* version);
+
+DLL_PUBLIC hipfftResult hipfftGetProperty(hipfftLibraryPropertyType type, int* value);
 
 #ifdef __cplusplus
 }

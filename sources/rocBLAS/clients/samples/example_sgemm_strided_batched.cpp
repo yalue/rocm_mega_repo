@@ -1,15 +1,15 @@
 /* ************************************************************************
- * Copyright 2016 Advanced Micro Devices, Inc.
+ * Copyright 2016-2019 Advanced Micro Devices, Inc.
  * ************************************************************************ */
-
-#include <cstdlib>
-#include <cstdio>
-#include <vector>
-#include <limits>
-#include <iostream>
-#include <string>
 #include "rocblas.h"
-using std::vector;
+#include <cstdio>
+#include <cstdlib>
+#include <cstring>
+#include <hip/hip_runtime.h>
+#include <iostream>
+#include <limits>
+#include <string>
+#include <vector>
 
 #ifndef CHECK_HIP_ERROR
 #define CHECK_HIP_ERROR(error)                    \
@@ -70,7 +70,7 @@ void printMatrix(const char* name, float* A, rocblas_int m, rocblas_int n, rocbl
 }
 
 void print_strided_batched(const char* name,
-                           float* A,
+                           float*      A,
                            rocblas_int n1,
                            rocblas_int n2,
                            rocblas_int n3,
@@ -99,18 +99,18 @@ void print_strided_batched(const char* name,
 }
 
 template <typename T>
-void mat_mat_mult(T alpha,
-                  T beta,
+void mat_mat_mult(T   alpha,
+                  T   beta,
                   int M,
                   int N,
                   int K,
-                  T* A,
+                  T*  A,
                   int As1,
                   int As2,
-                  T* B,
+                  T*  B,
                   int Bs1,
                   int Bs2,
-                  T* C,
+                  T*  C,
                   int Cs1,
                   int Cs2)
 {
@@ -152,24 +152,24 @@ static void show_usage(char* argv[])
               << std::endl;
 }
 
-static int parse_arguments(int argc,
-                           char* argv[],
-                           int& m,
-                           int& n,
-                           int& k,
-                           int& lda,
-                           int& ldb,
-                           int& ldc,
-                           int& stride_a,
-                           int& stride_b,
-                           int& stride_c,
-                           int& batch_count,
-                           float& alpha,
-                           float& beta,
+static int parse_arguments(int                argc,
+                           char*              argv[],
+                           int&               m,
+                           int&               n,
+                           int&               k,
+                           int&               lda,
+                           int&               ldb,
+                           int&               ldc,
+                           int&               stride_a,
+                           int&               stride_b,
+                           int&               stride_c,
+                           int&               batch_count,
+                           float&             alpha,
+                           float&             beta,
                            rocblas_operation& trans_a,
                            rocblas_operation& trans_b,
-                           bool& header,
-                           bool& verbose)
+                           bool&              header,
+                           bool&              verbose)
 {
     if(argc >= 2)
     {
@@ -295,16 +295,16 @@ static int parse_arguments(int argc,
 
 bool bad_argument(rocblas_operation trans_a,
                   rocblas_operation trans_b,
-                  rocblas_int m,
-                  rocblas_int n,
-                  rocblas_int k,
-                  rocblas_int lda,
-                  rocblas_int ldb,
-                  rocblas_int ldc,
-                  rocblas_int stride_a,
-                  rocblas_int stride_b,
-                  rocblas_int stride_c,
-                  rocblas_int batch_count)
+                  rocblas_int       m,
+                  rocblas_int       n,
+                  rocblas_int       k,
+                  rocblas_int       lda,
+                  rocblas_int       ldb,
+                  rocblas_int       ldc,
+                  rocblas_int       stride_a,
+                  rocblas_int       stride_b,
+                  rocblas_int       stride_c,
+                  rocblas_int       batch_count)
 {
     bool argument_error = false;
     if((trans_a == rocblas_operation_none) && (lda < m))
@@ -356,13 +356,13 @@ bool bad_argument(rocblas_operation trans_a,
     return argument_error;
 }
 
-void initialize_a_b_c(vector<float>& ha,
-                      rocblas_int size_a,
-                      vector<float>& hb,
-                      rocblas_int size_b,
-                      vector<float>& hc,
-                      vector<float>& hc_gold,
-                      rocblas_int size_c)
+void initialize_a_b_c(std::vector<float>& ha,
+                      rocblas_int         size_a,
+                      std::vector<float>& hb,
+                      rocblas_int         size_b,
+                      std::vector<float>& hc,
+                      std::vector<float>& hc_gold,
+                      rocblas_int         size_c)
 {
     srand(1);
     for(int i = 0; i < size_a; ++i)
@@ -390,8 +390,8 @@ int main(int argc, char* argv[])
     rocblas_operation trans_b = rocblas_operation_transpose;
 
     // invalid int and float for rocblas_sgemm_strided_batched int and float arguments
-    rocblas_int invalid_int = std::numeric_limits<rocblas_int>::min() + 1;
-    float invalid_float     = std::numeric_limits<float>::quiet_NaN();
+    rocblas_int invalid_int   = std::numeric_limits<rocblas_int>::min() + 1;
+    float       invalid_float = std::numeric_limits<float>::quiet_NaN();
 
     // initialize to invalid value to detect if values not specified on command line
     rocblas_int m = invalid_int, lda = invalid_int, stride_a = invalid_int;
@@ -509,10 +509,10 @@ int main(int argc, char* argv[])
     int size_c = batch_count == 0 ? size_c1 : size_c1 + stride_c * (batch_count - 1);
 
     // Naming: da is in GPU (device) memory. ha is in CPU (host) memory
-    vector<float> ha(size_a);
-    vector<float> hb(size_b);
-    vector<float> hc(size_c);
-    vector<float> hc_gold(size_c);
+    std::vector<float> ha(size_a);
+    std::vector<float> hb(size_b);
+    std::vector<float> hc(size_c);
+    std::vector<float> hc_gold(size_c);
 
     // initial data on host
     initialize_a_b_c(ha, size_a, hb, size_b, hc, hc_gold, size_c);
@@ -607,11 +607,11 @@ int main(int argc, char* argv[])
     float max_relative_error = std::numeric_limits<float>::min();
     for(int i = 0; i < size_c; i++)
     {
-        float relative_error =
-            hc_gold[i] == 0 ? hc_gold[i] - hc[i] : (hc_gold[i] - hc[i]) / hc_gold[i];
+        float relative_error
+            = hc_gold[i] == 0 ? hc_gold[i] - hc[i] : (hc_gold[i] - hc[i]) / hc_gold[i];
         relative_error = relative_error >= 0 ? relative_error : -relative_error;
-        max_relative_error =
-            relative_error < max_relative_error ? max_relative_error : relative_error;
+        max_relative_error
+            = relative_error < max_relative_error ? max_relative_error : relative_error;
     }
     float eps       = std::numeric_limits<float>::epsilon();
     float tolerance = 10;

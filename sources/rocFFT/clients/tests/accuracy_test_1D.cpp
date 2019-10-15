@@ -1,7 +1,24 @@
-
-/*******************************************************************************
- * Copyright (C) 2016 Advanced Micro Devices, Inc. All rights reserved.
- ******************************************************************************/
+/******************************************************************************
+* Copyright (c) 2016 - present Advanced Micro Devices, Inc. All rights reserved.
+*
+* Permission is hereby granted, free of charge, to any person obtaining a copy
+* of this software and associated documentation files (the "Software"), to deal
+* in the Software without restriction, including without limitation the rights
+* to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+* copies of the Software, and to permit persons to whom the Software is
+* furnished to do so, subject to the following conditions:
+*
+* The above copyright notice and this permission notice shall be included in
+* all copies or substantial portions of the Software.
+*
+* THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+* IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+* FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.  IN NO EVENT SHALL THE
+* AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+* LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+* OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
+* THE SOFTWARE.
+*******************************************************************************/
 
 #include <gtest/gtest.h>
 #include <math.h>
@@ -49,6 +66,8 @@ protected:
 #define MIX_RANGE                                                                                \
     6, 10, 12, 15, 20, 30, 120, 150, 225, 240, 300, 486, 600, 900, 1250, 1500, 1875, 2160, 2187, \
         2250, 2500, 3000, 4000, 12000, 24000, 72000
+#define PRIME_RANGE \
+    7, 11, 13, 17, 19, 23, 29, 31, 37, 41, 43, 47, 53, 59, 61, 67, 71, 73, 79, 83, 89, 97
 
 #define LARGE_RANGE                                                                               \
     4096, 4050, 4000, 3888, 3840, 3750, 3645, 3600, 3456, 3375, 3240, 3200, 3125, 3072, 3000,     \
@@ -60,10 +79,11 @@ protected:
         160, 150, 144, 135, 128, 125, 120, 108, 100, 96, 90, 81, 80, 75, 72, 64, 60, 54, 50, 48,  \
         45, 40, 36, 32, 30, 27, 25,\ 24, 20, 18, 16, 15, 12, 10, 9, 8, 6, 5, 4, 3, 2, 1
 
-static std::vector<size_t> pow2_range = {POW2_RANGE};
-static std::vector<size_t> pow3_range = {POW3_RANGE};
-static std::vector<size_t> pow5_range = {POW5_RANGE};
-static std::vector<size_t> mix_range  = {MIX_RANGE};
+static std::vector<size_t> pow2_range  = {POW2_RANGE};
+static std::vector<size_t> pow3_range  = {POW3_RANGE};
+static std::vector<size_t> pow5_range  = {POW5_RANGE};
+static std::vector<size_t> mix_range   = {MIX_RANGE};
+static std::vector<size_t> prime_range = {PRIME_RANGE};
 
 static size_t batch_range[] = {1};
 
@@ -108,7 +128,8 @@ protected:
     virtual void TearDown() {}
 };
 
-class accuracy_test_real : public ::TestWithParam<std::tuple<size_t, size_t>>
+class accuracy_test_real
+    : public ::TestWithParam<std::tuple<size_t, size_t, rocfft_result_placement>>
 {
 protected:
     accuracy_test_real() {}
@@ -237,10 +258,10 @@ TEST_P(accuracy_test_real, normal_1D_real_interleaved_to_hermitian_interleaved_s
 {
     size_t                  N         = std::get<0>(GetParam());
     size_t                  batch     = std::get<1>(GetParam());
-    rocfft_result_placement placeness = rocfft_placement_notinplace; // must be non-inplace
+    rocfft_result_placement placeness = std::get<2>(GetParam());
     rocfft_transform_type   transform_type
         = rocfft_transform_type_real_forward; // must be real forward
-    size_t stride = 1;
+    size_t stride = 1; // FIXME: enable strides
 
     try
     {
@@ -257,10 +278,10 @@ TEST_P(accuracy_test_real, normal_1D_real_interleaved_to_hermitian_interleaved_d
 {
     size_t                  N         = std::get<0>(GetParam());
     size_t                  batch     = std::get<1>(GetParam());
-    rocfft_result_placement placeness = rocfft_placement_notinplace; // must be non-inplace
+    rocfft_result_placement placeness = std::get<2>(GetParam());
     rocfft_transform_type   transform_type
         = rocfft_transform_type_real_forward; // must be real forward
-    size_t stride = 1;
+    size_t stride = 1; // FIXME: enable strides
 
     try
     {
@@ -316,7 +337,7 @@ TEST_P(accuracy_test_real, normal_1D_hermitian_interleaved_to_real_interleaved_s
 {
     size_t                  N         = std::get<0>(GetParam());
     size_t                  batch     = std::get<1>(GetParam());
-    rocfft_result_placement placeness = rocfft_placement_notinplace; // must be non-inplace
+    rocfft_result_placement placeness = std::get<2>(GetParam());
     rocfft_transform_type   transform_type
         = rocfft_transform_type_real_inverse; // must be real inverse
     size_t stride = 1;
@@ -336,7 +357,7 @@ TEST_P(accuracy_test_real, normal_1D_hermitian_interleaved_to_real_interleaved_d
 {
     size_t                  N         = std::get<0>(GetParam());
     size_t                  batch     = std::get<1>(GetParam());
-    rocfft_result_placement placeness = rocfft_placement_notinplace; // must be non-inplace
+    rocfft_result_placement placeness = std::get<2>(GetParam());
     rocfft_transform_type   transform_type
         = rocfft_transform_type_real_inverse; // must be real inverse
     size_t stride = 1;
@@ -398,24 +419,46 @@ INSTANTIATE_TEST_CASE_P(rocfft_pow_random_1D,
                                 ValuesIn(transform_range),
                                 ValuesIn(stride_range)));
 
+INSTANTIATE_TEST_CASE_P(rocfft_prime_1D,
+                        accuracy_test_complex,
+                        Combine(ValuesIn(prime_range),
+                                ValuesIn(batch_range),
+                                ValuesIn(placeness_range),
+                                ValuesIn(transform_range),
+                                ValuesIn(stride_range)));
+
 // *****************************************************
-// REAL  HERMITIAN
+// REAL HERMITIAN
 // *****************************************************
 INSTANTIATE_TEST_CASE_P(rocfft_pow2_1D,
                         accuracy_test_real,
-                        Combine(ValuesIn(pow2_range), ValuesIn(batch_range)));
+                        Combine(ValuesIn(pow2_range),
+                                ValuesIn(batch_range),
+                                ValuesIn(placeness_range)));
 
 INSTANTIATE_TEST_CASE_P(rocfft_pow3_1D,
                         accuracy_test_real,
-                        Combine(ValuesIn(pow3_range), ValuesIn(batch_range)));
+                        Combine(ValuesIn(pow3_range),
+                                ValuesIn(batch_range),
+                                ValuesIn(placeness_range)));
 
 INSTANTIATE_TEST_CASE_P(rocfft_pow5_1D,
                         accuracy_test_real,
-                        Combine(ValuesIn(pow5_range), ValuesIn(batch_range)));
+                        Combine(ValuesIn(pow5_range),
+                                ValuesIn(batch_range),
+                                ValuesIn(placeness_range)));
 
 INSTANTIATE_TEST_CASE_P(rocfft_pow_mix_1D,
                         accuracy_test_real,
-                        Combine(ValuesIn(mix_range), ValuesIn(batch_range)));
+                        Combine(ValuesIn(mix_range),
+                                ValuesIn(batch_range),
+                                ValuesIn(placeness_range)));
+
+INSTANTIATE_TEST_CASE_P(rocfft_prime_1D,
+                        accuracy_test_real,
+                        Combine(ValuesIn(prime_range),
+                                ValuesIn(batch_range),
+                                ValuesIn(placeness_range)));
 
 // *****************************************************
 // *****************************************************

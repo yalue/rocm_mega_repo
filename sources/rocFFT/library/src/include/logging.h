@@ -1,6 +1,24 @@
-/* ************************************************************************
- * Copyright 2016 Advanced Micro Devices, Inc.
- * ************************************************************************ */
+/******************************************************************************
+* Copyright (c) 2016 - present Advanced Micro Devices, Inc. All rights reserved.
+*
+* Permission is hereby granted, free of charge, to any person obtaining a copy
+* of this software and associated documentation files (the "Software"), to deal
+* in the Software without restriction, including without limitation the rights
+* to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+* copies of the Software, and to permit persons to whom the Software is
+* furnished to do so, subject to the following conditions:
+*
+* The above copyright notice and this permission notice shall be included in
+* all copies or substantial portions of the Software.
+*
+* THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+* IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+* FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.  IN NO EVENT SHALL THE
+* AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+* LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+* OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
+* THE SOFTWARE.
+*******************************************************************************/
 
 #ifndef LOGGING_H
 #define LOGGING_H
@@ -29,8 +47,8 @@ class tuple_helper
 {
 protected:
     /************************************************************************************
-   * Print values
-   ************************************************************************************/
+     * Print values
+     ************************************************************************************/
     // Default output
     template <typename T>
     static void print_value(std::ostream& os, const T& x)
@@ -53,7 +71,7 @@ protected:
             // If no decimal point or exponent, append .0
             char* end = s + strcspn(s, ".eE");
             if(!*end)
-                strcat(end, ".0");
+                strcpy(end, ".0");
             os << s;
         }
     }
@@ -61,7 +79,7 @@ protected:
     // Character output
     static void print_value(std::ostream& os, char c)
     {
-        char s[] {c, 0};
+        char s[]{c, 0};
         os << std::quoted(s, '\'');
     }
 
@@ -82,24 +100,24 @@ protected:
     }
 
     /************************************************************************************
-   * Print tuples
-   ************************************************************************************/
-    template <typename T, size_t idx = std::tuple_size<T> {}>
+     * Print tuples
+     ************************************************************************************/
+    template <typename TUP, size_t idx = std::tuple_size<TUP>{}>
     struct print_tuple_recurse
     {
         template <typename F>
-        __attribute__((always_inline)) void operator()(F& print_argument, const T& tuple)
+        __attribute__((always_inline)) void operator()(F& print_argument, const TUP& tuple)
         {
-            print_tuple_recurse<T, idx - 2> {}(print_argument, tuple);
+            print_tuple_recurse<TUP, idx - 2>{}(print_argument, tuple);
             print_argument(std::get<idx - 2>(tuple), std::get<idx - 1>(tuple));
         }
     };
 
-    template <typename T>
-    struct print_tuple_recurse<T, 0>
+    template <typename TUP>
+    struct print_tuple_recurse<TUP, 0>
     {
         template <typename F>
-        __attribute__((always_inline)) void operator()(F& print_argument, const T& tuple)
+        __attribute__((always_inline)) void operator()(F&, const TUP&)
         {
         }
     };
@@ -108,41 +126,41 @@ protected:
     template <typename TUP>
     static void print_tuple(std::ostream& os, const TUP& tuple)
     {
-        static_assert(std::tuple_size<TUP> {} % 2 == 0, "Tuple size must be even");
+        static_assert(std::tuple_size<TUP>{} % 2 == 0, "Tuple size must be even");
 
-        // delim starts as '{' opening brace and becomes ',' afterwards
-        auto print_argument = [&, delim = '{'](auto name, auto value) mutable {
+        // delim starts as "- {" and becomes "," afterwards
+        auto print_argument = [&, delim = "- {"](auto&& name, auto&& value) mutable {
             os << delim << " " << name << ": ";
             print_value(os, value);
-            delim = ',';
+            delim = ",";
         };
-        print_tuple_recurse<TUP> {}(print_argument, tuple);
+        print_tuple_recurse<TUP>{}(print_argument, tuple);
         os << " }" << std::endl;
     }
 
     /************************************************************************************
-   * Compute value hashes for (key1, value1, key2, value2, ...) tuples
-   ************************************************************************************/
+     * Compute value hashes for (key1, value1, key2, value2, ...) tuples
+     ************************************************************************************/
     // Workaround for compilers which don't implement C++14 enum hash (LWG 2148)
     template <typename T>
-    static typename std::enable_if<std::is_enum<T> {}, size_t>::type hash(const T& x)
+    static typename std::enable_if<std::is_enum<T>{}, size_t>::type hash(const T& x)
     {
-        return std::hash<typename std::underlying_type<T>::type> {}(x);
+        return std::hash<typename std::underlying_type<T>::type>{}(x);
     }
 
     // Default hash for non-enum types
     template <typename T>
-    static typename std::enable_if<!std::is_enum<T> {}, size_t>::type hash(const T& x)
+    static typename std::enable_if<!std::is_enum<T>{}, size_t>::type hash(const T& x)
     {
-        return std::hash<T> {}(x);
+        return std::hash<T>{}(x);
     }
 
     // C-style string hash since std::hash does not hash them
-    static constexpr size_t hash(const char* s)
+    static size_t hash(const char* s)
     {
         size_t seed = 0xcbf29ce484222325;
-        for(const char* p = s; *p; ++p)
-            seed = (seed ^ *p) * 0x100000001b3;
+        for(auto p = reinterpret_cast<const unsigned char*>(s); *p; ++p)
+            seed = (seed ^ *p) * 0x100000001b3; // FNV-1a
         return seed;
     }
 
@@ -153,12 +171,12 @@ protected:
     }
 
     // Combine tuple value hashes, computing hash of all tuple values
-    template <typename TUP, size_t idx = std::tuple_size<TUP> {}>
+    template <typename TUP, size_t idx = std::tuple_size<TUP>{}>
     struct tuple_hash_recurse
     {
         __attribute__((always_inline)) size_t operator()(const TUP& tup)
         {
-            size_t seed = tuple_hash_recurse<TUP, idx - 2> {}(tup);
+            size_t seed = tuple_hash_recurse<TUP, idx - 2>{}(tup);
             return seed ^ (hash(std::get<idx - 1>(tup)) + 0x9e3779b9 + (seed << 6) + (seed >> 2));
         }
     };
@@ -177,20 +195,20 @@ protected:
     template <typename TUP>
     struct hash_t
     {
-        static_assert(std::tuple_size<TUP> {} % 2 == 0, "Tuple size must be even");
+        static_assert(std::tuple_size<TUP>{} % 2 == 0, "Tuple size must be even");
         size_t operator()(const TUP& x) const
         {
-            return tuple_hash_recurse<TUP> {}(x);
+            return tuple_hash_recurse<TUP>{}(x);
         }
     };
 
     /************************************************************************************
-   * Test (key1, value1, key2, value2, ...) tuples for equality of values
-   ************************************************************************************/
+     * Test (key1, value1, key2, value2, ...) tuples for equality of values
+     ************************************************************************************/
     template <typename T>
     static bool equal(const T& x1, const T& x2)
     {
-        return std::equal_to<T> {}(x1, x2);
+        return x1 == x2;
     }
 
     static bool equal(const char* s1, const char* s2)
@@ -207,13 +225,13 @@ protected:
     }
 
     // Recursively compare tuple values, short-circuiting
-    template <typename TUP, size_t idx = std::tuple_size<TUP> {}>
+    template <typename TUP, size_t idx = std::tuple_size<TUP>{}>
     struct tuple_equal_recurse
     {
         bool operator()(const TUP& t1, const TUP& t2)
         {
             return equal(std::get<idx - 1>(t1), std::get<idx - 1>(t2))
-                   && tuple_equal_recurse<TUP, idx - 2> {}(t1, t2);
+                   && tuple_equal_recurse<TUP, idx - 2>{}(t1, t2);
         }
     };
 
@@ -231,24 +249,12 @@ protected:
     template <typename TUP>
     struct equal_t
     {
-        static_assert(std::tuple_size<TUP> {} % 2 == 0, "Tuple size must be even");
+        static_assert(std::tuple_size<TUP>{} % 2 == 0, "Tuple size must be even");
         __attribute__((flatten)) bool operator()(const TUP& x, const TUP& y) const
         {
-            return tuple_equal_recurse<TUP> {}(x, y);
+            return tuple_equal_recurse<TUP>{}(x, y);
         }
     };
-
-    /************************************************************************************
-   * Log values (for log_trace and log_bench)
-   ************************************************************************************/
-public:
-    template <typename H, typename... Ts>
-    static void log_arguments(std::ostream& os, const char* sep, H head, Ts&&... xs)
-    {
-        os << head;
-        int x[] = {(os << sep << std::forward<Ts>(xs), 0)...};
-        os << "\n";
-    }
 };
 
 /************************************************************************************
@@ -298,7 +304,7 @@ public:
         // If new entry inserted, replace nullptr with new value
         // If tuple already exists, atomically increment count
         if(inserted)
-            p->second = new std::atomic_size_t {1};
+            p->second = new std::atomic_size_t{1};
         else
             ++*p->second;
     }
@@ -311,6 +317,7 @@ public:
 
     // Cleanup handler which dumps profile at destruction
     ~argument_profile()
+    try
     {
         // Print all of the tuples in the map
         for(auto& p : map)
@@ -319,6 +326,10 @@ public:
                         std::tuple_cat(p.first, std::make_tuple("call_count", p.second->load())));
             delete p.second;
         }
+        os.flush();
+    }
+    catch(...)
+    {
     }
 };
 
@@ -372,31 +383,8 @@ public:
 #define LOG_PROFILE_ENABLED() \
     (LogSingleton::GetInstance().GetLayerMode() & rocfft_layer_mode_log_profile)
 
-// if trace logging is turned on with
-// (layer_mode & rocblas_layer_mode_log_trace) != 0
-// log_function will call log_arguments to log arguments with a comma separator
-template <typename... Ts>
-inline void log_trace(Ts&&... xs)
-{
-    if(LOG_TRACE_ENABLED())
-        tuple_helper::log_arguments(
-            *LogSingleton::GetInstance().GetTraceOS(), ",", std::forward<Ts>(xs)...);
-}
-
-// if bench logging is turned on with
-// (layer_mode & rocblas_layer_mode_log_bench) != 0
-// log_bench will call log_arguments to log a string that
-// can be input to the executable rocblas-bench.
-template <typename... Ts>
-inline void log_bench(Ts&&... xs)
-{
-    if(LOG_BENCH_ENABLED())
-        tuple_helper::log_arguments(
-            *LogSingleton::GetInstance().GetBenchOS(), " ", std::forward<Ts>(xs)...);
-}
-
 // if profile logging is turned on with
-// (layer_mode & rocblas_layer_mode_log_profile) != 0
+// (layer_mode & rocfft_layer_mode_log_profile) != 0
 // log_profile will call argument_profile to profile actual arguments,
 // keeping count of the number of times each set of arguments is used
 template <typename... Ts>
@@ -406,8 +394,41 @@ inline void log_profile(const char* func, Ts&&... xs)
     {
         auto tup = std::make_tuple("rocfft_function", func, std::forward<Ts>(xs)...);
         static argument_profile<decltype(tup)> profile(LogSingleton::GetInstance().GetProfileOS());
+        static int aqe = at_quick_exit([] { profile.~argument_profile(); });
         profile(std::move(tup));
     }
+}
+
+/************************************************************************************
+ * Log values (for log_trace and log_bench)
+ ************************************************************************************/
+template <typename H, typename... Ts>
+static inline void log_arguments(std::ostream& os, const char* sep, H head, Ts&&... xs)
+{
+    os << head;
+    int x[] = {(os << sep << std::forward<Ts>(xs), 0)...};
+    os << std::endl;
+}
+
+// if trace logging is turned on with
+// (layer_mode & rocbfft_layer_mode_log_trace) != 0
+// log_function will call log_arguments to log arguments with a comma separator
+template <typename... Ts>
+inline void log_trace(Ts&&... xs)
+{
+    if(LOG_TRACE_ENABLED())
+        log_arguments(*LogSingleton::GetInstance().GetTraceOS(), ",", std::forward<Ts>(xs)...);
+}
+
+// if bench logging is turned on with
+// (layer_mode & rocfft_layer_mode_log_bench) != 0
+// log_bench will call log_arguments to log a string that
+// can be input to the executable rocfft-rider.
+template <typename... Ts>
+inline void log_bench(Ts&&... xs)
+{
+    if(LOG_BENCH_ENABLED())
+        log_arguments(*LogSingleton::GetInstance().GetBenchOS(), " ", std::forward<Ts>(xs)...);
 }
 
 #endif

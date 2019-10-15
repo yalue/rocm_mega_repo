@@ -79,6 +79,24 @@ build or install tree can be supplied to CMake via `CMAKE_PREFIX_PATH`:
 
     cmake -DCMAKE_PREFIX_PATH=path/to/comgr/build/or/install
 
+Debug the Code Object Manager
+-----------------------------
+
+Comgr supports some environment variables to aid in debugging. These include:
+
+* `AMD_COMGR_SAVE_TEMPS`: If this is set, and is not "0", Comgr does not delete
+  temporary files generated during compilation. These files do not appear in
+  the current working directory, but are instead left in a platform-specific
+  temporary directory (`/tmp` on Linux and `C:\Temp` or the path found in the
+  `TEMP` environment variable on Windows).
+* `AMD_COMGR_REDIRECT_LOGS`: If this is not set, or is set to "0", logs are
+  returned to the caller as normal. If this is set to "stdout"/"-" or "stderr",
+  logs are instead redirected to the standard output or error stream,
+  respectively. If this is set to any other value, it is interpreted as a
+  filename which logs should be appended to.
+* `AMD_COMGR_EMIT_VERBOSE_LOGS`: If this is set, and is not "0", logs will
+  include additional Comgr-specific informational messages.
+
 Versioning
 ----------
 
@@ -89,6 +107,13 @@ is incremented for each backwards-compatible change introduced. The major
 version number is incremented, and the minor version is reset to zero, for each
 backwards-incompatible change introduced.
 
+* `1.3`: Introduce `amd_comgr_action_info_set_option_list`,
+  `amd_comgr_action_info_get_option_list_count`, and
+  `amd_comgr_action_info_get_option_list_item` to replace the old option APIs
+  `amd_comgr_action_info_set_options` and `amd_comgr_action_info_get_options`.
+  The old APIs do not support arguments with embedded delimiters, and are
+  replaced with an array-oriented API. The old APIs are deprecated and will be
+  removed in a future version of the library.
 * `1.2`: Introduce `amd_comgr_disassemble_instruction` and associated APIS.
 * `1.1`: First versioned release. Versions before this have no guaranteed
   compatibility.

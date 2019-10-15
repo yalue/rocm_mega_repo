@@ -24,18 +24,18 @@
 #include "testing_csrmv.hpp"
 #include "utility.hpp"
 
-#include <rocsparse.h>
 #include <gtest/gtest.h>
+#include <rocsparse.h>
+#include <string>
 #include <unistd.h>
 #include <vector>
-#include <string>
 
-typedef rocsparse_index_base base;
-typedef std::tuple<int, int, double, double, base, bool> csrmv_tuple;
-typedef std::tuple<double, double, base, std::string, bool> csrmv_bin_tuple;
+typedef rocsparse_index_base                                                 base;
+typedef std::tuple<rocsparse_int, rocsparse_int, double, double, base, bool> csrmv_tuple;
+typedef std::tuple<double, double, base, std::string, bool>                  csrmv_bin_tuple;
 
-int csr_M_range[] = {-1, 0, 500, 7111};
-int csr_N_range[] = {-3, 0, 842, 4441};
+rocsparse_int csr_M_range[] = {-1, 0, 500, 7111};
+rocsparse_int csr_N_range[] = {-3, 0, 842, 4441};
 
 std::vector<double> csr_alpha_range = {2.0, 3.0};
 std::vector<double> csr_beta_range  = {0.0, 1.0};
@@ -55,13 +55,18 @@ std::string csr_bin[] = {"rma10.bin",
                          "nos4.bin",
                          "nos5.bin",
                          "nos6.bin",
-                         "nos7.bin"};
+                         "nos7.bin",
+                         "amazon0312.bin",
+                         "Chebyshev4.bin",
+                         "sme3Dc.bin",
+                         "webbase-1M.bin",
+                         "shipsec1.bin"};
 
 bool csr_adaptive[] = {false, true};
 
 class parameterized_csrmv : public testing::TestWithParam<csrmv_tuple>
 {
-    protected:
+protected:
     parameterized_csrmv() {}
     virtual ~parameterized_csrmv() {}
     virtual void SetUp() {}
@@ -70,7 +75,7 @@ class parameterized_csrmv : public testing::TestWithParam<csrmv_tuple>
 
 class parameterized_csrmv_bin : public testing::TestWithParam<csrmv_bin_tuple>
 {
-    protected:
+protected:
     parameterized_csrmv_bin() {}
     virtual ~parameterized_csrmv_bin() {}
     virtual void SetUp() {}
@@ -105,7 +110,7 @@ Arguments setup_csrmv_arguments(csrmv_bin_tuple tup)
     std::string bin_file = std::get<3>(tup);
 
     // Get current executables absolute path
-    char path_exe[PATH_MAX];
+    char    path_exe[PATH_MAX];
     ssize_t len = readlink("/proc/self/exe", path_exe, sizeof(path_exe) - 1);
     if(len < 14)
     {
@@ -117,12 +122,15 @@ Arguments setup_csrmv_arguments(csrmv_bin_tuple tup)
     }
 
     // Matrices are stored at the same path in matrices directory
-    arg.filename = std::string(path_exe) + "matrices/" + bin_file;
+    arg.filename = std::string(path_exe) + "../matrices/" + bin_file;
 
     return arg;
 }
 
-TEST(csrmv_bad_arg, csrmv_float) { testing_csrmv_bad_arg<float>(); }
+TEST(csrmv_bad_arg, csrmv_float)
+{
+    testing_csrmv_bad_arg<float>();
+}
 
 TEST_P(parameterized_csrmv, csrmv_float)
 {

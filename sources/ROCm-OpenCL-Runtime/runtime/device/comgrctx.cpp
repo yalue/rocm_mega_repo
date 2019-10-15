@@ -3,6 +3,7 @@
 //
 #if defined(USE_COMGR_LIBRARY)
 #include "os/os.hpp"
+#include "utils/flags.hpp"
 #include "comgrctx.hpp"
 
 namespace amd {
@@ -12,9 +13,10 @@ bool Comgr::is_ready_ = false;
 
 bool Comgr::LoadLib() {
 #if defined(COMGR_DYN_DLL)
+  LogInfo("Loading COMGR library.");
   static const char* ComgrLibName =
-    LP64_SWITCH(WINDOWS_SWITCH("amdcomgr.dll", "libamdcomgr32.so"),
-                WINDOWS_SWITCH("amdcomgr64.dll", "libamdcomgr64.so"));
+    LP64_SWITCH(WINDOWS_SWITCH("amdcomgr.dll", "libamd_comgr32.so"),
+                WINDOWS_SWITCH("amdcomgr64.dll", "libamd_comgr.so"));
   cep_.handle = Os::loadLibrary(ComgrLibName);
   if (nullptr == cep_.handle) {
     return false;
@@ -49,6 +51,9 @@ bool Comgr::LoadLib() {
   GET_COMGR_SYMBOL(amd_comgr_action_info_get_language)
   GET_COMGR_SYMBOL(amd_comgr_action_info_set_options)
   GET_COMGR_SYMBOL(amd_comgr_action_info_get_options)
+  GET_COMGR_SYMBOL(amd_comgr_action_info_set_option_list)
+  GET_COMGR_SYMBOL(amd_comgr_action_info_get_option_list_count)
+  GET_COMGR_SYMBOL(amd_comgr_action_info_get_option_list_item)
   GET_COMGR_SYMBOL(amd_comgr_action_info_set_working_directory_path)
   GET_COMGR_SYMBOL(amd_comgr_action_info_get_working_directory_path)
   GET_COMGR_SYMBOL(amd_comgr_action_info_set_logging)
@@ -70,3 +75,4 @@ bool Comgr::LoadLib() {
 
 }
 #endif
+

@@ -129,6 +129,18 @@ Lanon_minuend_quad:
 Lanon_minuend_long:
         .long Lanon_minuend_long - named_data + 2
 
+# Check X86_64_RELOC_GOT handling.
+# X86_64_RELOC_GOT is the data-section counterpart to X86_64_RELOC_GOTLD. It is
+# handled exactly the same way, including having an implicit PC-rel offset of -4
+# (despite this not making sense in a data section, and requiring an explicit
+# +4 addend to cancel it out and get the correct result).
+#
+# jitlink-check: *{4}test_got = (got_addr(macho_reloc.o, external_data) - test_got)[31:0]
+        .globl test_got
+        .p2align  2
+test_got:
+        .long   external_data@GOTPCREL + 4
+
 # Named quad storage target (first named atom in __data).
         .globl named_data
         .p2align  3
@@ -142,22 +154,31 @@ named_data:
 named_data_alt_entry:
         .quad   0
 
-# Check X86_64_RELOC_UNSIGNED / extern handling by putting the address of a
-# local named function in a pointer variable.
+# Check X86_64_RELOC_UNSIGNED / quad / extern handling by putting the address of
+# a local named function into a quad symbol.
 #
-# jitlink-check: *{8}named_func_addr = named_func
-        .globl  named_func_addr
+# jitlink-check: *{8}named_func_addr_quad = named_func
+        .globl  named_func_addr_quad
         .p2align  3
-named_func_addr:
+named_func_addr_quad:
         .quad   named_func
 
-# Check X86_64_RELOC_UNSIGNED / non-extern handling by putting the address of a
-# local anonymous function in a pointer variable.
+# Check X86_64_RELOC_UNSIGNED / long / extern handling by putting the address of
+# an external function (defined to reside in the low 4Gb) into a long symbol.
 #
-# jitlink-check: *{8}anon_func_addr = section_addr(macho_reloc.o, __text)
-        .globl  anon_func_addr
+# jitlink-check: *{4}named_func_addr_long = external_func
+        .globl  named_func_addr_long
+        .p2align  2
+named_func_addr_long:
+        .long   external_func
+
+# Check X86_64_RELOC_UNSIGNED / quad / non-extern handling by putting the
+# address of a local anonymous function into a quad symbol.
+#
+# jitlink-check: *{8}anon_func_addr_quad = section_addr(macho_reloc.o, __text)
+        .globl  anon_func_addr_quad
         .p2align  3
-anon_func_addr:
+anon_func_addr_quad:
         .quad   Lanon_func
 
 # X86_64_RELOC_SUBTRACTOR Quad/Long in named storage with anonymous minuend
@@ -180,32 +201,32 @@ anon_minuend_long1:
 # Both forms "A: .quad A - B + C" and "A: .quad B - A + C" are tested.
 #
 # Check "A: .quad B - A + C".
-# jitlink-check: *{8}subtrahend_quad2 = (named_data - subtrahend_quad2 + 2)
+# jitlink-check: *{8}subtrahend_quad2 = (named_data - subtrahend_quad2 - 2)
         .globl  subtrahend_quad2
         .p2align  3
 subtrahend_quad2:
-        .quad named_data - subtrahend_quad2 + 2
+        .quad named_data - subtrahend_quad2 - 2
 
 # Check "A: .long B - A + C".
-# jitlink-check: *{4}subtrahend_long2 = (named_data - subtrahend_long2 + 2)[31:0]
+# jitlink-check: *{4}subtrahend_long2 = (named_data - subtrahend_long2 - 2)[31:0]
         .globl  subtrahend_long2
         .p2align  2
 subtrahend_long2:
-        .long named_data - subtrahend_long2 + 2
+        .long named_data - subtrahend_long2 - 2
 
 # Check "A: .quad A - B + C".
-# jitlink-check: *{8}minuend_quad3 = (minuend_quad3 - named_data + 2)
+# jitlink-check: *{8}minuend_quad3 = (minuend_quad3 - named_data - 2)
         .globl  minuend_quad3
         .p2align  3
 minuend_quad3:
-        .quad minuend_quad3 - named_data + 2
+        .quad minuend_quad3 - named_data - 2
 
 # Check "A: .long B - A + C".
-# jitlink-check: *{4}minuend_long3 = (minuend_long3 - named_data + 2)[31:0]
+# jitlink-check: *{4}minuend_long3 = (minuend_long3 - named_data - 2)[31:0]
         .globl  minuend_long3
         .p2align  2
 minuend_long3:
-        .long minuend_long3 - named_data + 2
+        .long minuend_long3 - named_data - 2
 
 # Check X86_64_RELOC_SUBTRACTOR handling for exprs of the form
 # "A: .quad/long B - C + D", where 'B' or 'C' is at a fixed offset from 'A'
@@ -262,5 +283,48 @@ subtractor_with_alt_entry_subtrahend_quad:
         .alt_entry subtractor_with_alt_entry_subtrahend_quad_B
 subtractor_with_alt_entry_subtrahend_quad_B:
         .quad 0
+
+# Check that unreferenced atoms in no-dead-strip sections are not dead stripped.
+# We need to use a local symbol for this as any named symbol will end up in the
+# ORC responsibility set, which is automatically marked live and would couse
+# spurious passes.
+#
+# jitlink-check: *{8}section_addr(macho_reloc.o, __nds_test_sect) = 0
+        .section        __DATA,__nds_test_sect,regular,no_dead_strip
+        .quad 0
+
+# Check that unreferenced local symbols that have been marked no-dead-strip are
+# not dead-striped.
+#
+# jitlink-check: *{8}section_addr(macho_reloc.o, __nds_test_nlst) = 0
+        .section       __DATA,__nds_test_nlst,regular
+        .no_dead_strip no_dead_strip_test_symbol
+no_dead_strip_test_symbol:
+        .quad 0
+
+# Check that explicit zero-fill symbols are supported
+# jitlink-check: *{8}zero_fill_test = 0
+        .globl zero_fill_test
+.zerofill __DATA,__zero_fill_test,zero_fill_test,8,3
+
+# Check that section alignments are respected.
+# We test this by introducing two segments with alignment 8, each containing one
+# byte of data. We require both symbols to have an aligned address.
+#
+# jitlink-check: section_alignment_check1[2:0] = 0
+# jitlink-check: section_alignment_check2[2:0] = 0
+        .section        __DATA,__sec_align_chk1
+        .p2align 3
+
+        .globl section_alignment_check1
+section_alignment_check1:
+        .byte 0
+
+        .section        __DATA,__sec_align_chk2
+        .p2align 3
+
+        .globl section_alignment_check2
+section_alignment_check2:
+        .byte 0
 
 .subsections_via_symbols

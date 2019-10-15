@@ -95,7 +95,8 @@ def Feature3DNowA  : SubtargetFeature<"3dnowa", "X863DNowLevel", "ThreeDNowA",
 def Feature64Bit   : SubtargetFeature<"64bit", "HasX86_64", "true",
                                       "Support 64-bit instructions">;
 def FeatureCMPXCHG16B : SubtargetFeature<"cx16", "HasCmpxchg16b", "true",
-                                      "64-bit with cmpxchg16b">;
+                                      "64-bit with cmpxchg16b",
+                                      [FeatureCMPXCHG8B]>;
 def FeatureSlowSHLD : SubtargetFeature<"slow-shld", "IsSHLDSlow", "true",
                                        "SHLD instruction is slow">;
 def FeatureSlowPMULLD : SubtargetFeature<"slow-pmulld", "IsPMULLDSlow", "true",
@@ -173,6 +174,10 @@ def FeatureBF16    : SubtargetFeature<"avx512bf16", "HasBF16", "true",
 def FeatureBITALG  : SubtargetFeature<"avx512bitalg", "HasBITALG", "true",
                        "Enable AVX-512 Bit Algorithms",
                         [FeatureBWI]>;
+def FeatureVP2INTERSECT  : SubtargetFeature<"avx512vp2intersect",
+                                            "HasVP2INTERSECT", "true",
+                                            "Enable AVX-512 vp2intersect",
+                                            [FeatureAVX512]>;
 def FeaturePCLMUL  : SubtargetFeature<"pclmul", "HasPCLMUL", "true",
                          "Enable packed carry-less multiplication instructions",
                                [FeatureSSE2]>;
@@ -263,6 +268,8 @@ def FeatureRDPID : SubtargetFeature<"rdpid", "HasRDPID", "true",
                                     "Support RDPID instructions">;
 def FeatureWAITPKG  : SubtargetFeature<"waitpkg", "HasWAITPKG", "true",
                                       "Wait and pause enhancements">;
+def FeatureENQCMD : SubtargetFeature<"enqcmd", "HasENQCMD", "true",
+                                     "Has ENQCMD instructions">;
 // On some processors, instructions that implicitly take two memory operands are
 // slow. In practice, this means that CALL, PUSH, and POP with memory operands
 // should be avoided in favor of a MOV + register CALL/PUSH/POP.
@@ -426,6 +433,11 @@ def FeatureFastHorizontalOps
         "fast-hops", "HasFastHorizontalOps", "true",
         "Prefer horizontal vector math instructions (haddp, phsub, etc.) over "
         "normal vector instructions with shuffles", [FeatureSSE3]>;
+
+def FeatureFastScalarShiftMasks
+    : SubtargetFeature<
+        "fast-scalar-shift-masks", "HasFastScalarShiftMasks", "true",
+        "Prefer a left/right scalar logical shift pair over a shift+and pair">;
 
 def FeatureFastVectorShiftMasks
     : SubtargetFeature<
@@ -605,6 +617,15 @@ def ProcessorFeatures {
   list<SubtargetFeature> CLXFeatures =
     !listconcat(CLXInheritableFeatures, CLXSpecificFeatures);
 
+  // Cooperlake
+  list<SubtargetFeature> CPXAdditionalFeatures = [FeatureBF16];
+  list<SubtargetFeature> CPXSpecificFeatures = [FeatureHasFastGather,
+                                                FeaturePOPCNTFalseDeps];
+  list<SubtargetFeature> CPXInheritableFeatures =
+    !listconcat(CLXInheritableFeatures, CPXAdditionalFeatures);
+  list<SubtargetFeature> CPXFeatures =
+    !listconcat(CPXInheritableFeatures, CPXSpecificFeatures);
+
   // Cannonlake
   list<SubtargetFeature> CNLAdditionalFeatures = [FeatureAVX512,
                                                   FeatureCDI,
@@ -644,6 +665,17 @@ def ProcessorFeatures {
                                                 FeatureHasFastGather];
   list<SubtargetFeature> ICXFeatures =
     !listconcat(ICLInheritableFeatures, ICXSpecificFeatures);
+
+  //Tigerlake
+  list<SubtargetFeature> TGLAdditionalFeatures = [FeatureVP2INTERSECT,
+                                                  FeatureMOVDIRI,
+                                                  FeatureMOVDIR64B,
+                                                  FeatureSHSTK];
+  list<SubtargetFeature> TGLSpecificFeatures = [FeatureHasFastGather];
+  list<SubtargetFeature> TGLInheritableFeatures =
+    !listconcat(TGLAdditionalFeatures ,TGLSpecificFeatures);
+  list<SubtargetFeature> TGLFeatures =
+    !listconcat(ICLFeatures, TGLInheritableFeatures );
 
   // Atom
   list<SubtargetFeature> AtomInheritableFeatures = [FeatureX87,
@@ -766,6 +798,22 @@ def ProcessorFeatures {
   list<SubtargetFeature> KNMFeatures =
     !listconcat(KNLFeatures, [FeatureVPOPCNTDQ]);
 
+  // Barcelona
+  list<SubtargetFeature> BarcelonaInheritableFeatures = [FeatureX87,
+                                                         FeatureCMPXCHG8B,
+                                                         FeatureSSE4A,
+                                                         Feature3DNowA,
+                                                         FeatureFXSR,
+                                                         FeatureNOPL,
+                                                         FeatureCMPXCHG16B,
+                                                         FeatureLZCNT,
+                                                         FeaturePOPCNT,
+                                                         FeatureSlowSHLD,
+                                                         FeatureLAHFSAHF,
+                                                         FeatureCMOV,
+                                                         Feature64Bit,
+                                                         FeatureFastScalarShiftMasks];
+  list<SubtargetFeature> BarcelonaFeatures = BarcelonaInheritableFeatures;
 
   // Bobcat
   list<SubtargetFeature> BtVer1InheritableFeatures = [FeatureX87,
@@ -784,6 +832,7 @@ def ProcessorFeatures {
                                                       FeatureSlowSHLD,
                                                       FeatureLAHFSAHF,
                                                       FeatureFast15ByteNOP,
+                                                      FeatureFastScalarShiftMasks,
                                                       FeatureFastVectorShiftMasks];
   list<SubtargetFeature> BtVer1Features = BtVer1InheritableFeatures;
 
@@ -825,6 +874,7 @@ def ProcessorFeatures {
                                                       FeatureSlowSHLD,
                                                       FeatureLAHFSAHF,
                                                       FeatureFast11ByteNOP,
+                                                      FeatureFastScalarShiftMasks,
                                                       FeatureBranchFusion];
   list<SubtargetFeature> BdVer1Features = BdVer1InheritableFeatures;
 
@@ -876,6 +926,7 @@ def ProcessorFeatures {
                                        FeatureFastBEXTR,
                                        FeatureFast15ByteNOP,
                                        FeatureBranchFusion,
+                                       FeatureFastScalarShiftMasks,
                                        FeatureMMX,
                                        FeatureMOVBE,
                                        FeatureMWAITX,
@@ -1062,12 +1113,16 @@ foreach P = ["skylake-avx512", "skx"] in {
 
 def : ProcessorModel<"cascadelake", SkylakeServerModel,
                      ProcessorFeatures.CLXFeatures>;
+def : ProcessorModel<"cooperlake", SkylakeServerModel,
+                     ProcessorFeatures.CPXFeatures>;
 def : ProcessorModel<"cannonlake", SkylakeServerModel,
                      ProcessorFeatures.CNLFeatures>;
 def : ProcessorModel<"icelake-client", SkylakeServerModel,
                      ProcessorFeatures.ICLFeatures>;
 def : ProcessorModel<"icelake-server", SkylakeServerModel,
                      ProcessorFeatures.ICXFeatures>;
+def : ProcessorModel<"tigerlake", SkylakeServerModel,
+                     ProcessorFeatures.TGLFeatures>;
 
 // AMD CPUs.
 
@@ -1092,20 +1147,19 @@ foreach P = ["athlon-4", "athlon-xp", "athlon-mp"] in {
 foreach P = ["k8", "opteron", "athlon64", "athlon-fx"] in {
   def : Proc<P, [FeatureX87, FeatureSlowUAMem16, FeatureCMPXCHG8B,
                  FeatureSSE2, Feature3DNowA, FeatureFXSR, FeatureNOPL,
-                 Feature64Bit, FeatureSlowSHLD, FeatureCMOV]>;
+                 Feature64Bit, FeatureSlowSHLD, FeatureCMOV,
+                 FeatureFastScalarShiftMasks]>;
 }
 
 foreach P = ["k8-sse3", "opteron-sse3", "athlon64-sse3"] in {
   def : Proc<P, [FeatureX87, FeatureSlowUAMem16, FeatureCMPXCHG8B, FeatureSSE3,
                  Feature3DNowA, FeatureFXSR, FeatureNOPL, FeatureCMPXCHG16B,
-                 FeatureSlowSHLD, FeatureCMOV, Feature64Bit]>;
+                 FeatureSlowSHLD, FeatureCMOV, Feature64Bit,
+                 FeatureFastScalarShiftMasks]>;
 }
 
 foreach P = ["amdfam10", "barcelona"] in {
-  def : Proc<P, [FeatureX87, FeatureCMPXCHG8B, FeatureSSE4A, Feature3DNowA,
-                 FeatureFXSR, FeatureNOPL, FeatureCMPXCHG16B, FeatureLZCNT,
-                 FeaturePOPCNT, FeatureSlowSHLD, FeatureLAHFSAHF, FeatureCMOV,
-                 Feature64Bit]>;
+  def : Proc<P, ProcessorFeatures.BarcelonaFeatures>;
 }
 
 // Bobcat

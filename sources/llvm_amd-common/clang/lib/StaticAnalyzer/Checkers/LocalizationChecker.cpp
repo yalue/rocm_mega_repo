@@ -120,12 +120,12 @@ class NonLocalizedStringBRVisitor final : public BugReporterVisitor {
 public:
   NonLocalizedStringBRVisitor(const MemRegion *NonLocalizedString)
       : NonLocalizedString(NonLocalizedString), Satisfied(false) {
-        assert(NonLocalizedString);
+    assert(NonLocalizedString);
   }
 
-  std::shared_ptr<PathDiagnosticPiece> VisitNode(const ExplodedNode *Succ,
-                                                 BugReporterContext &BRC,
-                                                 BugReport &BR) override;
+  PathDiagnosticPieceRef VisitNode(const ExplodedNode *Succ,
+                                   BugReporterContext &BRC,
+                                   BugReport &BR) override;
 
   void Profile(llvm::FoldingSetNodeID &ID) const override {
     ID.Add(NonLocalizedString);
@@ -753,10 +753,9 @@ void NonLocalizedStringChecker::reportLocalizationError(
   if (isDebuggingContext(C))
     return;
 
-  ExplodedNode *ErrNode = C.getPredecessor();
   static CheckerProgramPointTag Tag("NonLocalizedStringChecker",
                                     "UnlocalizedString");
-  ErrNode = C.addTransition(C.getState(), C.getPredecessor(), &Tag);
+  ExplodedNode *ErrNode = C.addTransition(C.getState(), C.getPredecessor(), &Tag);
 
   if (!ErrNode)
     return;
@@ -999,7 +998,7 @@ void NonLocalizedStringChecker::checkPostStmt(const ObjCStringLiteral *SL,
   setNonLocalizedState(sv, C);
 }
 
-std::shared_ptr<PathDiagnosticPiece>
+PathDiagnosticPieceRef
 NonLocalizedStringBRVisitor::VisitNode(const ExplodedNode *Succ,
                                        BugReporterContext &BRC, BugReport &BR) {
   if (Satisfied)
@@ -1398,7 +1397,7 @@ void ento::registerNonLocalizedStringChecker(CheckerManager &mgr) {
       mgr.registerChecker<NonLocalizedStringChecker>();
   checker->IsAggressive =
       mgr.getAnalyzerOptions().getCheckerBooleanOption(
-          checker, "AggressiveReport", false);
+          checker, "AggressiveReport");
 }
 
 bool ento::shouldRegisterNonLocalizedStringChecker(const LangOptions &LO) {

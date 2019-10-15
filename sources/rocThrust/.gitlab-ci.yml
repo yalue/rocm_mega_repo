@@ -1,0 +1,114 @@
+# ########################################################################
+# Copyright 2019 Advanced Micro Devices, Inc.
+# ########################################################################
+
+image: rocm/rocm-terminal:latest
+
+variables:
+  SUDO_CMD: "" # Must be "sudo" on images which don't use root user
+  DEPS_DIR: "$CI_PROJECT_DIR/__dependencies"
+  CMAKE_URL: "https://cmake.org/files/v3.5/cmake-3.5.1-Linux-x86_64.tar.gz"
+  # General build flags
+  CXXFLAGS: ""
+  CMAKE_OPTIONS: ""
+  # Local build options
+  LOCAL_CXXFLAGS: ""
+  LOCAL_CMAKE_OPTIONS: ""
+
+before_script:
+  - $SUDO_CMD apt-get update -qq
+  - $SUDO_CMD apt-get install -y -qq libnuma-dev libunwind-dev git wget tar xz-utils bzip2 build-essential pkg-config ca-certificates
+  - hipconfig
+  # cmake
+  - mkdir -p $DEPS_DIR/cmake
+  - wget --no-check-certificate --quiet -O - $CMAKE_URL | tar --strip-components=1 -xz -C $DEPS_DIR/cmake
+  - export PATH=$DEPS_DIR/cmake/bin:$PATH
+  # Combine global build options with local options
+  - export CXXFLAGS=$CXXFLAGS" "$LOCAL_CXXFLAGS
+  - export CMAKE_OPTIONS=$CXXFLAGS" "$LOCAL_CMAKE_OPTIONS
+  - echo -e "machine projects.streamhpc.com\nlogin gitlab-ci-token\npassword ${CI_JOB_TOKEN}" > ~/.netrc
+
+build:rocm:
+  stage: build
+  tags:
+    - rocm
+  variables:
+    SUDO_CMD: "sudo -E"
+  script:
+    - mkdir build
+    - cd build
+    - CXX=hcc cmake -DBUILD_TEST=ON ../.
+    - make -j $(nproc)
+    - make package
+  artifacts:
+    paths:
+      - build/thrust/
+      - build/test/test_*
+      - build/test/CTestTestfile.cmake
+      - build/testing/test_thrust_*
+      - build/testing/CTestTestfile.cmake
+      - build/gtest/
+      - build/CMakeCache.txt
+      - build/CTestTestfile.cmake
+      - build/rocthrust*.deb
+      - build/rocthrust*.zip
+    expire_in: 2 weeks
+
+.test:
+  stage: test
+  variables:
+    SUDO_CMD: "sudo -E"
+  dependencies:
+    - build:rocm
+  script:
+    - cd build
+    - $SUDO_CMD ctest --output-on-failure --repeat-until-fail 1
+
+include: '.gitlab-ci-gputest.yml'
+
+test:rocm_package:
+  stage: test
+  tags:
+    - rocm
+  variables:
+    SUDO_CMD: "sudo -E"
+  dependencies:
+    - build:rocm
+  script:
+    # Install rocPRIM package
+    - echo ${ROCPRIM_GIT_URL}
+    - echo $ROCPRIM_GIT_URL
+    - git clone -b develop_stream https://gitlab-ci-token:${CI_JOB_TOKEN}@${ROCPRIM_GIT_URL}
+    - cd rocPRIM
+    - mkdir build
+    - cd build
+    - CXX=hcc cmake -DBUILD_TEST=OFF ../.
+    - make package
+    - $SUDO_CMD dpkg -i rocprim-*.deb
+    - cd ../..
+    # rocThrust
+    - cd build
+    - $SUDO_CMD dpkg -i rocthrust-*.deb
+    - mkdir ../package_test && cd ../package_test
+    - CXX=hcc cmake ../extra/. -Drocprim_DIR="/opt/rocm/rocprim"
+    - make VERBOSE=1
+    - $SUDO_CMD ctest --output-on-failure --repeat-until-fail 1
+    - $SUDO_CMD dpkg -r rocthrust
+    - $SUDO_CMD dpkg -r rocprim
+
+test:rocm_install:
+  stage: test
+  tags:
+    - rocm
+  variables:
+    SUDO_CMD: "sudo -E"
+  dependencies: []
+  script:
+    - mkdir build_only_install
+    - cd build_only_install
+    - CXX=hcc cmake -DBUILD_TEST=OFF ../.
+    - $SUDO_CMD make install
+    - mkdir ../install_test && cd ../install_test
+    - CXX=hcc cmake ../extra/.
+    - make VERBOSE=1
+    - $SUDO_CMD ctest --output-on-failure --repeat-until-fail 1

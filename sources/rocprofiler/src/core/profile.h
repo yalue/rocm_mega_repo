@@ -140,13 +140,14 @@ class Profile {
       if (status != HSA_STATUS_SUCCESS) AQL_EXC_RAISING(status, "aqlprofile_start");
       status = api->hsa_ven_amd_aqlprofile_stop(&profile_, &stop);
       if (status != HSA_STATUS_SUCCESS) AQL_EXC_RAISING(status, "aqlprofile_stop");
+      hsa_status_t rd_status = HSA_STATUS_ERROR;
 #ifdef AQLPROF_NEW_API
-      hsa_status_t rd_status = api->hsa_ven_amd_aqlprofile_read(&profile_, &read);
+      if (profile_.type == HSA_VEN_AMD_AQLPROFILE_EVENT_TYPE_PMC) {
+        rd_status = api->hsa_ven_amd_aqlprofile_read(&profile_, &read);
+      }
 #if 0 // Read API returns error if disabled
       if (rd_status != HSA_STATUS_SUCCESS) AQL_EXC_RAISING(status, "aqlprofile_read");
 #endif
-#else
-      hsa_status_t rd_status = HSA_STATUS_ERROR;
 #endif
 
       // Set completion signal
@@ -236,21 +237,27 @@ class PmcProfile : public Profile {
   }
 };
 
-class SqttProfile : public Profile {
+class TraceProfile : public Profile {
  public:
   static inline void SetSize(const uint32_t& size) { output_buffer_size_ = size; }
   static inline uint32_t GetSize() { return output_buffer_size_; }
   static inline void SetLocal(const bool& b) { output_buffer_local_ = b; }
   static inline bool IsLocal() { return output_buffer_local_; }
 
-  SqttProfile(const util::AgentInfo* agent_info) : Profile(agent_info) {
-    profile_.type = HSA_VEN_AMD_AQLPROFILE_EVENT_TYPE_SQTT;
+  TraceProfile(const util::AgentInfo* agent_info) : Profile(agent_info) {
+    profile_.type = HSA_VEN_AMD_AQLPROFILE_EVENT_TYPE_TRACE;
   }
 
   void Insert(const profile_info_t& info) {
-    Profile::Insert(info);
-    for (unsigned j = 0; j < info.parameter_count; ++j) {
-      Config<parameter_t>(&profile_).Insert(info.parameters[j]);
+    if (info.parameters != NULL) {
+      Profile::Insert(info);
+      for (unsigned j = 0; j < info.parameter_count; ++j) {
+        Config<parameter_t>(&profile_).Insert(info.parameters[j]);
+      }
+    } else if (info.event != NULL) {
+      Config<event_t>(&profile_).Insert(*(info.event));
+    } else {
+      EXC_ABORT(HSA_STATUS_ERROR, "invalid trace info inserted");
     }
   }
 

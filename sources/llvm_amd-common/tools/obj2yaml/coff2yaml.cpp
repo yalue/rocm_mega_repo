@@ -112,15 +112,19 @@ initializeFileAndStringTable(const llvm::object::COFFObjectFile &Obj,
     if (SC.hasStrings() && SC.hasChecksums())
       break;
 
-    StringRef SectionName;
-    S.getName(SectionName);
+    Expected<StringRef> SectionNameOrErr = S.getName();
+    if (!SectionNameOrErr) {
+      consumeError(SectionNameOrErr.takeError());
+      continue;
+    }
+
     ArrayRef<uint8_t> sectionData;
-    if (SectionName != ".debug$S")
+    if ((*SectionNameOrErr) != ".debug$S")
       continue;
 
     const object::coff_section *COFFSection = Obj.getCOFFSection(S);
 
-    Obj.getSectionContents(COFFSection, sectionData);
+    cantFail(Obj.getSectionContents(COFFSection, sectionData));
 
     BinaryStreamReader Reader(sectionData, support::little);
     uint32_t Magic;
@@ -155,7 +159,12 @@ void COFFDumper::dumpSections(unsigned NumSections) {
   for (const auto &ObjSection : Obj.sections()) {
     const object::coff_section *COFFSection = Obj.getCOFFSection(ObjSection);
     COFFYAML::Section NewYAMLSection;
-    ObjSection.getName(NewYAMLSection.Name);
+
+    if (Expected<StringRef> NameOrErr = ObjSection.getName())
+      NewYAMLSection.Name = *NameOrErr;
+    else
+      consumeError(NameOrErr.takeError());
+
     NewYAMLSection.Header.Characteristics = COFFSection->Characteristics;
     NewYAMLSection.Header.VirtualAddress = COFFSection->VirtualAddress;
     NewYAMLSection.Header.VirtualSize = COFFSection->VirtualSize;
@@ -175,7 +184,7 @@ void COFFDumper::dumpSections(unsigned NumSections) {
 
     ArrayRef<uint8_t> sectionData;
     if (!ObjSection.isBSS())
-      Obj.getSectionContents(COFFSection, sectionData);
+      cantFail(Obj.getSectionContents(COFFSection, sectionData));
     NewYAMLSection.SectionData = yaml::BinaryRef(sectionData);
 
     if (NewYAMLSection.Name == ".debug$S")

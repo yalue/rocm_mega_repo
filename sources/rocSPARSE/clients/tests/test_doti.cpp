@@ -24,21 +24,21 @@
 #include "testing_doti.hpp"
 #include "utility.hpp"
 
-#include <rocsparse.h>
 #include <gtest/gtest.h>
+#include <rocsparse.h>
 #include <vector>
 
-typedef rocsparse_index_base base;
-typedef std::tuple<int, int, base> doti_tuple;
+typedef rocsparse_index_base                           base;
+typedef std::tuple<rocsparse_int, rocsparse_int, base> doti_tuple;
 
-int doti_N_range[]   = {12000, 15332, 22031};
-int doti_nnz_range[] = {-1, 0, 5, 10, 500, 1000, 7111, 10000};
+rocsparse_int doti_N_range[]   = {12000, 15332, 22031};
+rocsparse_int doti_nnz_range[] = {-1, 0, 5, 10, 500, 1000, 7111, 10000};
 
 base doti_idx_base_range[] = {rocsparse_index_base_zero, rocsparse_index_base_one};
 
 class parameterized_doti : public testing::TestWithParam<doti_tuple>
 {
-    protected:
+protected:
     parameterized_doti() {}
     virtual ~parameterized_doti() {}
     virtual void SetUp() {}
@@ -55,7 +55,10 @@ Arguments setup_doti_arguments(doti_tuple tup)
     return arg;
 }
 
-TEST(doti_bad_arg, doti_float) { testing_doti_bad_arg<float>(); }
+TEST(doti_bad_arg, doti_float)
+{
+    testing_doti_bad_arg<float>();
+}
 
 TEST_P(parameterized_doti, doti_float)
 {

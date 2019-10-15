@@ -24,18 +24,18 @@
 #include "testing_csrsv2.hpp"
 #include "utility.hpp"
 
-#include <hipsparse.h>
 #include <gtest/gtest.h>
+#include <hipsparse.h>
+#include <string>
 #include <unistd.h>
 #include <vector>
-#include <string>
 
 typedef hipsparseIndexBase_t base;
 typedef hipsparseOperation_t op;
-typedef hipsparseDiagType_t diag;
-typedef hipsparseFillMode_t fill;
+typedef hipsparseDiagType_t  diag;
+typedef hipsparseFillMode_t  fill;
 
-typedef std::tuple<int, double, base, op, diag, fill> csrsv2_tuple;
+typedef std::tuple<int, double, base, op, diag, fill>         csrsv2_tuple;
 typedef std::tuple<double, base, op, diag, fill, std::string> csrsv2_bin_tuple;
 
 int csrsv2_M_range[] = {-1, 0, 50, 647};
@@ -43,7 +43,7 @@ int csrsv2_M_range[] = {-1, 0, 50, 647};
 double csrsv2_alpha_range[] = {1.0, 2.3, -3.7};
 
 base csrsv2_idxbase_range[] = {HIPSPARSE_INDEX_BASE_ZERO, HIPSPARSE_INDEX_BASE_ONE};
-op csrsv2_op_range[]        = {HIPSPARSE_OPERATION_NON_TRANSPOSE};
+op   csrsv2_op_range[]      = {HIPSPARSE_OPERATION_NON_TRANSPOSE};
 diag csrsv2_diag_range[]    = {HIPSPARSE_DIAG_TYPE_NON_UNIT};
 fill csrsv2_fill_range[]    = {HIPSPARSE_FILL_MODE_LOWER, HIPSPARSE_FILL_MODE_UPPER};
 
@@ -58,11 +58,13 @@ std::string csrsv2_bin[] = {"rma10.bin",
                             "nos3.bin",
                             "nos4.bin",
                             "nos5.bin",
-                            "nos6.bin"};
+                            "nos6.bin",
+                            "amazon0312.bin",
+                            "sme3Dc.bin"};
 
 class parameterized_csrsv2 : public testing::TestWithParam<csrsv2_tuple>
 {
-    protected:
+protected:
     parameterized_csrsv2() {}
     virtual ~parameterized_csrsv2() {}
     virtual void SetUp() {}
@@ -71,7 +73,7 @@ class parameterized_csrsv2 : public testing::TestWithParam<csrsv2_tuple>
 
 class parameterized_csrsv2_bin : public testing::TestWithParam<csrsv2_bin_tuple>
 {
-    protected:
+protected:
     parameterized_csrsv2_bin() {}
     virtual ~parameterized_csrsv2_bin() {}
     virtual void SetUp() {}
@@ -106,7 +108,7 @@ Arguments setup_csrsv2_arguments(csrsv2_bin_tuple tup)
     std::string bin_file = std::get<5>(tup);
 
     // Get current executables absolute path
-    char path_exe[PATH_MAX];
+    char    path_exe[PATH_MAX];
     ssize_t len = readlink("/proc/self/exe", path_exe, sizeof(path_exe) - 1);
     if(len < 14)
     {
@@ -118,12 +120,15 @@ Arguments setup_csrsv2_arguments(csrsv2_bin_tuple tup)
     }
 
     // Matrices are stored at the same path in matrices directory
-    arg.filename = std::string(path_exe) + "matrices/" + bin_file;
+    arg.filename = std::string(path_exe) + "../matrices/" + bin_file;
 
     return arg;
 }
 
-TEST(csrsv2_bad_arg, csrsv2_float) { testing_csrsv2_bad_arg<float>(); }
+TEST(csrsv2_bad_arg, csrsv2_float)
+{
+    testing_csrsv2_bad_arg<float>();
+}
 
 TEST_P(parameterized_csrsv2, csrsv2_float)
 {
@@ -157,7 +162,7 @@ TEST_P(parameterized_csrsv2_bin, csrsv2_bin_double)
     EXPECT_EQ(status, HIPSPARSE_STATUS_SUCCESS);
 }
 
-INSTANTIATE_TEST_CASE_P(csrsv2,
+INSTANTIATE_TEST_CASE_P(DISABLED_csrsv2,
                         parameterized_csrsv2,
                         testing::Combine(testing::ValuesIn(csrsv2_M_range),
                                          testing::ValuesIn(csrsv2_alpha_range),
@@ -166,7 +171,7 @@ INSTANTIATE_TEST_CASE_P(csrsv2,
                                          testing::ValuesIn(csrsv2_diag_range),
                                          testing::ValuesIn(csrsv2_fill_range)));
 
-INSTANTIATE_TEST_CASE_P(csrsv2_bin,
+INSTANTIATE_TEST_CASE_P(DISABLED_csrsv2_bin,
                         parameterized_csrsv2_bin,
                         testing::Combine(testing::ValuesIn(csrsv2_alpha_range),
                                          testing::ValuesIn(csrsv2_idxbase_range),

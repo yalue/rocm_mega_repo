@@ -24,18 +24,18 @@
 #include "testing_coosort.hpp"
 #include "utility.hpp"
 
-#include <hipsparse.h>
 #include <gtest/gtest.h>
-#include <vector>
+#include <hipsparse.h>
 #include <string>
+#include <vector>
 
-typedef std::tuple<int, int, hipsparseOperation_t, int, hipsparseIndexBase_t> coosort_tuple;
+typedef std::tuple<int, int, hipsparseOperation_t, int, hipsparseIndexBase_t>    coosort_tuple;
 typedef std::tuple<hipsparseOperation_t, int, hipsparseIndexBase_t, std::string> coosort_bin_tuple;
 
-int coosort_M_range[]                = {-1, 0, 10, 500, 3872, 10000};
-int coosort_N_range[]                = {-3, 0, 33, 242, 1623, 10000};
-hipsparseOperation_t coosort_trans[] = {HIPSPARSE_OPERATION_NON_TRANSPOSE,
-                                        HIPSPARSE_OPERATION_TRANSPOSE};
+int                  coosort_M_range[] = {-1, 0, 10, 500, 3872, 10000};
+int                  coosort_N_range[] = {-3, 0, 33, 242, 1623, 10000};
+hipsparseOperation_t coosort_trans[]
+    = {HIPSPARSE_OPERATION_NON_TRANSPOSE, HIPSPARSE_OPERATION_TRANSPOSE};
 
 #if defined(__HIP_PLATFORM_HCC__)
 int coosort_perm[] = {0, 1};
@@ -59,11 +59,16 @@ std::string coosort_bin[] = {"rma10.bin",
                              "nos4.bin",
                              "nos5.bin",
                              "nos6.bin",
-                             "nos7.bin"};
+                             "nos7.bin",
+                             "amazon0312.bin",
+                             "Chebyshev4.bin",
+                             "sme3Dc.bin",
+                             "webbase-1M.bin",
+                             "shipsec1.bin"};
 
 class parameterized_coosort : public testing::TestWithParam<coosort_tuple>
 {
-    protected:
+protected:
     parameterized_coosort() {}
     virtual ~parameterized_coosort() {}
     virtual void SetUp() {}
@@ -72,7 +77,7 @@ class parameterized_coosort : public testing::TestWithParam<coosort_tuple>
 
 class parameterized_coosort_bin : public testing::TestWithParam<coosort_bin_tuple>
 {
-    protected:
+protected:
     parameterized_coosort_bin() {}
     virtual ~parameterized_coosort_bin() {}
     virtual void SetUp() {}
@@ -105,7 +110,7 @@ Arguments setup_coosort_arguments(coosort_bin_tuple tup)
     std::string bin_file = std::get<3>(tup);
 
     // Get current executables absolute path
-    char path_exe[PATH_MAX];
+    char    path_exe[PATH_MAX];
     ssize_t len = readlink("/proc/self/exe", path_exe, sizeof(path_exe) - 1);
     if(len < 14)
     {
@@ -117,12 +122,15 @@ Arguments setup_coosort_arguments(coosort_bin_tuple tup)
     }
 
     // Matrices are stored at the same path in matrices directory
-    arg.filename = std::string(path_exe) + "matrices/" + bin_file;
+    arg.filename = std::string(path_exe) + "../matrices/" + bin_file;
 
     return arg;
 }
 
-TEST(coosort_bad_arg, coosort) { testing_coosort_bad_arg(); }
+TEST(coosort_bad_arg, coosort)
+{
+    testing_coosort_bad_arg();
+}
 
 TEST_P(parameterized_coosort, coosort)
 {

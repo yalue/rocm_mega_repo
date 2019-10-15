@@ -1,19 +1,19 @@
 /* ************************************************************************
- * Copyright 2018 Advanced Micro Devices, Inc.
+ * Copyright 2018-2019 Advanced Micro Devices, Inc.
  * ************************************************************************ */
 
-#include "rocblas_test.hpp"
+#include "cblas_interface.hpp"
+#include "flops.hpp"
+#include "norm.hpp"
+#include "rocblas.hpp"
+#include "rocblas_datatype2string.hpp"
+#include "rocblas_init.hpp"
 #include "rocblas_math.hpp"
 #include "rocblas_random.hpp"
+#include "rocblas_test.hpp"
 #include "rocblas_vector.hpp"
-#include "rocblas_init.hpp"
-#include "rocblas_datatype2string.hpp"
-#include "utility.hpp"
-#include "rocblas.hpp"
-#include "cblas_interface.hpp"
-#include "norm.hpp"
 #include "unit.hpp"
-#include "flops.hpp"
+#include "utility.hpp"
 
 #define ERROR_EPS_MULTIPLIER 40
 #define RESIDUAL_EPS_MULTIPLIER 20
@@ -21,9 +21,6 @@
 template <typename T>
 void testing_trsm(const Arguments& arg)
 {
-    char* env_p = std::getenv("WORKBUF_TRSM_B_CHNK");
-    setenv("WORKBUF_TRSM_B_CHNK", "32000", 1);
-
     rocblas_int M   = arg.M;
     rocblas_int N   = arg.N;
     rocblas_int lda = arg.lda;
@@ -33,16 +30,16 @@ void testing_trsm(const Arguments& arg)
     char char_uplo   = arg.uplo;
     char char_transA = arg.transA;
     char char_diag   = arg.diag;
-    T alpha_h        = arg.alpha;
+    T    alpha_h     = arg.alpha;
 
-    rocblas_side side        = char2rocblas_side(char_side);
-    rocblas_fill uplo        = char2rocblas_fill(char_uplo);
+    rocblas_side      side   = char2rocblas_side(char_side);
+    rocblas_fill      uplo   = char2rocblas_fill(char_uplo);
     rocblas_operation transA = char2rocblas_operation(char_transA);
-    rocblas_diagonal diag    = char2rocblas_diagonal(char_diag);
+    rocblas_diagonal  diag   = char2rocblas_diagonal(char_diag);
 
-    rocblas_int K = side == rocblas_side_left ? M : N;
-    size_t size_A = lda * static_cast<size_t>(K);
-    size_t size_B = ldb * static_cast<size_t>(N);
+    rocblas_int K      = side == rocblas_side_left ? M : N;
+    size_t      size_A = lda * size_t(K);
+    size_t      size_B = ldb * size_t(N);
 
     rocblas_local_handle handle;
 
@@ -50,12 +47,11 @@ void testing_trsm(const Arguments& arg)
     if(M < 0 || N < 0 || lda < K || ldb < M)
     {
         static const size_t safe_size = 100; // arbitrarily set to 100
-        device_vector<T> dA(safe_size);
-        device_vector<T> dXorB(safe_size);
+        device_vector<T>    dA(safe_size);
+        device_vector<T>    dXorB(safe_size);
         if(!dA || !dXorB)
         {
             CHECK_HIP_ERROR(hipErrorOutOfMemory);
-            setenv("WORKBUF_TRSM_B_CHNK", env_p ? env_p : "", 1);
             return;
         }
 
@@ -63,7 +59,6 @@ void testing_trsm(const Arguments& arg)
         EXPECT_ROCBLAS_STATUS(
             rocblas_trsm<T>(handle, side, uplo, transA, diag, M, N, &alpha_h, dA, lda, dXorB, ldb),
             rocblas_status_invalid_size);
-        setenv("WORKBUF_TRSM_B_CHNK", env_p ? env_p : "", 1);
         return;
     }
 
@@ -78,9 +73,9 @@ void testing_trsm(const Arguments& arg)
 
     double gpu_time_used, cpu_time_used;
     double rocblas_gflops, cblas_gflops;
-    T error_eps_multiplier    = ERROR_EPS_MULTIPLIER;
-    T residual_eps_multiplier = RESIDUAL_EPS_MULTIPLIER;
-    T eps                     = std::numeric_limits<T>::epsilon();
+    T      error_eps_multiplier    = ERROR_EPS_MULTIPLIER;
+    T      residual_eps_multiplier = RESIDUAL_EPS_MULTIPLIER;
+    T      eps                     = std::numeric_limits<T>::epsilon();
 
     // allocate memory on device
     device_vector<T> dA(size_A);
@@ -89,7 +84,6 @@ void testing_trsm(const Arguments& arg)
     if(!dA || !dXorB || !alpha_d)
     {
         CHECK_HIP_ERROR(hipErrorOutOfMemory);
-        setenv("WORKBUF_TRSM_B_CHNK", env_p ? env_p : "", 1);
         return;
     }
 
@@ -111,7 +105,7 @@ void testing_trsm(const Arguments& arg)
 
     //  pad untouched area into zero
     for(int i = K; i < lda; i++)
-        for(int j           = 0; j < K; j++)
+        for(int j = 0; j < K; j++)
             hA[i + j * lda] = 0.0;
 
     //  calculate AAT = hA * hA ^ T
@@ -151,14 +145,14 @@ void testing_trsm(const Arguments& arg)
             for(int i = 0; i < K; i++)
             {
                 T diag = hA[i + i * lda];
-                for(int j           = 0; j <= i; j++)
+                for(int j = 0; j <= i; j++)
                     hA[i + j * lda] = hA[i + j * lda] / diag;
             }
         else
             for(int j = 0; j < K; j++)
             {
                 T diag = hA[j + j * lda];
-                for(int i           = 0; i <= j; i++)
+                for(int i = 0; i <= j; i++)
                     hA[i + j * lda] = hA[i + j * lda] / diag;
             }
     }
@@ -167,9 +161,9 @@ void testing_trsm(const Arguments& arg)
     rocblas_init<T>(hX, M, N, ldb);
     // pad untouched area into zero
     for(int i = M; i < ldb; i++)
-        for(int j           = 0; j < N; j++)
+        for(int j = 0; j < N; j++)
             hX[i + j * ldb] = 0.0;
-    hB                      = hX;
+    hB = hX;
 
     // Calculate hB = hA*hX;
     cblas_trmm<T>(side, uplo, transA, diag, M, N, 1.0 / alpha_h, hA, lda, hB, ldb);
@@ -308,6 +302,4 @@ void testing_trsm(const Arguments& arg)
 
         std::cout << std::endl;
     }
-
-    setenv("WORKBUF_TRSM_B_CHNK", env_p ? env_p : "", 1);
 }

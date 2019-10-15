@@ -21,23 +21,18 @@
 #
 # ########################################################################
 
+# This option only works for make/nmake and the ninja generators, but no reason it shouldn't be on all the time
+# This tells cmake to create a compile_commands.json file that can be used with clang tooling or vim
+set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
+
 # Print verbose compiler flags
 if(BUILD_VERBOSE)
   include(../cmake/Verbose.cmake)
 endif()
 
-# Get full git commit SHA-1
-set(GIT_COMMAND ${GIT_EXECUTABLE} rev-parse -q HEAD)
-execute_process(COMMAND ${GIT_COMMAND}
-                WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
-                OUTPUT_VARIABLE rocsparse_GIT_REVISION
-                OUTPUT_STRIP_TRAILING_WHITESPACE
-                ERROR_QUIET)
-
 # Configure a header file to pass the rocSPARSE version
 configure_file("${CMAKE_CURRENT_SOURCE_DIR}/include/rocsparse-version.h.in"
                "${PROJECT_BINARY_DIR}/include/rocsparse-version.h"
-               @ONLY
 )
 
 # Public rocSPARSE headers
@@ -47,8 +42,15 @@ set(rocsparse_headers_public
   include/rocsparse-types.h
   include/rocsparse.h
   ${PROJECT_BINARY_DIR}/include/rocsparse-version.h
-  ${PROJECT_BINARY_DIR}/include/rocsparse-export.h
 )
+
+source_group("Header Files\\Public" FILES ${rocsparse_headers_public})
+
+include(GNUInstallDirs)
+
+set(BIN_INSTALL_DIR ${CMAKE_INSTALL_BINDIR})
+set(LIB_INSTALL_DIR ${CMAKE_INSTALL_LIBDIR})
+set(INCLUDE_INSTALL_DIR ${CMAKE_INSTALL_INCLUDEDIR})
 
 # Include sources
 include(src/CMakeLists.txt)
@@ -58,15 +60,13 @@ add_library(rocsparse ${rocsparse_source} ${rocsparse_headers_public})
 add_library(roc::rocsparse ALIAS rocsparse)
 
 # Target compile options
-if(NOT HIP_PLATFORM STREQUAL "nvcc")
-  target_compile_options(rocsparse PRIVATE -fno-gpu-rdc)
-  foreach(target ${AMDGPU_TARGETS})
-    target_compile_options(rocsparse PRIVATE --amdgpu-target=${target})
-  endforeach()
-endif()
+target_compile_options(rocsparse PRIVATE -fno-gpu-rdc)
+foreach(target ${AMDGPU_TARGETS})
+  target_compile_options(rocsparse PRIVATE --amdgpu-target=${target})
+endforeach()
 
 # Target link libraries
-if(NOT HIP_PLATFORM STREQUAL "nvcc")
+if(CMAKE_CXX_COMPILER MATCHES ".*/hcc$")
   target_link_libraries(rocsparse PRIVATE hip::device)
   foreach(target ${AMDGPU_TARGETS})
     target_link_libraries(rocsparse PRIVATE --amdgpu-target=${target})
@@ -77,17 +77,14 @@ endif()
 target_include_directories(rocsparse
                            PRIVATE $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/src/include>
                                    $<BUILD_INTERFACE:${ROCPRIM_INCLUDE_DIRS}>
-                                   $<BUILD_INTERFACE:${HIPCUB_INCLUDE_DIRS}>
                            PUBLIC  $<BUILD_INTERFACE:${CMAKE_SOURCE_DIR}/library/include>
                                    $<BUILD_INTERFACE:${PROJECT_BINARY_DIR}/include>
                                    $<INSTALL_INTERFACE:include>
 )
 
 # Target properties
-if(NOT HIP_PLATFORM STREQUAL "nvcc")
-  set_target_properties(rocsparse PROPERTIES VERSION ${rocsparse_VERSION} SOVERSION ${rocsparse_SOVERSION})
-  set_target_properties(rocsparse PROPERTIES CXX_VISIBILITY_PRESET "hidden" VISIBILITY_INLINES_HIDDEN ON)
-endif()
+rocm_set_soversion(rocsparse ${rocsparse_SOVERSION})
+set_target_properties(rocsparse PROPERTIES CXX_VISIBILITY_PRESET "hidden" VISIBILITY_INLINES_HIDDEN ON)
 set_target_properties(rocsparse PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${PROJECT_BINARY_DIR}/staging")
 set_target_properties(rocsparse PROPERTIES DEBUG_POSTFIX "-d")
 
@@ -114,8 +111,8 @@ rocm_export_targets(TARGETS roc::rocsparse
 rocm_install_symlink_subdir(rocsparse)
 
 # Package specific CPACK vars
-set(CPACK_DEBIAN_PACKAGE_DEPENDS "hip_hcc (>= 1.5.19055)") # 1.5.19055 is HIP version in ROCm 2.2
-set(CPACK_RPM_PACKAGE_REQUIRES "hip_hcc >= 1.5.19055")
+set(CPACK_DEBIAN_PACKAGE_DEPENDS "hip_hcc (>= 1.5.19211)") # 1.5.19211 is HIP version in ROCm 2.5
+set(CPACK_RPM_PACKAGE_REQUIRES "hip_hcc >= 1.5.19211")
 set(CPACK_RESOURCE_FILE_LICENSE "${CMAKE_CURRENT_SOURCE_DIR}/../LICENSE.md")
 
 if(NOT CPACK_PACKAGING_INSTALL_PREFIX)
@@ -124,12 +121,8 @@ endif()
 
 set(CPACK_RPM_EXCLUDE_FROM_AUTO_FILELIST_ADDITION "\${CPACK_PACKAGING_INSTALL_PREFIX}" "\${CPACK_PACKAGING_INSTALL_PREFIX}/include")
 
-# Package name differs for CUDA backend
-if(HIP_PLATFORM STREQUAL "nvcc")
-  set(package_name rocsparse-alt)
-else()
-  set(package_name rocsparse)
-endif()
+# Package name
+set(package_name rocsparse)
 
 set(ROCSPARSE_CONFIG_DIR "\${CPACK_PACKAGING_INSTALL_PREFIX}/${CMAKE_INSTALL_LIBDIR}" CACHE PATH "Path placed into ldconfig file")
 

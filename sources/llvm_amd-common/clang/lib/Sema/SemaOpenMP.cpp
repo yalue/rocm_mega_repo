@@ -139,10 +139,12 @@ private:
     /// clause, false otherwise.
     llvm::Optional<std::pair<const Expr *, OMPOrderedClause *>> OrderedRegion;
     unsigned AssociatedLoops = 1;
+    bool HasMutipleLoops = false;
     const Decl *PossiblyLoopCounter = nullptr;
     bool NowaitRegion = false;
     bool CancelRegion = false;
     bool LoopStart = false;
+    bool BodyComplete = false;
     SourceLocation InnerTeamsRegionLoc;
     /// Reference to the taskgroup task_reduction reference expression.
     Expr *TaskgroupReductionRef = nullptr;
@@ -172,19 +174,84 @@ private:
   /// captured by reference.
   bool ForceCaptureByReferenceInTargetExecutable = false;
   CriticalsWithHintsTy Criticals;
+  unsigned IgnoredStackElements = 0;
 
-  using iterator = StackTy::const_reverse_iterator;
+  /// Iterators over the stack iterate in order from innermost to outermost
+  /// directive.
+  using const_iterator = StackTy::const_reverse_iterator;
+  const_iterator begin() const {
+    return Stack.empty() ? const_iterator()
+                         : Stack.back().first.rbegin() + IgnoredStackElements;
+  }
+  const_iterator end() const {
+    return Stack.empty() ? const_iterator() : Stack.back().first.rend();
+  }
+  using iterator = StackTy::reverse_iterator;
+  iterator begin() {
+    return Stack.empty() ? iterator()
+                         : Stack.back().first.rbegin() + IgnoredStackElements;
+  }
+  iterator end() {
+    return Stack.empty() ? iterator() : Stack.back().first.rend();
+  }
 
-  DSAVarData getDSA(iterator &Iter, ValueDecl *D) const;
-
-  /// Checks if the variable is a local for OpenMP region.
-  bool isOpenMPLocal(VarDecl *D, iterator Iter) const;
+  // Convenience operations to get at the elements of the stack.
 
   bool isStackEmpty() const {
     return Stack.empty() ||
            Stack.back().second != CurrentNonCapturingFunctionScope ||
-           Stack.back().first.empty();
+           Stack.back().first.size() <= IgnoredStackElements;
   }
+  size_t getStackSize() const {
+    return isStackEmpty() ? 0
+                          : Stack.back().first.size() - IgnoredStackElements;
+  }
+
+  SharingMapTy *getTopOfStackOrNull() {
+    size_t Size = getStackSize();
+    if (Size == 0)
+      return nullptr;
+    return &Stack.back().first[Size - 1];
+  }
+  const SharingMapTy *getTopOfStackOrNull() const {
+    return const_cast<DSAStackTy&>(*this).getTopOfStackOrNull();
+  }
+  SharingMapTy &getTopOfStack() {
+    assert(!isStackEmpty() && "no current directive");
+    return *getTopOfStackOrNull();
+  }
+  const SharingMapTy &getTopOfStack() const {
+    return const_cast<DSAStackTy&>(*this).getTopOfStack();
+  }
+
+  SharingMapTy *getSecondOnStackOrNull() {
+    size_t Size = getStackSize();
+    if (Size <= 1)
+      return nullptr;
+    return &Stack.back().first[Size - 2];
+  }
+  const SharingMapTy *getSecondOnStackOrNull() const {
+    return const_cast<DSAStackTy&>(*this).getSecondOnStackOrNull();
+  }
+
+  /// Get the stack element at a certain level (previously returned by
+  /// \c getNestingLevel).
+  ///
+  /// Note that nesting levels count from outermost to innermost, and this is
+  /// the reverse of our iteration order where new inner levels are pushed at
+  /// the front of the stack.
+  SharingMapTy &getStackElemAtLevel(unsigned Level) {
+    assert(Level < getStackSize() && "no such stack element");
+    return Stack.back().first[Level];
+  }
+  const SharingMapTy &getStackElemAtLevel(unsigned Level) const {
+    return const_cast<DSAStackTy&>(*this).getStackElemAtLevel(Level);
+  }
+
+  DSAVarData getDSA(const_iterator &Iter, ValueDecl *D) const;
+
+  /// Checks if the variable is a local for OpenMP region.
+  bool isOpenMPLocal(VarDecl *D, const_iterator Iter) const;
 
   /// Vector of previously declared requires directives
   SmallVector<const OMPRequiresDecl *, 2> RequiresDecls;
@@ -220,6 +287,14 @@ public:
   }
   void setClauseParsingMode(OpenMPClauseKind K) { ClauseKindMode = K; }
 
+  bool isBodyComplete() const {
+    const SharingMapTy *Top = getTopOfStackOrNull();
+    return Top && Top->BodyComplete;
+  }
+  void setBodyComplete() {
+    getTopOfStack().BodyComplete = true;
+  }
+
   bool isForceVarCapturing() const { return ForceCapturing; }
   void setForceVarCapturing(bool V) { ForceCapturing = V; }
 
@@ -232,6 +307,8 @@ public:
 
   void push(OpenMPDirectiveKind DKind, const DeclarationNameInfo &DirName,
             Scope *CurScope, SourceLocation Loc) {
+    assert(!IgnoredStackElements &&
+           "cannot change stack while ignoring elements");
     if (Stack.empty() ||
         Stack.back().second != CurrentNonCapturingFunctionScope)
       Stack.emplace_back(StackTy(), CurrentNonCapturingFunctionScope);
@@ -240,46 +317,78 @@ public:
   }
 
   void pop() {
+    assert(!IgnoredStackElements &&
+           "cannot change stack while ignoring elements");
     assert(!Stack.back().first.empty() &&
            "Data-sharing attributes stack is empty!");
     Stack.back().first.pop_back();
   }
 
+  /// RAII object to temporarily leave the scope of a directive when we want to
+  /// logically operate in its parent.
+  class ParentDirectiveScope {
+    DSAStackTy &Self;
+    bool Active;
+  public:
+    ParentDirectiveScope(DSAStackTy &Self, bool Activate)
+        : Self(Self), Active(false) {
+      if (Activate)
+        enable();
+    }
+    ~ParentDirectiveScope() { disable(); }
+    void disable() {
+      if (Active) {
+        --Self.IgnoredStackElements;
+        Active = false;
+      }
+    }
+    void enable() {
+      if (!Active) {
+        ++Self.IgnoredStackElements;
+        Active = true;
+      }
+    }
+  };
+
   /// Marks that we're started loop parsing.
   void loopInit() {
     assert(isOpenMPLoopDirective(getCurrentDirective()) &&
            "Expected loop-based directive.");
-    Stack.back().first.back().LoopStart = true;
+    getTopOfStack().LoopStart = true;
   }
   /// Start capturing of the variables in the loop context.
   void loopStart() {
     assert(isOpenMPLoopDirective(getCurrentDirective()) &&
            "Expected loop-based directive.");
-    Stack.back().first.back().LoopStart = false;
+    getTopOfStack().LoopStart = false;
   }
   /// true, if variables are captured, false otherwise.
   bool isLoopStarted() const {
     assert(isOpenMPLoopDirective(getCurrentDirective()) &&
            "Expected loop-based directive.");
-    return !Stack.back().first.back().LoopStart;
+    return !getTopOfStack().LoopStart;
   }
   /// Marks (or clears) declaration as possibly loop counter.
   void resetPossibleLoopCounter(const Decl *D = nullptr) {
-    Stack.back().first.back().PossiblyLoopCounter =
+    getTopOfStack().PossiblyLoopCounter =
         D ? D->getCanonicalDecl() : D;
   }
   /// Gets the possible loop counter decl.
   const Decl *getPossiblyLoopCunter() const {
-    return Stack.back().first.back().PossiblyLoopCounter;
+    return getTopOfStack().PossiblyLoopCounter;
   }
   /// Start new OpenMP region stack in new non-capturing function.
   void pushFunction() {
+    assert(!IgnoredStackElements &&
+           "cannot change stack while ignoring elements");
     const FunctionScopeInfo *CurFnScope = SemaRef.getCurFunction();
     assert(!isa<CapturingScopeInfo>(CurFnScope));
     CurrentNonCapturingFunctionScope = CurFnScope;
   }
   /// Pop region stack for non-capturing function.
   void popFunction(const FunctionScopeInfo *OldFSI) {
+    assert(!IgnoredStackElements &&
+           "cannot change stack while ignoring elements");
     if (!Stack.empty() && Stack.back().second == OldFSI) {
       assert(Stack.back().first.empty());
       Stack.pop_back();
@@ -350,16 +459,16 @@ public:
                                    Expr *&TaskgroupDescriptor) const;
   /// Return reduction reference expression for the current taskgroup.
   Expr *getTaskgroupReductionRef() const {
-    assert(Stack.back().first.back().Directive == OMPD_taskgroup &&
+    assert(getTopOfStack().Directive == OMPD_taskgroup &&
            "taskgroup reference expression requested for non taskgroup "
            "directive.");
-    return Stack.back().first.back().TaskgroupReductionRef;
+    return getTopOfStack().TaskgroupReductionRef;
   }
   /// Checks if the given \p VD declaration is actually a taskgroup reduction
   /// descriptor variable at the \p Level of OpenMP regions.
   bool isTaskgroupReductionRef(const ValueDecl *VD, unsigned Level) const {
-    return Stack.back().first[Level].TaskgroupReductionRef &&
-           cast<DeclRefExpr>(Stack.back().first[Level].TaskgroupReductionRef)
+    return getStackElemAtLevel(Level).TaskgroupReductionRef &&
+           cast<DeclRefExpr>(getStackElemAtLevel(Level).TaskgroupReductionRef)
                    ->getDecl() == VD;
   }
 
@@ -405,18 +514,18 @@ public:
 
   /// Returns currently analyzed directive.
   OpenMPDirectiveKind getCurrentDirective() const {
-    return isStackEmpty() ? OMPD_unknown : Stack.back().first.back().Directive;
+    const SharingMapTy *Top = getTopOfStackOrNull();
+    return Top ? Top->Directive : OMPD_unknown;
   }
   /// Returns directive kind at specified level.
   OpenMPDirectiveKind getDirective(unsigned Level) const {
     assert(!isStackEmpty() && "No directive at specified level.");
-    return Stack.back().first[Level].Directive;
+    return getStackElemAtLevel(Level).Directive;
   }
   /// Returns parent directive.
   OpenMPDirectiveKind getParentDirective() const {
-    if (isStackEmpty() || Stack.back().first.size() == 1)
-      return OMPD_unknown;
-    return std::next(Stack.back().first.rbegin())->Directive;
+    const SharingMapTy *Parent = getSecondOnStackOrNull();
+    return Parent ? Parent->Directive : OMPD_unknown;
   }
 
   /// Add requires decl to internal vector
@@ -468,41 +577,38 @@ public:
 
   /// Set default data sharing attribute to none.
   void setDefaultDSANone(SourceLocation Loc) {
-    assert(!isStackEmpty());
-    Stack.back().first.back().DefaultAttr = DSA_none;
-    Stack.back().first.back().DefaultAttrLoc = Loc;
+    getTopOfStack().DefaultAttr = DSA_none;
+    getTopOfStack().DefaultAttrLoc = Loc;
   }
   /// Set default data sharing attribute to shared.
   void setDefaultDSAShared(SourceLocation Loc) {
-    assert(!isStackEmpty());
-    Stack.back().first.back().DefaultAttr = DSA_shared;
-    Stack.back().first.back().DefaultAttrLoc = Loc;
+    getTopOfStack().DefaultAttr = DSA_shared;
+    getTopOfStack().DefaultAttrLoc = Loc;
   }
   /// Set default data mapping attribute to 'tofrom:scalar'.
   void setDefaultDMAToFromScalar(SourceLocation Loc) {
-    assert(!isStackEmpty());
-    Stack.back().first.back().DefaultMapAttr = DMA_tofrom_scalar;
-    Stack.back().first.back().DefaultMapAttrLoc = Loc;
+    getTopOfStack().DefaultMapAttr = DMA_tofrom_scalar;
+    getTopOfStack().DefaultMapAttrLoc = Loc;
   }
 
   DefaultDataSharingAttributes getDefaultDSA() const {
     return isStackEmpty() ? DSA_unspecified
-                          : Stack.back().first.back().DefaultAttr;
+                          : getTopOfStack().DefaultAttr;
   }
   SourceLocation getDefaultDSALocation() const {
     return isStackEmpty() ? SourceLocation()
-                          : Stack.back().first.back().DefaultAttrLoc;
+                          : getTopOfStack().DefaultAttrLoc;
   }
   DefaultMapAttributes getDefaultDMA() const {
     return isStackEmpty() ? DMA_unspecified
-                          : Stack.back().first.back().DefaultMapAttr;
+                          : getTopOfStack().DefaultMapAttr;
   }
   DefaultMapAttributes getDefaultDMAAtLevel(unsigned Level) const {
-    return Stack.back().first[Level].DefaultMapAttr;
+    return getStackElemAtLevel(Level).DefaultMapAttr;
   }
   SourceLocation getDefaultDMALocation() const {
     return isStackEmpty() ? SourceLocation()
-                          : Stack.back().first.back().DefaultMapAttrLoc;
+                          : getTopOfStack().DefaultMapAttrLoc;
   }
 
   /// Checks if the specified variable is a threadprivate.
@@ -514,82 +620,84 @@ public:
   /// Marks current region as ordered (it has an 'ordered' clause).
   void setOrderedRegion(bool IsOrdered, const Expr *Param,
                         OMPOrderedClause *Clause) {
-    assert(!isStackEmpty());
     if (IsOrdered)
-      Stack.back().first.back().OrderedRegion.emplace(Param, Clause);
+      getTopOfStack().OrderedRegion.emplace(Param, Clause);
     else
-      Stack.back().first.back().OrderedRegion.reset();
+      getTopOfStack().OrderedRegion.reset();
   }
   /// Returns true, if region is ordered (has associated 'ordered' clause),
   /// false - otherwise.
   bool isOrderedRegion() const {
-    if (isStackEmpty())
-      return false;
-    return Stack.back().first.rbegin()->OrderedRegion.hasValue();
+    if (const SharingMapTy *Top = getTopOfStackOrNull())
+      return Top->OrderedRegion.hasValue();
+    return false;
   }
   /// Returns optional parameter for the ordered region.
   std::pair<const Expr *, OMPOrderedClause *> getOrderedRegionParam() const {
-    if (isStackEmpty() ||
-        !Stack.back().first.rbegin()->OrderedRegion.hasValue())
-      return std::make_pair(nullptr, nullptr);
-    return Stack.back().first.rbegin()->OrderedRegion.getValue();
+    if (const SharingMapTy *Top = getTopOfStackOrNull())
+      if (Top->OrderedRegion.hasValue())
+        return Top->OrderedRegion.getValue();
+    return std::make_pair(nullptr, nullptr);
   }
   /// Returns true, if parent region is ordered (has associated
   /// 'ordered' clause), false - otherwise.
   bool isParentOrderedRegion() const {
-    if (isStackEmpty() || Stack.back().first.size() == 1)
-      return false;
-    return std::next(Stack.back().first.rbegin())->OrderedRegion.hasValue();
+    if (const SharingMapTy *Parent = getSecondOnStackOrNull())
+      return Parent->OrderedRegion.hasValue();
+    return false;
   }
   /// Returns optional parameter for the ordered region.
   std::pair<const Expr *, OMPOrderedClause *>
   getParentOrderedRegionParam() const {
-    if (isStackEmpty() || Stack.back().first.size() == 1 ||
-        !std::next(Stack.back().first.rbegin())->OrderedRegion.hasValue())
-      return std::make_pair(nullptr, nullptr);
-    return std::next(Stack.back().first.rbegin())->OrderedRegion.getValue();
+    if (const SharingMapTy *Parent = getSecondOnStackOrNull())
+      if (Parent->OrderedRegion.hasValue())
+        return Parent->OrderedRegion.getValue();
+    return std::make_pair(nullptr, nullptr);
   }
   /// Marks current region as nowait (it has a 'nowait' clause).
   void setNowaitRegion(bool IsNowait = true) {
-    assert(!isStackEmpty());
-    Stack.back().first.back().NowaitRegion = IsNowait;
+    getTopOfStack().NowaitRegion = IsNowait;
   }
   /// Returns true, if parent region is nowait (has associated
   /// 'nowait' clause), false - otherwise.
   bool isParentNowaitRegion() const {
-    if (isStackEmpty() || Stack.back().first.size() == 1)
-      return false;
-    return std::next(Stack.back().first.rbegin())->NowaitRegion;
+    if (const SharingMapTy *Parent = getSecondOnStackOrNull())
+      return Parent->NowaitRegion;
+    return false;
   }
   /// Marks parent region as cancel region.
   void setParentCancelRegion(bool Cancel = true) {
-    if (!isStackEmpty() && Stack.back().first.size() > 1) {
-      auto &StackElemRef = *std::next(Stack.back().first.rbegin());
-      StackElemRef.CancelRegion |= StackElemRef.CancelRegion || Cancel;
-    }
+    if (SharingMapTy *Parent = getSecondOnStackOrNull())
+      Parent->CancelRegion |= Cancel;
   }
   /// Return true if current region has inner cancel construct.
   bool isCancelRegion() const {
-    return isStackEmpty() ? false : Stack.back().first.back().CancelRegion;
+    const SharingMapTy *Top = getTopOfStackOrNull();
+    return Top ? Top->CancelRegion : false;
   }
 
   /// Set collapse value for the region.
   void setAssociatedLoops(unsigned Val) {
-    assert(!isStackEmpty());
-    Stack.back().first.back().AssociatedLoops = Val;
+    getTopOfStack().AssociatedLoops = Val;
+    if (Val > 1)
+      getTopOfStack().HasMutipleLoops = true;
   }
   /// Return collapse value for region.
   unsigned getAssociatedLoops() const {
-    return isStackEmpty() ? 0 : Stack.back().first.back().AssociatedLoops;
+    const SharingMapTy *Top = getTopOfStackOrNull();
+    return Top ? Top->AssociatedLoops : 0;
+  }
+  /// Returns true if the construct is associated with multiple loops.
+  bool hasMutipleLoops() const {
+    const SharingMapTy *Top = getTopOfStackOrNull();
+    return Top ? Top->HasMutipleLoops : false;
   }
 
   /// Marks current target region as one with closely nested teams
   /// region.
   void setParentTeamsRegionLoc(SourceLocation TeamsRegionLoc) {
-    if (!isStackEmpty() && Stack.back().first.size() > 1) {
-      std::next(Stack.back().first.rbegin())->InnerTeamsRegionLoc =
-          TeamsRegionLoc;
-    }
+    if (SharingMapTy *Parent = getSecondOnStackOrNull())
+      Parent->InnerTeamsRegionLoc = TeamsRegionLoc;
   }
   /// Returns true, if current region has closely nested teams region.
   bool hasInnerTeamsRegion() const {
@@ -597,16 +705,17 @@ public:
   }
   /// Returns location of the nested teams region (if any).
   SourceLocation getInnerTeamsRegionLoc() const {
-    return isStackEmpty() ? SourceLocation()
-                          : Stack.back().first.back().InnerTeamsRegionLoc;
+    const SharingMapTy *Top = getTopOfStackOrNull();
+    return Top ? Top->InnerTeamsRegionLoc : SourceLocation();
   }
 
   Scope *getCurScope() const {
-    return isStackEmpty() ? nullptr : Stack.back().first.back().CurScope;
+    const SharingMapTy *Top = getTopOfStackOrNull();
+    return Top ? Top->CurScope : nullptr;
   }
   SourceLocation getConstructLoc() const {
-    return isStackEmpty() ? SourceLocation()
-                          : Stack.back().first.back().ConstructLoc;
+    const SharingMapTy *Top = getTopOfStackOrNull();
+    return Top ? Top->ConstructLoc : SourceLocation();
   }
 
   /// Do the check specified in \a Check to all component lists and return true
@@ -619,8 +728,8 @@ public:
           Check) const {
     if (isStackEmpty())
       return false;
-    auto SI = Stack.back().first.rbegin();
-    auto SE = Stack.back().first.rend();
+    auto SI = begin();
+    auto SE = end();
 
     if (SI == SE)
       return false;
@@ -649,17 +758,12 @@ public:
           bool(OMPClauseMappableExprCommon::MappableExprComponentListRef,
                OpenMPClauseKind)>
           Check) const {
-    if (isStackEmpty())
+    if (getStackSize() <= Level)
       return false;
 
-    auto StartI = Stack.back().first.begin();
-    auto EndI = Stack.back().first.end();
-    if (std::distance(StartI, EndI) <= (int)Level)
-      return false;
-    std::advance(StartI, Level);
-
-    auto MI = StartI->MappedExprComponents.find(VD);
-    if (MI != StartI->MappedExprComponents.end())
+    const SharingMapTy &StackElem = getStackElemAtLevel(Level);
+    auto MI = StackElem.MappedExprComponents.find(VD);
+    if (MI != StackElem.MappedExprComponents.end())
       for (OMPClauseMappableExprCommon::MappableExprComponentListRef L :
            MI->second.Components)
         if (Check(L, MI->second.Kind))
@@ -673,10 +777,7 @@ public:
       const ValueDecl *VD,
       OMPClauseMappableExprCommon::MappableExprComponentListRef Components,
       OpenMPClauseKind WhereFoundClauseKind) {
-    assert(!isStackEmpty() &&
-           "Not expecting to retrieve components from a empty stack!");
-    MappedExprComponentTy &MEC =
-        Stack.back().first.back().MappedExprComponents[VD];
+    MappedExprComponentTy &MEC = getTopOfStack().MappedExprComponents[VD];
     // Create new entry and append the new components there.
     MEC.Components.resize(MEC.Components.size() + 1);
     MEC.Components.back().append(Components.begin(), Components.end());
@@ -685,19 +786,17 @@ public:
 
   unsigned getNestingLevel() const {
     assert(!isStackEmpty());
-    return Stack.back().first.size() - 1;
+    return getStackSize() - 1;
   }
   void addDoacrossDependClause(OMPDependClause *C,
                                const OperatorOffsetTy &OpsOffs) {
-    assert(!isStackEmpty() && Stack.back().first.size() > 1);
-    SharingMapTy &StackElem = *std::next(Stack.back().first.rbegin());
-    assert(isOpenMPWorksharingDirective(StackElem.Directive));
-    StackElem.DoacrossDepends.try_emplace(C, OpsOffs);
+    SharingMapTy *Parent = getSecondOnStackOrNull();
+    assert(Parent && isOpenMPWorksharingDirective(Parent->Directive));
+    Parent->DoacrossDepends.try_emplace(C, OpsOffs);
   }
   llvm::iterator_range<DoacrossDependMapTy::const_iterator>
   getDoacrossDependClauses() const {
-    assert(!isStackEmpty());
-    const SharingMapTy &StackElem = Stack.back().first.back();
+    const SharingMapTy &StackElem = getTopOfStack();
     if (isOpenMPWorksharingDirective(StackElem.Directive)) {
       const DoacrossDependMapTy &Ref = StackElem.DoacrossDepends;
       return llvm::make_range(Ref.begin(), Ref.end());
@@ -708,13 +807,13 @@ public:
 
   // Store types of classes which have been explicitly mapped
   void addMappedClassesQualTypes(QualType QT) {
-    SharingMapTy &StackElem = Stack.back().first.back();
+    SharingMapTy &StackElem = getTopOfStack();
     StackElem.MappedClassesQualTypes.insert(QT);
   }
 
   // Return set of mapped classes types
   bool isClassPreviouslyMapped(QualType QT) const {
-    const SharingMapTy &StackElem = Stack.back().first.back();
+    const SharingMapTy &StackElem = getTopOfStack();
     return StackElem.MappedClassesQualTypes.count(QT) != 0;
   }
 
@@ -723,16 +822,11 @@ public:
     assert(*OMPDeclareTargetDeclAttr::isDeclareTargetDeclaration(
                E->getDecl()) == OMPDeclareTargetDeclAttr::MT_Link &&
            "Expected declare target link global.");
-    if (isStackEmpty())
-      return;
-    auto It = Stack.back().first.rbegin();
-    while (It != Stack.back().first.rend() &&
-           !isOpenMPTargetExecutionDirective(It->Directive))
-      ++It;
-    if (It != Stack.back().first.rend()) {
-      assert(isOpenMPTargetExecutionDirective(It->Directive) &&
-             "Expected target executable directive.");
-      It->DeclareTargetLinkVarDecls.push_back(E);
+    for (auto &Elem : *this) {
+      if (isOpenMPTargetExecutionDirective(Elem.Directive)) {
+        Elem.DeclareTargetLinkVarDecls.push_back(E);
+        return;
+      }
     }
   }
 
@@ -741,7 +835,7 @@ public:
   ArrayRef<DeclRefExpr *> getLinkGlobals() const {
     assert(isOpenMPTargetExecutionDirective(getCurrentDirective()) &&
            "Expected target executable directive.");
-    return Stack.back().first.back().DeclareTargetLinkVarDecls;
+    return getTopOfStack().DeclareTargetLinkVarDecls;
   }
 };
 
@@ -797,13 +891,13 @@ static ValueDecl *getCanonicalDecl(ValueDecl *D) {
       getCanonicalDecl(const_cast<const ValueDecl *>(D)));
 }
 
-DSAStackTy::DSAVarData DSAStackTy::getDSA(iterator &Iter,
+DSAStackTy::DSAVarData DSAStackTy::getDSA(const_iterator &Iter,
                                           ValueDecl *D) const {
   D = getCanonicalDecl(D);
   auto *VD = dyn_cast<VarDecl>(D);
   const auto *FD = dyn_cast<FieldDecl>(D);
   DSAVarData DVar;
-  if (isStackEmpty() || Iter == Stack.back().first.rend()) {
+  if (Iter == end()) {
     // OpenMP [2.9.1.1, Data-sharing Attribute Rules for Variables Referenced
     // in a region but not in construct]
     //  File-scope or namespace-scope variables referenced in called routines
@@ -878,7 +972,7 @@ DSAStackTy::DSAVarData DSAStackTy::getDSA(iterator &Iter,
     //  bound to the current team is shared.
     if (isOpenMPTaskingDirective(DVar.DKind)) {
       DSAVarData DVarTemp;
-      iterator I = Iter, E = Stack.back().first.rend();
+      const_iterator I = Iter, E = end();
       do {
         ++I;
         // OpenMP [2.9.1.1, Data-sharing Attribute Rules for Variables
@@ -910,7 +1004,7 @@ const Expr *DSAStackTy::addUniqueAligned(const ValueDecl *D,
                                          const Expr *NewDE) {
   assert(!isStackEmpty() && "Data sharing attributes stack is empty");
   D = getCanonicalDecl(D);
-  SharingMapTy &StackElem = Stack.back().first.back();
+  SharingMapTy &StackElem = getTopOfStack();
   auto It = StackElem.AlignedMap.find(D);
   if (It == StackElem.AlignedMap.end()) {
     assert(NewDE && "Unexpected nullptr expr to be added into aligned map");
@@ -924,7 +1018,7 @@ const Expr *DSAStackTy::addUniqueAligned(const ValueDecl *D,
 void DSAStackTy::addLoopControlVariable(const ValueDecl *D, VarDecl *Capture) {
   assert(!isStackEmpty() && "Data-sharing attributes stack is empty");
   D = getCanonicalDecl(D);
-  SharingMapTy &StackElem = Stack.back().first.back();
+  SharingMapTy &StackElem = getTopOfStack();
   StackElem.LCVMap.try_emplace(
       D, LCDeclInfo(StackElem.LCVMap.size() + 1, Capture));
 }
@@ -933,7 +1027,7 @@ const DSAStackTy::LCDeclInfo
 DSAStackTy::isLoopControlVariable(const ValueDecl *D) const {
   assert(!isStackEmpty() && "Data-sharing attributes stack is empty");
   D = getCanonicalDecl(D);
-  const SharingMapTy &StackElem = Stack.back().first.back();
+  const SharingMapTy &StackElem = getTopOfStack();
   auto It = StackElem.LCVMap.find(D);
   if (It != StackElem.LCVMap.end())
     return It->second;
@@ -942,23 +1036,21 @@ DSAStackTy::isLoopControlVariable(const ValueDecl *D) const {
 
 const DSAStackTy::LCDeclInfo
 DSAStackTy::isParentLoopControlVariable(const ValueDecl *D) const {
-  assert(!isStackEmpty() && Stack.back().first.size() > 1 &&
-         "Data-sharing attributes stack is empty");
+  const SharingMapTy *Parent = getSecondOnStackOrNull();
+  assert(Parent && "Data-sharing attributes stack is empty");
   D = getCanonicalDecl(D);
-  const SharingMapTy &StackElem = *std::next(Stack.back().first.rbegin());
-  auto It = StackElem.LCVMap.find(D);
-  if (It != StackElem.LCVMap.end())
+  auto It = Parent->LCVMap.find(D);
+  if (It != Parent->LCVMap.end())
     return It->second;
   return {0, nullptr};
 }
 
 const ValueDecl *DSAStackTy::getParentLoopControlVariable(unsigned I) const {
-  assert(!isStackEmpty() && Stack.back().first.size() > 1 &&
-         "Data-sharing attributes stack is empty");
-  const SharingMapTy &StackElem = *std::next(Stack.back().first.rbegin());
-  if (StackElem.LCVMap.size() < I)
+  const SharingMapTy *Parent = getSecondOnStackOrNull();
+  assert(Parent && "Data-sharing attributes stack is empty");
+  if (Parent->LCVMap.size() < I)
     return nullptr;
-  for (const auto &Pair : StackElem.LCVMap)
+  for (const auto &Pair : Parent->LCVMap)
     if (Pair.second.first == I)
       return Pair.first;
   return nullptr;
@@ -973,8 +1065,7 @@ void DSAStackTy::addDSA(const ValueDecl *D, const Expr *E, OpenMPClauseKind A,
     Data.RefExpr.setPointer(E);
     Data.PrivateCopy = nullptr;
   } else {
-    assert(!isStackEmpty() && "Data-sharing attributes stack is empty");
-    DSAInfo &Data = Stack.back().first.back().SharingMap[D];
+    DSAInfo &Data = getTopOfStack().SharingMap[D];
     assert(Data.Attributes == OMPC_unknown || (A == Data.Attributes) ||
            (A == OMPC_firstprivate && Data.Attributes == OMPC_lastprivate) ||
            (A == OMPC_lastprivate && Data.Attributes == OMPC_firstprivate) ||
@@ -989,8 +1080,7 @@ void DSAStackTy::addDSA(const ValueDecl *D, const Expr *E, OpenMPClauseKind A,
     Data.RefExpr.setPointerAndInt(E, IsLastprivate);
     Data.PrivateCopy = PrivateCopy;
     if (PrivateCopy) {
-      DSAInfo &Data =
-          Stack.back().first.back().SharingMap[PrivateCopy->getDecl()];
+      DSAInfo &Data = getTopOfStack().SharingMap[PrivateCopy->getDecl()];
       Data.Attributes = A;
       Data.RefExpr.setPointerAndInt(PrivateCopy, IsLastprivate);
       Data.PrivateCopy = nullptr;
@@ -1035,16 +1125,16 @@ void DSAStackTy::addTaskgroupReductionData(const ValueDecl *D, SourceRange SR,
   D = getCanonicalDecl(D);
   assert(!isStackEmpty() && "Data-sharing attributes stack is empty");
   assert(
-      Stack.back().first.back().SharingMap[D].Attributes == OMPC_reduction &&
+      getTopOfStack().SharingMap[D].Attributes == OMPC_reduction &&
       "Additional reduction info may be specified only for reduction items.");
-  ReductionData &ReductionData = Stack.back().first.back().ReductionMap[D];
+  ReductionData &ReductionData = getTopOfStack().ReductionMap[D];
   assert(ReductionData.ReductionRange.isInvalid() &&
-         Stack.back().first.back().Directive == OMPD_taskgroup &&
+         getTopOfStack().Directive == OMPD_taskgroup &&
          "Additional reduction info may be specified only once for reduction "
          "items.");
   ReductionData.set(BOK, SR);
   Expr *&TaskgroupReductionRef =
-      Stack.back().first.back().TaskgroupReductionRef;
+      getTopOfStack().TaskgroupReductionRef;
   if (!TaskgroupReductionRef) {
     VarDecl *VD = buildVarDecl(SemaRef, SR.getBegin(),
                                SemaRef.Context.VoidPtrTy, ".task_red.");
@@ -1058,16 +1148,16 @@ void DSAStackTy::addTaskgroupReductionData(const ValueDecl *D, SourceRange SR,
   D = getCanonicalDecl(D);
   assert(!isStackEmpty() && "Data-sharing attributes stack is empty");
   assert(
-      Stack.back().first.back().SharingMap[D].Attributes == OMPC_reduction &&
+      getTopOfStack().SharingMap[D].Attributes == OMPC_reduction &&
       "Additional reduction info may be specified only for reduction items.");
-  ReductionData &ReductionData = Stack.back().first.back().ReductionMap[D];
+  ReductionData &ReductionData = getTopOfStack().ReductionMap[D];
   assert(ReductionData.ReductionRange.isInvalid() &&
-         Stack.back().first.back().Directive == OMPD_taskgroup &&
+         getTopOfStack().Directive == OMPD_taskgroup &&
          "Additional reduction info may be specified only once for reduction "
          "items.");
   ReductionData.set(ReductionRef, SR);
   Expr *&TaskgroupReductionRef =
-      Stack.back().first.back().TaskgroupReductionRef;
+      getTopOfStack().TaskgroupReductionRef;
   if (!TaskgroupReductionRef) {
     VarDecl *VD = buildVarDecl(SemaRef, SR.getBegin(),
                                SemaRef.Context.VoidPtrTy, ".task_red.");
@@ -1081,11 +1171,7 @@ const DSAStackTy::DSAVarData DSAStackTy::getTopMostTaskgroupReductionData(
     Expr *&TaskgroupDescriptor) const {
   D = getCanonicalDecl(D);
   assert(!isStackEmpty() && "Data-sharing attributes stack is empty.");
-  if (Stack.back().first.empty())
-      return DSAVarData();
-  for (iterator I = std::next(Stack.back().first.rbegin(), 1),
-                E = Stack.back().first.rend();
-       I != E; std::advance(I, 1)) {
+  for (const_iterator I = begin() + 1, E = end(); I != E; ++I) {
     const DSAInfo &Data = I->SharingMap.lookup(D);
     if (Data.Attributes != OMPC_reduction || I->Directive != OMPD_taskgroup)
       continue;
@@ -1110,11 +1196,7 @@ const DSAStackTy::DSAVarData DSAStackTy::getTopMostTaskgroupReductionData(
     Expr *&TaskgroupDescriptor) const {
   D = getCanonicalDecl(D);
   assert(!isStackEmpty() && "Data-sharing attributes stack is empty.");
-  if (Stack.back().first.empty())
-      return DSAVarData();
-  for (iterator I = std::next(Stack.back().first.rbegin(), 1),
-                E = Stack.back().first.rend();
-       I != E; std::advance(I, 1)) {
+  for (const_iterator I = begin() + 1, E = end(); I != E; ++I) {
     const DSAInfo &Data = I->SharingMap.lookup(D);
     if (Data.Attributes != OMPC_reduction || I->Directive != OMPD_taskgroup)
       continue;
@@ -1134,21 +1216,17 @@ const DSAStackTy::DSAVarData DSAStackTy::getTopMostTaskgroupReductionData(
   return DSAVarData();
 }
 
-bool DSAStackTy::isOpenMPLocal(VarDecl *D, iterator Iter) const {
+bool DSAStackTy::isOpenMPLocal(VarDecl *D, const_iterator I) const {
   D = D->getCanonicalDecl();
-  if (!isStackEmpty()) {
-    iterator I = Iter, E = Stack.back().first.rend();
-    Scope *TopScope = nullptr;
-    while (I != E && !isImplicitOrExplicitTaskingRegion(I->Directive) &&
-           !isOpenMPTargetExecutionDirective(I->Directive))
-      ++I;
-    if (I == E)
-      return false;
-    TopScope = I->CurScope ? I->CurScope->getParent() : nullptr;
-    Scope *CurScope = getCurScope();
-    while (CurScope && CurScope != TopScope && !CurScope->isDeclScope(D))
-      CurScope = CurScope->getParent();
-    return CurScope != TopScope;
+  for (const_iterator E = end(); I != E; ++I) {
+    if (isImplicitOrExplicitTaskingRegion(I->Directive) ||
+        isOpenMPTargetExecutionDirective(I->Directive)) {
+      Scope *TopScope = I->CurScope ? I->CurScope->getParent() : nullptr;
+      Scope *CurScope = getCurScope();
+      while (CurScope && CurScope != TopScope && !CurScope->isDeclScope(D))
+        CurScope = CurScope->getParent();
+      return CurScope != TopScope;
+    }
   }
   return false;
 }
@@ -1236,15 +1314,14 @@ const DSAStackTy::DSAVarData DSAStackTy::getTopDSA(ValueDecl *D,
   if (SemaRef.getLangOpts().OpenMPCUDAMode && VD &&
       VD->isLocalVarDeclOrParm() && !isStackEmpty() &&
       !isLoopControlVariable(D).first) {
-    iterator IterTarget =
-        std::find_if(Stack.back().first.rbegin(), Stack.back().first.rend(),
-                     [](const SharingMapTy &Data) {
-                       return isOpenMPTargetExecutionDirective(Data.Directive);
-                     });
-    if (IterTarget != Stack.back().first.rend()) {
-      iterator ParentIterTarget = std::next(IterTarget, 1);
-      for (iterator Iter = Stack.back().first.rbegin();
-           Iter != ParentIterTarget; std::advance(Iter, 1)) {
+    const_iterator IterTarget =
+        std::find_if(begin(), end(), [](const SharingMapTy &Data) {
+          return isOpenMPTargetExecutionDirective(Data.Directive);
+        });
+    if (IterTarget != end()) {
+      const_iterator ParentIterTarget = IterTarget + 1;
+      for (const_iterator Iter = begin();
+           Iter != ParentIterTarget; ++Iter) {
         if (isOpenMPLocal(VD, Iter)) {
           DVar.RefExpr =
               buildDeclRefExpr(SemaRef, VD, D->getType().getNonReferenceType(),
@@ -1253,7 +1330,7 @@ const DSAStackTy::DSAVarData DSAStackTy::getTopDSA(ValueDecl *D,
           return DVar;
         }
       }
-      if (!isClauseParsingMode() || IterTarget != Stack.back().first.rbegin()) {
+      if (!isClauseParsingMode() || IterTarget != begin()) {
         auto DSAIter = IterTarget->SharingMap.find(D);
         if (DSAIter != IterTarget->SharingMap.end() &&
             isOpenMPPrivate(DSAIter->getSecond().Attributes)) {
@@ -1261,7 +1338,7 @@ const DSAStackTy::DSAVarData DSAStackTy::getTopDSA(ValueDecl *D,
           DVar.CKind = OMPC_threadprivate;
           return DVar;
         }
-        iterator End = Stack.back().first.rend();
+        const_iterator End = end();
         if (!SemaRef.isOpenMPCapturedByRef(
                 D, std::distance(ParentIterTarget, End))) {
           DVar.RefExpr =
@@ -1285,16 +1362,28 @@ const DSAStackTy::DSAVarData DSAStackTy::getTopDSA(ValueDecl *D,
   // in a Construct, C/C++, predetermined, p.7]
   //  Variables with static storage duration that are declared in a scope
   //  inside the construct are shared.
-  auto &&MatchesAlways = [](OpenMPDirectiveKind) { return true; };
   if (VD && VD->isStaticDataMember()) {
-    DSAVarData DVarTemp = hasDSA(D, isOpenMPPrivate, MatchesAlways, FromParent);
-    if (DVarTemp.CKind != OMPC_unknown && DVarTemp.RefExpr)
+    // Check for explicitly specified attributes.
+    const_iterator I = begin();
+    const_iterator EndI = end();
+    if (FromParent && I != EndI)
+      ++I;
+    auto It = I->SharingMap.find(D);
+    if (It != I->SharingMap.end()) {
+      const DSAInfo &Data = It->getSecond();
+      DVar.RefExpr = Data.RefExpr.getPointer();
+      DVar.PrivateCopy = Data.PrivateCopy;
+      DVar.CKind = Data.Attributes;
+      DVar.ImplicitDSALoc = I->DefaultAttrLoc;
+      DVar.DKind = I->Directive;
       return DVar;
+    }
 
     DVar.CKind = OMPC_shared;
     return DVar;
   }
 
+  auto &&MatchesAlways = [](OpenMPDirectiveKind) { return true; };
   // The predetermined shared attribute for const-qualified types having no
   // mutable members was removed after OpenMP 3.1.
   if (SemaRef.LangOpts.OpenMP <= 31) {
@@ -1321,10 +1410,10 @@ const DSAStackTy::DSAVarData DSAStackTy::getTopDSA(ValueDecl *D,
 
   // Explicitly specified attributes and local variables with predetermined
   // attributes.
-  iterator I = Stack.back().first.rbegin();
-  iterator EndI = Stack.back().first.rend();
+  const_iterator I = begin();
+  const_iterator EndI = end();
   if (FromParent && I != EndI)
-    std::advance(I, 1);
+    ++I;
   auto It = I->SharingMap.find(D);
   if (It != I->SharingMap.end()) {
     const DSAInfo &Data = It->getSecond();
@@ -1341,14 +1430,14 @@ const DSAStackTy::DSAVarData DSAStackTy::getTopDSA(ValueDecl *D,
 const DSAStackTy::DSAVarData DSAStackTy::getImplicitDSA(ValueDecl *D,
                                                         bool FromParent) const {
   if (isStackEmpty()) {
-    iterator I;
+    const_iterator I;
     return getDSA(I, D);
   }
   D = getCanonicalDecl(D);
-  iterator StartI = Stack.back().first.rbegin();
-  iterator EndI = Stack.back().first.rend();
+  const_iterator StartI = begin();
+  const_iterator EndI = end();
   if (FromParent && StartI != EndI)
-    std::advance(StartI, 1);
+    ++StartI;
   return getDSA(StartI, D);
 }
 
@@ -1360,14 +1449,15 @@ DSAStackTy::hasDSA(ValueDecl *D,
   if (isStackEmpty())
     return {};
   D = getCanonicalDecl(D);
-  iterator I = Stack.back().first.rbegin();
-  iterator EndI = Stack.back().first.rend();
+  const_iterator I = begin();
+  const_iterator EndI = end();
   if (FromParent && I != EndI)
-    std::advance(I, 1);
-  for (; I != EndI; std::advance(I, 1)) {
-    if (!DPred(I->Directive) && !isImplicitOrExplicitTaskingRegion(I->Directive))
+    ++I;
+  for (; I != EndI; ++I) {
+    if (!DPred(I->Directive) &&
+        !isImplicitOrExplicitTaskingRegion(I->Directive))
       continue;
-    iterator NewI = I;
+    const_iterator NewI = I;
     DSAVarData DVar = getDSA(NewI, D);
     if (I == NewI && CPred(DVar.CKind))
       return DVar;
@@ -1382,13 +1472,13 @@ const DSAStackTy::DSAVarData DSAStackTy::hasInnermostDSA(
   if (isStackEmpty())
     return {};
   D = getCanonicalDecl(D);
-  iterator StartI = Stack.back().first.rbegin();
-  iterator EndI = Stack.back().first.rend();
+  const_iterator StartI = begin();
+  const_iterator EndI = end();
   if (FromParent && StartI != EndI)
-    std::advance(StartI, 1);
+    ++StartI;
   if (StartI == EndI || !DPred(StartI->Directive))
     return {};
-  iterator NewI = StartI;
+  const_iterator NewI = StartI;
   DSAVarData DVar = getDSA(NewI, D);
   return (NewI == StartI && CPred(DVar.CKind)) ? DVar : DSAVarData();
 }
@@ -1396,23 +1486,19 @@ const DSAStackTy::DSAVarData DSAStackTy::hasInnermostDSA(
 bool DSAStackTy::hasExplicitDSA(
     const ValueDecl *D, const llvm::function_ref<bool(OpenMPClauseKind)> CPred,
     unsigned Level, bool NotLastprivate) const {
-  if (isStackEmpty())
+  if (getStackSize() <= Level)
     return false;
   D = getCanonicalDecl(D);
-  auto StartI = Stack.back().first.begin();
-  auto EndI = Stack.back().first.end();
-  if (std::distance(StartI, EndI) <= (int)Level)
-    return false;
-  std::advance(StartI, Level);
-  auto I = StartI->SharingMap.find(D);
-  if ((I != StartI->SharingMap.end()) &&
-         I->getSecond().RefExpr.getPointer() &&
-         CPred(I->getSecond().Attributes) &&
-         (!NotLastprivate || !I->getSecond().RefExpr.getInt()))
+  const SharingMapTy &StackElem = getStackElemAtLevel(Level);
+  auto I = StackElem.SharingMap.find(D);
+  if (I != StackElem.SharingMap.end() &&
+      I->getSecond().RefExpr.getPointer() &&
+      CPred(I->getSecond().Attributes) &&
+      (!NotLastprivate || !I->getSecond().RefExpr.getInt()))
     return true;
   // Check predetermined rules for the loop control variables.
-  auto LI = StartI->LCVMap.find(D);
-  if (LI != StartI->LCVMap.end())
+  auto LI = StackElem.LCVMap.find(D);
+  if (LI != StackElem.LCVMap.end())
     return CPred(OMPC_private);
   return false;
 }
@@ -1420,14 +1506,10 @@ bool DSAStackTy::hasExplicitDSA(
 bool DSAStackTy::hasExplicitDirective(
     const llvm::function_ref<bool(OpenMPDirectiveKind)> DPred,
     unsigned Level) const {
-  if (isStackEmpty())
+  if (getStackSize() <= Level)
     return false;
-  auto StartI = Stack.back().first.begin();
-  auto EndI = Stack.back().first.end();
-  if (std::distance(StartI, EndI) <= (int)Level)
-    return false;
-  std::advance(StartI, Level);
-  return DPred(StartI->Directive);
+  const SharingMapTy &StackElem = getStackElemAtLevel(Level);
+  return DPred(StackElem.Directive);
 }
 
 bool DSAStackTy::hasDirective(
@@ -1436,13 +1518,9 @@ bool DSAStackTy::hasDirective(
         DPred,
     bool FromParent) const {
   // We look only in the enclosing region.
-  if (isStackEmpty())
-    return false;
-  auto StartI = std::next(Stack.back().first.rbegin());
-  auto EndI = Stack.back().first.rend();
-  if (FromParent && StartI != EndI)
-    StartI = std::next(StartI);
-  for (auto I = StartI, EE = EndI; I != EE; ++I) {
+  size_t Skip = FromParent ? 2 : 1;
+  for (const_iterator I = begin() + std::min(Skip, getStackSize()), E = end();
+       I != E; ++I) {
     if (DPred(I->Directive, I->DirectiveName, I->ConstructLoc))
       return true;
   }
@@ -1518,11 +1596,14 @@ void Sema::checkOpenMPDeviceExpr(const Expr *E) {
          "OpenMP device compilation mode is expected.");
   QualType Ty = E->getType();
   if ((Ty->isFloat16Type() && !Context.getTargetInfo().hasFloat16Type()) ||
-      (Ty->isFloat128Type() && !Context.getTargetInfo().hasFloat128Type()) ||
+      ((Ty->isFloat128Type() ||
+        (Ty->isRealFloatingType() && Context.getTypeSize(Ty) == 128)) &&
+       !Context.getTargetInfo().hasFloat128Type()) ||
       (Ty->isIntegerType() && Context.getTypeSize(Ty) == 128 &&
        !Context.getTargetInfo().hasInt128Type()))
-    targetDiag(E->getExprLoc(), diag::err_type_unsupported)
-        << Ty << E->getSourceRange();
+    targetDiag(E->getExprLoc(), diag::err_omp_unsupported_type)
+        << static_cast<unsigned>(Context.getTypeSize(Ty)) << Ty
+        << Context.getTargetInfo().getTriple().str() << E->getSourceRange();
 }
 
 bool Sema::isOpenMPCapturedByRef(const ValueDecl *D, unsigned Level) const {
@@ -1654,12 +1735,10 @@ bool Sema::isOpenMPCapturedByRef(const ValueDecl *D, unsigned Level) const {
 
   if (IsByRef && Ty.getNonReferenceType()->isScalarType()) {
     IsByRef =
-        ((DSAStack->isForceCaptureByReferenceInTargetExecutable() &&
-          !Ty->isAnyPointerType()) ||
-         !DSAStack->hasExplicitDSA(
-             D,
-             [](OpenMPClauseKind K) -> bool { return K == OMPC_firstprivate; },
-             Level, /*NotLastprivate=*/true)) &&
+        !DSAStack->hasExplicitDSA(
+            D,
+            [](OpenMPClauseKind K) -> bool { return K == OMPC_firstprivate; },
+            Level, /*NotLastprivate=*/true) &&
         // If the variable is artificial and must be captured by value - try to
         // capture by value.
         !(isa<OMPCapturedExprDecl>(D) && !D->hasAttr<OMPCaptureNoInitAttr>() &&
@@ -1701,13 +1780,20 @@ VarDecl *Sema::isOpenMPCapturedDecl(ValueDecl *D, bool CheckScopeInfo,
   assert(LangOpts.OpenMP && "OpenMP is not allowed");
   D = getCanonicalDecl(D);
 
+  // If we want to determine whether the variable should be captured from the
+  // perspective of the current capturing scope, and we've already left all the
+  // capturing scopes of the top directive on the stack, check from the
+  // perspective of its parent directive (if any) instead.
+  DSAStackTy::ParentDirectiveScope InParentDirectiveRAII(
+      *DSAStack, CheckScopeInfo && DSAStack->isBodyComplete());
+
   // If we are attempting to capture a global variable in a directive with
   // 'target' we return true so that this global is also mapped to the device.
   //
   auto *VD = dyn_cast<VarDecl>(D);
-  if (VD && !VD->hasLocalStorage()) {
-    if (isInOpenMPDeclareTargetContext() &&
-        (getCurCapturedRegion() || getCurBlock() || getCurLambda())) {
+  if (VD && !VD->hasLocalStorage() &&
+      (getCurCapturedRegion() || getCurBlock() || getCurLambda())) {
+    if (isInOpenMPDeclareTargetContext()) {
       // Try to mark variable as declare target if it is used in capturing
       // regions.
       if (!OMPDeclareTargetDeclAttr::isDeclareTargetDeclaration(VD))
@@ -1720,49 +1806,6 @@ VarDecl *Sema::isOpenMPCapturedDecl(ValueDecl *D, bool CheckScopeInfo,
       if (OMPDeclareTargetDeclAttr::isDeclareTargetDeclaration(VD))
         return nullptr;
       return VD;
-    }
-  }
-  // Capture variables captured by reference in lambdas for target-based
-  // directives.
-  if (VD && !DSAStack->isClauseParsingMode()) {
-    if (const auto *RD = VD->getType()
-                             .getCanonicalType()
-                             .getNonReferenceType()
-                             ->getAsCXXRecordDecl()) {
-      bool SavedForceCaptureByReferenceInTargetExecutable =
-          DSAStack->isForceCaptureByReferenceInTargetExecutable();
-      DSAStack->setForceCaptureByReferenceInTargetExecutable(/*V=*/true);
-      if (RD->isLambda()) {
-        llvm::DenseMap<const VarDecl *, FieldDecl *> Captures;
-        FieldDecl *ThisCapture;
-        RD->getCaptureFields(Captures, ThisCapture);
-        for (const LambdaCapture &LC : RD->captures()) {
-          if (LC.getCaptureKind() == LCK_ByRef) {
-            VarDecl *VD = LC.getCapturedVar();
-            DeclContext *VDC = VD->getDeclContext();
-            if (!VDC->Encloses(CurContext))
-              continue;
-            DSAStackTy::DSAVarData DVarPrivate =
-                DSAStack->getTopDSA(VD, /*FromParent=*/false);
-            // Do not capture already captured variables.
-            if (!OMPDeclareTargetDeclAttr::isDeclareTargetDeclaration(VD) &&
-                DVarPrivate.CKind == OMPC_unknown &&
-                !DSAStack->checkMappableExprComponentListsForDecl(
-                    D, /*CurrentRegionOnly=*/true,
-                    [](OMPClauseMappableExprCommon::
-                           MappableExprComponentListRef,
-                       OpenMPClauseKind) { return true; }))
-              MarkVariableReferenced(LC.getLocation(), LC.getCapturedVar());
-          } else if (LC.getCaptureKind() == LCK_This) {
-            QualType ThisTy = getCurrentThisType();
-            if (!ThisTy.isNull() &&
-                Context.typesAreCompatible(ThisTy, ThisCapture->getType()))
-              CheckCXXThisCapture(LC.getLocation());
-          }
-        }
-      }
-      DSAStack->setForceCaptureByReferenceInTargetExecutable(
-          SavedForceCaptureByReferenceInTargetExecutable);
     }
   }
 
@@ -1795,11 +1838,14 @@ VarDecl *Sema::isOpenMPCapturedDecl(ValueDecl *D, bool CheckScopeInfo,
         DSAStack->getTopDSA(D, DSAStack->isClauseParsingMode());
     if (DVarPrivate.CKind != OMPC_unknown && isOpenMPPrivate(DVarPrivate.CKind))
       return VD ? VD : cast<VarDecl>(DVarPrivate.PrivateCopy->getDecl());
+    // Threadprivate variables must not be captured.
+    if (isOpenMPThreadPrivate(DVarPrivate.CKind))
+      return nullptr;
+    // The variable is not private or it is the variable in the directive with
+    // default(none) clause and not used in any clause.
     DVarPrivate = DSAStack->hasDSA(D, isOpenMPPrivate,
                                    [](OpenMPDirectiveKind) { return true; },
                                    DSAStack->isClauseParsingMode());
-    // The variable is not private or it is the variable in the directive with
-    // default(none) clause and not used in any clause.
     if (DVarPrivate.CKind != OMPC_unknown ||
         (VD && DSAStack->getDefaultDSA() == DSA_none))
       return VD ? VD : cast<VarDecl>(DVarPrivate.PrivateCopy->getDecl());
@@ -1834,6 +1880,13 @@ bool Sema::isOpenMPPrivateDecl(const ValueDecl *D, unsigned Level) const {
         !DSAStack->hasExplicitDSA(
             D, [](OpenMPClauseKind K) { return K != OMPC_private; }, Level) &&
         !isOpenMPSimdDirective(DSAStack->getCurrentDirective()))
+      return true;
+  }
+  if (const auto *VD = dyn_cast<VarDecl>(D)) {
+    if (DSAStack->isThreadPrivate(const_cast<VarDecl *>(VD)) &&
+        DSAStack->isForceVarCapturing() &&
+        !DSAStack->hasExplicitDSA(
+            D, [](OpenMPClauseKind K) { return K == OMPC_copyin; }, Level))
       return true;
   }
   return DSAStack->hasExplicitDSA(
@@ -2550,24 +2603,7 @@ class DSAAttrChecker final : public StmtVisitor<DSAAttrChecker, void> {
     // Check implicitly captured variables.
     if (!S->hasAssociatedStmt() || !S->getAssociatedStmt())
       return;
-    for (const CapturedStmt::Capture &Cap :
-         S->getInnermostCapturedStmt()->captures()) {
-      if (!Cap.capturesVariable())
-        continue;
-      VarDecl *VD = Cap.getCapturedVar();
-      // Do not try to map the variable if it or its sub-component was mapped
-      // already.
-      if (isOpenMPTargetExecutionDirective(Stack->getCurrentDirective()) &&
-          Stack->checkMappableExprComponentListsForDecl(
-              VD, /*CurrentRegionOnly=*/true,
-              [](OMPClauseMappableExprCommon::MappableExprComponentListRef,
-                 OpenMPClauseKind) { return true; }))
-        continue;
-      DeclRefExpr *DRE = buildDeclRefExpr(
-          SemaRef, VD, VD->getType().getNonLValueExprType(SemaRef.Context),
-          Cap.getLocation(), /*RefersToCapture=*/true);
-      Visit(DRE);
-    }
+    visitSubCaptures(S->getInnermostCapturedStmt());
   }
 
 public:
@@ -2583,7 +2619,10 @@ public:
             Visit(CED->getInit());
             return;
           }
-      }
+      } else if (VD->isImplicit() || isa<OMPCapturedExprDecl>(VD))
+        // Do not analyze internal variables and do not enclose them into
+        // implicit clauses.
+        return;
       VD = VD->getCanonicalDecl();
       // Skip internally declared variables.
       if (VD->hasLocalStorage() && CS && !CS->capturesVariable(VD))
@@ -2598,7 +2637,8 @@ public:
       llvm::Optional<OMPDeclareTargetDeclAttr::MapTypeTy> Res =
           OMPDeclareTargetDeclAttr::isDeclareTargetDeclaration(VD);
       if (VD->hasGlobalStorage() && CS && !CS->capturesVariable(VD) &&
-          (!Res || *Res != OMPDeclareTargetDeclAttr::MT_Link))
+          (Stack->hasRequiresDeclWithClause<OMPUnifiedSharedMemoryClause>() ||
+           !Res || *Res != OMPDeclareTargetDeclAttr::MT_Link))
         return;
 
       SourceLocation ELoc = E->getExprLoc();
@@ -2834,6 +2874,25 @@ public:
     }
   }
 
+  void visitSubCaptures(CapturedStmt *S) {
+    for (const CapturedStmt::Capture &Cap : S->captures()) {
+      if (!Cap.capturesVariable() && !Cap.capturesVariableByCopy())
+        continue;
+      VarDecl *VD = Cap.getCapturedVar();
+      // Do not try to map the variable if it or its sub-component was mapped
+      // already.
+      if (isOpenMPTargetExecutionDirective(Stack->getCurrentDirective()) &&
+          Stack->checkMappableExprComponentListsForDecl(
+              VD, /*CurrentRegionOnly=*/true,
+              [](OMPClauseMappableExprCommon::MappableExprComponentListRef,
+                 OpenMPClauseKind) { return true; }))
+        continue;
+      DeclRefExpr *DRE = buildDeclRefExpr(
+          SemaRef, VD, VD->getType().getNonLValueExprType(SemaRef.Context),
+          Cap.getLocation(), /*RefersToCapture=*/true);
+      Visit(DRE);
+    }
+  }
   bool isErrorFound() const { return ErrorFound; }
   ArrayRef<Expr *> getImplicitFirstprivate() const {
     return ImplicitFirstprivate;
@@ -3293,6 +3352,46 @@ public:
 };
 } // namespace
 
+void Sema::tryCaptureOpenMPLambdas(ValueDecl *V) {
+  // Capture variables captured by reference in lambdas for target-based
+  // directives.
+  if (!CurContext->isDependentContext() &&
+      (isOpenMPTargetExecutionDirective(DSAStack->getCurrentDirective()) ||
+       isOpenMPTargetDataManagementDirective(
+           DSAStack->getCurrentDirective()))) {
+    QualType Type = V->getType();
+    if (const auto *RD = Type.getCanonicalType()
+                             .getNonReferenceType()
+                             ->getAsCXXRecordDecl()) {
+      bool SavedForceCaptureByReferenceInTargetExecutable =
+          DSAStack->isForceCaptureByReferenceInTargetExecutable();
+      DSAStack->setForceCaptureByReferenceInTargetExecutable(
+          /*V=*/true);
+      if (RD->isLambda()) {
+        llvm::DenseMap<const VarDecl *, FieldDecl *> Captures;
+        FieldDecl *ThisCapture;
+        RD->getCaptureFields(Captures, ThisCapture);
+        for (const LambdaCapture &LC : RD->captures()) {
+          if (LC.getCaptureKind() == LCK_ByRef) {
+            VarDecl *VD = LC.getCapturedVar();
+            DeclContext *VDC = VD->getDeclContext();
+            if (!VDC->Encloses(CurContext))
+              continue;
+            MarkVariableReferenced(LC.getLocation(), VD);
+          } else if (LC.getCaptureKind() == LCK_This) {
+            QualType ThisTy = getCurrentThisType();
+            if (!ThisTy.isNull() &&
+                Context.typesAreCompatible(ThisTy, ThisCapture->getType()))
+              CheckCXXThisCapture(LC.getLocation());
+          }
+        }
+      }
+      DSAStack->setForceCaptureByReferenceInTargetExecutable(
+          SavedForceCaptureByReferenceInTargetExecutable);
+    }
+  }
+}
+
 StmtResult Sema::ActOnOpenMPRegionEnd(StmtResult S,
                                       ArrayRef<OMPClause *> Clauses) {
   bool ErrorFound = false;
@@ -3382,6 +3481,7 @@ StmtResult Sema::ActOnOpenMPRegionEnd(StmtResult S,
     return StmtError();
   }
   StmtResult SR = S;
+  unsigned CompletedRegions = 0;
   for (OpenMPDirectiveKind ThisCaptureRegion : llvm::reverse(CaptureRegions)) {
     // Mark all variables in private list clauses as used in inner region.
     // Required for proper codegen of combined directives.
@@ -3403,6 +3503,8 @@ StmtResult Sema::ActOnOpenMPRegionEnd(StmtResult S,
         }
       }
     }
+    if (++CompletedRegions == CaptureRegions.size())
+      DSAStack->setBodyComplete();
     SR = ActOnCapturedRegionEnd(SR.get());
   }
   return SR;
@@ -3912,6 +4014,17 @@ StmtResult Sema::ActOnOpenMPExecutableDirective(
     while (--ThisCaptureLevel >= 0)
       S = cast<CapturedStmt>(S)->getCapturedStmt();
     DSAChecker.Visit(S);
+    if (!isOpenMPTargetDataManagementDirective(Kind) &&
+        !isOpenMPTaskingDirective(Kind)) {
+      // Visit subcaptures to generate implicit clauses for captured vars.
+      auto *CS = cast<CapturedStmt>(AStmt);
+      SmallVector<OpenMPDirectiveKind, 4> CaptureRegions;
+      getOpenMPCaptureRegions(CaptureRegions, Kind);
+      // Ignore outer tasking regions for target directives.
+      if (CaptureRegions.size() > 1 && CaptureRegions.front() == OMPD_task)
+        CS = cast<CapturedStmt>(CS->getCapturedStmt());
+      DSAChecker.visitSubCaptures(CS);
+    }
     if (DSAChecker.isErrorFound())
       return StmtError();
     // Generate list of implicitly defined firstprivate variables.
@@ -4294,11 +4407,13 @@ StmtResult Sema::ActOnOpenMPExecutableDirective(
       VarsWithInheritedDSA[P.getFirst()] = P.getSecond();
   }
   for (const auto &P : VarsWithInheritedDSA) {
+    if (P.getFirst()->isImplicit() || isa<OMPCapturedExprDecl>(P.getFirst()))
+      continue;
+    ErrorFound = true;
     Diag(P.second->getExprLoc(), diag::err_omp_no_dsa_for_variable)
         << P.first << P.second->getSourceRange();
     Diag(DSAStack->getDefaultDSALocation(), diag::note_omp_default_dsa_none);
   }
-  ErrorFound = !VarsWithInheritedDSA.empty() || ErrorFound;
 
   if (!AllowedNameModifiers.empty())
     ErrorFound = checkIfClauses(*this, Kind, Clauses, AllowedNameModifiers) ||
@@ -4594,6 +4709,54 @@ StmtResult Sema::ActOnOpenMPParallelDirective(ArrayRef<OMPClause *> Clauses,
 }
 
 namespace {
+/// Iteration space of a single for loop.
+struct LoopIterationSpace final {
+  /// True if the condition operator is the strict compare operator (<, > or
+  /// !=).
+  bool IsStrictCompare = false;
+  /// Condition of the loop.
+  Expr *PreCond = nullptr;
+  /// This expression calculates the number of iterations in the loop.
+  /// It is always possible to calculate it before starting the loop.
+  Expr *NumIterations = nullptr;
+  /// The loop counter variable.
+  Expr *CounterVar = nullptr;
+  /// Private loop counter variable.
+  Expr *PrivateCounterVar = nullptr;
+  /// This is initializer for the initial value of #CounterVar.
+  Expr *CounterInit = nullptr;
+  /// This is step for the #CounterVar used to generate its update:
+  /// #CounterVar = #CounterInit + #CounterStep * CurrentIteration.
+  Expr *CounterStep = nullptr;
+  /// Should step be subtracted?
+  bool Subtract = false;
+  /// Source range of the loop init.
+  SourceRange InitSrcRange;
+  /// Source range of the loop condition.
+  SourceRange CondSrcRange;
+  /// Source range of the loop increment.
+  SourceRange IncSrcRange;
+  /// Minimum value that can have the loop control variable. Used to support
+  /// non-rectangular loops. Applied only for LCV with the non-iterator types,
+  /// since only such variables can be used in non-loop invariant expressions.
+  Expr *MinValue = nullptr;
+  /// Maximum value that can have the loop control variable. Used to support
+  /// non-rectangular loops. Applied only for LCV with the non-iterator type,
+  /// since only such variables can be used in non-loop invariant expressions.
+  Expr *MaxValue = nullptr;
+  /// true, if the lower bound depends on the outer loop control var.
+  bool IsNonRectangularLB = false;
+  /// true, if the upper bound depends on the outer loop control var.
+  bool IsNonRectangularUB = false;
+  /// Index of the loop this loop depends on and forms non-rectangular loop
+  /// nest.
+  unsigned LoopDependentIdx = 0;
+  /// Final condition for the non-rectangular loop nest support. It is used to
+  /// check that the number of iterations for this particular counter must be
+  /// finished.
+  Expr *FinalCondition = nullptr;
+};
+
 /// Helper class for checking canonical form of the OpenMP loops and
 /// extracting iteration space of each loop in the loop nest, that will be used
 /// for IR generation.
@@ -4643,6 +4806,9 @@ class OpenMPIterationSpaceChecker {
   Optional<unsigned> CondDependOnLC;
   /// Checks if the provide statement depends on the loop counter.
   Optional<unsigned> doesDependOnLoopCounter(const Stmt *S, bool IsInitializer);
+  /// Original condition required for checking of the exit condition for
+  /// non-rectangular loop.
+  Expr *Condition = nullptr;
 
 public:
   OpenMPIterationSpaceChecker(Sema &SemaRef, DSAStackTy &Stack,
@@ -4674,7 +4840,7 @@ public:
   bool isStrictTestOp() const { return TestIsStrictOp; }
   /// Build the expression to calculate the number of iterations.
   Expr *buildNumIterations(
-      Scope *S, const bool LimitedType,
+      Scope *S, ArrayRef<LoopIterationSpace> ResultIterSpaces, bool LimitedType,
       llvm::MapVector<const Expr *, DeclRefExpr *> &Captures) const;
   /// Build the precondition expression for the loops.
   Expr *
@@ -4698,8 +4864,21 @@ public:
                        llvm::MapVector<const Expr *, DeclRefExpr *> &Captures,
                        SourceLocation Loc, Expr *Inc = nullptr,
                        OverloadedOperatorKind OOK = OO_Amp);
+  /// Builds the minimum value for the loop counter.
+  std::pair<Expr *, Expr *> buildMinMaxValues(
+      Scope *S, llvm::MapVector<const Expr *, DeclRefExpr *> &Captures) const;
+  /// Builds final condition for the non-rectangular loops.
+  Expr *buildFinalCondition(Scope *S) const;
   /// Return true if any expression is dependent.
   bool dependent() const;
+  /// Returns true if the initializer forms non-rectangular loop.
+  bool doesInitDependOnLC() const { return InitDependOnLC.hasValue(); }
+  /// Returns true if the condition forms non-rectangular loop.
+  bool doesCondDependOnLC() const { return CondDependOnLC.hasValue(); }
+  /// Returns index of the loop we depend on (starting from 1), or 0 otherwise.
+  unsigned getLoopDependentIdx() const {
+    return InitDependOnLC.getValueOr(CondDependOnLC.getValueOr(0));
+  }
 
 private:
   /// Check the right-hand side of an assignment in the increment
@@ -4892,14 +5071,15 @@ public:
   bool VisitMemberExpr(const MemberExpr *E) {
     if (isa<CXXThisExpr>(E->getBase()->IgnoreParens())) {
       const ValueDecl *VD = E->getMemberDecl();
-      return checkDecl(E, VD);
+      if (isa<VarDecl>(VD) || isa<FieldDecl>(VD))
+        return checkDecl(E, VD);
     }
     return false;
   }
   bool VisitStmt(const Stmt *S) {
-    bool Res = true;
+    bool Res = false;
     for (const Stmt *Child : S->children())
-      Res = Child && Visit(Child) && Res;
+      Res = (Child && Visit(Child)) || Res;
     return Res;
   }
   explicit LoopCounterRefChecker(Sema &SemaRef, DSAStackTy &Stack,
@@ -5049,6 +5229,7 @@ bool OpenMPIterationSpaceChecker::checkAndSetCond(Expr *S) {
     SemaRef.Diag(DefaultLoc, diag::err_omp_loop_not_canonical_cond) << LCDecl;
     return true;
   }
+  Condition = S;
   S = getExprAsWritten(S);
   SourceLocation CondLoc = S->getBeginLoc();
   if (auto *BO = dyn_cast<BinaryOperator>(S)) {
@@ -5235,15 +5416,177 @@ tryBuildCapture(Sema &SemaRef, Expr *Capture,
 
 /// Build the expression to calculate the number of iterations.
 Expr *OpenMPIterationSpaceChecker::buildNumIterations(
-    Scope *S, const bool LimitedType,
+    Scope *S, ArrayRef<LoopIterationSpace> ResultIterSpaces, bool LimitedType,
     llvm::MapVector<const Expr *, DeclRefExpr *> &Captures) const {
   ExprResult Diff;
   QualType VarType = LCDecl->getType().getNonReferenceType();
   if (VarType->isIntegerType() || VarType->isPointerType() ||
       SemaRef.getLangOpts().CPlusPlus) {
+    Expr *LBVal = LB;
+    Expr *UBVal = UB;
+    // LB = TestIsLessOp.getValue() ? min(LB(MinVal), LB(MaxVal)) :
+    // max(LB(MinVal), LB(MaxVal))
+    if (InitDependOnLC) {
+      const LoopIterationSpace &IS =
+          ResultIterSpaces[ResultIterSpaces.size() - 1 -
+                           InitDependOnLC.getValueOr(
+                               CondDependOnLC.getValueOr(0))];
+      if (!IS.MinValue || !IS.MaxValue)
+        return nullptr;
+      // OuterVar = Min
+      ExprResult MinValue =
+          SemaRef.ActOnParenExpr(DefaultLoc, DefaultLoc, IS.MinValue);
+      if (!MinValue.isUsable())
+        return nullptr;
+
+      ExprResult LBMinVal = SemaRef.BuildBinOp(S, DefaultLoc, BO_Assign,
+                                               IS.CounterVar, MinValue.get());
+      if (!LBMinVal.isUsable())
+        return nullptr;
+      // OuterVar = Min, LBVal
+      LBMinVal =
+          SemaRef.BuildBinOp(S, DefaultLoc, BO_Comma, LBMinVal.get(), LBVal);
+      if (!LBMinVal.isUsable())
+        return nullptr;
+      // (OuterVar = Min, LBVal)
+      LBMinVal = SemaRef.ActOnParenExpr(DefaultLoc, DefaultLoc, LBMinVal.get());
+      if (!LBMinVal.isUsable())
+        return nullptr;
+
+      // OuterVar = Max
+      ExprResult MaxValue =
+          SemaRef.ActOnParenExpr(DefaultLoc, DefaultLoc, IS.MaxValue);
+      if (!MaxValue.isUsable())
+        return nullptr;
+
+      ExprResult LBMaxVal = SemaRef.BuildBinOp(S, DefaultLoc, BO_Assign,
+                                               IS.CounterVar, MaxValue.get());
+      if (!LBMaxVal.isUsable())
+        return nullptr;
+      // OuterVar = Max, LBVal
+      LBMaxVal =
+          SemaRef.BuildBinOp(S, DefaultLoc, BO_Comma, LBMaxVal.get(), LBVal);
+      if (!LBMaxVal.isUsable())
+        return nullptr;
+      // (OuterVar = Max, LBVal)
+      LBMaxVal = SemaRef.ActOnParenExpr(DefaultLoc, DefaultLoc, LBMaxVal.get());
+      if (!LBMaxVal.isUsable())
+        return nullptr;
+
+      Expr *LBMin = tryBuildCapture(SemaRef, LBMinVal.get(), Captures).get();
+      Expr *LBMax = tryBuildCapture(SemaRef, LBMaxVal.get(), Captures).get();
+      if (!LBMin || !LBMax)
+        return nullptr;
+      // LB(MinVal) < LB(MaxVal)
+      ExprResult MinLessMaxRes =
+          SemaRef.BuildBinOp(S, DefaultLoc, BO_LT, LBMin, LBMax);
+      if (!MinLessMaxRes.isUsable())
+        return nullptr;
+      Expr *MinLessMax =
+          tryBuildCapture(SemaRef, MinLessMaxRes.get(), Captures).get();
+      if (!MinLessMax)
+        return nullptr;
+      if (TestIsLessOp.getValue()) {
+        // LB(MinVal) < LB(MaxVal) ? LB(MinVal) : LB(MaxVal) - min(LB(MinVal),
+        // LB(MaxVal))
+        ExprResult MinLB = SemaRef.ActOnConditionalOp(DefaultLoc, DefaultLoc,
+                                                      MinLessMax, LBMin, LBMax);
+        if (!MinLB.isUsable())
+          return nullptr;
+        LBVal = MinLB.get();
+      } else {
+        // LB(MinVal) < LB(MaxVal) ? LB(MaxVal) : LB(MinVal) - max(LB(MinVal),
+        // LB(MaxVal))
+        ExprResult MaxLB = SemaRef.ActOnConditionalOp(DefaultLoc, DefaultLoc,
+                                                      MinLessMax, LBMax, LBMin);
+        if (!MaxLB.isUsable())
+          return nullptr;
+        LBVal = MaxLB.get();
+      }
+    }
+    // UB = TestIsLessOp.getValue() ? max(UB(MinVal), UB(MaxVal)) :
+    // min(UB(MinVal), UB(MaxVal))
+    if (CondDependOnLC) {
+      const LoopIterationSpace &IS =
+          ResultIterSpaces[ResultIterSpaces.size() - 1 -
+                           InitDependOnLC.getValueOr(
+                               CondDependOnLC.getValueOr(0))];
+      if (!IS.MinValue || !IS.MaxValue)
+        return nullptr;
+      // OuterVar = Min
+      ExprResult MinValue =
+          SemaRef.ActOnParenExpr(DefaultLoc, DefaultLoc, IS.MinValue);
+      if (!MinValue.isUsable())
+        return nullptr;
+
+      ExprResult UBMinVal = SemaRef.BuildBinOp(S, DefaultLoc, BO_Assign,
+                                               IS.CounterVar, MinValue.get());
+      if (!UBMinVal.isUsable())
+        return nullptr;
+      // OuterVar = Min, UBVal
+      UBMinVal =
+          SemaRef.BuildBinOp(S, DefaultLoc, BO_Comma, UBMinVal.get(), UBVal);
+      if (!UBMinVal.isUsable())
+        return nullptr;
+      // (OuterVar = Min, UBVal)
+      UBMinVal = SemaRef.ActOnParenExpr(DefaultLoc, DefaultLoc, UBMinVal.get());
+      if (!UBMinVal.isUsable())
+        return nullptr;
+
+      // OuterVar = Max
+      ExprResult MaxValue =
+          SemaRef.ActOnParenExpr(DefaultLoc, DefaultLoc, IS.MaxValue);
+      if (!MaxValue.isUsable())
+        return nullptr;
+
+      ExprResult UBMaxVal = SemaRef.BuildBinOp(S, DefaultLoc, BO_Assign,
+                                               IS.CounterVar, MaxValue.get());
+      if (!UBMaxVal.isUsable())
+        return nullptr;
+      // OuterVar = Max, UBVal
+      UBMaxVal =
+          SemaRef.BuildBinOp(S, DefaultLoc, BO_Comma, UBMaxVal.get(), UBVal);
+      if (!UBMaxVal.isUsable())
+        return nullptr;
+      // (OuterVar = Max, UBVal)
+      UBMaxVal = SemaRef.ActOnParenExpr(DefaultLoc, DefaultLoc, UBMaxVal.get());
+      if (!UBMaxVal.isUsable())
+        return nullptr;
+
+      Expr *UBMin = tryBuildCapture(SemaRef, UBMinVal.get(), Captures).get();
+      Expr *UBMax = tryBuildCapture(SemaRef, UBMaxVal.get(), Captures).get();
+      if (!UBMin || !UBMax)
+        return nullptr;
+      // UB(MinVal) > UB(MaxVal)
+      ExprResult MinGreaterMaxRes =
+          SemaRef.BuildBinOp(S, DefaultLoc, BO_GT, UBMin, UBMax);
+      if (!MinGreaterMaxRes.isUsable())
+        return nullptr;
+      Expr *MinGreaterMax =
+          tryBuildCapture(SemaRef, MinGreaterMaxRes.get(), Captures).get();
+      if (!MinGreaterMax)
+        return nullptr;
+      if (TestIsLessOp.getValue()) {
+        // UB(MinVal) > UB(MaxVal) ? UB(MinVal) : UB(MaxVal) - max(UB(MinVal),
+        // UB(MaxVal))
+        ExprResult MaxUB = SemaRef.ActOnConditionalOp(
+            DefaultLoc, DefaultLoc, MinGreaterMax, UBMin, UBMax);
+        if (!MaxUB.isUsable())
+          return nullptr;
+        UBVal = MaxUB.get();
+      } else {
+        // UB(MinVal) > UB(MaxVal) ? UB(MaxVal) : UB(MinVal) - min(UB(MinVal),
+        // UB(MaxVal))
+        ExprResult MinUB = SemaRef.ActOnConditionalOp(
+            DefaultLoc, DefaultLoc, MinGreaterMax, UBMax, UBMin);
+        if (!MinUB.isUsable())
+          return nullptr;
+        UBVal = MinUB.get();
+      }
+    }
     // Upper - Lower
-    Expr *UBExpr = TestIsLessOp.getValue() ? UB : LB;
-    Expr *LBExpr = TestIsLessOp.getValue() ? LB : UB;
+    Expr *UBExpr = TestIsLessOp.getValue() ? UBVal : LBVal;
+    Expr *LBExpr = TestIsLessOp.getValue() ? LBVal : UBVal;
     Expr *Upper = tryBuildCapture(SemaRef, UBExpr, Captures).get();
     Expr *Lower = tryBuildCapture(SemaRef, LBExpr, Captures).get();
     if (!Upper || !Lower)
@@ -5330,6 +5673,127 @@ Expr *OpenMPIterationSpaceChecker::buildNumIterations(
   return Diff.get();
 }
 
+std::pair<Expr *, Expr *> OpenMPIterationSpaceChecker::buildMinMaxValues(
+    Scope *S, llvm::MapVector<const Expr *, DeclRefExpr *> &Captures) const {
+  // Do not build for iterators, they cannot be used in non-rectangular loop
+  // nests.
+  if (LCDecl->getType()->isRecordType())
+    return std::make_pair(nullptr, nullptr);
+  // If we subtract, the min is in the condition, otherwise the min is in the
+  // init value.
+  Expr *MinExpr = nullptr;
+  Expr *MaxExpr = nullptr;
+  Expr *LBExpr = TestIsLessOp.getValue() ? LB : UB;
+  Expr *UBExpr = TestIsLessOp.getValue() ? UB : LB;
+  bool LBNonRect = TestIsLessOp.getValue() ? InitDependOnLC.hasValue()
+                                           : CondDependOnLC.hasValue();
+  bool UBNonRect = TestIsLessOp.getValue() ? CondDependOnLC.hasValue()
+                                           : InitDependOnLC.hasValue();
+  Expr *Lower =
+      LBNonRect ? LBExpr : tryBuildCapture(SemaRef, LBExpr, Captures).get();
+  Expr *Upper =
+      UBNonRect ? UBExpr : tryBuildCapture(SemaRef, UBExpr, Captures).get();
+  if (!Upper || !Lower)
+    return std::make_pair(nullptr, nullptr);
+
+  if (TestIsLessOp.getValue())
+    MinExpr = Lower;
+  else
+    MaxExpr = Upper;
+
+  // Build minimum/maximum value based on number of iterations.
+  ExprResult Diff;
+  QualType VarType = LCDecl->getType().getNonReferenceType();
+
+  Diff = SemaRef.BuildBinOp(S, DefaultLoc, BO_Sub, Upper, Lower);
+  if (!Diff.isUsable())
+    return std::make_pair(nullptr, nullptr);
+
+  // Upper - Lower [- 1]
+  if (TestIsStrictOp)
+    Diff = SemaRef.BuildBinOp(
+        S, DefaultLoc, BO_Sub, Diff.get(),
+        SemaRef.ActOnIntegerConstant(SourceLocation(), 1).get());
+  if (!Diff.isUsable())
+    return std::make_pair(nullptr, nullptr);
+
+  // Upper - Lower [- 1] + Step
+  ExprResult NewStep = tryBuildCapture(SemaRef, Step, Captures);
+  if (!NewStep.isUsable())
+    return std::make_pair(nullptr, nullptr);
+
+  // Parentheses (for dumping/debugging purposes only).
+  Diff = SemaRef.ActOnParenExpr(DefaultLoc, DefaultLoc, Diff.get());
+  if (!Diff.isUsable())
+    return std::make_pair(nullptr, nullptr);
+
+  // (Upper - Lower [- 1]) / Step
+  Diff = SemaRef.BuildBinOp(S, DefaultLoc, BO_Div, Diff.get(), NewStep.get());
+  if (!Diff.isUsable())
+    return std::make_pair(nullptr, nullptr);
+
+  // ((Upper - Lower [- 1]) / Step) * Step
+  // Parentheses (for dumping/debugging purposes only).
+  Diff = SemaRef.ActOnParenExpr(DefaultLoc, DefaultLoc, Diff.get());
+  if (!Diff.isUsable())
+    return std::make_pair(nullptr, nullptr);
+
+  Diff = SemaRef.BuildBinOp(S, DefaultLoc, BO_Mul, Diff.get(), NewStep.get());
+  if (!Diff.isUsable())
+    return std::make_pair(nullptr, nullptr);
+
+  // Convert to the original type or ptrdiff_t, if original type is pointer.
+  if (!VarType->isAnyPointerType() &&
+      !SemaRef.Context.hasSameType(Diff.get()->getType(), VarType)) {
+    Diff = SemaRef.PerformImplicitConversion(
+        Diff.get(), VarType, Sema::AA_Converting, /*AllowExplicit=*/true);
+  } else if (VarType->isAnyPointerType() &&
+             !SemaRef.Context.hasSameType(
+                 Diff.get()->getType(),
+                 SemaRef.Context.getUnsignedPointerDiffType())) {
+    Diff = SemaRef.PerformImplicitConversion(
+        Diff.get(), SemaRef.Context.getUnsignedPointerDiffType(),
+        Sema::AA_Converting, /*AllowExplicit=*/true);
+  }
+  if (!Diff.isUsable())
+    return std::make_pair(nullptr, nullptr);
+
+  // Parentheses (for dumping/debugging purposes only).
+  Diff = SemaRef.ActOnParenExpr(DefaultLoc, DefaultLoc, Diff.get());
+  if (!Diff.isUsable())
+    return std::make_pair(nullptr, nullptr);
+
+  if (TestIsLessOp.getValue()) {
+    // MinExpr = Lower;
+    // MaxExpr = Lower + (((Upper - Lower [- 1]) / Step) * Step)
+    Diff = SemaRef.BuildBinOp(S, DefaultLoc, BO_Add, Lower, Diff.get());
+    if (!Diff.isUsable())
+      return std::make_pair(nullptr, nullptr);
+    Diff = SemaRef.ActOnFinishFullExpr(Diff.get(), /*DiscardedValue*/ false);
+    if (!Diff.isUsable())
+      return std::make_pair(nullptr, nullptr);
+    MaxExpr = Diff.get();
+  } else {
+    // MaxExpr = Upper;
+    // MinExpr = Upper - (((Upper - Lower [- 1]) / Step) * Step)
+    Diff = SemaRef.BuildBinOp(S, DefaultLoc, BO_Sub, Upper, Diff.get());
+    if (!Diff.isUsable())
+      return std::make_pair(nullptr, nullptr);
+    Diff = SemaRef.ActOnFinishFullExpr(Diff.get(), /*DiscardedValue*/ false);
+    if (!Diff.isUsable())
+      return std::make_pair(nullptr, nullptr);
+    MinExpr = Diff.get();
+  }
+
+  return std::make_pair(MinExpr, MaxExpr);
+}
+
+Expr *OpenMPIterationSpaceChecker::buildFinalCondition(Scope *S) const {
+  if (InitDependOnLC || CondDependOnLC)
+    return Condition;
+  return nullptr;
+}
+
 Expr *OpenMPIterationSpaceChecker::buildPreCond(
     Scope *S, Expr *Cond,
     llvm::MapVector<const Expr *, DeclRefExpr *> &Captures) const {
@@ -5337,8 +5801,10 @@ Expr *OpenMPIterationSpaceChecker::buildPreCond(
   bool Suppress = SemaRef.getDiagnostics().getSuppressAllDiagnostics();
   SemaRef.getDiagnostics().setSuppressAllDiagnostics(/*Val=*/true);
 
-  ExprResult NewLB = tryBuildCapture(SemaRef, LB, Captures);
-  ExprResult NewUB = tryBuildCapture(SemaRef, UB, Captures);
+  ExprResult NewLB =
+      InitDependOnLC ? LB : tryBuildCapture(SemaRef, LB, Captures);
+  ExprResult NewUB =
+      CondDependOnLC ? UB : tryBuildCapture(SemaRef, UB, Captures);
   if (!NewLB.isUsable() || !NewUB.isUsable())
     return nullptr;
 
@@ -5460,36 +5926,6 @@ Expr *OpenMPIterationSpaceChecker::buildOrderedLoopData(
 
   return Diff.get();
 }
-
-/// Iteration space of a single for loop.
-struct LoopIterationSpace final {
-  /// True if the condition operator is the strict compare operator (<, > or
-  /// !=).
-  bool IsStrictCompare = false;
-  /// Condition of the loop.
-  Expr *PreCond = nullptr;
-  /// This expression calculates the number of iterations in the loop.
-  /// It is always possible to calculate it before starting the loop.
-  Expr *NumIterations = nullptr;
-  /// The loop counter variable.
-  Expr *CounterVar = nullptr;
-  /// Private loop counter variable.
-  Expr *PrivateCounterVar = nullptr;
-  /// This is initializer for the initial value of #CounterVar.
-  Expr *CounterInit = nullptr;
-  /// This is step for the #CounterVar used to generate its update:
-  /// #CounterVar = #CounterInit + #CounterStep * CurrentIteration.
-  Expr *CounterStep = nullptr;
-  /// Should step be subtracted?
-  bool Subtract = false;
-  /// Source range of the loop init.
-  SourceRange InitSrcRange;
-  /// Source range of the loop condition.
-  SourceRange CondSrcRange;
-  /// Source range of the loop increment.
-  SourceRange IncSrcRange;
-};
-
 } // namespace
 
 void Sema::ActOnOpenMPLoopInitialization(SourceLocation ForLoc, Stmt *Init) {
@@ -5503,13 +5939,14 @@ void Sema::ActOnOpenMPLoopInitialization(SourceLocation ForLoc, Stmt *Init) {
     if (!ISC.checkAndSetInit(Init, /*EmitDiags=*/false)) {
       if (ValueDecl *D = ISC.getLoopDecl()) {
         auto *VD = dyn_cast<VarDecl>(D);
+        DeclRefExpr *PrivateRef = nullptr;
         if (!VD) {
           if (VarDecl *Private = isOpenMPCapturedDecl(D)) {
             VD = Private;
           } else {
-            DeclRefExpr *Ref = buildCapture(*this, D, ISC.getLoopDeclRefExpr(),
-                                            /*WithInit=*/false);
-            VD = cast<VarDecl>(Ref->getDecl());
+            PrivateRef = buildCapture(*this, D, ISC.getLoopDeclRefExpr(),
+                                      /*WithInit=*/false);
+            VD = cast<VarDecl>(PrivateRef->getDecl());
           }
         }
         DSAStack->addLoopControlVariable(D, VD);
@@ -5521,6 +5958,49 @@ void Sema::ActOnOpenMPLoopInitialization(SourceLocation ForLoc, Stmt *Init) {
                 buildDeclRefExpr(*this, const_cast<VarDecl *>(Var),
                                  Var->getType().getNonLValueExprType(Context),
                                  ForLoc, /*RefersToCapture=*/true));
+        }
+        OpenMPDirectiveKind DKind = DSAStack->getCurrentDirective();
+        // OpenMP [2.14.1.1, Data-sharing Attribute Rules for Variables
+        // Referenced in a Construct, C/C++]. The loop iteration variable in the
+        // associated for-loop of a simd construct with just one associated
+        // for-loop may be listed in a linear clause with a constant-linear-step
+        // that is the increment of the associated for-loop. The loop iteration
+        // variable(s) in the associated for-loop(s) of a for or parallel for
+        // construct may be listed in a private or lastprivate clause.
+        DSAStackTy::DSAVarData DVar =
+            DSAStack->getTopDSA(D, /*FromParent=*/false);
+        // If LoopVarRefExpr is nullptr it means the corresponding loop variable
+        // is declared in the loop and it is predetermined as a private.
+        Expr *LoopDeclRefExpr = ISC.getLoopDeclRefExpr();
+        OpenMPClauseKind PredeterminedCKind =
+            isOpenMPSimdDirective(DKind)
+                ? (DSAStack->hasMutipleLoops() ? OMPC_lastprivate : OMPC_linear)
+                : OMPC_private;
+        if (((isOpenMPSimdDirective(DKind) && DVar.CKind != OMPC_unknown &&
+              DVar.CKind != PredeterminedCKind && DVar.RefExpr &&
+              (LangOpts.OpenMP <= 45 || (DVar.CKind != OMPC_lastprivate &&
+                                         DVar.CKind != OMPC_private))) ||
+             ((isOpenMPWorksharingDirective(DKind) || DKind == OMPD_taskloop ||
+               isOpenMPDistributeDirective(DKind)) &&
+              !isOpenMPSimdDirective(DKind) && DVar.CKind != OMPC_unknown &&
+              DVar.CKind != OMPC_private && DVar.CKind != OMPC_lastprivate)) &&
+            (DVar.CKind != OMPC_private || DVar.RefExpr)) {
+          Diag(Init->getBeginLoc(), diag::err_omp_loop_var_dsa)
+              << getOpenMPClauseName(DVar.CKind)
+              << getOpenMPDirectiveName(DKind)
+              << getOpenMPClauseName(PredeterminedCKind);
+          if (DVar.RefExpr == nullptr)
+            DVar.CKind = PredeterminedCKind;
+          reportOriginalDsa(*this, DSAStack, D, DVar,
+                            /*IsLoopIterVar=*/true);
+        } else if (LoopDeclRefExpr) {
+          // Make the loop iteration variable private (for worksharing
+          // constructs), linear (for simd directives with the only one
+          // associated loop) or lastprivate (for simd directives with several
+          // collapsed or ordered loops).
+          if (DVar.CKind == OMPC_unknown)
+            DSAStack->addDSA(D, LoopDeclRefExpr, PredeterminedCKind,
+                             PrivateRef);
         }
       }
     }
@@ -5536,7 +6016,7 @@ static bool checkOpenMPIterationSpace(
     unsigned TotalNestedLoopCount, Expr *CollapseLoopCountExpr,
     Expr *OrderedLoopCountExpr,
     Sema::VarsWithInheritedDSAType &VarsWithImplicitDSA,
-    LoopIterationSpace &ResultIterSpace,
+    llvm::MutableArrayRef<LoopIterationSpace> ResultIterSpaces,
     llvm::MapVector<const Expr *, DeclRefExpr *> &Captures) {
   // OpenMP [2.6, Canonical Loop Form]
   //   for (init-expr; test-expr; incr-expr) structured-block
@@ -5576,8 +6056,6 @@ static bool checkOpenMPIterationSpace(
 
   // Check loop variable's type.
   if (ValueDecl *LCDecl = ISC.getLoopDecl()) {
-    Expr *LoopDeclRefExpr = ISC.getLoopDeclRefExpr();
-
     // OpenMP [2.6, Canonical Loop Form]
     // Var is one of the following:
     //   A variable of signed or unsigned integer type.
@@ -5603,44 +6081,6 @@ static bool checkOpenMPIterationSpace(
     // sharing attributes.
     VarsWithImplicitDSA.erase(LCDecl);
 
-    // OpenMP [2.14.1.1, Data-sharing Attribute Rules for Variables Referenced
-    // in a Construct, C/C++].
-    // The loop iteration variable in the associated for-loop of a simd
-    // construct with just one associated for-loop may be listed in a linear
-    // clause with a constant-linear-step that is the increment of the
-    // associated for-loop.
-    // The loop iteration variable(s) in the associated for-loop(s) of a for or
-    // parallel for construct may be listed in a private or lastprivate clause.
-    DSAStackTy::DSAVarData DVar = DSA.getTopDSA(LCDecl, false);
-    // If LoopVarRefExpr is nullptr it means the corresponding loop variable is
-    // declared in the loop and it is predetermined as a private.
-    OpenMPClauseKind PredeterminedCKind =
-        isOpenMPSimdDirective(DKind)
-            ? ((NestedLoopCount == 1) ? OMPC_linear : OMPC_lastprivate)
-            : OMPC_private;
-    if (((isOpenMPSimdDirective(DKind) && DVar.CKind != OMPC_unknown &&
-          DVar.CKind != PredeterminedCKind) ||
-         ((isOpenMPWorksharingDirective(DKind) || DKind == OMPD_taskloop ||
-           isOpenMPDistributeDirective(DKind)) &&
-          !isOpenMPSimdDirective(DKind) && DVar.CKind != OMPC_unknown &&
-          DVar.CKind != OMPC_private && DVar.CKind != OMPC_lastprivate)) &&
-        (DVar.CKind != OMPC_private || DVar.RefExpr != nullptr)) {
-      SemaRef.Diag(Init->getBeginLoc(), diag::err_omp_loop_var_dsa)
-          << getOpenMPClauseName(DVar.CKind) << getOpenMPDirectiveName(DKind)
-          << getOpenMPClauseName(PredeterminedCKind);
-      if (DVar.RefExpr == nullptr)
-        DVar.CKind = PredeterminedCKind;
-      reportOriginalDsa(SemaRef, &DSA, LCDecl, DVar, /*IsLoopIterVar=*/true);
-      HasErrors = true;
-    } else if (LoopDeclRefExpr != nullptr) {
-      // Make the loop iteration variable private (for worksharing constructs),
-      // linear (for simd directives with the only one associated loop) or
-      // lastprivate (for simd directives with several collapsed or ordered
-      // loops).
-      if (DVar.CKind == OMPC_unknown)
-        DSA.addDSA(LCDecl, LoopDeclRefExpr, PredeterminedCKind);
-    }
-
     assert(isOpenMPLoopDirective(DKind) && "DSA for non-loop vars");
 
     // Check test-expr.
@@ -5654,37 +6094,57 @@ static bool checkOpenMPIterationSpace(
     return HasErrors;
 
   // Build the loop's iteration space representation.
-  ResultIterSpace.PreCond =
+  ResultIterSpaces[CurrentNestedLoopCount].PreCond =
       ISC.buildPreCond(DSA.getCurScope(), For->getCond(), Captures);
-  ResultIterSpace.NumIterations = ISC.buildNumIterations(
-      DSA.getCurScope(),
-      (isOpenMPWorksharingDirective(DKind) ||
-       isOpenMPTaskLoopDirective(DKind) || isOpenMPDistributeDirective(DKind)),
-      Captures);
-  ResultIterSpace.CounterVar = ISC.buildCounterVar(Captures, DSA);
-  ResultIterSpace.PrivateCounterVar = ISC.buildPrivateCounterVar();
-  ResultIterSpace.CounterInit = ISC.buildCounterInit();
-  ResultIterSpace.CounterStep = ISC.buildCounterStep();
-  ResultIterSpace.InitSrcRange = ISC.getInitSrcRange();
-  ResultIterSpace.CondSrcRange = ISC.getConditionSrcRange();
-  ResultIterSpace.IncSrcRange = ISC.getIncrementSrcRange();
-  ResultIterSpace.Subtract = ISC.shouldSubtractStep();
-  ResultIterSpace.IsStrictCompare = ISC.isStrictTestOp();
+  ResultIterSpaces[CurrentNestedLoopCount].NumIterations =
+      ISC.buildNumIterations(DSA.getCurScope(), ResultIterSpaces,
+                             (isOpenMPWorksharingDirective(DKind) ||
+                              isOpenMPTaskLoopDirective(DKind) ||
+                              isOpenMPDistributeDirective(DKind)),
+                             Captures);
+  ResultIterSpaces[CurrentNestedLoopCount].CounterVar =
+      ISC.buildCounterVar(Captures, DSA);
+  ResultIterSpaces[CurrentNestedLoopCount].PrivateCounterVar =
+      ISC.buildPrivateCounterVar();
+  ResultIterSpaces[CurrentNestedLoopCount].CounterInit = ISC.buildCounterInit();
+  ResultIterSpaces[CurrentNestedLoopCount].CounterStep = ISC.buildCounterStep();
+  ResultIterSpaces[CurrentNestedLoopCount].InitSrcRange = ISC.getInitSrcRange();
+  ResultIterSpaces[CurrentNestedLoopCount].CondSrcRange =
+      ISC.getConditionSrcRange();
+  ResultIterSpaces[CurrentNestedLoopCount].IncSrcRange =
+      ISC.getIncrementSrcRange();
+  ResultIterSpaces[CurrentNestedLoopCount].Subtract = ISC.shouldSubtractStep();
+  ResultIterSpaces[CurrentNestedLoopCount].IsStrictCompare =
+      ISC.isStrictTestOp();
+  std::tie(ResultIterSpaces[CurrentNestedLoopCount].MinValue,
+           ResultIterSpaces[CurrentNestedLoopCount].MaxValue) =
+      ISC.buildMinMaxValues(DSA.getCurScope(), Captures);
+  ResultIterSpaces[CurrentNestedLoopCount].FinalCondition =
+      ISC.buildFinalCondition(DSA.getCurScope());
+  ResultIterSpaces[CurrentNestedLoopCount].IsNonRectangularLB =
+      ISC.doesInitDependOnLC();
+  ResultIterSpaces[CurrentNestedLoopCount].IsNonRectangularUB =
+      ISC.doesCondDependOnLC();
+  ResultIterSpaces[CurrentNestedLoopCount].LoopDependentIdx =
+      ISC.getLoopDependentIdx();
 
-  HasErrors |= (ResultIterSpace.PreCond == nullptr ||
-                ResultIterSpace.NumIterations == nullptr ||
-                ResultIterSpace.CounterVar == nullptr ||
-                ResultIterSpace.PrivateCounterVar == nullptr ||
-                ResultIterSpace.CounterInit == nullptr ||
-                ResultIterSpace.CounterStep == nullptr);
+  HasErrors |=
+      (ResultIterSpaces[CurrentNestedLoopCount].PreCond == nullptr ||
+       ResultIterSpaces[CurrentNestedLoopCount].NumIterations == nullptr ||
+       ResultIterSpaces[CurrentNestedLoopCount].CounterVar == nullptr ||
+       ResultIterSpaces[CurrentNestedLoopCount].PrivateCounterVar == nullptr ||
+       ResultIterSpaces[CurrentNestedLoopCount].CounterInit == nullptr ||
+       ResultIterSpaces[CurrentNestedLoopCount].CounterStep == nullptr);
   if (!HasErrors && DSA.isOrderedRegion()) {
     if (DSA.getOrderedRegionParam().second->getNumForLoops()) {
       if (CurrentNestedLoopCount <
           DSA.getOrderedRegionParam().second->getLoopNumIterations().size()) {
         DSA.getOrderedRegionParam().second->setLoopNumIterations(
-            CurrentNestedLoopCount, ResultIterSpace.NumIterations);
+            CurrentNestedLoopCount,
+            ResultIterSpaces[CurrentNestedLoopCount].NumIterations);
         DSA.getOrderedRegionParam().second->setLoopCounter(
-            CurrentNestedLoopCount, ResultIterSpace.CounterVar);
+            CurrentNestedLoopCount,
+            ResultIterSpaces[CurrentNestedLoopCount].CounterVar);
       }
     }
     for (auto &Pair : DSA.getDoacrossDependClauses()) {
@@ -5701,11 +6161,13 @@ static bool checkOpenMPIterationSpace(
       Expr *CntValue;
       if (Pair.first->getDependencyKind() == OMPC_DEPEND_source)
         CntValue = ISC.buildOrderedLoopData(
-            DSA.getCurScope(), ResultIterSpace.CounterVar, Captures,
+            DSA.getCurScope(),
+            ResultIterSpaces[CurrentNestedLoopCount].CounterVar, Captures,
             Pair.first->getDependencyLoc());
       else
         CntValue = ISC.buildOrderedLoopData(
-            DSA.getCurScope(), ResultIterSpace.CounterVar, Captures,
+            DSA.getCurScope(),
+            ResultIterSpaces[CurrentNestedLoopCount].CounterVar, Captures,
             Pair.first->getDependencyLoc(),
             Pair.second[CurrentNestedLoopCount].first,
             Pair.second[CurrentNestedLoopCount].second);
@@ -5719,10 +6181,12 @@ static bool checkOpenMPIterationSpace(
 /// Build 'VarRef = Start.
 static ExprResult
 buildCounterInit(Sema &SemaRef, Scope *S, SourceLocation Loc, ExprResult VarRef,
-                 ExprResult Start,
+                 ExprResult Start, bool IsNonRectangularLB,
                  llvm::MapVector<const Expr *, DeclRefExpr *> &Captures) {
   // Build 'VarRef = Start.
-  ExprResult NewStart = tryBuildCapture(SemaRef, Start.get(), Captures);
+  ExprResult NewStart = IsNonRectangularLB
+                            ? Start.get()
+                            : tryBuildCapture(SemaRef, Start.get(), Captures);
   if (!NewStart.isUsable())
     return ExprError();
   if (!SemaRef.Context.hasSameType(NewStart.get()->getType(),
@@ -5743,6 +6207,7 @@ buildCounterInit(Sema &SemaRef, Scope *S, SourceLocation Loc, ExprResult VarRef,
 static ExprResult buildCounterUpdate(
     Sema &SemaRef, Scope *S, SourceLocation Loc, ExprResult VarRef,
     ExprResult Start, ExprResult Iter, ExprResult Step, bool Subtract,
+    bool IsNonRectangularLB,
     llvm::MapVector<const Expr *, DeclRefExpr *> *Captures = nullptr) {
   // Add parentheses (for debugging purposes only).
   Iter = SemaRef.ActOnParenExpr(Loc, Loc, Iter.get());
@@ -5762,8 +6227,12 @@ static ExprResult buildCounterUpdate(
 
   // Try to build 'VarRef = Start, VarRef (+|-)= Iter * Step' or
   // 'VarRef = Start (+|-) Iter * Step'.
-  ExprResult NewStart = Start;
-  if (Captures)
+  if (!Start.isUsable())
+    return ExprError();
+  ExprResult NewStart = SemaRef.ActOnParenExpr(Loc, Loc, Start.get());
+  if (!NewStart.isUsable())
+    return ExprError();
+  if (Captures && !IsNonRectangularLB)
     NewStart = tryBuildCapture(SemaRef, Start.get(), *Captures);
   if (NewStart.isInvalid())
     return ExprError();
@@ -5894,14 +6363,21 @@ checkOpenMPLoop(OpenMPDirectiveKind DKind, Expr *CollapseLoopCountExpr,
   if (CollapseLoopCountExpr) {
     // Found 'collapse' clause - calculate collapse number.
     Expr::EvalResult Result;
-    if (CollapseLoopCountExpr->EvaluateAsInt(Result, SemaRef.getASTContext()))
+    if (!CollapseLoopCountExpr->isValueDependent() &&
+        CollapseLoopCountExpr->EvaluateAsInt(Result, SemaRef.getASTContext())) {
       NestedLoopCount = Result.Val.getInt().getLimitedValue();
+    } else {
+      Built.clear(/*Size=*/1);
+      return 1;
+    }
   }
   unsigned OrderedLoopCount = 1;
   if (OrderedLoopCountExpr) {
     // Found 'ordered' clause - calculate collapse number.
     Expr::EvalResult EVResult;
-    if (OrderedLoopCountExpr->EvaluateAsInt(EVResult, SemaRef.getASTContext())) {
+    if (!OrderedLoopCountExpr->isValueDependent() &&
+        OrderedLoopCountExpr->EvaluateAsInt(EVResult,
+                                            SemaRef.getASTContext())) {
       llvm::APSInt Result = EVResult.Val.getInt();
       if (Result.getLimitedValue() < NestedLoopCount) {
         SemaRef.Diag(OrderedLoopCountExpr->getExprLoc(),
@@ -5912,6 +6388,9 @@ checkOpenMPLoop(OpenMPDirectiveKind DKind, Expr *CollapseLoopCountExpr,
             << CollapseLoopCountExpr->getSourceRange();
       }
       OrderedLoopCount = Result.getLimitedValue();
+    } else {
+      Built.clear(/*Size=*/1);
+      return 1;
     }
   }
   // This is helper routine for loop directives (e.g., 'for', 'simd',
@@ -5924,8 +6403,7 @@ checkOpenMPLoop(OpenMPDirectiveKind DKind, Expr *CollapseLoopCountExpr,
     if (checkOpenMPIterationSpace(
             DKind, CurStmt, SemaRef, DSA, Cnt, NestedLoopCount,
             std::max(OrderedLoopCount, NestedLoopCount), CollapseLoopCountExpr,
-            OrderedLoopCountExpr, VarsWithImplicitDSA, IterSpaces[Cnt],
-            Captures))
+            OrderedLoopCountExpr, VarsWithImplicitDSA, IterSpaces, Captures))
       return 0;
     // Move on to the next nested for loop, or to the loop body.
     // OpenMP [2.8.1, simd construct, Restrictions]
@@ -5938,8 +6416,7 @@ checkOpenMPLoop(OpenMPDirectiveKind DKind, Expr *CollapseLoopCountExpr,
     if (checkOpenMPIterationSpace(
             DKind, CurStmt, SemaRef, DSA, Cnt, NestedLoopCount,
             std::max(OrderedLoopCount, NestedLoopCount), CollapseLoopCountExpr,
-            OrderedLoopCountExpr, VarsWithImplicitDSA, IterSpaces[Cnt],
-            Captures))
+            OrderedLoopCountExpr, VarsWithImplicitDSA, IterSpaces, Captures))
       return 0;
     if (Cnt > 0 && IterSpaces[Cnt].CounterVar) {
       // Handle initialization of captured loop iterator variables.
@@ -6400,6 +6877,9 @@ checkOpenMPLoop(OpenMPDirectiveKind DKind, Expr *CollapseLoopCountExpr,
   Built.Inits.resize(NestedLoopCount);
   Built.Updates.resize(NestedLoopCount);
   Built.Finals.resize(NestedLoopCount);
+  Built.DependentCounters.resize(NestedLoopCount);
+  Built.DependentInits.resize(NestedLoopCount);
+  Built.FinalsConditions.resize(NestedLoopCount);
   {
     // We implement the following algorithm for obtaining the
     // original loop iteration variable values based on the
@@ -6459,24 +6939,26 @@ checkOpenMPLoop(OpenMPDirectiveKind DKind, Expr *CollapseLoopCountExpr,
       DeclRefExpr *CounterVar = buildDeclRefExpr(
           SemaRef, VD, IS.CounterVar->getType(), IS.CounterVar->getExprLoc(),
           /*RefersToCapture=*/true);
-      ExprResult Init = buildCounterInit(SemaRef, CurScope, UpdLoc, CounterVar,
-                                         IS.CounterInit, Captures);
+      ExprResult Init =
+          buildCounterInit(SemaRef, CurScope, UpdLoc, CounterVar,
+                           IS.CounterInit, IS.IsNonRectangularLB, Captures);
       if (!Init.isUsable()) {
         HasErrors = true;
         break;
       }
       ExprResult Update = buildCounterUpdate(
           SemaRef, CurScope, UpdLoc, CounterVar, IS.CounterInit, Iter,
-          IS.CounterStep, IS.Subtract, &Captures);
+          IS.CounterStep, IS.Subtract, IS.IsNonRectangularLB, &Captures);
       if (!Update.isUsable()) {
         HasErrors = true;
         break;
       }
 
       // Build final: IS.CounterVar = IS.Start + IS.NumIters * IS.Step
-      ExprResult Final = buildCounterUpdate(
-          SemaRef, CurScope, UpdLoc, CounterVar, IS.CounterInit,
-          IS.NumIterations, IS.CounterStep, IS.Subtract, &Captures);
+      ExprResult Final =
+          buildCounterUpdate(SemaRef, CurScope, UpdLoc, CounterVar,
+                             IS.CounterInit, IS.NumIterations, IS.CounterStep,
+                             IS.Subtract, IS.IsNonRectangularLB, &Captures);
       if (!Final.isUsable()) {
         HasErrors = true;
         break;
@@ -6492,6 +6974,16 @@ checkOpenMPLoop(OpenMPDirectiveKind DKind, Expr *CollapseLoopCountExpr,
       Built.Inits[Cnt] = Init.get();
       Built.Updates[Cnt] = Update.get();
       Built.Finals[Cnt] = Final.get();
+      Built.DependentCounters[Cnt] = nullptr;
+      Built.DependentInits[Cnt] = nullptr;
+      Built.FinalsConditions[Cnt] = nullptr;
+      if (IS.IsNonRectangularLB) {
+        Built.DependentCounters[Cnt] =
+            Built.Counters[NestedLoopCount - 1 - IS.LoopDependentIdx];
+        Built.DependentInits[Cnt] =
+            Built.Inits[NestedLoopCount - 1 - IS.LoopDependentIdx];
+        Built.FinalsConditions[Cnt] = IS.FinalCondition;
+      }
     }
   }
 
@@ -6504,7 +6996,7 @@ checkOpenMPLoop(OpenMPDirectiveKind DKind, Expr *CollapseLoopCountExpr,
   Built.NumIterations = NumIterations.get();
   Built.CalcLastIteration = SemaRef
                                 .ActOnFinishFullExpr(CalcLastIteration.get(),
-                                                     /*DiscardedValue*/ false)
+                                                     /*DiscardedValue=*/false)
                                 .get();
   Built.PreCond = PreCond.get();
   Built.PreInits = buildPreInits(C, Captures);
@@ -12028,10 +12520,14 @@ static bool actOnOMPReductionKindClause(
     if ((OASE && !ConstantLengthOASE) ||
         (!OASE && !ASE &&
          D->getType().getNonReferenceType()->isVariablyModifiedType())) {
-      if (!Context.getTargetInfo().isVLASupported() &&
-          S.shouldDiagnoseTargetSupportFromOpenMP()) {
-        S.Diag(ELoc, diag::err_omp_reduction_vla_unsupported) << !!OASE;
-        S.Diag(ELoc, diag::note_vla_unsupported);
+      if (!Context.getTargetInfo().isVLASupported()) {
+        if (isOpenMPTargetExecutionDirective(Stack->getCurrentDirective())) {
+          S.Diag(ELoc, diag::err_omp_reduction_vla_unsupported) << !!OASE;
+          S.Diag(ELoc, diag::note_vla_unsupported);
+        } else {
+          S.targetDiag(ELoc, diag::err_omp_reduction_vla_unsupported) << !!OASE;
+          S.targetDiag(ELoc, diag::note_vla_unsupported);
+        }
         continue;
       }
       // For arrays/array sections only:
@@ -12590,6 +13086,7 @@ static bool FinishOpenMPLinearClause(OMPLinearClause &Clause, DeclRefExpr *IV,
   // Walk the vars and build update/final expressions for the CodeGen.
   SmallVector<Expr *, 8> Updates;
   SmallVector<Expr *, 8> Finals;
+  SmallVector<Expr *, 8> UsedExprs;
   Expr *Step = Clause.getStep();
   Expr *CalcStep = Clause.getCalcStep();
   // OpenMP [2.14.3.7, linear clause]
@@ -12643,9 +13140,9 @@ static bool FinishOpenMPLinearClause(OMPLinearClause &Clause, DeclRefExpr *IV,
     // Build update: Var = InitExpr + IV * Step
     ExprResult Update;
     if (!Info.first)
-      Update =
-          buildCounterUpdate(SemaRef, S, RefExpr->getExprLoc(), *CurPrivate,
-                             InitExpr, IV, Step, /* Subtract */ false);
+      Update = buildCounterUpdate(
+          SemaRef, S, RefExpr->getExprLoc(), *CurPrivate, InitExpr, IV, Step,
+          /*Subtract=*/false, /*IsNonRectangularLB=*/false);
     else
       Update = *CurPrivate;
     Update = SemaRef.ActOnFinishFullExpr(Update.get(), DE->getBeginLoc(),
@@ -12656,7 +13153,8 @@ static bool FinishOpenMPLinearClause(OMPLinearClause &Clause, DeclRefExpr *IV,
     if (!Info.first)
       Final =
           buildCounterUpdate(SemaRef, S, RefExpr->getExprLoc(), CapturedRef,
-                             InitExpr, NumIterations, Step, /*Subtract=*/false);
+                             InitExpr, NumIterations, Step, /*Subtract=*/false,
+                             /*IsNonRectangularLB=*/false);
     else
       Final = *CurPrivate;
     Final = SemaRef.ActOnFinishFullExpr(Final.get(), DE->getBeginLoc(),
@@ -12665,16 +13163,24 @@ static bool FinishOpenMPLinearClause(OMPLinearClause &Clause, DeclRefExpr *IV,
     if (!Update.isUsable() || !Final.isUsable()) {
       Updates.push_back(nullptr);
       Finals.push_back(nullptr);
+      UsedExprs.push_back(nullptr);
       HasErrors = true;
     } else {
       Updates.push_back(Update.get());
       Finals.push_back(Final.get());
+      if (!Info.first)
+        UsedExprs.push_back(SimpleRefExpr);
     }
     ++CurInit;
     ++CurPrivate;
   }
+  if (Expr *S = Clause.getStep())
+    UsedExprs.push_back(S);
+  // Fill the remaining part with the nullptr.
+  UsedExprs.append(Clause.varlist_size() + 1 - UsedExprs.size(), nullptr);
   Clause.setUpdates(Updates);
   Clause.setFinals(Finals);
+  Clause.setUsedExprs(UsedExprs);
   return HasErrors;
 }
 

@@ -137,9 +137,9 @@ private:
       ID.AddPointer(Region);
     }
 
-    std::shared_ptr<PathDiagnosticPiece> VisitNode(const ExplodedNode *N,
-                                                   BugReporterContext &BRC,
-                                                   BugReport &BR) override;
+    PathDiagnosticPieceRef VisitNode(const ExplodedNode *N,
+                                     BugReporterContext &BRC,
+                                     BugReport &BR) override;
 
   private:
     // The tracked region.
@@ -290,10 +290,8 @@ NullabilityChecker::getTrackRegion(SVal Val, bool CheckSuperRegion) const {
   return dyn_cast<SymbolicRegion>(Region);
 }
 
-std::shared_ptr<PathDiagnosticPiece>
-NullabilityChecker::NullabilityBugVisitor::VisitNode(const ExplodedNode *N,
-                                                     BugReporterContext &BRC,
-                                                     BugReport &BR) {
+PathDiagnosticPieceRef NullabilityChecker::NullabilityBugVisitor::VisitNode(
+    const ExplodedNode *N, BugReporterContext &BRC, BugReport &BR) {
   ProgramStateRef State = N->getState();
   ProgramStateRef StatePrev = N->getFirstPred()->getState();
 
@@ -478,7 +476,7 @@ void NullabilityChecker::checkEvent(ImplicitNullDerefEvent Event) const {
     return;
 
   const MemRegion *Region =
-      getTrackRegion(Event.Location, /*CheckSuperregion=*/true);
+      getTrackRegion(Event.Location, /*CheckSuperRegion=*/true);
   if (!Region)
     return;
 
@@ -1208,7 +1206,7 @@ bool ento::shouldRegisterNullabilityBase(const LangOptions &LO) {
     checker->NoDiagnoseCallsToSystemHeaders =                                  \
         checker->NoDiagnoseCallsToSystemHeaders ||                             \
         mgr.getAnalyzerOptions().getCheckerBooleanOption(                      \
-                      checker, "NoDiagnoseCallsToSystemHeaders", false, true); \
+                      checker, "NoDiagnoseCallsToSystemHeaders", true);        \
   }                                                                            \
                                                                                \
   bool ento::shouldRegister##name##Checker(const LangOptions &LO) {            \

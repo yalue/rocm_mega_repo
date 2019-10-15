@@ -77,7 +77,8 @@ static void printRecord(size_t size, double avg_time,
 }
 
 static void printCopyBanner(uint32_t src_pool_id, uint32_t src_agent_type,
-                            uint32_t dst_pool_id, uint32_t dst_agent_type) {
+                            uint32_t dst_pool_id, uint32_t dst_agent_type,
+                            bool unidir) {
 
   std::stringstream src_type;
   std::stringstream dst_type;
@@ -86,8 +87,12 @@ static void printCopyBanner(uint32_t src_pool_id, uint32_t src_agent_type,
 
   std::cout << std::endl;
   std::cout << "================";
-  std::cout << "           Benchmark Result";
-  std::cout << "         ================";
+  if (unidir) {
+    std::cout << "    Unidirectional Benchmark Result";
+  } else {
+    std::cout << "    Bidirectional Benchmark Result";
+  }
+  std::cout << "    ================";
   std::cout << std::endl;
   std::cout << "================";
   std::cout << " Src Device Id: " << src_pool_id;
@@ -123,6 +128,11 @@ double RocmBandwidthTest::GetMinTime(std::vector<double>& vec) {
 }
 
 double RocmBandwidthTest::GetMeanTime(std::vector<double>& vec) {
+
+  // In validation mode we run only one iteration
+  if (validate_) {
+    return vec.at(0);
+  }
 
   std::sort(vec.begin(), vec.end());
   vec.erase(vec.begin());
@@ -178,14 +188,18 @@ void RocmBandwidthTest::Display() const {
   }
 
   if ((req_copy_bidir_ == REQ_COPY_BIDIR) ||
-      (req_copy_unidir_ == REQ_COPY_UNIDIR)) {
+      (req_copy_unidir_ == REQ_COPY_UNIDIR) ||
+      (req_concurrent_copy_bidir_ == REQ_CONCURRENT_COPY_BIDIR) ||
+      (req_concurrent_copy_unidir_ == REQ_CONCURRENT_COPY_UNIDIR)) {
       PrintVersion();
   }
 
   for (uint32_t idx = 0; idx < trans_size; idx++) {
     async_trans_t trans = trans_list_[idx];
     if ((trans.req_type_ == REQ_COPY_BIDIR) ||
-        (trans.req_type_ == REQ_COPY_UNIDIR)) {
+        (trans.req_type_ == REQ_COPY_UNIDIR) ||
+        (trans.req_type_ == REQ_CONCURRENT_COPY_BIDIR) ||
+        (trans.req_type_ == REQ_CONCURRENT_COPY_UNIDIR)) {
       DisplayCopyTime(trans);
     }
     if ((trans.req_type_ == REQ_READ) ||
@@ -209,7 +223,10 @@ void RocmBandwidthTest::DisplayCopyTime(async_trans_t& trans) const {
   hsa_device_type_t src_dev_type = agent_list_[src_dev_idx].device_type_;
   uint32_t dst_dev_idx = pool_list_[dst_idx].agent_index_;
   hsa_device_type_t dst_dev_type = agent_list_[dst_dev_idx].device_type_;
-  printCopyBanner(src_idx, src_dev_type, dst_idx, dst_dev_type);
+  
+  bool unidir = ((trans.req_type_ == REQ_COPY_UNIDIR) ||
+                 (trans.req_type_ == REQ_CONCURRENT_COPY_UNIDIR));
+  printCopyBanner(src_idx, src_dev_type, dst_idx, dst_dev_type, unidir);
 
   uint32_t size_len = size_list_.size();
   for (uint32_t idx = 0; idx < size_len; idx++) {

@@ -25,27 +25,27 @@
 #ifndef ROCSPARSE_CSR2HYB_HPP
 #define ROCSPARSE_CSR2HYB_HPP
 
-#include "rocsparse.h"
+#include "csr2ell_device.h"
+#include "csr2hyb_device.h"
 #include "definitions.h"
 #include "handle.h"
+#include "rocsparse.h"
 #include "utility.h"
-#include "csr2hyb_device.h"
-#include "csr2ell_device.h"
 
 #include <hip/hip_runtime.h>
-#include <hipcub/hipcub.hpp>
+#include <rocprim/rocprim.hpp>
 
 template <typename T>
-rocsparse_status rocsparse_csr2hyb_template(rocsparse_handle handle,
-                                            rocsparse_int m,
-                                            rocsparse_int n,
+rocsparse_status rocsparse_csr2hyb_template(rocsparse_handle          handle,
+                                            rocsparse_int             m,
+                                            rocsparse_int             n,
                                             const rocsparse_mat_descr descr,
-                                            const T* csr_val,
-                                            const rocsparse_int* csr_row_ptr,
-                                            const rocsparse_int* csr_col_ind,
-                                            rocsparse_hyb_mat hyb,
-                                            rocsparse_int user_ell_width,
-                                            rocsparse_hyb_partition partition_type)
+                                            const T*                  csr_val,
+                                            const rocsparse_int*      csr_row_ptr,
+                                            const rocsparse_int*      csr_col_ind,
+                                            rocsparse_hyb_mat         hyb,
+                                            rocsparse_int             user_ell_width,
+                                            rocsparse_hyb_partition   partition_type)
 {
     // Check for valid handle and matrix descriptor
     if(handle == nullptr)
@@ -88,9 +88,9 @@ rocsparse_status rocsparse_csr2hyb_template(rocsparse_handle handle,
         return rocsparse_status_not_implemented;
     }
     // Check partition type
-    if(partition_type != rocsparse_hyb_partition_max &&
-       partition_type != rocsparse_hyb_partition_user &&
-       partition_type != rocsparse_hyb_partition_auto)
+    if(partition_type != rocsparse_hyb_partition_max
+       && partition_type != rocsparse_hyb_partition_user
+       && partition_type != rocsparse_hyb_partition_auto)
     {
         return rocsparse_status_invalid_value;
     }
@@ -125,10 +125,16 @@ rocsparse_status rocsparse_csr2hyb_template(rocsparse_handle handle,
         return rocsparse_status_invalid_pointer;
     }
 
+    // Stream
+    hipStream_t stream = handle->stream;
+
     // Get number of CSR non-zeros
     rocsparse_int csr_nnz;
-    RETURN_IF_HIP_ERROR(
-        hipMemcpy(&csr_nnz, csr_row_ptr + m, sizeof(rocsparse_int), hipMemcpyDeviceToHost));
+    RETURN_IF_HIP_ERROR(hipMemcpyAsync(
+        &csr_nnz, csr_row_ptr + m, sizeof(rocsparse_int), hipMemcpyDeviceToHost, stream));
+
+    // Wait for host transfer to finish
+    RETURN_IF_HIP_ERROR(hipStreamSynchronize(stream));
 
     // Correct by index base
     csr_nnz -= descr->base;
@@ -150,9 +156,6 @@ rocsparse_status rocsparse_csr2hyb_template(rocsparse_handle handle,
             return rocsparse_status_invalid_value;
         }
     }
-
-    // Stream
-    hipStream_t stream = handle->stream;
 
     // Clear HYB structure if already allocated
     hyb->m         = m;
@@ -183,7 +186,7 @@ rocsparse_status rocsparse_csr2hyb_template(rocsparse_handle handle,
         RETURN_IF_HIP_ERROR(hipFree(hyb->coo_val));
     }
 
-// Determine ELL width
+    // Determine ELL width
 
 #define CSR2ELL_DIM 512
     // Workspace size
@@ -223,8 +226,11 @@ rocsparse_status rocsparse_csr2hyb_template(rocsparse_handle handle,
                            blocks,
                            workspace);
         // Copy ell width back to host
-        RETURN_IF_HIP_ERROR(
-            hipMemcpy(&hyb->ell_width, workspace, sizeof(rocsparse_int), hipMemcpyDeviceToHost));
+        RETURN_IF_HIP_ERROR(hipMemcpyAsync(
+            &hyb->ell_width, workspace, sizeof(rocsparse_int), hipMemcpyDeviceToHost, stream));
+
+        // Wait for host transfer to finish
+        RETURN_IF_HIP_ERROR(hipStreamSynchronize(stream));
 
         RETURN_IF_HIP_ERROR(hipFree(workspace));
     }
@@ -257,8 +263,11 @@ rocsparse_status rocsparse_csr2hyb_template(rocsparse_handle handle,
         if(hyb->ell_nnz == 0)
         {
             hyb->coo_nnz = csr_nnz;
-            RETURN_IF_HIP_ERROR(hipMemcpy(
-                workspace, csr_row_ptr, sizeof(rocsparse_int) * (m + 1), hipMemcpyDeviceToDevice));
+            RETURN_IF_HIP_ERROR(hipMemcpyAsync(workspace,
+                                               csr_row_ptr,
+                                               sizeof(rocsparse_int) * (m + 1),
+                                               hipMemcpyDeviceToDevice,
+                                               stream));
         }
         else
         {
@@ -274,26 +283,42 @@ rocsparse_status rocsparse_csr2hyb_template(rocsparse_handle handle,
                                descr->base);
 
             // Inclusive sum on workspace
-            void* d_temp_storage      = nullptr;
+            void*  d_temp_storage     = nullptr;
             size_t temp_storage_bytes = 0;
 
-            // Obtain hipcub buffer size
-            RETURN_IF_HIP_ERROR(hipcub::DeviceScan::InclusiveSum(
-                d_temp_storage, temp_storage_bytes, workspace, workspace, m + 1));
+            // Obtain rocprim buffer size
+            RETURN_IF_HIP_ERROR(rocprim::inclusive_scan(d_temp_storage,
+                                                        temp_storage_bytes,
+                                                        workspace,
+                                                        workspace,
+                                                        m + 1,
+                                                        rocprim::plus<rocsparse_int>(),
+                                                        stream));
 
-            // Allocate hipcub buffer
+            // Allocate rocprim buffer
             RETURN_IF_HIP_ERROR(hipMalloc(&d_temp_storage, temp_storage_bytes));
 
             // Do inclusive sum
-            RETURN_IF_HIP_ERROR(hipcub::DeviceScan::InclusiveSum(
-                d_temp_storage, temp_storage_bytes, workspace, workspace, m + 1));
+            RETURN_IF_HIP_ERROR(rocprim::inclusive_scan(d_temp_storage,
+                                                        temp_storage_bytes,
+                                                        workspace,
+                                                        workspace,
+                                                        m + 1,
+                                                        rocprim::plus<rocsparse_int>(),
+                                                        stream));
 
-            // Clear hipcub buffer
+            // Clear rocprim buffer
             RETURN_IF_HIP_ERROR(hipFree(d_temp_storage));
 
             // Obtain coo nnz from workspace
-            RETURN_IF_HIP_ERROR(hipMemcpy(
-                &hyb->coo_nnz, workspace + m, sizeof(rocsparse_int), hipMemcpyDeviceToHost));
+            RETURN_IF_HIP_ERROR(hipMemcpyAsync(&hyb->coo_nnz,
+                                               workspace + m,
+                                               sizeof(rocsparse_int),
+                                               hipMemcpyDeviceToHost,
+                                               stream));
+
+            // Wait for host transfer to finish
+            RETURN_IF_HIP_ERROR(hipStreamSynchronize(stream));
 
             hyb->coo_nnz -= descr->base;
         }

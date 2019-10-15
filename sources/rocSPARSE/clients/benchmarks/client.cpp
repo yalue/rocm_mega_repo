@@ -21,8 +21,8 @@
  *
  * ************************************************************************ */
 
-#include "utility.hpp"
 #include "rocsparse.hpp"
+#include "utility.hpp"
 
 // Level1
 #include "testing_axpyi.hpp"
@@ -42,24 +42,27 @@
 // Level3
 #include "testing_csrmm.hpp"
 
+// Extra
+#include "testing_csrgemm.hpp"
+
 // Preconditioner
 #include "testing_csrilu0.hpp"
 
 // Conversion
+#include "testing_coo2csr.hpp"
+#include "testing_coosort.hpp"
 #include "testing_csr2coo.hpp"
 #include "testing_csr2csc.hpp"
 #include "testing_csr2ell.hpp"
 #include "testing_csr2hyb.hpp"
-#include "testing_coo2csr.hpp"
+#include "testing_csrsort.hpp"
 #include "testing_ell2csr.hpp"
 #include "testing_identity.hpp"
-#include "testing_csrsort.hpp"
-#include "testing_coosort.hpp"
 
-#include <iostream>
-#include <stdio.h>
 #include <boost/program_options.hpp>
+#include <iostream>
 #include <rocsparse.h>
+#include <stdio.h>
 
 namespace po = boost::program_options;
 
@@ -70,7 +73,7 @@ int main(int argc, char* argv[])
     argus.timing     = 1;
 
     std::string function;
-    char precision = 's';
+    char        precision = 's';
 
     rocsparse_int device_id;
 
@@ -117,6 +120,7 @@ int main(int argc, char* argv[])
          "  Level1: axpyi, doti, gthr, gthrz, roti, sctr\n"
          "  Level2: coomv, csrmv, csrsv, ellmv, hybmv\n"
          "  Level3: csrmm\n"
+         "  Extra: csrgemm\n"
          "  Preconditioner: csrilu0\n"
          "  Conversion: csr2coo, csr2csc, csr2ell,\n"
          "              csr2hyb, coo2csr, ell2csr\n"
@@ -261,6 +265,13 @@ int main(int argc, char* argv[])
             testing_csrmm<float>(argus);
         else if(precision == 'd')
             testing_csrmm<double>(argus);
+    }
+    else if(function == "csrgemm")
+    {
+        if(precision == 's')
+            testing_csrgemm<float>(argus);
+        else if(precision == 'd')
+            testing_csrgemm<double>(argus);
     }
     else if(function == "csrilu0")
     {

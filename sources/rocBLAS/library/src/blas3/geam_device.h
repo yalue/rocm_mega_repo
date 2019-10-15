@@ -1,20 +1,21 @@
 /* ************************************************************************
- * Copyright 2016 Advanced Micro Devices, Inc.
+ * Copyright 2016-2019 Advanced Micro Devices, Inc.
  * ************************************************************************ */
+#include "rocblas.h"
 
 // general case for any alpha, beta, lda, ldb, ldc
 template <typename T>
 static __device__ void geam_device(rocblas_operation transA,
                                    rocblas_operation transB,
-                                   rocblas_int m,
-                                   rocblas_int n,
-                                   T alpha,
+                                   rocblas_int       m,
+                                   rocblas_int       n,
+                                   T                 alpha,
                                    const T* __restrict__ A,
                                    rocblas_int lda,
-                                   T beta,
+                                   T           beta,
                                    const T* __restrict__ B,
                                    rocblas_int ldb,
-                                   T* C,
+                                   T*          C,
                                    rocblas_int ldc)
 {
     rocblas_int tx = hipBlockIdx_x * hipBlockDim_x + hipThreadIdx_x;
@@ -52,12 +53,12 @@ static __device__ void geam_device(rocblas_operation transA,
 //  only one matrix contributes because   0 == alpha || 0 == beta
 template <typename T>
 static __device__ void geam_2matrix_device(rocblas_operation transA,
-                                           rocblas_int m,
-                                           rocblas_int n,
-                                           T alpha,
+                                           rocblas_int       m,
+                                           rocblas_int       n,
+                                           T                 alpha,
                                            const T* __restrict__ A,
                                            rocblas_int lda,
-                                           T* C,
+                                           T*          C,
                                            rocblas_int ldc)
 {
     rocblas_int tx = hipBlockIdx_x * hipBlockDim_x + hipThreadIdx_x;
@@ -115,7 +116,7 @@ static __device__ void geam_1D_device(
 //  beta)
 template <typename T>
 static __device__ void
-geam_1D_2matrix_device(rocblas_int size, T alpha, const T* __restrict__ A, T* C)
+    geam_1D_2matrix_device(rocblas_int size, T alpha, const T* __restrict__ A, T* C)
 {
     rocblas_int tx = hipBlockIdx_x * hipBlockDim_x + hipThreadIdx_x;
 
@@ -135,13 +136,13 @@ geam_1D_2matrix_device(rocblas_int size, T alpha, const T* __restrict__ A, T* C)
 // inplace
 template <typename T>
 static __device__ void geam_inplace_device(rocblas_operation transB,
-                                           rocblas_int m,
-                                           rocblas_int n,
-                                           T alpha,
-                                           T beta,
+                                           rocblas_int       m,
+                                           rocblas_int       n,
+                                           T                 alpha,
+                                           T                 beta,
                                            const T* __restrict__ B,
                                            rocblas_int ldb,
-                                           T* C,
+                                           T*          C,
                                            rocblas_int ldc)
 {
     rocblas_int tx = hipBlockIdx_x * hipBlockDim_x + hipThreadIdx_x;

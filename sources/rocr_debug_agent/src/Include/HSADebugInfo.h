@@ -66,6 +66,7 @@ typedef std::map<uint64_t, DebugAgentQueueInfo> DebugAgentQueueInfoMap;
 #define COMPUTE_RELAUNCH_IS_EVENT(x) (((x) >> 0x1E) & 0x1)
 #define COMPUTE_RELAUNCH_IS_STATE(x) (((x) >> 0x1F) & 0x1)
 #define SQ_WAVE_TRAPSTS_XNACK_ERROR(x) (((x) >> 0x1C) & 0x1)
+#define SQ_WAVE_TRAPSTS_MEM_VIOL(x) (((x) >> 0x8) & 0x1)
 
 // Wave states of a queue for ROCmGDB to probe.
 typedef struct _WaveStateInfo
@@ -78,9 +79,14 @@ typedef struct _WaveStateInfo
     uint32_t numVgprs;
     // Number of lanes in each VGPR.
     uint32_t numVgprLanes;
+    // Number of VGPRs allocated per wavefront.
+    uint32_t numAccVgprs;
+    // Number of lanes in each VGPR.
+    uint32_t numAccVgprLanes;
     // Array of packed VGPR data.
     // VGPR value = vgprs[(vgprIdx * numVgprLanes) + laneIdx]
     uint32_t* vgprs;
+    uint32_t* accvgprs;
     // LDS allocation size for the work group, in 32bit words.
     uint32_t ldsSizeDw;
     // Packed LDS data for the work group.
@@ -110,7 +116,7 @@ extern DebugAgentQueueInfoMap allDebugAgentQueueInfo;
 
 // Get the wave states of a queue from context save area,
 // decode and update wave info in the queue.
-DebugAgentStatus ProcessQueueWaveStates(uint32_t nodeId, uint64_t queueId);
+DebugAgentStatus ProcessQueueWaveStates(GPUAgentInfo* pAgent, QueueInfo *pQueue);
 
 // Preempt queues of all agents and process the waves.
 DebugAgentStatus PreemptAllQueues();

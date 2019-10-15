@@ -61,22 +61,20 @@ struct DisassemblyInfo {
   DisassemblyInfo(ReadMemoryCallback ReadMemory,
                   PrintInstructionCallback PrintInstruction,
                   PrintAddressAnnotationCallback PrintAddressAnnotation,
-                  const Target *TheTarget, const MCAsmInfo *MAI,
-                  const MCRegisterInfo *MRI, const MCSubtargetInfo *STI,
-                  const MCInstrInfo *MII, const MCContext *Ctx,
-                  const MCDisassembler *DisAsm, const MCInstrAnalysis *MIA,
-                  MCInstPrinter *IP)
+                  const llvm::Target *TheTarget,
+                  std::unique_ptr<const llvm::MCAsmInfo> &&MAI,
+                  std::unique_ptr<const llvm::MCRegisterInfo> &&MRI,
+                  std::unique_ptr<const llvm::MCSubtargetInfo> &&STI,
+                  std::unique_ptr<const llvm::MCInstrInfo> &&MII,
+                  std::unique_ptr<const llvm::MCContext> &&Ctx,
+                  std::unique_ptr<const llvm::MCDisassembler> &&DisAsm,
+                  std::unique_ptr<const llvm::MCInstrAnalysis> &&MIA,
+                  std::unique_ptr<llvm::MCInstPrinter> &&IP)
       : ReadMemory(ReadMemory), PrintInstruction(PrintInstruction),
-        PrintAddressAnnotation(PrintAddressAnnotation), TheTarget(TheTarget) {
-    this->MAI.reset(MAI);
-    this->MRI.reset(MRI);
-    this->STI.reset(STI);
-    this->MII.reset(MII);
-    this->Ctx.reset(Ctx);
-    this->DisAsm.reset(DisAsm);
-    this->MIA.reset(MIA);
-    this->IP.reset(IP);
-  }
+        PrintAddressAnnotation(PrintAddressAnnotation), TheTarget(TheTarget),
+        MAI(std::move(MAI)), MRI(std::move(MRI)), STI(std::move(STI)),
+        MII(std::move(MII)), Ctx(std::move(Ctx)), DisAsm(std::move(DisAsm)),
+        MIA(std::move(MIA)), IP(std::move(IP)) {}
 
   static amd_comgr_disassembly_info_t convert(DisassemblyInfo *DisasmInfo) {
     amd_comgr_disassembly_info_t Handle = {
@@ -107,15 +105,15 @@ struct DisassemblyInfo {
   ReadMemoryCallback ReadMemory;
   PrintInstructionCallback PrintInstruction;
   PrintAddressAnnotationCallback PrintAddressAnnotation;
-  const Target *TheTarget;
-  std::unique_ptr<const MCAsmInfo> MAI;
-  std::unique_ptr<const MCRegisterInfo> MRI;
-  std::unique_ptr<const MCSubtargetInfo> STI;
-  std::unique_ptr<const MCInstrInfo> MII;
-  std::unique_ptr<const MCContext> Ctx;
-  std::unique_ptr<const MCDisassembler> DisAsm;
-  std::unique_ptr<const MCInstrAnalysis> MIA;
-  std::unique_ptr<MCInstPrinter> IP;
+  const llvm::Target *TheTarget;
+  std::unique_ptr<const llvm::MCAsmInfo> MAI;
+  std::unique_ptr<const llvm::MCRegisterInfo> MRI;
+  std::unique_ptr<const llvm::MCSubtargetInfo> STI;
+  std::unique_ptr<const llvm::MCInstrInfo> MII;
+  std::unique_ptr<const llvm::MCContext> Ctx;
+  std::unique_ptr<const llvm::MCDisassembler> DisAsm;
+  std::unique_ptr<const llvm::MCInstrAnalysis> MIA;
+  std::unique_ptr<llvm::MCInstPrinter> IP;
 };
 
 } // namespace COMGR

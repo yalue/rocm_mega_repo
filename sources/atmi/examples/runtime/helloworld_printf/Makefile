@@ -31,13 +31,6 @@ AMDGPU_TARGET_TRIPLE ?= amdgpu--amdhsa
 MCPU ?= $(shell ${ATMI_RUNTIME_PATH}/bin/mygpu)
 #$(info MCPU $(MCPU))
 
-# Kernel format
-BRIG ?= 0
-ifeq ($(BRIG),1)
-	BRIGCLOPTS=-brig
-	BRIGCPPOPTS=-DUSE_BRIG
-endif
-
 # Kernel compiler
 CLC ?= 1
 
@@ -62,7 +55,7 @@ CLOPTS += -save-temps
 endif
 
 # cloc options
-CLOCOPTS = -vv -hcc2 ${AMDLLVM} -triple ${AMDGPU_TARGET_TRIPLE} -libgcn ${ROCM_DEVICE_PATH}
+CLOCOPTS = -vv -aomp ${AMDLLVM} -triple ${AMDGPU_TARGET_TRIPLE} -libgcn ${ROCM_DEVICE_PATH}
 CLOCOPTS += -clopts "$(CLOPTS)"
 
 # ROCm-Device-lib
@@ -124,7 +117,7 @@ all: $(OBJS)
 
 %.hsaco: %.cl $(INC_FILES)
 ifeq ($(CLC),1)
-	$(CLOC_PATH)/cloc.sh ${CLOCOPTS} ${BRIGCLOPTS} -opt 2 -o $@ $<
+	$(CLOC_PATH)/cloc.sh ${CLOCOPTS} -opt 2 -o $@ $<
 else
 ifeq ($(SAVETEMP),0)
 	$(CLCC) ${CLCFLAGS} -o $@ $<
@@ -149,7 +142,7 @@ hello: hw_gpu.hsaco hw_cpu.o hw_host.o
 	$(CXX) -o $@ hw_host.o hw_cpu.o $(LIBS) $(LIB_FLAGS)
 
 clean:
-	rm -rf *.o *.brig *.i *.bc *.hsaco $(OBJS)
+	rm -rf *.o *.i *.bc *.hsaco $(OBJS)
 
 test:
 	env LD_LIBRARY_PATH=${ATMI_RUNTIME_PATH}/lib:${HSA_RUNTIME_PATH}/lib:${LD_LIBRARY_PATH} ./hello

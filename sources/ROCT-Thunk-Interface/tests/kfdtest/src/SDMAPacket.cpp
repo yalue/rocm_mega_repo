@@ -30,30 +30,24 @@
 /* Byte/dword count in many SDMA packets is 1-based in AI, meaning a
  * count of 1 is encoded as 0.
  */
-#define SDMA_COUNT(c) (g_TestGPUFamilyId < FAMILY_AI ? (c) : (c)-1)
+#define SDMA_COUNT(c) (m_FamilyId < FAMILY_AI ? (c) : (c)-1)
 
-SDMAWriteDataPacket::SDMAWriteDataPacket(void):
+SDMAWriteDataPacket::SDMAWriteDataPacket(unsigned int familyId, void* destAddr, unsigned int data):
     packetData(NULL) {
+    m_FamilyId = familyId;
+    InitPacket(destAddr, 1, &data);
 }
 
-SDMAWriteDataPacket::SDMAWriteDataPacket(void* destAddr, unsigned int data):
-    packetData(NULL) {
-    InitPacket(destAddr, data);
-}
-
-SDMAWriteDataPacket::SDMAWriteDataPacket(void* destAddr, unsigned int ndw,
+SDMAWriteDataPacket::SDMAWriteDataPacket(unsigned int familyId, void* destAddr, unsigned int ndw,
                                          void *data):
     packetData(NULL) {
+    m_FamilyId = familyId;
     InitPacket(destAddr, ndw, data);
 }
 
 SDMAWriteDataPacket::~SDMAWriteDataPacket(void) {
     if (packetData)
         free(packetData);
-}
-
-void SDMAWriteDataPacket::InitPacket(void* destAddr, unsigned int data) {
-    InitPacket(destAddr, 1, &data);
 }
 
 void SDMAWriteDataPacket::InitPacket(void* destAddr, unsigned int ndw,
@@ -79,7 +73,8 @@ SDMACopyDataPacket::~SDMACopyDataPacket(void) {
     free(packetData);
 }
 
-SDMACopyDataPacket::SDMACopyDataPacket(void *const dsts[], void *src, int n, unsigned int surfsize) {
+SDMACopyDataPacket::SDMACopyDataPacket(unsigned int familyId,
+                        void *const dsts[], void *src, int n, unsigned int surfsize) {
     int32_t size = 0, i;
     void **dst = reinterpret_cast<void**>(malloc(sizeof(void*) * n));
     const int singlePacketSize = sizeof(SDMA_PKT_COPY_LINEAR) +
@@ -88,6 +83,7 @@ SDMACopyDataPacket::SDMACopyDataPacket(void *const dsts[], void *src, int n, uns
     if (n > 2)
         WARN() << "SDMACopyDataPacket does not support more than 2 dst addresses!" << std::endl;
 
+    m_FamilyId = familyId;
     memcpy(dst, dsts, sizeof(void*) * n);
 
     packetSize = ((surfsize + TWO_MEG - 1) >> BITS) * singlePacketSize;
@@ -125,18 +121,19 @@ SDMACopyDataPacket::SDMACopyDataPacket(void *const dsts[], void *src, int n, uns
     free(dst);
 }
 
-SDMACopyDataPacket::SDMACopyDataPacket(void* dst, void *src, unsigned int surfsize) {
-    new (this)SDMACopyDataPacket(&dst, src, 1, surfsize);
+SDMACopyDataPacket::SDMACopyDataPacket(unsigned int familyId, void* dst, void *src, unsigned int surfsize) {
+    new (this)SDMACopyDataPacket(familyId, &dst, src, 1, surfsize);
 }
 
 SDMAFillDataPacket::~SDMAFillDataPacket() {
     free(m_PacketData);
 }
 
-SDMAFillDataPacket::SDMAFillDataPacket(void *dst, unsigned int data, unsigned int size) {
+SDMAFillDataPacket::SDMAFillDataPacket(unsigned int familyId, void *dst, unsigned int data, unsigned int size) {
     unsigned int copy_size;
     SDMA_PKT_CONSTANT_FILL *pSDMA;
 
+    m_FamilyId = familyId;
     /* SDMA support maximum 0x3fffe0 byte in one copy. Use 2M copy_size */
     m_PacketSize = ((size + TWO_MEG - 1) >> BITS) * sizeof(SDMA_PKT_CONSTANT_FILL);
     pSDMA = reinterpret_cast<SDMA_PKT_CONSTANT_FILL *>(calloc(1, m_PacketSize));
@@ -174,19 +171,40 @@ SDMAFillDataPacket::SDMAFillDataPacket(void *dst, unsigned int data, unsigned in
 SDMAFencePacket::SDMAFencePacket(void) {
 }
 
-SDMAFencePacket::SDMAFencePacket(void* destAddr, unsigned int data) {
-    InitPacket(destAddr, data);
+SDMAFencePacket::SDMAFencePacket(unsigned int familyId, void* destAddr, unsigned int data) {
+    m_FamilyId = familyId;
+    if (m_FamilyId < FAMILY_NV)
+        InitPacketCI(destAddr, data);
+    else
+        InitPacketNV(destAddr, data);
 }
 
 SDMAFencePacket::~SDMAFencePacket(void) {
 }
 
-void SDMAFencePacket::InitPacket(void* destAddr, unsigned int data) {
+void SDMAFencePacket::InitPacketCI(void* destAddr, unsigned int data) {
     memset(&packetData, 0, SizeInBytes());
 
     packetData.HEADER_UNION.op = SDMA_OP_FENCE;
 
     SplitU64(reinterpret_cast<HSAuint64>(destAddr),
+             packetData.ADDR_LO_UNION.DW_1_DATA, /*dst_addr_31_0*/
+             packetData.ADDR_HI_UNION.DW_2_DATA); /*dst_addr_63_32*/
+
+    packetData.DATA_UNION.data = data;
+}
+
+void SDMAFencePacket::InitPacketNV(void * destAddr,unsigned int data) {
+    memset(&packetData, 0, SizeInBytes());
+
+    /* GPA=0 becaue we use virtual address
+     * Snoop = 1 because we want the write be CPU coherent
+     * System = 1 because the memory is system memory
+     * mtype = uncached, for the purpose of CPU coherent, L2 policy doesn't matter in this case
+     */
+    packetData.HEADER_UNION.DW_0_DATA = (0 << 23) | (1 << 22) | (1 << 20) | (3 << 15) | SDMA_OP_FENCE;
+
+    SplitU64(reinterpret_cast<unsigned long long>(destAddr),
              packetData.ADDR_LO_UNION.DW_1_DATA, /*dst_addr_31_0*/
              packetData.ADDR_HI_UNION.DW_2_DATA); /*dst_addr_63_32*/
 

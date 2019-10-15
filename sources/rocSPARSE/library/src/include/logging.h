@@ -58,7 +58,7 @@
 
 inline void open_log_stream(std::ostream** log_os,
                             std::ofstream* log_ofs,
-                            std::string environment_variable_name)
+                            std::string    environment_variable_name)
 {
     *log_os = &std::cerr;
 
@@ -123,7 +123,11 @@ void each_args(F)
  */
 struct log_arg
 {
-    log_arg(std::ostream& os, std::string& separator) : os_(os), separator_(separator) {}
+    log_arg(std::ostream& os, std::string& separator)
+        : os_(os)
+        , separator_(separator)
+    {
+    }
 
     /// Generic overload for () operator.
     template <typename T>
@@ -144,9 +148,9 @@ struct log_arg
         os_ << separator_ << complex_value.x << separator_ << complex_value.y;
     }
     */
-    private:
-    std::ostream& os_;       ///< Output stream.
-    std::string& separator_; ///< Separator: output preceding argument.
+private:
+    std::ostream& os_; ///< Output stream.
+    std::string&  separator_; ///< Separator: output preceding argument.
 };
 
 /**

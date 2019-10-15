@@ -37,12 +37,11 @@
 #define COMGR_DATA_H_
 
 #include "amd_comgr.h"
-#include "comgr-msgpack.h"
 #include "comgr-symbol.h"
-#include "yaml-cpp/yaml.h"
 #include "llvm/ADT/SetVector.h"
 #include "llvm/ADT/SmallVector.h"
 #include "llvm/ADT/StringRef.h"
+#include "llvm/BinaryFormat/MsgPackDocument.h"
 #include "llvm/Object/ObjectFile.h"
 
 namespace COMGR {
@@ -202,14 +201,50 @@ struct DataAction {
   }
 
   amd_comgr_status_t setIsaName(llvm::StringRef IsaName);
-  amd_comgr_status_t setActionOptions(llvm::StringRef ActionOptions);
   amd_comgr_status_t setActionPath(llvm::StringRef ActionPath);
 
+  // Set the options to be the legacy "flat" string.
+  amd_comgr_status_t setOptionsFlat(llvm::StringRef Options);
+  // If the options were set via setOptionsFlag, return a reference to the
+  // string (including the null terminator).
+  amd_comgr_status_t getOptionsFlat(llvm::StringRef &Options);
+
+  // Set the options to be the new list.
+  amd_comgr_status_t setOptionList(llvm::ArrayRef<const char *> Options);
+  // If the options were set via setOptionList, return the length of the list.
+  amd_comgr_status_t getOptionListCount(size_t &Size);
+  // If the options were set via setOptionList, return a reference to the
+  // string at Index in the list (including the null terminator).
+  amd_comgr_status_t getOptionListItem(size_t Index, llvm::StringRef &Option);
+
+  // Return a normalized array of options, possibly splitting a flat options
+  // string. If splitting, ' ' is used as a delimiter if IsDeviceLibs is false,
+  // otherwise ',' is used. The returned array reference is only valid as long
+  // as no other option APIs are called.
+  llvm::ArrayRef<std::string> getOptions(bool IsDeviceLibs = false);
+
   char *IsaName;
-  char *Options;
   char *Path;
   amd_comgr_language_t Language;
   bool Logging;
+
+private:
+  bool AreOptionsList;
+  std::string FlatOptions;
+  std::vector<std::string> ListOptions;
+};
+
+// Elements common to all DataMeta which refer to the same "document".
+struct MetaDocument {
+  // The MsgPack document, which owns all memory allocated during parsing.
+  llvm::msgpack::Document Document;
+  // The MsgPack parser is zero-copy, so we retain a copy of the input buffer.
+  std::string RawDocument;
+  // The old YAML parser would produce the strings "true" and "false" for
+  // booleans, whereas the old MsgPack parser produced "0" and "1". The new
+  // universal parser produces "true" and "false", but we need to remain
+  // backwards compatible, so we set a flag when parsing MsgPack.
+  bool EmitIntegerBooleans = false;
 };
 
 struct DataMeta {
@@ -231,8 +266,11 @@ struct DataMeta {
 
   amd_comgr_metadata_kind_t getMetadataKind();
 
-  YAML::Node YAMLNode;
-  std::shared_ptr<msgpack::Node> MsgPackNode;
+  // This DataMeta's "meta document", shared by all instances derived from the
+  // same metadata.
+  std::shared_ptr<MetaDocument> MetaDoc;
+  // This DataMeta's "view" into the shared llvm::msgpack::Document.
+  llvm::msgpack::DocNode DocNode;
 };
 
 struct DataSymbol {

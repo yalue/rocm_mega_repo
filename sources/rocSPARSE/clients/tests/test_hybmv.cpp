@@ -24,26 +24,32 @@
 #include "testing_hybmv.hpp"
 #include "utility.hpp"
 
-#include <rocsparse.h>
 #include <gtest/gtest.h>
-#include <vector>
+#include <rocsparse.h>
 #include <string>
+#include <vector>
 
-typedef std::tuple<int, int, double, double, rocsparse_index_base, rocsparse_hyb_partition, int>
+typedef std::tuple<rocsparse_int,
+                   rocsparse_int,
+                   double,
+                   double,
+                   rocsparse_index_base,
+                   rocsparse_hyb_partition,
+                   int>
     hybmv_tuple;
 typedef std::tuple<double, double, rocsparse_index_base, rocsparse_hyb_partition, int, std::string>
     hybmv_bin_tuple;
 
-int hyb_M_range[] = {-1, 0, 10, 500, 7111, 10000};
-int hyb_N_range[] = {-3, 0, 33, 842, 4441, 10000};
+rocsparse_int hyb_M_range[] = {-1, 0, 10, 500, 7111, 10000};
+rocsparse_int hyb_N_range[] = {-3, 0, 33, 842, 4441, 10000};
 
 std::vector<double> hyb_alpha_range = {2.0, 3.0};
 std::vector<double> hyb_beta_range  = {0.0, 0.67, 1.0};
 
 rocsparse_index_base hyb_idxbase_range[] = {rocsparse_index_base_zero, rocsparse_index_base_one};
 
-rocsparse_hyb_partition hyb_partition[] = {
-    rocsparse_hyb_partition_auto, rocsparse_hyb_partition_max, rocsparse_hyb_partition_user};
+rocsparse_hyb_partition hyb_partition[]
+    = {rocsparse_hyb_partition_auto, rocsparse_hyb_partition_max, rocsparse_hyb_partition_user};
 
 int hyb_ELL_range[] = {0, 1, 2};
 
@@ -60,11 +66,16 @@ std::string hyb_bin[] = {"rma10.bin",
                          "nos4.bin",
                          "nos5.bin",
                          "nos6.bin",
-                         "nos7.bin"};
+                         "nos7.bin",
+                         "amazon0312.bin",
+                         "Chebyshev4.bin",
+                         "sme3Dc.bin",
+                         "webbase-1M.bin",
+                         "shipsec1.bin"};
 
 class parameterized_hybmv : public testing::TestWithParam<hybmv_tuple>
 {
-    protected:
+protected:
     parameterized_hybmv() {}
     virtual ~parameterized_hybmv() {}
     virtual void SetUp() {}
@@ -73,7 +84,7 @@ class parameterized_hybmv : public testing::TestWithParam<hybmv_tuple>
 
 class parameterized_hybmv_bin : public testing::TestWithParam<hybmv_bin_tuple>
 {
-    protected:
+protected:
     parameterized_hybmv_bin() {}
     virtual ~parameterized_hybmv_bin() {}
     virtual void SetUp() {}
@@ -110,7 +121,7 @@ Arguments setup_hybmv_arguments(hybmv_bin_tuple tup)
     std::string bin_file = std::get<5>(tup);
 
     // Get current executables absolute path
-    char path_exe[PATH_MAX];
+    char    path_exe[PATH_MAX];
     ssize_t len = readlink("/proc/self/exe", path_exe, sizeof(path_exe) - 1);
     if(len < 14)
     {
@@ -122,12 +133,15 @@ Arguments setup_hybmv_arguments(hybmv_bin_tuple tup)
     }
 
     // Matrices are stored at the same path in matrices directory
-    arg.filename = std::string(path_exe) + "matrices/" + bin_file;
+    arg.filename = std::string(path_exe) + "../matrices/" + bin_file;
 
     return arg;
 }
 
-TEST(hybmv_bad_arg, hybmv_float) { testing_hybmv_bad_arg<float>(); }
+TEST(hybmv_bad_arg, hybmv_float)
+{
+    testing_hybmv_bad_arg<float>();
+}
 
 TEST_P(parameterized_hybmv, hybmv_float)
 {

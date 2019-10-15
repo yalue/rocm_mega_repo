@@ -107,7 +107,7 @@ class NullDevice : public amd::Device {
   const Settings& settings() const { return reinterpret_cast<Settings&>(*settings_); }
 
   //! Construct an HSAIL program object from the ELF assuming it is valid
-  virtual device::Program* createProgram(amd::option::Options* options = nullptr);
+  virtual device::Program* createProgram(amd::Program& owner, amd::option::Options* options = nullptr);
   const AMDDeviceInfo& deviceInfo() const { return deviceInfo_; }
   //! Gets the backend device for the Null device type
   virtual hsa_agent_t getBackendDevice() const {
@@ -300,7 +300,7 @@ class Device : public NullDevice {
   virtual device::VirtualDevice* createVirtualDevice(amd::CommandQueue* queue = nullptr);
 
   //! Construct an HSAIL program object from the ELF assuming it is valid
-  virtual device::Program* createProgram(amd::option::Options* options = nullptr);
+  virtual device::Program* createProgram(amd::Program& owner, amd::option::Options* options = nullptr);
 
   virtual device::Memory* createMemory(amd::Memory& owner) const;
 
@@ -393,6 +393,21 @@ class Device : public NullDevice {
   virtual amd::Memory* IpcAttach(const void* handle, size_t mem_size, unsigned int flags, void** dev_ptr) const;
   virtual void IpcDetach (amd::Memory& memory) const;
 
+  bool AcquireExclusiveGpuAccess();
+  void ReleaseExclusiveGpuAccess(VirtualGPU& vgpu) const;
+
+  //! Returns the lock object for the virtual gpus list
+  amd::Monitor& vgpusAccess() const { return vgpusAccess_; }
+
+  typedef std::vector<VirtualGPU*> VirtualGPUs;
+    //! Returns the list of all virtual GPUs running on this device
+  const VirtualGPUs& vgpus() const { return vgpus_; }
+  VirtualGPUs vgpus_;  //!< The list of all running virtual gpus (lock protected)
+
+  VirtualGPU* xferQueue() const;
+
+  std::map<hsa_queue_t*, int>& QueuePool() { return queue_pool_; }
+
  private:
   static hsa_ven_amd_loader_1_00_pfn_t amd_loader_ext_table;
 
@@ -416,13 +431,14 @@ class Device : public NullDevice {
   amd::Context* context_;  //!< A dummy context for internal data transfer
   VirtualGPU* xferQueue_;  //!< Transfer queue, created on demand
 
-  VirtualGPU* xferQueue() const;
-
   XferBuffers* xferRead_;   //!< Transfer buffers read
   XferBuffers* xferWrite_;  //!< Transfer buffers write
   const IProDevice* pro_device_;  //!< AMDGPUPro device
   bool  pro_ena_;           //!< Extra functionality with AMDGPUPro device, beyond ROCr
   std::atomic<size_t> freeMem_;   //!< Total of free memory available
+  mutable amd::Monitor vgpusAccess_;     //!< Lock to serialise virtual gpu list access
+  bool hsa_exclusive_gpu_access_;  //!< TRUE if current device was moved into exclusive GPU access mode
+  std::map<hsa_queue_t*, int> queue_pool_;  //!< Pool of HSA queues for recycling
 
  public:
   amd::Atomic<uint> numOfVgpus_;  //!< Virtual gpu unique index

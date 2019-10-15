@@ -87,20 +87,22 @@ HSAuint64 GetSystemTickCountInMicroSec() {
 }
 
 bool SuspendAndWakeUp() {
-    // TODO: Implement
-    return false;
-}
+    printf("Please press any key after the system suspends....\n");
 
-void AcquirePrivilege(OS_PRIVILEGE priv) {
-    // TODO: Implement
-}
+    // Use "sudo apt install pm-utils" to install the "pm-suspend"
+    int ret = system("sudo pm-suspend");
 
-void DisableKfd() {
-    // TODO: Implement
-}
+    if (ret == -1) {
+        printf("The system linux command could not be run!\n");
+        return false;
+    } else {
+        if (WEXITSTATUS(ret)) {
+            printf("Use 'sudo apt install pm-utils' to install 'pm-suspend' on Ubuntu\n");
+            return false;
+        }
+    }
 
-void EnableKfd() {
-    // TODO: Implement
+    return true;
 }
 
 bool ReadDriverConfigValue(CONFIG_VALUE config, unsigned int& rValue) {

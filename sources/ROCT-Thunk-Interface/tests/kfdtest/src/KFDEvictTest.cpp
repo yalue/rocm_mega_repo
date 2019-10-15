@@ -34,6 +34,30 @@
 #define ALLOCATE_BUF_SIZE_MB    (64)
 #define ALLOCATE_RETRY_TIMES    (3)
 
+#define SDMA_NOP  0x0
+
+void KFDEvictTest::SetUp() {
+    ROUTINE_START
+
+    KFDBaseComponentTest::SetUp();
+
+    m_pIsaGen = IsaGenerator::Create(m_FamilyId);
+
+    ROUTINE_END
+}
+
+void KFDEvictTest::TearDown() {
+    ROUTINE_START
+
+    if (m_pIsaGen)
+        delete m_pIsaGen;
+    m_pIsaGen = NULL;
+
+    KFDBaseComponentTest::TearDown();
+
+    ROUTINE_END
+}
+
 void KFDEvictTest::AllocBuffers(HSAuint32 defaultGPUNode, HSAuint32 count, HSAuint64 vramBufSize,
                                 std::vector<void *> &pBuffers) {
     HSAuint64   totalMB;
@@ -176,7 +200,8 @@ static inline int amdgpu_get_bo_list(amdgpu_device_handle dev, amdgpu_bo_handle 
     return amdgpu_bo_list_create(dev, bo2 ? 2 : 1, resources, NULL, list);
 }
 
-void KFDEvictTest::AmdgpuCommandSubmissionComputeNop(int rn, amdgpu_bo_handle handle) {
+void KFDEvictTest::AmdgpuCommandSubmissionSdmaNop(int rn, amdgpu_bo_handle handle,
+                                                     PM4Queue *computeQueue = NULL) {
     amdgpu_context_handle contextHandle;
     amdgpu_bo_handle ibResultHandle;
     void *ibResultCpu;
@@ -203,14 +228,14 @@ void KFDEvictTest::AmdgpuCommandSubmissionComputeNop(int rn, amdgpu_bo_handle ha
     /* Fill Nop cammands in IB */
     ptr = reinterpret_cast<uint32_t *>(ibResultCpu);
     for (int i = 0; i < 16; i++)
-        ptr[i] = 0xffff1000;
+        ptr[i] = SDMA_NOP;
 
     memset(&ibInfo, 0, sizeof(struct amdgpu_cs_ib_info));
     ibInfo.ib_mc_address = ibResultMcAddress;
     ibInfo.size = 16;
 
     memset(&ibsRequest, 0, sizeof(struct amdgpu_cs_request));
-    ibsRequest.ip_type = AMDGPU_HW_IP_GFX;
+    ibsRequest.ip_type = AMDGPU_HW_IP_DMA;
     ibsRequest.ring = 0;
     ibsRequest.number_of_ibs = 1;
     ibsRequest.ibs = &ibInfo;
@@ -223,7 +248,7 @@ void KFDEvictTest::AmdgpuCommandSubmissionComputeNop(int rn, amdgpu_bo_handle ha
         Delay(50);
 
         fenceStatus.context = contextHandle;
-        fenceStatus.ip_type = AMDGPU_HW_IP_GFX;
+        fenceStatus.ip_type = AMDGPU_HW_IP_DMA;
         fenceStatus.ip_instance = 0;
         fenceStatus.ring = 0;
         fenceStatus.fence = ibsRequest.seq_no;
@@ -233,6 +258,15 @@ void KFDEvictTest::AmdgpuCommandSubmissionComputeNop(int rn, amdgpu_bo_handle ha
                                                   0, &expired));
         if (!expired)
             WARN() << "CS did not signal completion" << std::endl;
+
+        /* If a compute queue is given, submit a short compute job
+         * every 16 loops (about once a second). If the process was
+         * evicted, restore can take quite long.
+         */
+        if (computeQueue && (i & 0xf) == 0) {
+            computeQueue->PlaceAndSubmitPacket(PM4NopPacket());
+            computeQueue->Wait4PacketConsumption(NULL, 10000);
+        }
     }
 
     EXPECT_EQ(0, amdgpu_bo_list_destroy(boList));
@@ -241,57 +275,6 @@ void KFDEvictTest::AmdgpuCommandSubmissionComputeNop(int rn, amdgpu_bo_handle ha
         ibResultMcAddress, PAGE_SIZE));
 
     EXPECT_EQ(0, amdgpu_cs_ctx_free(contextHandle));
-}
-
-void KFDEvictTest::ForkChildProcesses(int nprocesses) {
-    int i;
-
-    for (i = 0; i < nprocesses - 1; ++i) {
-        pid_t pid = fork();
-        ASSERT_GE(pid, 0);
-
-        if (pid == 0) {
-            /* Child process */
-            /* Cleanup file descriptors copied from parent process
-             * then call SetUp->hsaKmtOpenKFD to create new process
-             */
-            m_psName = "Test process " + std::to_string(i) + " ";
-            TearDown();
-            SetUp();
-            m_ChildPids.clear();
-            m_IsParent = false;
-            return;
-        }
-
-        /* Parent process */
-        m_ChildPids.push_back(pid);
-    }
-
-    m_psName = "Test process " + std::to_string(i) + " ";
-}
-
-void KFDEvictTest::WaitChildProcesses() {
-    if (m_IsParent) {
-        /* Only run by parent process */
-        int childStatus;
-        int childExitOkNum = 0;
-        int size = m_ChildPids.size();
-
-        for (HSAuint32 i = 0; i < size; i++) {
-            pid_t pid = m_ChildPids.front();
-
-            waitpid(pid, &childStatus, 0);
-            if (WIFEXITED(childStatus) == 1 && WEXITSTATUS(childStatus) == 0)
-                childExitOkNum++;
-
-            m_ChildPids.erase(m_ChildPids.begin());
-        }
-
-        EXPECT_EQ(childExitOkNum, size);
-    }
-
-    /* Child process or parent process finished successfully */
-    m_ChildStatus = HSAKMT_STATUS_SUCCESS;
 }
 
 /* Evict and restore procedure basic test
@@ -324,7 +307,7 @@ TEST_F(KFDEvictTest, BasicTest) {
     ASSERT_GE(defaultGPUNode, 0) << "failed to get default GPU Node";
     HSAuint64 vramBufSize = ALLOCATE_BUF_SIZE_MB * 1024 * 1024;
 
-    HSAuint64 vramSize = GetVramSize(defaultGPUNode);
+    HSAuint64 vramSize = GetVramSize(defaultGPUNode) * 7 / 8;
 
     if (!vramSize) {
         LOG() << "Skipping test: No VRAM found." << std::endl;
@@ -334,7 +317,7 @@ TEST_F(KFDEvictTest, BasicTest) {
     }
 
     // Use 7/8 of VRAM between all processes
-    HSAuint32 count = vramSize * 7 / (8* vramBufSize * N_PROCESSES);
+    HSAuint32 count = vramSize  / (vramBufSize * N_PROCESSES);
 
     LOG() << "Found System RAM of " << std::dec << (GetSysMemSize() >> 20) << "MB" << std::endl;
 
@@ -356,7 +339,7 @@ TEST_F(KFDEvictTest, BasicTest) {
     amdgpu_bo_handle handle;
     AllocAmdgpuBo(rn, size, handle);
 
-    AmdgpuCommandSubmissionComputeNop(rn, handle);
+    AmdgpuCommandSubmissionSdmaNop(rn, handle);
 
     FreeAmdgpuBo(handle);
     LOG() << m_psName << "free buffer" << std::endl;
@@ -381,11 +364,15 @@ TEST_F(KFDEvictTest, BasicTest) {
  *   v[2:3] - address of corresponding local buf address offset: s[0:1] + v0 * 8
  *   v[4:5] - corresponding output buf address: s[2:3] + v0 * 4
  *   v[6:7] - local buf address used for read test
+ *
+ *    This shader can be used by gfx9 and gfx10
+ *
  */
+
 static const char* gfx9_ReadMemory =
 "\
     shader ReadMemory\n\
-    asic(GFX9)\n\
+    wave_size(32)\n\
     type(CS)\n\
     \n\
     // compute address of corresponding output buffer\n\
@@ -393,13 +380,13 @@ static const char* gfx9_ReadMemory =
     v_lshlrev_b32   v0, 2, v0               // v0 *= 4\n\
     v_add_co_u32    v4, vcc, s2, v0         // v[4:5] = s[2:3] + v0 * 4\n\
     v_mov_b32       v5, s3\n\
-    v_add_u32       v5, vcc_lo, v5\n\
+    v_add_co_u32    v5, vcc, v5, vcc_lo\n\
     \n\
     // compute input buffer offset used to store corresponding local buffer address\n\
     v_lshlrev_b32   v0, 1, v0               // v0 *= 8\n\
     v_add_co_u32    v2, vcc, s0, v0         // v[2:3] = s[0:1] + v0 * 8\n\
     v_mov_b32       v3, s1\n\
-    v_add_u32       v3, vcc_lo, v3\n\
+    v_add_co_u32    v3, vcc, v3, vcc_lo\n\
     \n\
     // load 64bit local buffer address stored at v[2:3] to v[6:7]\n\
     flat_load_dwordx2   v[6:7], v[2:3] slc\n\
@@ -421,9 +408,9 @@ L_REPEAT:\n\
     v_mov_b32       v13, v7\n\
 L_LOOP_READ:\n\
     flat_load_dwordx2   v[14:15], v[12:13] slc\n\
-    v_add_u32       v9, v9, v10 \n\
+    v_add_co_u32    v9, vcc, v9, v10 \n\
     v_add_co_u32    v12, vcc, v12, v10\n\
-    v_add_u32       v13, vcc_lo, v13\n\
+    v_add_co_u32    v13, vcc, v13, vcc_lo\n\
     v_cmp_lt_u32    vcc, v9, v11\n\
     s_cbranch_vccnz L_LOOP_READ\n\
     s_branch        L_REPEAT\n\
@@ -487,10 +474,10 @@ L_QUIT:\n\
 ";
 
 std::string KFDEvictTest::CreateShader() {
-    if (m_FamilyId >= FAMILY_AI)
-        return gfx9_ReadMemory;
-    else
+    if (m_FamilyId < FAMILY_AI)
         return gfx8_ReadMemory;
+    else
+        return gfx9_ReadMemory;
 }
 
 /* Evict and restore queue test
@@ -527,7 +514,7 @@ TEST_F(KFDEvictTest, QueueTest) {
     }
 
     HSAuint32 i;
-    HSAuint64 vramSize = GetVramSize(defaultGPUNode);
+    HSAuint64 vramSize = GetVramSize(defaultGPUNode) * 7 / 8;
 
     if (!vramSize) {
         LOG() << "Skipping test: No VRAM found." << std::endl;
@@ -537,7 +524,7 @@ TEST_F(KFDEvictTest, QueueTest) {
     }
 
     // Use 7/8 of VRAM between all processes
-    HSAuint32 count = vramSize * 7 / (8 * vramBufSize * N_PROCESSES);
+    HSAuint32 count = vramSize / (vramBufSize * N_PROCESSES);
 
     LOG() << "Found System RAM of " << std::dec << (GetSysMemSize() >> 20) << "MB" << std::endl;
 
@@ -564,6 +551,13 @@ TEST_F(KFDEvictTest, QueueTest) {
     HsaMemoryBuffer addrBuffer(PAGE_SIZE, defaultGPUNode);
     HsaMemoryBuffer resultBuffer(PAGE_SIZE, defaultGPUNode);
 
+    m_pIsaGen->CompileShader(CreateShader().c_str(), "ReadMemory", isaBuffer);
+
+    PM4Queue pm4Queue;
+    ASSERT_SUCCESS(pm4Queue.Create(defaultGPUNode));
+
+    Dispatch dispatch0(isaBuffer);
+
     std::vector<void *> pBuffers;
     AllocBuffers(defaultGPUNode, count, vramBufSize, pBuffers);
 
@@ -581,18 +575,12 @@ TEST_F(KFDEvictTest, QueueTest) {
     for (i = 0; i < wavefront_num; i++)
         *(localBufAddr + i) = pBuffers[i];
 
-    m_pIsaGen->CompileShader(CreateShader().c_str(), "ReadMemory", isaBuffer);
-
-    PM4Queue pm4Queue;
-    ASSERT_SUCCESS(pm4Queue.Create(defaultGPUNode));
-
-    Dispatch dispatch0(isaBuffer);
     dispatch0.SetArgs(localBufAddr, result);
     dispatch0.SetDim(wavefront_num, 1, 1);
     /* Submit the packet and start shader */
     dispatch0.Submit(pm4Queue);
 
-    AmdgpuCommandSubmissionComputeNop(rn, handle);
+    AmdgpuCommandSubmissionSdmaNop(rn, handle);
 
     /* Uncomment this line for debugging */
     // LOG() << m_psName << "notify shader to quit" << std::endl;
@@ -622,3 +610,64 @@ TEST_F(KFDEvictTest, QueueTest) {
     TEST_END
 }
 
+/* Evict a queue running in bursts, so that the process has a chance
+ * to be idle when restored but the queue needs to resume to perform
+ * more work later. This test is designed to stress the idle process
+ * eviction optimization in KFD that leaves idle processes evicted
+ * until the next time the doorbell page is accessed.
+ */
+TEST_F(KFDEvictTest, BurstyTest) {
+    TEST_REQUIRE_ENV_CAPABILITIES(ENVCAPS_64BITLINUX);
+    TEST_START(TESTPROFILE_RUNALL);
+
+    HSAuint32 defaultGPUNode = m_NodeInfo.HsaDefaultGPUNode();
+    ASSERT_GE(defaultGPUNode, 0) << "failed to get default GPU Node";
+    HSAuint64 vramBufSize = ALLOCATE_BUF_SIZE_MB * 1024 * 1024;
+
+    HSAuint64 vramSize = GetVramSize(defaultGPUNode) * 7 / 8;
+
+    if (!vramSize) {
+        LOG() << "Skipping test: No VRAM found." << std::endl;
+        return;
+    } else {
+        LOG() << "Found VRAM of " << std::dec << (vramSize >> 20) << "MB" << std::endl;
+    }
+
+    // Use 7/8 of VRAM between all processes
+    HSAuint32 count = vramSize / (vramBufSize * N_PROCESSES);
+
+    LOG() << "Found System RAM of " << std::dec << (GetSysMemSize() >> 20) << "MB" << std::endl;
+
+    /* Fork the child processes */
+    ForkChildProcesses(N_PROCESSES);
+
+    int rn = FindDRMRenderNode(defaultGPUNode);
+    if (rn < 0) {
+        LOG() << "Skipping test: Could not find render node for default GPU." << std::endl;
+        WaitChildProcesses();
+        return;
+    }
+
+    PM4Queue pm4Queue;
+    ASSERT_SUCCESS(pm4Queue.Create(defaultGPUNode));
+
+    std::vector<void *> pBuffers;
+    AllocBuffers(defaultGPUNode, count, vramBufSize, pBuffers);
+
+    /* Allocate gfx vram size of at most one third system memory */
+    HSAuint64 size = GetSysMemSize() / 3 < vramSize ? GetSysMemSize() / 3 : vramSize;
+    amdgpu_bo_handle handle;
+    AllocAmdgpuBo(rn, size, handle);
+
+    AmdgpuCommandSubmissionSdmaNop(rn, handle, &pm4Queue);
+
+    FreeAmdgpuBo(handle);
+    LOG() << m_psName << "free buffer" << std::endl;
+    FreeBuffers(pBuffers, vramBufSize);
+
+    EXPECT_SUCCESS(pm4Queue.Destroy());
+
+    WaitChildProcesses();
+
+    TEST_END
+}

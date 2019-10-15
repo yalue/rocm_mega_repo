@@ -32,6 +32,17 @@ set ( HSAKMT_TARGET "${HSAKMT}" )
 
 project ( ${HSAKMT_TARGET} VERSION 1.9.0)
 
+# Optionally, build HSAKMT with ccache.
+set(ROCM_CCACHE_BUILD OFF CACHE BOOL "Set to ON for a ccache enabled build")
+if (ROCM_CCACHE_BUILD)
+  find_program(CCACHE_PROGRAM ccache)
+  if (CCACHE_PROGRAM)
+    set_property(GLOBAL PROPERTY RULE_LAUNCH_COMPILE ${CCACHE_PROGRAM})
+  else()
+    message(WARNING "Unable to find ccache. Falling back to real compiler")
+  endif() # if (CCACHE_PROGRAM)
+endif() # if (ROCM_CCACHE_BUILD)
+
 ## Set default module path if not already set
 if ( NOT DEFINED CMAKE_MODULE_PATH )
     set ( CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/cmake_modules/" )
@@ -145,7 +156,7 @@ add_custom_target ( package-dev DEPENDS build-dev
 
 ## Add the install directives for the runtime library.
 install ( TARGETS ${HSAKMT_TARGET} DESTINATION ${CMAKE_INSTALL_LIBDIR} )
-install ( FILES ${SOURCE_DIR}/LICENSE.md DESTINATION libhsakmt )
+install ( FILES ${SOURCE_DIR}/LICENSE.md DESTINATION ${CMAKE_INSTALL_DOCDIR} )
 
 ## Add the packaging directives for the runtime library.
 set ( CPACK_PACKAGE_NAME ${HSAKMT_PACKAGE} )
@@ -157,13 +168,28 @@ set ( CPACK_PACKAGE_CONTACT "Advanced Micro Devices Inc." )
 set ( CPACK_PACKAGE_DESCRIPTION_SUMMARY "HSAKMT library for AMD KFD support" )
 set ( CPACK_RESOURCE_FILE_LICENSE "${SOURCE_DIR}/LICENSE.md" )
 
+#checking for OS-version
+if( EXISTS "/etc/os-release" )
+    file( STRINGS "/etc/os-release" DISTRO_ID REGEX "^ID=" )
+    file( STRINGS "/etc/os-release" DISTRO_RELEASE REGEX "^VERSION_ID=" )
+    string( REPLACE "ID=" "" DISTRO_ID "${DISTRO_ID}" )
+    string( REPLACE "VERSION_ID=" "" DISTRO_RELEASE "${DISTRO_RELEASE}" )
+    message( STATUS "Detected distribution: ${DISTRO_ID}:${DISTRO_RELEASE}" )
+else()
+     message( STATUS "Not able to detect OS" )
+endif()
+
 # Debian package specific variables
 set ( CPACK_DEBIAN_PACKAGE_HOMEPAGE "https://github.com/RadeonOpenCompute/ROCT-Thunk-Interface" )
 set ( CPACK_DEBIAN_PACKAGE_CONTROL_EXTRA "${CMAKE_CURRENT_SOURCE_DIR}/DEBIAN/postinst;${CMAKE_CURRENT_SOURCE_DIR}/DEBIAN/prerm" )
 set ( CPACK_DEBIAN_PACKAGE_DEPENDS "libc6, libnuma1, libpci3, zlib1g, libudev1" )
 
 # RPM package specific variables
-set ( CPACK_RPM_PACKAGE_REQUIRES "glibc, numactl-libs, pciutils-libs, libgcc" )
+if( DISTRO_ID MATCHES "sles" )
+    set ( CPACK_RPM_PACKAGE_REQUIRES "glibc, libnuma-devel, pciutils, libgcc_s1")
+else()
+    set ( CPACK_RPM_PACKAGE_REQUIRES "glibc, numactl-libs, pciutils-libs, libgcc" )
+endif()
 set ( CPACK_RPM_PRE_INSTALL_SCRIPT_FILE "${CMAKE_CURRENT_SOURCE_DIR}/RPM/rpm_post" )
 set ( CPACK_RPM_POST_UNINSTALL_SCRIPT_FILE "${CMAKE_CURRENT_SOURCE_DIR}/RPM/rpm_postun" )
 

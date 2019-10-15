@@ -68,6 +68,7 @@
 // Size of scratch (private) segment pre-allocated per thread, in bytes.
 #define DEFAULT_SCRATCH_BYTES_PER_THREAD 2048
 #define MAX_WAVE_SCRATCH 8387584  // See COMPUTE_TMPRING_SIZE.WAVESIZE
+#define MAX_NUM_DOORBELLS 0x400
 
 extern core::HsaApiTable hsa_internal_api_table_;
 
@@ -76,24 +77,22 @@ GpuAgent::GpuAgent(HSAuint32 node, const HsaNodeProperties& node_props)
     : GpuAgentInt(node),
       properties_(node_props),
       current_coherency_type_(HSA_AMD_COHERENCY_TYPE_COHERENT),
-      blits_(),
       queues_(),
       local_region_(NULL),
       is_kv_device_(false),
       trap_code_buf_(NULL),
       trap_code_buf_size_(0),
+      doorbell_queue_map_(NULL),
       memory_bus_width_(0),
       memory_max_frequency_(0),
       ape1_base_(0),
-      ape1_size_(0),
-      end_ts_pool_size_(0),
-      end_ts_pool_counter_(0),
-      end_ts_base_addr_(NULL) {
+      ape1_size_(0) {
   const bool is_apu_node = (properties_.NumCPUCores > 0);
   profile_ = (is_apu_node) ? HSA_PROFILE_FULL : HSA_PROFILE_BASE;
 
   HSAKMT_STATUS err = hsaKmtGetClockCounters(node_id(), &t0_);
   t1_ = t0_;
+  historical_clock_ratio_ = 0.0;
   assert(err == HSAKMT_STATUS_SUCCESS && "hsaGetClockCounters error");
 
   // Set instruction set architecture via node property, only on GPU device.
@@ -135,15 +134,11 @@ GpuAgent::GpuAgent(HSAuint32 node, const HsaNodeProperties& node_props)
 }
 
 GpuAgent::~GpuAgent() {
-  for (int i = 0; i < BlitCount; ++i) {
-    if (blits_[i] != nullptr) {
-      hsa_status_t status = blits_[i]->Destroy(*this);
+  for (auto& blit : blits_) {
+    if (blit.created()) {
+      hsa_status_t status = blit->Destroy(*this);
       assert(status == HSA_STATUS_SUCCESS);
     }
-  }
-
-  if (end_ts_base_addr_ != NULL) {
-    core::Runtime::runtime_singleton_->FreeMemory(end_ts_base_addr_);
   }
 
   if (ape1_base_ != 0) {
@@ -154,6 +149,8 @@ GpuAgent::~GpuAgent() {
     hsaKmtFreeMemory(scratch_pool_.base(), scratch_pool_.size());
   }
 
+  core::Runtime::runtime_singleton_->system_deallocator()(doorbell_queue_map_);
+
   if (trap_code_buf_ != NULL) {
     ReleaseShader(trap_code_buf_, trap_code_buf_size_);
   }
@@ -162,9 +159,8 @@ GpuAgent::~GpuAgent() {
   regions_.clear();
 }
 
-void GpuAgent::AssembleShader(const char* src_sp3, const char* func_name,
-                              AssembleTarget assemble_target, void*& code_buf,
-                              size_t& code_buf_size) const {
+void GpuAgent::AssembleShader(const char* func_name, AssembleTarget assemble_target,
+                              void*& code_buf, size_t& code_buf_size) const {
   // Select precompiled shader implementation from name/target.
   struct ASICShader {
     const void* code;
@@ -305,8 +301,10 @@ void GpuAgent::InitRegionList() {
           if (region->IsLocalMemory()) {
             local_region_ = region;
             // Expose VRAM as uncached/fine grain over PCIe (if enabled) or XGMI.
-            if (core::Runtime::runtime_singleton_->flag().fine_grain_pcie())
+            if ((properties_.HiveID != 0) ||
+                (core::Runtime::runtime_singleton_->flag().fine_grain_pcie())) {
               regions_.push_back(new MemoryRegion(true, false, this, mem_props[mem_idx]));
+            }
           }
           break;
         }
@@ -400,58 +398,6 @@ void GpuAgent::InitCacheList() {
                                      cache_props_[i].CacheLevel, cache_props_[i].CacheSize));
 }
 
-bool GpuAgent::InitEndTsPool() {
-  if (HSA_PROFILE_FULL == profile_) {
-    return true;
-  }
-
-  if (end_ts_base_addr_.load(std::memory_order_acquire) != NULL) {
-    return true;
-  }
-
-  ScopedAcquire<KernelMutex> lock(&blit_lock_);
-
-  if (end_ts_base_addr_.load(std::memory_order_relaxed) != NULL) {
-    return true;
-  }
-
-  end_ts_pool_size_ =
-      static_cast<uint32_t>((BlitSdmaBase::kQueueSize + BlitSdmaBase::kCopyPacketSize - 1) /
-                            (BlitSdmaBase::kCopyPacketSize));
-
-  // Allocate end timestamp object for both h2d and d2h DMA.
-  const size_t alloc_size = 2 * end_ts_pool_size_ * kTsSize;
-
-  core::Runtime* runtime = core::Runtime::runtime_singleton_;
-
-  uint64_t* buff = NULL;
-  if (HSA_STATUS_SUCCESS !=
-      runtime->AllocateMemory(local_region_, alloc_size,
-                              MemoryRegion::AllocateRestrict,
-                              reinterpret_cast<void**>(&buff))) {
-    return false;
-  }
-
-  end_ts_base_addr_.store(buff, std::memory_order_release);
-
-  return true;
-}
-
-uint64_t* GpuAgent::ObtainEndTsObject() {
-  if (end_ts_base_addr_ == NULL) {
-    return NULL;
-  }
-
-  const uint32_t end_ts_index =
-      end_ts_pool_counter_.fetch_add(1U, std::memory_order_acq_rel) %
-      end_ts_pool_size_;
-  const static size_t kNumU64 = kTsSize / sizeof(uint64_t);
-  uint64_t* end_ts_addr = &end_ts_base_addr_[end_ts_index * kNumU64];
-  assert(IsMultipleOf(end_ts_addr, kTsSize));
-
-  return end_ts_addr;
-}
-
 hsa_status_t GpuAgent::IterateRegion(
     hsa_status_t (*callback)(hsa_region_t region, void* data),
     void* data) const {
@@ -531,16 +477,16 @@ core::Queue* GpuAgent::CreateInterceptibleQueue() {
   return queue;
 }
 
-core::Blit* GpuAgent::CreateBlitSdma(bool h2d) {
-  core::Blit* sdma;
+core::Blit* GpuAgent::CreateBlitSdma(bool use_xgmi) {
+  amd::BlitSdmaBase* sdma;
 
   if (isa_->GetMajorVersion() <= 8) {
-    sdma = new BlitSdmaV2V3(h2d);
+    sdma = new BlitSdmaV2V3();
   } else {
-    sdma = new BlitSdmaV4(h2d);
+    sdma = new BlitSdmaV4();
   }
 
-  if (sdma->Initialize(*this) != HSA_STATUS_SUCCESS) {
+  if (sdma->Initialize(*this, use_xgmi) != HSA_STATUS_SUCCESS) {
     sdma->Destroy(*this);
     delete sdma;
     sdma = NULL;
@@ -576,14 +522,14 @@ void GpuAgent::InitDma() {
   queues_[QueueUtility].reset(queue_lambda);
 
   // Decide which engine to use for blits.
-  auto blit_lambda = [this](bool h2d, lazy_ptr<core::Queue>& queue) {
+  auto blit_lambda = [this](bool use_xgmi, lazy_ptr<core::Queue>& queue) {
     const std::string& sdma_override = core::Runtime::runtime_singleton_->flag().enable_sdma();
 
     bool use_sdma = (isa_->GetMajorVersion() != 8);
     if (sdma_override.size() != 0) use_sdma = (sdma_override == "1");
 
     if (use_sdma && (HSA_PROFILE_BASE == profile_)) {
-      auto ret = CreateBlitSdma(h2d);
+      auto ret = CreateBlitSdma(use_xgmi);
       if (ret != nullptr) return ret;
     }
 
@@ -593,20 +539,45 @@ void GpuAgent::InitDma() {
     return ret;
   };
 
-  blits_[BlitHostToDev].reset([blit_lambda, this]() { return blit_lambda(true, queues_[QueueBlitOnly]); });
-  blits_[BlitDevToHost].reset([blit_lambda, this]() { return blit_lambda(false, queues_[QueueUtility]); });
+  // Determine and instantiate the number of blit objects to
+  // engage. The total number is sum of three plus number of
+  // sdma-xgmi engines
+  uint32_t blit_cnt_ = DefaultBlitCount + properties_.NumSdmaXgmiEngines;
+  blits_.resize(blit_cnt_);
+
+  // Initialize blit objects used for D2D, H2D, D2H, and
+  // P2P copy operations.
+  // -- Blit at index BlitDevToDev(0) deals with copies within
+  //    local framebuffer and always engages a Blit Kernel
+  // -- Blit at index BlitHostToDev(1) deals with copies from
+  //    Host to Device (H2D) and could engage either a Blit
+  //    Kernel or sDMA
+  // -- Blit at index BlitDevToHost(2) deals with copies from
+  //    Device to Host (D2H) and Peer to Peer (P2P) over PCIe.
+  //    It could engage either a Blit Kernel or sDMA
+  // -- Blit at index DefaultBlitCount(3) and beyond deal
+  //    exclusively P2P over xGMI links
   blits_[BlitDevToDev].reset([this]() {
     auto ret = CreateBlitKernel((*queues_[QueueUtility]).get());
     if (ret == nullptr)
       throw AMD::hsa_exception(HSA_STATUS_ERROR_OUT_OF_RESOURCES, "Blit creation failed.");
     return ret;
   });
+  blits_[BlitHostToDev].reset(
+      [blit_lambda, this]() { return blit_lambda(false, queues_[QueueBlitOnly]); });
+  blits_[BlitDevToHost].reset(
+      [blit_lambda, this]() { return blit_lambda(false, queues_[QueueUtility]); });
+
+  // XGMI engines.
+  for (uint32_t idx = DefaultBlitCount; idx < blit_cnt_; idx++) {
+    blits_[idx].reset([blit_lambda, this]() { return blit_lambda(true, queues_[QueueUtility]); });
+  }
 }
 
 void GpuAgent::PreloadBlits() {
-  blits_[BlitHostToDev].touch();
-  blits_[BlitDevToHost].touch();
-  blits_[BlitDevToDev].touch();
+  for (auto& blit : blits_) {
+    blit.touch();
+  }
 }
 
 hsa_status_t GpuAgent::PostToolsInit() {
@@ -627,15 +598,8 @@ hsa_status_t GpuAgent::DmaCopy(void* dst, core::Agent& dst_agent,
                                size_t size,
                                std::vector<core::Signal*>& dep_signals,
                                core::Signal& out_signal) {
-  lazy_ptr<core::Blit>& blit =
-    (src_agent.device_type() == core::Agent::kAmdCpuDevice &&
-     dst_agent.device_type() == core::Agent::kAmdGpuDevice)
-       ? blits_[BlitHostToDev]
-       : (src_agent.device_type() == core::Agent::kAmdGpuDevice &&
-          dst_agent.device_type() == core::Agent::kAmdCpuDevice)
-            ? blits_[BlitDevToHost]
-            : (src_agent.node_id() == dst_agent.node_id())
-              ? blits_[BlitDevToDev] : blits_[BlitDevToHost];
+  // Bind the Blit object that will drive this copy operation
+  lazy_ptr<core::Blit>& blit = GetBlitObject(dst_agent, src_agent);
 
   if (profiling_enabled()) {
     // Track the agent so we could translate the resulting timestamp to system
@@ -678,13 +642,9 @@ hsa_status_t GpuAgent::DmaFill(void* ptr, uint32_t value, size_t count) {
 }
 
 hsa_status_t GpuAgent::EnableDmaProfiling(bool enable) {
-  if (enable && !InitEndTsPool()) {
-    return HSA_STATUS_ERROR_OUT_OF_RESOURCES;
-  }
-
-  for (int i = 0; i < BlitCount; ++i) {
-    if (blits_[i].created()) {
-      const hsa_status_t stat = blits_[i]->EnableProfiling(enable);
+  for (auto& blit : blits_) {
+    if (blit.created()) {
+      const hsa_status_t stat = blit->EnableProfiling(enable);
       if (stat != HSA_STATUS_SUCCESS) {
         return stat;
       }
@@ -695,12 +655,10 @@ hsa_status_t GpuAgent::EnableDmaProfiling(bool enable) {
 }
 
 hsa_status_t GpuAgent::GetInfo(hsa_agent_info_t attribute, void* value) const {
-  
   // agent, and vendor name size limit
   const size_t attribute_u = static_cast<size_t>(attribute);
-  
+
   switch (attribute_u) {
-    
     // Build agent name by concatenating the Major, Minor and Stepping Ids
     // of devices compute capability with a prefix of "gfx"
     case HSA_AGENT_INFO_NAME: {
@@ -872,7 +830,7 @@ hsa_status_t GpuAgent::GetInfo(hsa_agent_info_t attribute, void* value) const {
     case HSA_AMD_AGENT_INFO_MEMORY_MAX_FREQUENCY:
       *((uint32_t*)value) = memory_max_frequency_;
       break;
-    
+
     // The code copies HsaNodeProperties.MarketingName a Unicode string
     // which is encoded in UTF-16 as a 7-bit ASCII string
     case HSA_AMD_AGENT_INFO_PRODUCT_NAME: {
@@ -899,6 +857,9 @@ hsa_status_t GpuAgent::GetInfo(hsa_agent_info_t attribute, void* value) const {
       break;
     case HSA_AMD_AGENT_INFO_HDP_FLUSH:
       *((hsa_amd_hdp_flush_t*)value) = HDP_flush_;
+      break;
+    case HSA_AMD_AGENT_INFO_DOMAIN:
+      *((uint32_t*)value) = static_cast<uint32_t>(properties_.Domain);
       break;
     default:
       return HSA_STATUS_ERROR_INVALID_ARGUMENT;
@@ -950,7 +911,15 @@ hsa_status_t GpuAgent::QueueCreate(size_t size, hsa_queue_type32_t queue_type,
   queues_[QueueUtility].touch();
 
   // Create an HW AQL queue
-  *queue = new AqlQueue(this, size, node_id(), scratch, event_callback, data, is_kv_device_);
+  auto aql_queue =
+      new AqlQueue(this, size, node_id(), scratch, event_callback, data, is_kv_device_);
+  *queue = aql_queue;
+
+  // Calculate index of the queue doorbell within the doorbell aperture.
+  auto doorbell_addr = uintptr_t(aql_queue->signal_.hardware_doorbell_ptr);
+  auto doorbell_idx = (doorbell_addr >> 3) & (MAX_NUM_DOORBELLS - 1);
+  doorbell_queue_map_[doorbell_idx] = &aql_queue->amd_queue_;
+
   scratchGuard.Dismiss();
   return HSA_STATUS_SUCCESS;
 }
@@ -1067,39 +1036,66 @@ void GpuAgent::ReleaseQueueScratch(ScratchInfo& scratch) {
 
 void GpuAgent::TranslateTime(core::Signal* signal,
                              hsa_amd_profiling_dispatch_time_t& time) {
-  // Ensure interpolation
-  ScopedAcquire<KernelMutex> lock(&t1_lock_);
-  if (t1_.GPUClockCounter < signal->signal_.end_ts) {
-    SyncClocks();
-  }
+  uint64_t start, end;
+  signal->GetRawTs(false, start, end);
+  // Order is important, we want to translate the end time first to ensure that packet duration is
+  // not impacted by clock measurement latency jitter.
+  time.end = TranslateTime(end);
+  time.start = TranslateTime(start);
 
-  if ((signal->signal_.start_ts == 0) || (signal->signal_.end_ts == 0) ||
-      (signal->signal_.start_ts > t1_.GPUClockCounter) ||
-      (signal->signal_.end_ts > t1_.GPUClockCounter))
+  if ((start == 0) || (end == 0) || (start > t1_.GPUClockCounter) || (end > t1_.GPUClockCounter) ||
+      (start < t0_.GPUClockCounter) || (end < t0_.GPUClockCounter))
     debug_print("Signal %p time stamps may be invalid.", &signal->signal_);
-
-  time.start = uint64_t(
-      (double(int64_t(t0_.SystemClockCounter - t1_.SystemClockCounter)) /
-       double(int64_t(t0_.GPUClockCounter - t1_.GPUClockCounter))) *
-          double(int64_t(signal->signal_.start_ts - t1_.GPUClockCounter)) +
-      double(t1_.SystemClockCounter));
-  time.end = uint64_t(
-      (double(int64_t(t0_.SystemClockCounter - t1_.SystemClockCounter)) /
-       double(int64_t(t0_.GPUClockCounter - t1_.GPUClockCounter))) *
-          double(int64_t(signal->signal_.end_ts - t1_.GPUClockCounter)) +
-      double(t1_.SystemClockCounter));
 }
 
-uint64_t GpuAgent::TranslateTime(uint64_t tick) {
-  ScopedAcquire<KernelMutex> lock(&t1_lock_);
-  SyncClocks();
+void GpuAgent::TranslateTime(core::Signal* signal, hsa_amd_profiling_async_copy_time_t& time) {
+  uint64_t start, end;
+  signal->GetRawTs(true, start, end);
+  // Order is important, we want to translate the end time first to ensure that packet duration is
+  // not impacted by clock measurement latency jitter.
+  time.end = TranslateTime(end);
+  time.start = TranslateTime(start);
 
+  if ((start == 0) || (end == 0) || (start > t1_.GPUClockCounter) || (end > t1_.GPUClockCounter) ||
+      (start < t0_.GPUClockCounter) || (end < t0_.GPUClockCounter))
+    debug_print("Signal %p time stamps may be invalid.", &signal->signal_);
+}
+
+/*
+Times during program execution are interpolated to adjust for relative clock drift.
+Interval timing may appear as ticks well before process start, leading to large errors due to
+frequency adjustment (ie the profiling with NTP problem).  This is fixed by using a fixed frequency
+for early times.
+Intervals larger than t0_ will be frequency adjusted.  This admits a numerical error of not more
+than twice the frequency stability (~10^-5).
+*/
+uint64_t GpuAgent::TranslateTime(uint64_t tick) {
+  // Ensure interpolation for times during program execution.
+  ScopedAcquire<KernelMutex> lock(&t1_lock_);
+  if ((t1_.GPUClockCounter < tick) || (t1_.GPUClockCounter == t0_.GPUClockCounter)) SyncClocks();
+
+  // Good for ~300 yrs
+  // uint64_t sysdelta = t1_.SystemClockCounter - t0_.SystemClockCounter;
+  // uint64_t gpudelta = t1_.GPUClockCounter - t0_.GPUClockCounter;
+  // int64_t offtick = int64_t(tick - t1_.GPUClockCounter);
+  //__int128 num = __int128(sysdelta)*__int128(offtick) +
+  //__int128(gpudelta)*__int128(t1_.SystemClockCounter);
+  //__int128 sysLarge = num / __int128(gpudelta);
+  // return sysLarge;
+
+  // Good for ~3.5 months.
   uint64_t system_tick = 0;
-  system_tick = uint64_t(
-      (double(int64_t(t0_.SystemClockCounter - t1_.SystemClockCounter)) /
-       double(int64_t(t0_.GPUClockCounter - t1_.GPUClockCounter))) *
-          double(int64_t(tick - t1_.GPUClockCounter)) +
-      double(t1_.SystemClockCounter));
+  double ratio = double(t1_.SystemClockCounter - t0_.SystemClockCounter) /
+      double(t1_.GPUClockCounter - t0_.GPUClockCounter);
+  system_tick = uint64_t(ratio * double(int64_t(tick - t1_.GPUClockCounter))) + t1_.SystemClockCounter;
+
+  // tick predates HSA startup - extrapolate with fixed clock ratio
+  if (tick < t0_.GPUClockCounter) {
+    if (historical_clock_ratio_ == 0.0) historical_clock_ratio_ = ratio;
+    system_tick = uint64_t(historical_clock_ratio_ * double(int64_t(tick - t0_.GPUClockCounter))) +
+        t0_.SystemClockCounter;
+  }
+
   return system_tick;
 }
 
@@ -1153,84 +1149,27 @@ void GpuAgent::SyncClocks() {
 }
 
 void GpuAgent::BindTrapHandler() {
-  const char* src_sp3 = R"(
-    var s_trap_info_lo = ttmp0
-    var s_trap_info_hi = ttmp1
-    var s_tmp0         = ttmp2
-    var s_tmp1         = ttmp3
-    var s_tmp2         = ttmp4
-    var s_tmp3         = ttmp5
+  // Make an empty map from doorbell index to queue.
+  // The trap handler uses this to retrieve a wave's amd_queue_t*.
+  auto doorbell_queue_map_size = MAX_NUM_DOORBELLS * sizeof(amd_queue_t*);
 
-    shader TrapHandler
-      type(CS)
+  doorbell_queue_map_ = (amd_queue_t**)core::Runtime::runtime_singleton_->system_allocator()(
+      doorbell_queue_map_size, 0x1000, 0);
+  assert(doorbell_queue_map_ != NULL && "Doorbell queue map allocation failed");
 
-      // Retrieve the queue inactive signal.
-      s_load_dwordx2       [s_tmp0, s_tmp1], s[0:1], 0xC0
-      s_waitcnt            lgkmcnt(0)
-
-      // Mask all but one lane of the wavefront.
-      s_mov_b64            exec, 0x1
-
-      // Set queue signal value to unhandled exception error.
-      s_add_u32            s_tmp0, s_tmp0, 0x8
-      s_addc_u32           s_tmp1, s_tmp1, 0x0
-      v_mov_b32            v0, s_tmp0
-      v_mov_b32            v1, s_tmp1
-      v_mov_b32            v2, 0x80000000
-      v_mov_b32            v3, 0x0
-      flat_atomic_swap_x2  v[0:1], v[0:1], v[2:3]
-      s_waitcnt            vmcnt(0)
-
-      // Skip event if the signal was already set to unhandled exception.
-      v_cmp_eq_u64         vcc, v[0:1], v[2:3]
-      s_cbranch_vccnz      L_SIGNAL_DONE
-
-      // Check for a non-NULL signal event mailbox.
-      s_load_dwordx2       [s_tmp2, s_tmp3], [s_tmp0, s_tmp1], 0x8
-      s_waitcnt            lgkmcnt(0)
-      s_and_b64            [s_tmp2, s_tmp3], [s_tmp2, s_tmp3], [s_tmp2, s_tmp3]
-      s_cbranch_scc0       L_SIGNAL_DONE
-
-      // Load the signal event value.
-      s_add_u32            s_tmp0, s_tmp0, 0x10
-      s_addc_u32           s_tmp1, s_tmp1, 0x0
-      s_load_dword         s_tmp0, [s_tmp0, s_tmp1], 0x0
-      s_waitcnt            lgkmcnt(0)
-
-      // Write the signal event value to the mailbox.
-      v_mov_b32            v0, s_tmp2
-      v_mov_b32            v1, s_tmp3
-      v_mov_b32            v2, s_tmp0
-      flat_store_dword     v[0:1], v2
-      s_waitcnt            vmcnt(0)
-
-      // Send an interrupt to trigger event notification.
-      s_sendmsg            sendmsg(MSG_INTERRUPT)
-
-    L_SIGNAL_DONE:
-      // Halt wavefront and exit trap.
-      s_sethalt            1
-      s_rfe_b64            [s_trap_info_lo, s_trap_info_hi]
-    end
-  )";
+  memset(doorbell_queue_map_, 0, doorbell_queue_map_size);
 
   if (isa_->GetMajorVersion() == 7) {
     // No trap handler support on Gfx7, soft error.
     return;
   }
 
-  // Disable trap handler on Carrizo until KFD is fixed.
-  if (profile_ == HSA_PROFILE_FULL) {
-    return;
-  }
-
   // Assemble the trap handler source code.
-  AssembleShader(src_sp3, "TrapHandler", AssembleTarget::ISA, trap_code_buf_,
-                 trap_code_buf_size_);
+  AssembleShader("TrapHandler", AssembleTarget::ISA, trap_code_buf_, trap_code_buf_size_);
 
   // Bind the trap handler to this node.
-  HSAKMT_STATUS err = hsaKmtSetTrapHandler(node_id(), trap_code_buf_,
-                                           trap_code_buf_size_, NULL, 0);
+  HSAKMT_STATUS err = hsaKmtSetTrapHandler(node_id(), trap_code_buf_, trap_code_buf_size_,
+                                           doorbell_queue_map_, doorbell_queue_map_size);
   assert(err == HSAKMT_STATUS_SUCCESS && "hsaKmtSetTrapHandler() failed");
 }
 
@@ -1270,6 +1209,83 @@ void GpuAgent::InvalidateCodeCaches() {
 
   // Submit the command to the utility queue and wait for it to complete.
   queues_[QueueUtility]->ExecutePM4(cache_inv, sizeof(cache_inv));
+}
+
+lazy_ptr<core::Blit>& GpuAgent::GetXgmiBlit(const core::Agent& dst_agent) {
+  // Determine if destination is a member xgmi peers list
+  uint32_t xgmi_engine_cnt = properties_.NumSdmaXgmiEngines;
+  assert((xgmi_engine_cnt > 0) && ("Illegal condition, should not happen"));
+
+  for (uint32_t idx = 0; idx < xgmi_peer_list_.size(); idx++) {
+    uint64_t dst_handle = dst_agent.public_handle().handle;
+    uint64_t peer_handle = xgmi_peer_list_[idx]->public_handle().handle;
+    if (peer_handle == dst_handle) {
+      return blits_[(idx % xgmi_engine_cnt) + DefaultBlitCount];
+    }
+  }
+
+  // Add agent to the xGMI neighbours list
+  xgmi_peer_list_.push_back(&dst_agent);
+  return blits_[((xgmi_peer_list_.size() - 1) % xgmi_engine_cnt) + DefaultBlitCount];
+}
+
+lazy_ptr<core::Blit>& GpuAgent::GetPcieBlit(const core::Agent& dst_agent,
+                                            const core::Agent& src_agent) {
+  lazy_ptr<core::Blit>& blit =
+    (src_agent.device_type() == core::Agent::kAmdCpuDevice &&
+     dst_agent.device_type() == core::Agent::kAmdGpuDevice)
+       ? blits_[BlitHostToDev]
+       : (src_agent.device_type() == core::Agent::kAmdGpuDevice &&
+          dst_agent.device_type() == core::Agent::kAmdCpuDevice)
+            ? blits_[BlitDevToHost] : blits_[BlitDevToHost];
+  return blit;
+}
+
+lazy_ptr<core::Blit>& GpuAgent::GetBlitObject(const core::Agent& dst_agent,
+                                              const core::Agent& src_agent) {
+  // At this point it is guaranteed that one of
+  // the two devices is a GPU, potentially both
+  assert(((src_agent.device_type() == core::Agent::kAmdGpuDevice) ||
+          (dst_agent.device_type() == core::Agent::kAmdGpuDevice)) &&
+         ("Both devices are CPU agents which is not expected"));
+
+  // Determine if Src and Dst devices are same
+  if ((src_agent.public_handle().handle) == (dst_agent.public_handle().handle)) {
+    return blits_[BlitDevToDev];
+  }
+
+  // Acquire Hive Id of Src and Dst devices
+  uint64_t src_hive_id = src_agent.HiveId();
+  uint64_t dst_hive_id = dst_agent.HiveId();
+
+  // Bind to a PCIe facing Blit object if the two
+  // devices have different Hive Ids. This can occur
+  // for following scenarios:
+  //
+  //  Neither device claims membership in a Hive
+  //   srcId = 0 <-> dstId = 0;
+  //
+  //  Src device claims membership in a Hive
+  //   srcId = 0x1926 <-> dstId = 0;
+  //
+  //  Dst device claims membership in a Hive
+  //   srcId = 0 <-> dstId = 0x1123;
+  //
+  //  Both device claims membership in a Hive
+  //  and the  Hives are different
+  //   srcId = 0x1926 <-> dstId = 0x1123;
+  //
+  if ((dst_hive_id != src_hive_id) || (dst_hive_id == 0)) {
+    return GetPcieBlit(dst_agent, src_agent);
+  }
+
+  // Accommodates platforms where devices have xGMI
+  // links but without sdmaXgmiEngines e.g. Vega 20
+  if (properties_.NumSdmaXgmiEngines == 0) {
+    return GetPcieBlit(dst_agent, src_agent);
+  }
+
+  return GetXgmiBlit(dst_agent);
 }
 
 }  // namespace

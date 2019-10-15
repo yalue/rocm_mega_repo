@@ -24,25 +24,26 @@
 #include "testing_csrmm.hpp"
 #include "utility.hpp"
 
-#include <rocsparse.h>
 #include <gtest/gtest.h>
+#include <rocsparse.h>
 #include <string>
 
 typedef rocsparse_index_base base;
-typedef rocsparse_operation trans;
-typedef std::tuple<int, int, int, double, double, base, trans, trans> csrmm_tuple;
-typedef std::tuple<int, double, double, base, trans, trans, std::string> csrmm_bin_tuple;
+typedef rocsparse_operation  trans;
+typedef std::tuple<rocsparse_int, rocsparse_int, rocsparse_int, double, double, base, trans, trans>
+                                                                                   csrmm_tuple;
+typedef std::tuple<rocsparse_int, double, double, base, trans, trans, std::string> csrmm_bin_tuple;
 
-int csrmm_M_range[] = {-1, 0, 42, 511, 3521};
-int csrmm_N_range[] = {-1, 0, 13, 33, 64, 73};
-int csrmm_K_range[] = {-1, 0, 50, 254, 1942};
+rocsparse_int csrmm_M_range[] = {-1, 0, 42, 511, 3521};
+rocsparse_int csrmm_N_range[] = {-1, 0, 13, 33, 64, 73};
+rocsparse_int csrmm_K_range[] = {-1, 0, 50, 254, 1942};
 
 double csrmm_alpha_range[] = {-1.0, 0.0, 3.3};
 double csrmm_beta_range[]  = {-0.3, 0.0, 1.0};
 
-base csrmm_idxbase_range[] = {rocsparse_index_base_zero, rocsparse_index_base_one};
-trans csrmm_transA_range[] = {rocsparse_operation_none};
-trans csrmm_transB_range[] = {rocsparse_operation_none, rocsparse_operation_transpose};
+base  csrmm_idxbase_range[] = {rocsparse_index_base_zero, rocsparse_index_base_one};
+trans csrmm_transA_range[]  = {rocsparse_operation_none};
+trans csrmm_transB_range[]  = {rocsparse_operation_none, rocsparse_operation_transpose};
 
 std::string csrmm_bin[] = {"rma10.bin",
                            "mac_econ_fwd500.bin",
@@ -57,11 +58,14 @@ std::string csrmm_bin[] = {"rma10.bin",
                            "nos4.bin",
                            "nos5.bin",
                            "nos6.bin",
-                           "nos7.bin"};
+                           "nos7.bin",
+                           "amazon0312.bin",
+                           "sme3Dc.bin",
+                           "shipsec1.bin"};
 
 class parameterized_csrmm : public testing::TestWithParam<csrmm_tuple>
 {
-    protected:
+protected:
     parameterized_csrmm() {}
     virtual ~parameterized_csrmm() {}
     virtual void SetUp() {}
@@ -70,7 +74,7 @@ class parameterized_csrmm : public testing::TestWithParam<csrmm_tuple>
 
 class parameterized_csrmm_bin : public testing::TestWithParam<csrmm_bin_tuple>
 {
-    protected:
+protected:
     parameterized_csrmm_bin() {}
     virtual ~parameterized_csrmm_bin() {}
     virtual void SetUp() {}
@@ -109,7 +113,7 @@ Arguments setup_csrmm_arguments(csrmm_bin_tuple tup)
     std::string bin_file = std::get<6>(tup);
 
     // Get current executables absolute path
-    char path_exe[PATH_MAX];
+    char    path_exe[PATH_MAX];
     ssize_t len = readlink("/proc/self/exe", path_exe, sizeof(path_exe) - 1);
     if(len < 14)
     {
@@ -121,12 +125,15 @@ Arguments setup_csrmm_arguments(csrmm_bin_tuple tup)
     }
 
     // Matrices are stored at the same path in matrices directory
-    arg.filename = std::string(path_exe) + "matrices/" + bin_file;
+    arg.filename = std::string(path_exe) + "../matrices/" + bin_file;
 
     return arg;
 }
 
-TEST(csrmm_bad_arg, csrmm_float) { testing_csrmm_bad_arg<float>(); }
+TEST(csrmm_bad_arg, csrmm_float)
+{
+    testing_csrmm_bad_arg<float>();
+}
 
 TEST_P(parameterized_csrmm, csrmm_float)
 {

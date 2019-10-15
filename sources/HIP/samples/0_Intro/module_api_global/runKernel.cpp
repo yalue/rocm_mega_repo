@@ -1,5 +1,5 @@
 /*
-Copyright (c) 2017 - present Advanced Micro Devices, Inc. All rights reserved.
+Copyright (c) 2017-present Advanced Micro Devices, Inc. All rights reserved.
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal
@@ -31,7 +31,6 @@ THE SOFTWARE.
 #define SIZE LEN * sizeof(float)
 
 #define fileName "vcpy_kernel.code"
-float myDeviceGlobalArray[16];
 #define HIP_CHECK(cmd)                                                                             \
     {                                                                                              \
         hipError_t status = cmd;                                                                   \
@@ -71,14 +70,17 @@ int main() {
     float* deviceGlobal;
     size_t deviceGlobalSize;
     HIP_CHECK(hipModuleGetGlobal((void**)&deviceGlobal, &deviceGlobalSize, Module, "myDeviceGlobal"));
-    *deviceGlobal = 42.0;
+    HIP_CHECK(hipMemcpyHtoD(hipDeviceptr_t(deviceGlobal), &myDeviceGlobal_h, deviceGlobalSize));
 
 #define ARRAY_SIZE 16
 
     float myDeviceGlobalArray_h[ARRAY_SIZE];
+    float *myDeviceGlobalArray;
+    size_t myDeviceGlobalArraySize;
+    HIP_CHECK(hipModuleGetGlobal((void**)&myDeviceGlobalArray, &myDeviceGlobalArraySize, Module, "myDeviceGlobalArray"));
     for (int i = 0; i < ARRAY_SIZE; i++) {
         myDeviceGlobalArray_h[i] = i * 1000.0f;
-        myDeviceGlobalArray[i] = i * 1000.0f;
+        HIP_CHECK(hipMemcpyHtoD(hipDeviceptr_t(myDeviceGlobalArray), &myDeviceGlobalArray_h, myDeviceGlobalArraySize));
     }
 
     struct {
@@ -122,6 +124,11 @@ int main() {
     {
         hipFunction_t Function;
         HIP_CHECK(hipModuleGetFunction(&Function, Module, "test_globals"));
+        int val =-1;
+        HIP_CHECK(hipFuncGetAttribute(&val, HIP_FUNC_ATTRIBUTE_SHARED_SIZE_BYTES,Function));
+        printf("Shared Size Bytes = %d\n",val);
+        HIP_CHECK(hipFuncGetAttribute(&val, HIP_FUNC_ATTRIBUTE_NUM_REGS, Function));
+        printf("Num Regs = %d\n",val);
         HIP_CHECK(hipModuleLaunchKernel(Function, 1, 1, 1, LEN, 1, 1, 0, 0, NULL, (void**)&config));
 
         hipMemcpyDtoH(B, Bd, SIZE);
@@ -145,6 +152,10 @@ int main() {
         };
     }
 
+    hipFree(Ad);
+    hipFree(Bd);
+    delete A;
+    delete B;
     hipCtxDestroy(context);
     return 0;
 }

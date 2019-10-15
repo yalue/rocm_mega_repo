@@ -48,6 +48,7 @@
 #include "hsakmt.h"
 
 #include "core/inc/agent.h"
+#include "core/inc/runtime.h"
 #include "core/inc/memory_region.h"
 #include "core/util/simple_heap.h"
 #include "core/util/locks.h"
@@ -174,11 +175,18 @@ class MemoryRegion : public core::MemoryRegion {
 
   size_t max_single_alloc_size_;
 
+  // Used to collect total system memory
+  static size_t max_sysmem_alloc_size_;
+
   HSAuint64 virtual_size_;
 
   mutable KernelMutex access_lock_;
 
   static const size_t kPageSize_ = 4096;
+
+  // Determine access type allowed to requesting device
+  hsa_amd_memory_pool_access_t GetAccessInfo(const core::Agent& agent,
+                                             const core::Runtime::LinkInfo& link_info) const;
 
   class BlockAllocator {
    private:

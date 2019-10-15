@@ -93,6 +93,10 @@ static HsaDeviceId getHsaDeviceId(hsa_agent_t device, uint32_t& pci_id) {
       return HSA_VEGA12_ID;
     case 906:
       return HSA_VEGA20_ID;
+    case 908:
+      return HSA_GFX908_ID;
+    case 1010:
+      return HSA_GFX1010_ID;
     default:
       return HSA_INVALID_DEVICE_ID;
   }
@@ -142,6 +146,8 @@ Device::Device(hsa_agent_t bkendDevice)
     , pro_device_(nullptr)
     , pro_ena_(false)
     , freeMem_(0)
+    , vgpusAccess_("Virtual GPU List Ops Lock", true)
+    , hsa_exclusive_gpu_access_(false)
     , numOfVgpus_(0) {
   group_segment_.handle = 0;
   system_segment_.handle = 0;
@@ -208,8 +214,7 @@ bool NullDevice::initCompiler(bool isOffline) {
   acl_error error;
   if (!compilerHandle_) {
     aclCompilerOptions opts = {
-      sizeof(aclCompilerOptions_0_8),
-      IF(IS_LIGHTNING, "libamdoclcl64.so", NULL),
+      sizeof(aclCompilerOptions_0_8), "libamdoclcl64.so",
       NULL, NULL, NULL, NULL, NULL, NULL
     };
     compilerHandle_ = aclCompilerInit(&opts, &error);
@@ -569,6 +574,7 @@ bool Device::init() {
           if (agent.handle == static_cast<Device*>(device2)->getBackendDevice().handle) {
             // Device2 can have access to device1
             device2->p2pDevices_.push_back(as_cl(device1));
+            device1->p2p_access_devices_.push_back(device2);
           }
         }
       }
@@ -579,6 +585,7 @@ bool Device::init() {
 }
 
 extern const char* SchedulerSourceCode;
+extern const char* GwsInitSourceCode;
 
 void Device::tearDown() {
   NullDevice::tearDown();
@@ -642,6 +649,9 @@ bool Device::create(bool sramEccEnabled) {
 #if defined(WITH_LIGHTNING_COMPILER) || defined(USE_COMGR_LIBRARY)
   std::string sch = SchedulerSourceCode;
   if (settings().useLightning_) {
+    if (info().cooperativeGroups_) {
+      sch.append(GwsInitSourceCode);
+    }
     scheduler = sch.c_str();
   }
 #ifndef USE_COMGR_LIBRARY
@@ -760,12 +770,12 @@ bool Device::create(bool sramEccEnabled) {
   return true;
 }
 
-device::Program* NullDevice::createProgram(amd::option::Options* options) {
+device::Program* NullDevice::createProgram(amd::Program& owner, amd::option::Options* options) {
   device::Program* program;
   if (settings().useLightning_) {
-    program = new LightningProgram(*this);
+    program = new LightningProgram(*this, owner);
   } else {
-    program = new HSAILProgram(*this);
+    program = new HSAILProgram(*this, owner);
   }
 
   if (program == nullptr) {
@@ -775,12 +785,44 @@ device::Program* NullDevice::createProgram(amd::option::Options* options) {
   return program;
 }
 
-device::Program* Device::createProgram(amd::option::Options* options) {
+bool Device::AcquireExclusiveGpuAccess() {
+  // Lock the virtual GPU list
+  vgpusAccess().lock();
+
+  // Find all available virtual GPUs and lock them
+  // from the execution of commands
+  for (uint idx = 0; idx < vgpus().size(); ++idx) {
+    vgpus()[idx]->execution().lock();
+    // Make sure a wait is done
+    vgpus()[idx]->releaseGpuMemoryFence();
+  }
+  if (!hsa_exclusive_gpu_access_) {
+    // @todo call rocr
+    hsa_exclusive_gpu_access_ = true;
+  }
+  return true;
+}
+
+void Device::ReleaseExclusiveGpuAccess(VirtualGPU& vgpu) const {
+  // Make sure the operation is done
+  vgpu.releaseGpuMemoryFence();
+
+  // Find all available virtual GPUs and unlock them
+  // for the execution of commands
+  for (uint idx = 0; idx < vgpus().size(); ++idx) {
+    vgpus()[idx]->execution().unlock();
+  }
+
+  // Unock the virtual GPU list
+  vgpusAccess().unlock();
+}
+
+device::Program* Device::createProgram(amd::Program& owner, amd::option::Options* options) {
   device::Program* program;
   if (settings().useLightning_) {
-    program = new LightningProgram(*this);
+    program = new LightningProgram(*this, owner);
   } else {
-    program = new HSAILProgram(*this);
+    program = new HSAILProgram(*this, owner);
   }
 
   if (program == nullptr) {
@@ -1333,6 +1375,8 @@ bool Device::populateOCLDeviceConstants() {
     //TODO: set to true once thread trace support is available
     info_.threadTraceEnable_ = false;
     info_.pcieDeviceId_ = deviceInfo_.pciDeviceId_;
+    info_.cooperativeGroups_ = settings().enableCoopGroups_;
+    info_.cooperativeMultiDeviceGroups_ = settings().enableCoopMultiDeviceGroups_;
   }
 
   info_.maxPipePacketSize_ = info_.maxMemAllocSize_;
@@ -1350,7 +1394,11 @@ bool Device::populateOCLDeviceConstants() {
 }
 
 device::VirtualDevice* Device::createVirtualDevice(amd::CommandQueue* queue) {
+  amd::ScopedLock lock(vgpusAccess());
+
   bool profiling = (queue != nullptr) && queue->properties().test(CL_QUEUE_PROFILING_ENABLE);
+
+  profiling |= (queue == nullptr) ? true : false;
 
   // Initialization of heap and other resources occur during the command
   // queue creation time.
@@ -1359,10 +1407,6 @@ device::VirtualDevice* Device::createVirtualDevice(amd::CommandQueue* queue) {
   if (!virtualDevice->create(profiling)) {
     delete virtualDevice;
     return nullptr;
-  }
-
-  if (profiling) {
-    hsa_amd_profiling_set_profiler_enabled(virtualDevice->gpu_queue(), 1);
   }
 
   return virtualDevice;

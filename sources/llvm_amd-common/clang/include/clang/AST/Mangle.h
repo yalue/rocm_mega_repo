@@ -95,6 +95,9 @@ public:
   virtual bool shouldMangleCXXName(const NamedDecl *D) = 0;
   virtual bool shouldMangleStringLiteral(const StringLiteral *SL) = 0;
 
+  virtual bool isDeviceMangleContext() const { return false; }
+  virtual void setDeviceMangleContext(bool) {}
+
   // FIXME: consider replacing raw_ostream & with something like SmallString &.
   void mangleName(const NamedDecl *D, raw_ostream &);
   virtual void mangleCXXName(const NamedDecl *D, raw_ostream &) = 0;
@@ -242,6 +245,19 @@ public:
 
   static MicrosoftMangleContext *create(ASTContext &Context,
                                         DiagnosticsEngine &Diags);
+};
+
+class ASTNameGenerator {
+public:
+  explicit ASTNameGenerator(ASTContext &Ctx);
+  ~ASTNameGenerator();
+  bool writeName(const Decl *D, raw_ostream &OS);
+  std::string getName(const Decl *D);
+  std::vector<std::string> getAllManglings(const Decl *D);
+
+private:
+  class Implementation;
+  std::unique_ptr<Implementation> Impl;
 };
 }
 

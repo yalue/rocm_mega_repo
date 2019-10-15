@@ -20,8 +20,9 @@
 #include "AMDGPU.h"
 #include "Disassembler/CodeObject.h"
 #include "Disassembler/AMDGPUDisassembler.h"
-#include "InstPrinter/AMDGPUInstPrinter.h"
+#include "MCTargetDesc/AMDGPUInstPrinter.h"
 #include "MCTargetDesc/AMDGPUTargetStreamer.h"
+#include "TargetInfo/AMDGPUTargetInfo.h"
 
 #include "llvm/MC/MCContext.h"
 #include "llvm/MC/MCFixedLenDisassembler.h"

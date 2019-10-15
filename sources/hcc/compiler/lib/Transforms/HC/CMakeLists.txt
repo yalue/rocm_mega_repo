@@ -1,2 +1,0 @@
-add_subdirectory(PromotePointerKernArgsToGlobal)
-add_subdirectory(SelectAcceleratorCode)

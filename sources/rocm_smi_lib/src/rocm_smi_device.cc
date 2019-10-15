@@ -60,6 +60,8 @@
 #include "rocm_smi/rocm_smi_device.h"
 #include "rocm_smi/rocm_smi.h"
 #include "rocm_smi/rocm_smi_exception.h"
+#include "rocm_smi/rocm_smi_utils.h"
+#include "rocm_smi/rocm_smi_kfd.h"
 
 extern "C" {
 #include "shared_mutex.h"  // NOLINT
@@ -90,6 +92,7 @@ static const char *kDevErrCntSDMAFName = "ras/sdma_err_count";
 static const char *kDevErrCntUMCFName = "ras/umc_err_count";
 static const char *kDevErrCntGFXFName = "ras/gfx_err_count";
 static const char *kDevErrCntFeaturesFName = "ras/features";
+static const char *kDevMemPageBadFName = "ras/gpu_vram_bad_pages";
 static const char *kDevMemTotGTTFName = "mem_info_gtt_total";
 static const char *kDevMemTotVisVRAMFName = "mem_info_vis_vram_total";
 static const char *kDevMemTotVRAMFName = "mem_info_vram_total";
@@ -97,6 +100,11 @@ static const char *kDevMemUsedGTTFName = "mem_info_gtt_used";
 static const char *kDevMemUsedVisVRAMFName = "mem_info_vis_vram_used";
 static const char *kDevMemUsedVRAMFName = "mem_info_vram_used";
 static const char *kDevPCIEReplayCountFName = "pcie_replay_count";
+static const char *kDevUniqueIdFName = "unique_id";
+static const char *kDevDFCountersAvailableFName = "df_cntr_avail";
+static const char *kDevMemBusyPercentFName = "mem_busy_percent";
+static const char *kDevXGMIErrorFName = "xgmi_error";
+static const char *kDevSerialNumberFName = "serial_number";
 
 // Strings that are found within sysfs files
 static const char *kDevPerfLevelAutoStr = "auto";
@@ -109,6 +117,94 @@ static const char *kDevPerfLevelMinSClkStr = "profile_min_sclk";
 static const char *kDevPerfLevelPeakStr = "profile_peak";
 static const char *kDevPerfLevelUnknownStr = "unknown";
 
+// Firmware version files
+static const char *kDevFwVersionAsdFName = "fw_version/asd_fw_version";
+static const char *kDevFwVersionCeFName = "fw_version/ce_fw_version";
+static const char *kDevFwVersionDmcuFName = "fw_version/dmcu_fw_version";
+static const char *kDevFwVersionMcFName = "fw_version/mc_fw_version";
+static const char *kDevFwVersionMeFName = "fw_version/me_fw_version";
+static const char *kDevFwVersionMecFName = "fw_version/mec_fw_version";
+static const char *kDevFwVersionMec2FName = "fw_version/mec2_fw_version";
+static const char *kDevFwVersionPfpFName = "fw_version/pfp_fw_version";
+static const char *kDevFwVersionRlcFName = "fw_version/rlc_fw_version";
+static const char *kDevFwVersionRlcSrlcFName = "fw_version/rlc_srlc_fw_version";
+static const char *kDevFwVersionRlcSrlgFName = "fw_version/rlc_srlg_fw_version";
+static const char *kDevFwVersionRlcSrlsFName = "fw_version/rlc_srls_fw_version";
+static const char *kDevFwVersionSdmaFName = "fw_version/sdma_fw_version";
+static const char *kDevFwVersionSdma2FName = "fw_version/sdma2_fw_version";
+static const char *kDevFwVersionSmcFName = "fw_version/smc_fw_version";
+static const char *kDevFwVersionSosFName = "fw_version/sos_fw_version";
+static const char *kDevFwVersionTaRasFName = "fw_version/ta_ras_fw_version";
+static const char *kDevFwVersionTaXgmiFName = "fw_version/ta_xgmi_fw_version";
+static const char *kDevFwVersionUvdFName = "fw_version/uvd_fw_version";
+static const char *kDevFwVersionVceFName = "fw_version/vce_fw_version";
+static const char *kDevFwVersionVcnFName = "fw_version/vcn_fw_version";
+
+static const char *kDevKFDNodePropCachesCntSName = "caches_count";
+static const char *kDevKFDNodePropIoLinksCntSName = "io_links_count";
+static const char *kDevKFDNodePropCPUCoreIdBaseSName = "cpu_core_id_base";
+static const char *kDevKFDNodePropSimdIdBaseSName = "simd_id_base";
+static const char *kDevKFDNodePropMaxWavePerSimdSName = "max_waves_per_simd";
+static const char *kDevKFDNodePropLdsSzSName = "lds_size_in_kb";
+static const char *kDevKFDNodePropGdsSzSName = "gds_size_in_kb";
+static const char *kDevKFDNodePropNumGWSSName = "num_gws";
+static const char *kDevKFDNodePropWaveFrontSizeSName = "wave_front_size";
+static const char *kDevKFDNodePropArrCntSName = "array_count";
+static const char *kDevKFDNodePropSimdArrPerEngSName = "simd_arrays_per_engine";
+static const char *kDevKFDNodePropCuPerSimdArrSName = "cu_per_simd_array";
+static const char *kDevKFDNodePropSimdPerCUSName = "simd_per_cu";
+static const char *kDevKFDNodePropMaxSlotsScratchCuSName =
+                                                       "max_slots_scratch_cu";
+static const char *kDevKFDNodePropVendorIdSName = "vendor_id";
+static const char *kDevKFDNodePropDeviceIdSName = "device_id";
+static const char *kDevKFDNodePropLocationIdSName = "location_id";
+static const char *kDevKFDNodePropDrmRenderMinorSName = "drm_render_minor";
+static const char *kDevKFDNodePropHiveIdSName = "hive_id";
+static const char *kDevKFDNodePropNumSdmaEnginesSName = "num_sdma_engines";
+static const char *kDevKFDNodePropNumSdmaXgmiEngsSName =
+                                                      "num_sdma_xgmi_engines";
+static const char *kDevKFDNodePropMaxEngClkFCompSName =
+                                                    "max_engine_clk_fcompute";
+static const char *kDevKFDNodePropLocMemSzSName = "local_mem_size";
+static const char *kDevKFDNodePropFwVerSName = "fw_version";
+static const char *kDevKFDNodePropCapabilitySName = "capability";
+static const char *kDevKFDNodePropDbgPropSName = "debug_prop";
+static const char *kDevKFDNodePropSdmaFwVerSName = "sdma_fw_version";
+static const char *kDevKFDNodePropMaxEngClkCCompSName =
+                                                    "max_engine_clk_ccompute";
+static const char *kDevKFDNodePropDomainSName = "domain";
+
+static const std::map<DevKFDNodePropTypes, const char *> kDevKFDPropNameMap = {
+    {kDevKFDNodePropCachesCnt, kDevKFDNodePropCachesCntSName},
+    {kDevKFDNodePropIoLinksCnt, kDevKFDNodePropIoLinksCntSName},
+    {kDevKFDNodePropCPUCoreIdBase, kDevKFDNodePropCPUCoreIdBaseSName},
+    {kDevKFDNodePropSimdIdBase, kDevKFDNodePropSimdIdBaseSName},
+    {kDevKFDNodePropMaxWavePerSimd, kDevKFDNodePropMaxWavePerSimdSName},
+    {kDevKFDNodePropLdsSz, kDevKFDNodePropLdsSzSName},
+    {kDevKFDNodePropGdsSz, kDevKFDNodePropGdsSzSName},
+    {kDevKFDNodePropNumGWS, kDevKFDNodePropNumGWSSName},
+    {kDevKFDNodePropWaveFrontSize, kDevKFDNodePropWaveFrontSizeSName},
+    {kDevKFDNodePropArrCnt, kDevKFDNodePropArrCntSName},
+    {kDevKFDNodePropSimdArrPerEng, kDevKFDNodePropSimdArrPerEngSName},
+    {kDevKFDNodePropCuPerSimdArr, kDevKFDNodePropCuPerSimdArrSName},
+    {kDevKFDNodePropSimdPerCU, kDevKFDNodePropSimdPerCUSName},
+    {kDevKFDNodePropMaxSlotsScratchCu, kDevKFDNodePropMaxSlotsScratchCuSName},
+    {kDevKFDNodePropVendorId, kDevKFDNodePropVendorIdSName},
+    {kDevKFDNodePropDeviceId, kDevKFDNodePropDeviceIdSName},
+    {kDevKFDNodePropLocationId, kDevKFDNodePropLocationIdSName},
+    {kDevKFDNodePropDrmRenderMinor, kDevKFDNodePropDrmRenderMinorSName},
+    {kDevKFDNodePropHiveId, kDevKFDNodePropHiveIdSName},
+    {kDevKFDNodePropNumSdmaEngines, kDevKFDNodePropNumSdmaEnginesSName},
+    {kDevKFDNodePropNumSdmaXgmiEngs, kDevKFDNodePropNumSdmaXgmiEngsSName},
+    {kDevKFDNodePropMaxEngClkFComp, kDevKFDNodePropMaxEngClkFCompSName},
+    {kDevKFDNodePropLocMemSz, kDevKFDNodePropLocMemSzSName},
+    {kDevKFDNodePropFwVer, kDevKFDNodePropFwVerSName},
+    {kDevKFDNodePropCapability, kDevKFDNodePropCapabilitySName},
+    {kDevKFDNodePropDbgProp, kDevKFDNodePropDbgPropSName},
+    {kDevKFDNodePropSdmaFwVer, kDevKFDNodePropSdmaFwVerSName},
+    {kDevKFDNodePropMaxEngClkCComp, kDevKFDNodePropMaxEngClkCCompSName},
+    {kDevKFDNodePropDomain, kDevKFDNodePropDomainSName},
+};
 static const std::map<DevInfoTypes, const char *> kDevAttribNameMap = {
     {kDevPerfLevel, kDevPerfLevelFName},
     {kDevOverDriveLevel, kDevOverDriveLevelFName},
@@ -133,11 +229,38 @@ static const std::map<DevInfoTypes, const char *> kDevAttribNameMap = {
     {kDevErrCntFeatures, kDevErrCntFeaturesFName},
     {kDevMemTotGTT, kDevMemTotGTTFName},
     {kDevMemTotVisVRAM, kDevMemTotVisVRAMFName},
+    {kDevMemBusyPercent, kDevMemBusyPercentFName},
     {kDevMemTotVRAM, kDevMemTotVRAMFName},
     {kDevMemUsedGTT, kDevMemUsedGTTFName},
     {kDevMemUsedVisVRAM, kDevMemUsedVisVRAMFName},
     {kDevMemUsedVRAM, kDevMemUsedVRAMFName},
     {kDevPCIEReplayCount, kDevPCIEReplayCountFName},
+    {kDevUniqueId, kDevUniqueIdFName},
+    {kDevDFCountersAvailable, kDevDFCountersAvailableFName},
+    {kDevXGMIError, kDevXGMIErrorFName},
+    {kDevFwVersionAsd, kDevFwVersionAsdFName},
+    {kDevFwVersionCe, kDevFwVersionCeFName},
+    {kDevFwVersionDmcu, kDevFwVersionDmcuFName},
+    {kDevFwVersionMc, kDevFwVersionMcFName},
+    {kDevFwVersionMe, kDevFwVersionMeFName},
+    {kDevFwVersionMec, kDevFwVersionMecFName},
+    {kDevFwVersionMec2, kDevFwVersionMec2FName},
+    {kDevFwVersionPfp, kDevFwVersionPfpFName},
+    {kDevFwVersionRlc, kDevFwVersionRlcFName},
+    {kDevFwVersionRlcSrlc, kDevFwVersionRlcSrlcFName},
+    {kDevFwVersionRlcSrlg, kDevFwVersionRlcSrlgFName},
+    {kDevFwVersionRlcSrls, kDevFwVersionRlcSrlsFName},
+    {kDevFwVersionSdma, kDevFwVersionSdmaFName},
+    {kDevFwVersionSdma2, kDevFwVersionSdma2FName},
+    {kDevFwVersionSmc, kDevFwVersionSmcFName},
+    {kDevFwVersionSos, kDevFwVersionSosFName},
+    {kDevFwVersionTaRas, kDevFwVersionTaRasFName},
+    {kDevFwVersionTaXgmi, kDevFwVersionTaXgmiFName},
+    {kDevFwVersionUvd, kDevFwVersionUvdFName},
+    {kDevFwVersionVce, kDevFwVersionVceFName},
+    {kDevFwVersionVcn, kDevFwVersionVcnFName},
+    {kDevSerialNumber, kDevSerialNumberFName},
+    {kDevMemPageBad, kDevMemPageBadFName},
 };
 
 static const std::map<rsmi_dev_perf_level, const char *> kDevPerfLvlMap = {
@@ -152,12 +275,6 @@ static const std::map<rsmi_dev_perf_level, const char *> kDevPerfLvlMap = {
 
     {RSMI_DEV_PERF_LEVEL_UNKNOWN, kDevPerfLevelUnknownStr},
 };
-
-static bool isRegularFile(std::string fname) {
-  struct stat file_stat;
-  stat(fname.c_str(), &file_stat);
-  return S_ISREG(file_stat.st_mode);
-}
 
 #define RET_IF_NONZERO(X) { \
   if (X) return X; \
@@ -203,7 +320,14 @@ int Device::openSysfsFileStream(DevInfoTypes type, T *fs, const char *str) {
   sysfs_path += kDevAttribNameMap.at(type);
 
   DBG_FILE_ERROR(sysfs_path, str);
-  if (!isRegularFile(sysfs_path)) {
+  bool reg_file;
+
+  int ret = isRegularFile(sysfs_path, &reg_file);
+
+  if (ret != 0) {
+    return ret;
+  }
+  if (!reg_file) {
     return ENOENT;
   }
 
@@ -337,7 +461,7 @@ int Device::readDevInfoMultiLineStr(DevInfoTypes type,
   }
 
   if (retVec->size() == 0) {
-    return EPERM;
+    return 0;
   }
   // Remove any *trailing* empty (whitespace) lines
   while (retVec->back().find_first_not_of(" \t\n\v\f\r") == std::string::npos) {
@@ -356,6 +480,7 @@ int Device::readDevInfo(DevInfoTypes type, uint64_t *val) {
     case kDevSubSysDevID:
     case kDevSubSysVendorID:
     case kDevVendorID:
+    case kDevErrCntFeatures:
       ret = readDevInfoStr(type, &tempStr);
       RET_IF_NONZERO(ret);
       *val = std::stoi(tempStr, 0, 16);
@@ -370,9 +495,39 @@ int Device::readDevInfo(DevInfoTypes type, uint64_t *val) {
     case kDevMemUsedVisVRAM:
     case kDevMemUsedVRAM:
     case kDevPCIEReplayCount:
+    case kDevDFCountersAvailable:
+    case kDevMemBusyPercent:
+    case kDevXGMIError:
       ret = readDevInfoStr(type, &tempStr);
       RET_IF_NONZERO(ret);
       *val = std::stoul(tempStr, 0);
+      break;
+
+    case kDevUniqueId:
+    case kDevFwVersionAsd:
+    case kDevFwVersionCe:
+    case kDevFwVersionDmcu:
+    case kDevFwVersionMc:
+    case kDevFwVersionMe:
+    case kDevFwVersionMec:
+    case kDevFwVersionMec2:
+    case kDevFwVersionPfp:
+    case kDevFwVersionRlc:
+    case kDevFwVersionRlcSrlc:
+    case kDevFwVersionRlcSrlg:
+    case kDevFwVersionRlcSrls:
+    case kDevFwVersionSdma:
+    case kDevFwVersionSdma2:
+    case kDevFwVersionSmc:
+    case kDevFwVersionSos:
+    case kDevFwVersionTaRas:
+    case kDevFwVersionTaXgmi:
+    case kDevFwVersionUvd:
+    case kDevFwVersionVce:
+    case kDevFwVersionVcn:
+      ret = readDevInfoStr(type, &tempStr);
+      RET_IF_NONZERO(ret);
+      *val = std::stoul(tempStr, 0, 16);
       break;
 
     default:
@@ -396,7 +551,7 @@ int Device::readDevInfo(DevInfoTypes type, std::vector<std::string> *val) {
     case kDevErrCntSDMA:
     case kDevErrCntUMC:
     case kDevErrCntGFX:
-    case kDevErrCntFeatures:
+    case kDevMemPageBad:
       return readDevInfoMultiLineStr(type, val);
       break;
 
@@ -420,12 +575,60 @@ int Device::readDevInfo(DevInfoTypes type, std::string *val) {
     case kDevVendorID:
     case kDevVBiosVer:
     case kDevPCIEThruPut:
+    case kDevSerialNumber:
       return readDevInfoStr(type, val);
       break;
 
     default:
       return -1;
   }
+  return 0;
+}
+
+int Device::populateKFDNodeProperties(bool force_update) {
+  int ret;
+
+  std::vector<std::string> propVec;
+
+  if (kfdNodePropMap_.size() > 0 && !force_update) {
+    return 0;
+  }
+
+  ret = ReadKFDDeviceProperties(index_, &propVec);
+
+  if (ret) {
+    return ret;
+  }
+
+  std::string key_str;
+  // std::string val_str;
+  uint64_t val_int;  // Assume all properties are unsigned integers for now
+  std::istringstream fs;
+
+  for (uint32_t i = 0; i < propVec.size(); ++i) {
+    fs.str(propVec[i]);
+    fs >> key_str;
+    fs >> val_int;
+
+    kfdNodePropMap_[key_str] = val_int;
+
+    fs.str("");
+    fs.clear();
+  }
+
+  return 0;
+}
+
+int Device::getKFDNodeProperty(DevKFDNodePropTypes prop, uint64_t *val) {
+  assert(val != nullptr);
+  assert(kDevKFDPropNameMap.find(prop) != kDevKFDPropNameMap.end());
+
+  const char *prop_name = kDevKFDPropNameMap.at(prop);
+  if (kfdNodePropMap_.find(prop_name) == kfdNodePropMap_.end()) {
+    return EINVAL;
+  }
+
+  *val = kfdNodePropMap_.at(prop_name);
   return 0;
 }
 

@@ -169,9 +169,9 @@ private:
       // in the first place.
     }
 
-    std::shared_ptr<PathDiagnosticPiece> VisitNode(const ExplodedNode *N,
-                                                   BugReporterContext &BRC,
-                                                   BugReport &BR) override;
+    PathDiagnosticPieceRef VisitNode(const ExplodedNode *N,
+                                     BugReporterContext &BRC,
+                                     BugReport &BR) override;
 
   private:
     const MoveChecker &Chk;
@@ -270,9 +270,8 @@ static const MemRegion *unwrapRValueReferenceIndirection(const MemRegion *MR) {
   return MR;
 }
 
-std::shared_ptr<PathDiagnosticPiece>
-MoveChecker::MovedBugVisitor::VisitNode(const ExplodedNode *N,
-                                        BugReporterContext &BRC, BugReport &BR) {
+PathDiagnosticPieceRef MoveChecker::MovedBugVisitor::VisitNode(
+    const ExplodedNode *N, BugReporterContext &BRC, BugReport &BR) {
   // We need only the last move of the reported object's region.
   // The visitor walks the ExplodedGraph backwards.
   if (Found)
@@ -752,8 +751,7 @@ void MoveChecker::printState(raw_ostream &Out, ProgramStateRef State,
 void ento::registerMoveChecker(CheckerManager &mgr) {
   MoveChecker *chk = mgr.registerChecker<MoveChecker>();
   chk->setAggressiveness(
-      mgr.getAnalyzerOptions().getCheckerStringOption(chk, "WarnOn",
-                                                      "KnownsAndLocals"), mgr);
+      mgr.getAnalyzerOptions().getCheckerStringOption(chk, "WarnOn"), mgr);
 }
 
 bool ento::shouldRegisterMoveChecker(const LangOptions &LO) {

@@ -144,6 +144,8 @@ static const ParmVarDecl *getOriginParam(SVal V, CheckerContext &C,
 
 static bool isInMIGCall(CheckerContext &C) {
   const LocationContext *LC = C.getLocationContext();
+  assert(LC && "Unknown location context");
+
   const StackFrameContext *SFC;
   // Find the top frame.
   while (LC) {
@@ -280,7 +282,8 @@ void MIGChecker::checkReturnAux(const ReturnStmt *RS, CheckerContext &C) const {
       N);
 
   R->addRange(RS->getSourceRange());
-  bugreporter::trackExpressionValue(N, RS->getRetValue(), *R, false);
+  bugreporter::trackExpressionValue(N, RS->getRetValue(), *R,
+                                    bugreporter::TrackingKind::Thorough, false);
   C.emitReport(std::move(R));
 }
 

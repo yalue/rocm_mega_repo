@@ -56,7 +56,7 @@ unsigned int PM4Queue::RptrWhenConsumed() {
 
 void PM4Queue::SubmitPacket() {
     // m_pending Wptr is in dwords
-    if (g_TestGPUFamilyId < FAMILY_AI) {
+    if (m_FamilyId < FAMILY_AI) {
         // Pre-Vega10 uses 32-bit wptr and doorbell
         MemoryBarrier();
         *m_Resources.Queue_write_ptr = m_pendingWptr;
@@ -73,13 +73,13 @@ void PM4Queue::SubmitPacket() {
 
 void PM4Queue::Wait4PacketConsumption(HsaEvent *event, unsigned int timeOut) {
     if (event) {
-        PlaceAndSubmitPacket(PM4ReleaseMemoryPacket(0,
+        PlaceAndSubmitPacket(PM4ReleaseMemoryPacket(m_FamilyId, 0,
                     event->EventData.HWData2,
                     event->EventId,
                     true));
 
         EXPECT_SUCCESS(hsaKmtWaitOnEvent(event, timeOut));
     } else {
-        BaseQueue::Wait4PacketConsumption();
+        BaseQueue::Wait4PacketConsumption(NULL, timeOut);
     }
 }

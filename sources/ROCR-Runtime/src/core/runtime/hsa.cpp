@@ -1885,6 +1885,8 @@ static std::string ConvertOldTargetNameToNew(
     NewName = "amdgcn-amd-amdhsa--gfx904";
   else if (OldName == "AMD:AMDGPU:9:0:6")
     NewName = "amdgcn-amd-amdhsa--gfx906";
+  else if (OldName == "AMD:AMDGPU:9:0:8")
+    NewName = "amdgcn-amd-amdhsa--gfx908";
   else
     assert(false && "Unhandled target");
 
@@ -2573,7 +2575,6 @@ hsa_status_t hsa_executable_iterate_program_symbols(
 hsa_status_t hsa_status_string(
     hsa_status_t status,
     const char **status_string) {
-  IS_OPEN();
   IS_BAD_PTR(status_string);
   const size_t status_u = static_cast<size_t>(status);
   switch (status_u) {
@@ -2720,6 +2721,17 @@ hsa_status_t hsa_status_string(
       *status_string =
           "HSA_STATUS_ERROR_FATAL:  The queue received an error that may require process "
           "termination.";
+      break;
+    case HSA_STATUS_ERROR_MEMORY_APERTURE_VIOLATION:
+      *status_string =
+          "HSA_STATUS_ERROR_MEMORY_APERTURE_VIOLATION:  The agent attempted to access "
+          "memory beyond the largest legal address.";
+      break;
+    case HSA_STATUS_ERROR_ILLEGAL_INSTRUCTION:
+      *status_string =
+          "HSA_STATUS_ERROR_ILLEGAL_INSTRUCTION:  The agent attempted to execute an "
+          "illegal shader instruction.";
+      break;
     case HSA_EXT_STATUS_ERROR_IMAGE_FORMAT_UNSUPPORTED:
       *status_string =
           "HSA_EXT_STATUS_ERROR_IMAGE_FORMAT_UNSUPPORTED: Image "

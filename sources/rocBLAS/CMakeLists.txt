@@ -5,6 +5,9 @@
 # The ROCm platform requires Ubuntu 16.04 or Fedora 24, which has cmake 3.5
 cmake_minimum_required( VERSION 3.5 )
 
+# We use C++14 features, this will add compile option: -std=c++14
+set( CMAKE_CXX_STANDARD 14 )
+
 # Consider removing this in the future
 # This should appear before the project command, because it does not use FORCE
 if( WIN32 )
@@ -72,6 +75,8 @@ endif()
 
 if( CXX_VERSION_STRING MATCHES "clang" )
   message( STATUS "Use hip-clang to build for amdgpu backend" )
+# set ( CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Xclang -fallow-half-arguments-and-returns" )
+  set ( CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -D__HIP_HCC_COMPAT_MODE__=1" )
 elseif( CXX_VERSION_STRING MATCHES "nvcc" )
   message( STATUS "HIPCC nvcc compiler detected; CUDA backend selected" )
 
@@ -91,6 +96,7 @@ elseif( CXX_VERSION_STRING MATCHES "nvcc" )
   set( CMAKE_CXX_COMPILE_OPTIONS_VISIBILITY_INLINES_HIDDEN "-Xcompiler ${CMAKE_CXX_COMPILE_OPTIONS_VISIBILITY_INLINES_HIDDEN}" )
 elseif( CXX_VERSION_STRING MATCHES "HCC" )
   message( STATUS "HCC compiler set; ROCm backend selected [ CXX=/opt/rocm/bin/hcc cmake ... ]" )
+  set (CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -hc")
 endif( )
 
 # This finds the rocm-cmake project, and installs it if not found
@@ -128,18 +134,9 @@ include( ROCMInstallTargets )
 include( ROCMPackageConfigHelpers )
 include( ROCMInstallSymlinks )
 
-set ( VERSION_STRING "2.2.6." )
-# Check if BUILD_NUMBER is defined in a Jenkins envirnment
-if ($ENV{BUILD_NUMBER} )
-  string(CONCAT BUILD_VERSION ${VERSION_STRING} $ENV{BUILD_NUMBER})
-else ()
-  string(CONCAT BUILD_VERSION ${VERSION_STRING} "0")
-endif ()
-rocm_setup_version( VERSION ${BUILD_VERSION} NO_GIT_TAG_VERSION )
-
-# Get the git tag version
-include ( cmake/version.cmake )
-rocm_get_git_commit_id ( rocblas_VERSION_COMMIT_ID )
+# Versioning via rocm-cmake
+set ( VERSION_STRING "2.6.3" )
+rocm_setup_version( VERSION ${VERSION_STRING} )
 
 # Append our library helper cmake path and the cmake path for hip (for convenience)
 # Users may override HIP path by specifying their own in CMAKE_MODULE_PATH
@@ -160,6 +157,8 @@ set(CMAKE_INSTALL_LIBDIR "lib" CACHE INTERNAL "Installation directory for librar
 
 if( BUILD_WITH_TENSILE )
   set( Tensile_LOGIC "asm_full" CACHE STRING "Tensile to use which logic?")
+  set( Tensile_CODE_OBJECT_VERSION "V2" CACHE STRING "Tensile code_object_version")
+  set( Tensile_COMPILER "hcc" CACHE STRING "Tensile compiler")
 
   option( Tensile_MERGE_FILES "Tensile to merge kernels and solutions files?" ON )
   option( Tensile_SHORT_FILENAMES "Tensile to use short file names? Use if compiler complains they're too long." OFF )
@@ -168,6 +167,8 @@ if( BUILD_WITH_TENSILE )
   set( Tensile_TEST_LOCAL_PATH "" CACHE PATH "Use local Tensile directory instead of fetching a GitHub branch" )
   set( CMAKE_INSTALL_PREFIX "/opt/rocm" CACHE PATH "Install path prefix, prepended onto install directories" )
   set_property( CACHE Tensile_LOGIC PROPERTY STRINGS asm_full asm_lite hip_lite other )
+  set_property( CACHE Tensile_CODE_OBJECT_VERSION PROPERTY STRINGS V2 V3 )
+  set_property( CACHE Tensile_COMPILER PROPERTY STRINGS hcc hipcc)
 
   include(virtualenv)
 
@@ -177,12 +178,12 @@ if( BUILD_WITH_TENSILE )
   else()
     # Use the virtual-env setup and download package from specified repot:
     set( tensile_fork "ROCmSoftwarePlatform" CACHE STRING "Tensile fork to use" )
-    set( tensile_tag 06485a6dcd7d33ebb76a045c8edc8d341fcfea67 CACHE STRING "Tensile tag to download" )
+    set( tensile_tag 4a6e2631cdc3beadba6ce0e6f42f3d08076290c7 CACHE STRING "Tensile tag to download" )
     virtualenv_install("git+https://github.com/${tensile_fork}/Tensile.git@${tensile_tag}")
     message (STATUS "using GIT Tensile fork=${tensile_fork} from branch=${tensile_tag}")
   endif()
   list(APPEND CMAKE_PREFIX_PATH ${VIRTUALENV_HOME_DIR})
-  set( Tensile_ROOT "${VIRTUALENV_HOME_DIR}/lib/python2.7/site-packages/" CACHE STRING "Local path of Tensile" )
+  set( Tensile_ROOT "${VIRTUALENV_HOME_DIR}/bin" CACHE STRING "Local path of Tensile" )
   set( Tensile_TensileConfig ${VIRTUALENV_HOME_DIR}/cmake/TensileConfig.cmake)
 
 endif()
@@ -194,7 +195,7 @@ if( CMAKE_CXX_COMPILER MATCHES ".*/hcc$" )
 endif( )
 
 # CMake list of machine targets
-set( AMDGPU_TARGETS gfx803;gfx900;gfx906 CACHE STRING "List of specific machine types for library to target" )
+set( AMDGPU_TARGETS gfx803;gfx900;gfx906;gfx908 CACHE STRING "List of specific machine types for library to target" )
 
 add_subdirectory( library )
 

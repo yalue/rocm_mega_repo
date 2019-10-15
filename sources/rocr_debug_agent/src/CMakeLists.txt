@@ -59,11 +59,11 @@
 
 cmake_minimum_required(VERSION 3.5.0)
 
-# Specify name of project to build, install and package
-set(PROJECT_NAME "rocr_debug_agent")
+project(rocr_debug_agent VERSION 1.0.0)
 set(TARGET_NAME "${PROJECT_NAME}64" )
-set(TARGET_LIBRARY "lib${TARGET_NAME}" )
-project(${PROJECT_NAME})
+set(BUILD_VERSION_MAJOR ${PROJECT_VERSION_MAJOR})
+set(BUILD_VERSION_MINOR ${PROJECT_VERSION_MINOR})
+set(BUILD_VERSION_PATCH ${PROJECT_VERSION_PATCH})
 
 # Build is not supported on Windows plaform
 if(WIN32)
@@ -172,19 +172,6 @@ endif()
 list ( APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/cmake_modules" )
 include(utils)
 
-#
-# Set the package version for the rocr_debug_agent. It is critical that this
-# value track what is used in the rocr_debug_agent source. The code from utils
-# module will parse the string into major, minor and patch sub-fields
-#
-get_version("1.0.0")
-message ( "-- LIB-VERSION: ${VERSION_MAJOR}.${VERSION_MINOR}.${VERSION_PATCH}" )
-
-# Bind the Major, Minor and Patch values
-set(BUILD_VERSION_MAJOR ${VERSION_MAJOR})
-set(BUILD_VERSION_MINOR ${VERSION_MINOR})
-set(BUILD_VERSION_PATCH ${VERSION_PATCH})
-
 # Basic Tool Chain Information
 message(" ")
 message("----------------NBIT: ${NBIT}")
@@ -208,11 +195,11 @@ include_directories (${CMAKE_CURRENT_SOURCE_DIR}/Include)
 # Add sources that belong to the project
 aux_source_directory(${CMAKE_CURRENT_SOURCE_DIR} Src)
 
-macro(LLVMAssemble AsmPath ObjPath TargetName)
+macro(LLVMAssemble AsmPath ObjPath TargetName ISAVersionMinor ISAVersionStepping)
   add_custom_command(
     OUTPUT ${ObjPath}
     DEPENDS "${AsmPath}"
-    COMMAND ${LC_BIN}/clang -x assembler -target amdgcn--amdhsa -mcpu=${TargetName} -mno-code-object-v3 -c -o ${ObjPath} "${AsmPath}"
+    COMMAND ${LC_BIN}/clang -x assembler -Wa,-defsym,.LISA_VERSION_MINOR=${ISAVersionMinor} -Wa,-defsym,.LISA_VERSION_STEPPING=${ISAVersionStepping} -target amdgcn--amdhsa -mcpu=${TargetName} -mno-code-object-v3 -c -o ${ObjPath} "${AsmPath}"
     COMMENT "Building LLVM assembly object ${ObjPath}..."
   )
 endmacro()
@@ -235,9 +222,10 @@ macro(LLVMStringify CodeObjPath HdrPath TargetName)
   )
 endmacro()
 
-set(ASM_SRCS
-  "${CMAKE_CURRENT_SOURCE_DIR}/HSATrapHandler_s_gfx900.s"
-  "${CMAKE_CURRENT_SOURCE_DIR}/HSATrapHandler_s_gfx906.s"
+set(TARGET_ISAS
+  "gfx900"
+  "gfx906"
+  "gfx908"
 )
 
 macro(DTraceGenerateHeader ScriptPath HdrPath)
@@ -255,17 +243,19 @@ set(DTRACE_SCRIPTS
 
 # Build and generate header file for debug trap handler
 set(ASM_HDR_PATHS "")
-foreach(ASM_SRC IN LISTS ASM_SRCS)
-  get_filename_component(SRC_BASE_NAME "${ASM_SRC}" NAME_WE)
-  set(OUT_BASE_NAME ${SRC_BASE_NAME})
+set(ASM_SRC "${CMAKE_CURRENT_SOURCE_DIR}/HSATrapHandler_s_gfx9xx.s")
+foreach(ISA IN LISTS TARGET_ISAS)
+  set(OUT_BASE_NAME "HSATrapHandler_s_${ISA}")
   set(OBJ_PATH ${OUT_BASE_NAME}.o)
   set(CODE_OBJ_PATH ${OUT_BASE_NAME}.co)
   set(HDR_PATH ${CMAKE_CURRENT_BINARY_DIR}/${OUT_BASE_NAME}.h)
-  STRING(REGEX MATCH "gfx([A-Za-z0-9]+)" LLVM_TARGET "${SRC_BASE_NAME}")
+  STRING(REGEX MATCHALL "([0-9])" ISA_VERSION "${ISA}")
+  list(GET ISA_VERSION 1 ISA_VERSION_MINOR)
+  list(GET ISA_VERSION 2 ISA_VERSION_STEPPING)
 
-  LLVMAssemble("${ASM_SRC}" ${OBJ_PATH} ${LLVM_TARGET})
+  LLVMAssemble("${ASM_SRC}" ${OBJ_PATH} ${ISA} ${ISA_VERSION_MINOR} ${ISA_VERSION_STEPPING})
   LLVMLink(${OBJ_PATH} ${CODE_OBJ_PATH})
-  LLVMStringify(${CODE_OBJ_PATH} ${HDR_PATH} ${LLVM_TARGET})
+  LLVMStringify(${CODE_OBJ_PATH} ${HDR_PATH} ${ISA})
   list(APPEND ASM_HDR_PATHS ${HDR_PATH})
 endforeach()
 
@@ -279,13 +269,19 @@ foreach(DTRACE_SCRIPT IN LISTS DTRACE_SCRIPTS)
   list(APPEND PROBES_HDR_PATHS ${HDR_PATH})
 endforeach()
 
-
 # Build and link the program
 add_library(${TARGET_NAME} SHARED ${Src} ${ASM_HDR_PATHS} ${PROBES_HDR_PATHS})
 target_link_libraries(${TARGET_NAME} PRIVATE ${ROCR_LIB} ${HSAKMT_LIB} c stdc++ dl pthread rt)
 
+set_target_properties(rocr_debug_agent64 PROPERTIES
+  CXX_STANDARD 11
+  CXX_STANDARD_REQUIRED Yes
+  CXX_EXTENSIONS No
+  VERSION "${BUILD_VERSION_MAJOR}.${BUILD_VERSION_MINOR}"
+  SOVERSION "${BUILD_VERSION_MAJOR}")
+
 # Add install directives for rocr_debug_agent
-install(TARGETS ${TARGET_NAME} LIBRARY DESTINATION lib COMPONENT ${TARGET_LIBRARY})
+install(TARGETS ${TARGET_NAME} DESTINATION lib)
 
 # Add packaging directives for rocr_debug_agent
 set(CPACK_PACKAGE_NAME ${PROJECT_NAME})

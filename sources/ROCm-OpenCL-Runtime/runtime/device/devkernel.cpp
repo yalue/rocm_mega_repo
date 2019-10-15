@@ -9,6 +9,7 @@
 #include "utils/options.hpp"
 #include "utils/bif_section_labels.hpp"
 #include "utils/libUtils.h"
+#include "comgrctx.hpp"
 
 #include <map>
 #include <string>
@@ -30,6 +31,19 @@ using llvm::AMDGPU::HSAMD::ValueType;
 namespace device {
 
 #if defined(USE_COMGR_LIBRARY)
+amd_comgr_status_t getMetaBuf(const amd_comgr_metadata_node_t meta,
+                   std::string* str) {
+  size_t size = 0;
+  amd_comgr_status_t status = amd::Comgr::get_metadata_string(meta, &size, NULL);
+
+  if (status == AMD_COMGR_STATUS_SUCCESS) {
+    str->resize(size-1);    // minus one to discount the null character
+    status = amd::Comgr::get_metadata_string(meta, &size, &((*str)[0]));
+  }
+
+  return status;
+}
+
 static amd_comgr_status_t populateArgs(const amd_comgr_metadata_node_t key,
                                        const amd_comgr_metadata_node_t value,
                                        void *data) {
@@ -1257,7 +1271,6 @@ bool Kernel::GetAttrCodePropMetadata( const amd_comgr_metadata_node_t kernelMeta
 
   // Set the workgroup information for the kernel
   workGroupInfo_.availableLDSSize_ = dev().info().localMemSizePerCU_;
-  assert(workGroupInfo_.availableLDSSize_ > 0);
   workGroupInfo_.availableSGPRs_ = 104;
   workGroupInfo_.availableVGPRs_ = 256;
 

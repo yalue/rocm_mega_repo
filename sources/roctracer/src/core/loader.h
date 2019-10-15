@@ -5,119 +5,174 @@
 #include <mutex>
 #include <dlfcn.h>
 
-#define LOADER_INSTANTIATE() \
-  std::atomic<roctracer::HipLoader*> roctracer::HipLoader::instance_{}; \
-  std::atomic<roctracer::HccLoader*> roctracer::HccLoader::instance_{}; \
-  roctracer::Loader::mutex_t roctracer::Loader::mutex_;
-
 namespace roctracer {
 
 // Base runtime loader class
-class Loader {
+template <class T>
+class BaseLoader : public T {
   public:
   typedef std::mutex mutex_t;
+  typedef BaseLoader<T> loader_t;
 
-  Loader(const char* lib_name) {
-    handle_ = dlopen(lib_name, RTLD_LAZY|RTLD_NODELETE);
-    if (handle_ == NULL) {
-      fprintf(stderr, "roctracer: Loading '%s' failed, %s\n", lib_name, dlerror());
-      abort();
-    }
-  }
-
-  ~Loader() {
-    if (handle_ != NULL) dlclose(handle_);
-  }
+  bool Enabled() const { return (handle_ != NULL); }
 
   template <class fun_t>
-  fun_t* GetFun(const char* fun_name) { return (fun_t*) dlsym(handle_, fun_name); }
+  fun_t* GetFun(const char* fun_name) {
+    if (handle_ == NULL) return NULL;
 
-  protected:
-  static mutex_t mutex_;
+    fun_t *f = (fun_t*) dlsym(handle_, fun_name);
+    if (f == NULL) {
+      fprintf(stderr, "roctracer: symbol lookup '%s' failed: \"%s\"\n", fun_name, dlerror());
+      abort();
+    }
+    dlerror();
+    return f;
+  }
 
-  private:
-  void* handle_;
-};
-
-// HIP runtime library loader class
-class HipLoader : protected Loader {
-  public:
-  typedef decltype(hipRegisterApiCallback) RegisterApiCallback_t;
-  typedef decltype(hipRemoveApiCallback) RemoveApiCallback_t;
-  typedef decltype(hipRegisterActivityCallback) RegisterActivityCallback_t;
-  typedef decltype(hipRemoveActivityCallback) RemoveActivityCallback_t;
-  typedef decltype(hipKernelNameRef) KernelNameRef_t;
-
-  static HipLoader& Instance() {
-    HipLoader* obj = instance_.load(std::memory_order_acquire);
+  static inline loader_t& Instance(const bool& preload = false) {
+    loader_t* obj = instance_.load(std::memory_order_acquire);
     if (obj == NULL) {
       std::lock_guard<mutex_t> lck(mutex_);
       if (instance_.load(std::memory_order_relaxed) == NULL) {
-        obj = new HipLoader();
+        obj = new loader_t(preload);
         instance_.store(obj, std::memory_order_release);
       }
     }
     return *instance_;
   }
 
-  HipLoader() : Loader("libhip_hcc.so") {
-    RegisterApiCallback = GetFun<RegisterApiCallback_t>("hipRegisterApiCallback");
-    RemoveApiCallback = GetFun<RemoveApiCallback_t>("hipRemoveApiCallback");
-    RegisterActivityCallback = GetFun<RegisterActivityCallback_t>("hipRegisterActivityCallback");
-    RemoveActivityCallback = GetFun<RemoveActivityCallback_t>("hipRemoveActivityCallback");
-    KernelNameRef = GetFun<KernelNameRef_t>("hipKernelNameRef");
+  static loader_t* GetRef() { return instance_; }
+  static void SetLibName(const char *name) { lib_name_ = name; }
+
+  private:
+  BaseLoader(bool preload) {
+    const int flags = (preload) ? RTLD_LAZY : RTLD_LAZY|RTLD_NOLOAD;
+    handle_ = dlopen(lib_name_, flags);
+    if ((handle_ == NULL) && (strong_ld_check_)) {
+      fprintf(stderr, "roctracer: Loading '%s' failed, preload(%d), %s\n", lib_name_, (int)preload, dlerror());
+      abort();
+    }
+    dlerror();
+
+    T::init(this);
   }
+
+  ~BaseLoader() {
+    if (handle_ != NULL) dlclose(handle_);
+  }
+
+  static mutex_t mutex_;
+  static const char* lib_name_;
+  static std::atomic<loader_t*> instance_;
+  static const bool strong_ld_check_;
+  void* handle_;
+};
+
+// HIP runtime library loader class
+class HipApi {
+  public:
+  typedef BaseLoader<HipApi> Loader;
+
+  typedef decltype(hipRegisterApiCallback) RegisterApiCallback_t;
+  typedef decltype(hipRemoveApiCallback) RemoveApiCallback_t;
+  typedef decltype(hipRegisterActivityCallback) RegisterActivityCallback_t;
+  typedef decltype(hipRemoveActivityCallback) RemoveActivityCallback_t;
+  typedef decltype(hipKernelNameRef) KernelNameRef_t;
+  typedef decltype(hipApiName) ApiName_t;
 
   RegisterApiCallback_t* RegisterApiCallback;
   RemoveApiCallback_t* RemoveApiCallback;
   RegisterActivityCallback_t* RegisterActivityCallback;
   RemoveActivityCallback_t* RemoveActivityCallback;
   KernelNameRef_t* KernelNameRef;
+  ApiName_t* ApiName;
 
-  private:
-  static std::atomic<HipLoader*> instance_;
+  protected:
+  void init(Loader* loader) {
+    RegisterApiCallback = loader->GetFun<RegisterApiCallback_t>("hipRegisterApiCallback");
+    RemoveApiCallback = loader->GetFun<RemoveApiCallback_t>("hipRemoveApiCallback");
+    RegisterActivityCallback = loader->GetFun<RegisterActivityCallback_t>("hipRegisterActivityCallback");
+    RemoveActivityCallback = loader->GetFun<RemoveActivityCallback_t>("hipRemoveActivityCallback");
+    KernelNameRef = loader->GetFun<KernelNameRef_t>("hipKernelNameRef");
+    ApiName = loader->GetFun<ApiName_t>("hipApiName");
+  }
 };
 
 // HCC runtime library loader class
-class HccLoader : protected Loader {
+class HccApi {
   public:
-  typedef std::mutex mutex_t;
+  typedef BaseLoader<HccApi> Loader;
 
   typedef decltype(Kalmar::CLAMP::InitActivityCallback) InitActivityCallback_t;
   typedef decltype(Kalmar::CLAMP::EnableActivityCallback) EnableActivityCallback_t;
   typedef decltype(Kalmar::CLAMP::GetCmdName) GetCmdName_t;
 
-  static HccLoader* GetRef() { return instance_; }
-
-  static HccLoader& Instance() {
-    HccLoader* obj = instance_.load(std::memory_order_acquire);
-    if (obj == NULL) {
-      std::lock_guard<mutex_t> lck(mutex_);
-      if (instance_.load(std::memory_order_relaxed) == NULL) {
-        obj = new HccLoader();
-        instance_.store(obj, std::memory_order_release);
-      }
-    }
-    return *obj;
-  }
-
-  HccLoader() : Loader("libmcwamp_hsa.so") {
-    // Kalmar::CLAMP::InitActivityCallback
-    InitActivityCallback = GetFun<InitActivityCallback_t>("InitActivityCallbackImpl");
-    // Kalmar::CLAMP::EnableActivityIdCallback
-    EnableActivityCallback = GetFun<EnableActivityCallback_t>("EnableActivityCallbackImpl");
-    // Kalmar::CLAMP::GetCmdName
-    GetCmdName = GetFun<GetCmdName_t>("GetCmdNameImpl");
-  }
-
   InitActivityCallback_t* InitActivityCallback;
   EnableActivityCallback_t* EnableActivityCallback;
   GetCmdName_t* GetCmdName;
 
-  private:
-  static std::atomic<HccLoader*> instance_;
+  protected:
+  void init(Loader* loader) {
+    // Kalmar::CLAMP::InitActivityCallback
+    InitActivityCallback = loader->GetFun<InitActivityCallback_t>("InitActivityCallbackImpl");
+    // Kalmar::CLAMP::EnableActivityIdCallback
+    EnableActivityCallback = loader->GetFun<EnableActivityCallback_t>("EnableActivityCallbackImpl");
+    // Kalmar::CLAMP::GetCmdName
+    GetCmdName = loader->GetFun<GetCmdName_t>("GetCmdNameImpl");
+  }
 };
 
+// KFD runtime library loader class
+class KfdApi {
+  public:
+  typedef BaseLoader<KfdApi> Loader;
+
+  typedef bool (RegisterApiCallback_t)(uint32_t op, void* callback, void* arg);
+  typedef bool (RemoveApiCallback_t)(uint32_t op);
+
+  RegisterApiCallback_t* RegisterApiCallback;
+  RemoveApiCallback_t* RemoveApiCallback;
+
+  protected:
+  void init(Loader* loader) {
+    RegisterApiCallback = loader->GetFun<RegisterApiCallback_t>("RegisterApiCallback");
+    RemoveApiCallback = loader->GetFun<RemoveApiCallback_t>("RemoveApiCallback");
+  }
+};
+
+// rocTX runtime library loader class
+class RocTxApi {
+  public:
+  typedef BaseLoader<RocTxApi> Loader;
+
+  typedef bool (RegisterApiCallback_t)(uint32_t op, void* callback, void* arg);
+  typedef bool (RemoveApiCallback_t)(uint32_t op);
+
+  RegisterApiCallback_t* RegisterApiCallback;
+  RemoveApiCallback_t* RemoveApiCallback;
+
+  protected:
+  void init(Loader* loader) {
+    RegisterApiCallback = loader->GetFun<RegisterApiCallback_t>("RegisterApiCallback");
+    RemoveApiCallback = loader->GetFun<RemoveApiCallback_t>("RemoveApiCallback");
+  }
+};
+
+typedef BaseLoader<HipApi> HipLoader;
+typedef BaseLoader<HccApi> HccLoader;
+typedef BaseLoader<KfdApi> KfdLoader;
+typedef BaseLoader<RocTxApi> RocTxLoader;
+
 } // namespace roctracer
+
+#define LOADER_INSTANTIATE() \
+  template<class T> typename roctracer::BaseLoader<T>::mutex_t roctracer::BaseLoader<T>::mutex_; \
+  template<class T> std::atomic<roctracer::BaseLoader<T>*> roctracer::BaseLoader<T>::instance_{}; \
+  template<class T> const bool roctracer::BaseLoader<T>::strong_ld_check_ = false;
+  template<> const char* roctracer::HipLoader::lib_name_ = "libhip_hcc.so"; \
+  template<> const char* roctracer::HccLoader::lib_name_ = "libmcwamp_hsa.so"; \
+  template<> const char* roctracer::KfdLoader::lib_name_ = "libkfdwrapper64.so"; \
+  template<> const char* roctracer::RocTxLoader::lib_name_ = "libroctx64.so"; \
+  template<> const bool roctracer::RocTxLoader::strong_ld_check_ = false;
 
 #endif // SRC_CORE_LOADER_H_

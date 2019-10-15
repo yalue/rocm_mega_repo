@@ -64,7 +64,17 @@ enum {
   /**
    * The memory pool is invalid.
    */
-  HSA_STATUS_ERROR_INVALID_MEMORY_POOL = 40
+  HSA_STATUS_ERROR_INVALID_MEMORY_POOL = 40,
+
+  /**
+   * Agent accessed memory beyond the maximum legal address.
+   */
+  HSA_STATUS_ERROR_MEMORY_APERTURE_VIOLATION = 41,
+
+  /**
+   * Agent executed an invalid shader instruction.
+   */
+  HSA_STATUS_ERROR_ILLEGAL_INSTRUCTION = 42,
 };
 
 /**
@@ -142,7 +152,13 @@ typedef enum hsa_amd_agent_info_s {
    * model and should be treated with caution.
    * The type of this attribute is hsa_amd_hdp_flush_t.
    */
-  HSA_AMD_AGENT_INFO_HDP_FLUSH = 0xA00E
+  HSA_AMD_AGENT_INFO_HDP_FLUSH = 0xA00E,
+  /**
+   * PCIe domain for the agent.  Pairs with HSA_AMD_AGENT_INFO_BDFID
+   * to give the full physical location of the Agent.
+   * The type of this attribute is uint32_t.
+   */
+  HSA_AMD_AGENT_INFO_DOMAIN = 0xA00F
 } hsa_amd_agent_info_t;
 
 typedef struct hsa_amd_hdp_flush_s {
@@ -638,8 +654,26 @@ typedef enum {
 } hsa_amd_segment_t;
 
 /**
- * @brief A memory pool represents physical storage on an agent.
- */
+ * @brief A memory pool encapsulates physical storage on an agent
+ * along with a memory access model.
+ *
+ * @details A memory pool encapsulates a physical partition of an agent's
+ * memory system along with a memory access model.  Division of a single
+ * memory system into separate pools allows querying each partition's access
+ * path properties (see ::hsa_amd_agent_memory_pool_get_info). Allocations
+ * from a pool are preferentially bound to that pool's physical partition.
+ * Binding to the pool's preferential physical partition may not be
+ * possible or persistent depending on the system's memory policy
+ * and/or state which is beyond the scope of HSA APIs.
+ *
+ * For example, a multi-node NUMA memory system may be represented by multiple
+ * pool's with each pool providing size and access path information for the
+ * partition it represents.  Allocations from a pool are preferentially bound
+ * to the pool's partition (which in this example is a NUMA node) while
+ * following its memory access model. The actual placement may vary or migrate
+ * due to the system's NUMA policy and state, which is beyond the scope of
+ * HSA APIs.
+ */ 
 typedef struct hsa_amd_memory_pool_s {
   /**
    * Opaque handle.
@@ -714,11 +748,16 @@ typedef enum {
   HSA_AMD_MEMORY_POOL_INFO_RUNTIME_ALLOC_ALIGNMENT = 7,
   /**
   * This memory_pool can be made directly accessible by all the agents in the
-  * system (::hsa_amd_agent_memory_pool_get_info returns
-  * ::HSA_AMD_MEMORY_POOL_ACCESS_ALLOWED_BY_DEFAULT for all agents). The type of
-  * this attribute is bool.
+  * system (::hsa_amd_agent_memory_pool_get_info does not return 
+  * ::HSA_AMD_MEMORY_POOL_ACCESS_NEVER_ALLOWED for any agent). The type of this
+  * attribute is bool.
   */
   HSA_AMD_MEMORY_POOL_INFO_ACCESSIBLE_BY_ALL = 15,
+  /**
+  * Maximum aggregate allocation size in bytes. The type of this attribute
+  * is size_t.
+  */
+  HSA_AMD_MEMORY_POOL_INFO_ALLOC_MAX_SIZE = 16,
 } hsa_amd_memory_pool_info_t;
 
 /**
@@ -807,8 +846,8 @@ hsa_status_t HSA_API hsa_amd_agent_iterate_memory_pools(
  * @retval ::HSA_STATUS_ERROR_INVALID_MEMORY_POOL The memory pool is invalid.
  *
  * @retval ::HSA_STATUS_ERROR_INVALID_ALLOCATION The host is not allowed to
- * allocate memory in @p memory_pool, or @p size is greater than the value of
- * HSA_AMD_MEMORY_POOL_INFO_ALLOC_MAX_SIZE in @p memory_pool.
+ * allocate memory in @p memory_pool, or @p size is greater than
+ * the value of HSA_AMD_MEMORY_POOL_INFO_ALLOC_MAX_SIZE in @p memory_pool.
  *
  * @retval ::HSA_STATUS_ERROR_INVALID_ARGUMENT @p ptr is NULL, or @p size is 0,
  * or flags is not 0.
@@ -1814,7 +1853,7 @@ typedef hsa_status_t (*hsa_amd_system_event_callback_t)(const hsa_amd_event_t* e
  *
  * @retval HSA_STATUS_ERROR_INVALID_ARGUMENT @p event is invalid.
  */
-hsa_status_t hsa_amd_register_system_event_handler(hsa_amd_system_event_callback_t callback,
+hsa_status_t HSA_API hsa_amd_register_system_event_handler(hsa_amd_system_event_callback_t callback,
                                                    void* data);
 
 /**
@@ -1853,6 +1892,66 @@ typedef enum hsa_amd_queue_priority_s {
  */
 hsa_status_t HSA_API hsa_amd_queue_set_priority(hsa_queue_t* queue,
                                                 hsa_amd_queue_priority_t priority);
+
+/**
+ * @brief Deallocation notifier function type.
+ */
+typedef void (*hsa_amd_deallocation_callback_t)(void* ptr, void* user_data);
+
+/**
+ * @brief Registers a deallocation notifier monitoring for release of agent
+ * accessible address @p ptr.  If successful, @p callback will be invoked when
+ * @p ptr is removed from accessibility from all agents.
+ *
+ * Notification callbacks are automatically deregistered when they are invoked.
+ *
+ * Note: The current version supports notifications of address release
+ * originating from ::hsa_amd_memory_pool_free.  Support for other address
+ * release APIs will follow.
+ *
+ * @param[in] ptr Agent accessible address to monitor for deallocation.  Passed
+ * to @p callback.
+ *
+ * @param[in] callback Notifier to be invoked when @p ptr is released from
+ * agent accessibility.
+ *
+ * @param[in] user_data User provided value passed to @p callback.  May be NULL.
+ *
+ * @retval ::HSA_STATUS_SUCCESS The notifier registered successfully
+ *
+ * @retval ::HSA_STATUS_ERROR_NOT_INITIALIZED The HSA runtime has not been
+ * initialized.
+ *
+ * @retval ::HSA_STATUS_ERROR_INVALID_ALLOCATION @p ptr does not refer to a valid agent accessible
+ * address.
+ *
+ * @retval ::HSA_STATUS_ERROR_INVALID_ARGUMENT @p callback is NULL or @p ptr is NULL.
+ *
+ * @retval ::HSA_STATUS_ERROR_OUT_OF_RESOURCES if there is a failure in allocating
+ * necessary resources
+ */
+hsa_status_t HSA_API hsa_amd_register_deallocation_callback(void* ptr,
+                                                    hsa_amd_deallocation_callback_t callback,
+                                                    void* user_data);
+
+/**
+ * @brief Removes a deallocation notifier previously registered with
+ * ::hsa_amd_register_deallocation_callback.  Arguments must be identical to
+ * those given in ::hsa_amd_register_deallocation_callback.
+ *
+ * @param[in] ptr Agent accessible address which was monitored for deallocation.
+ *
+ * @param[in] callback Notifier to be removed.
+ *
+ * @retval ::HSA_STATUS_SUCCESS The notifier has been removed successfully.
+ *
+ * @retval ::HSA_STATUS_ERROR_NOT_INITIALIZED The HSA runtime has not been
+ * initialized.
+ *
+ * @retval ::HSA_STATUS_ERROR_INVALID_ARGUMENT The given notifier was not registered.
+ */
+hsa_status_t HSA_API hsa_amd_deregister_deallocation_callback(void* ptr,
+                                                      hsa_amd_deallocation_callback_t callback);
 
 #ifdef __cplusplus
 }  // end extern "C" block

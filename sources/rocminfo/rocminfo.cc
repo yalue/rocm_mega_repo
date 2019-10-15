@@ -43,6 +43,12 @@
  *
  */
 #include <stdio.h>
+#include <string.h>
+#include <sys/types.h>
+#include <grp.h>
+#include <unistd.h>
+#include <pwd.h>
+
 #include <vector>
 #include <string>
 #include <sstream>
@@ -50,12 +56,31 @@
 #include "hsa/hsa.h"
 #include "hsa/hsa_ext_amd.h"
 
+#define COL_BLU  "\x1B[34m"
+#define COL_KCYN  "\x1B[36m"
+#define COL_GRN  "\x1B[32m"
+#define COL_NRM  "\x1B[0m"
+#define COL_RED  "\x1B[31m"
+#define COL_MAG  "\x1B[35m"
+#define COL_WHT  "\x1B[37m"
+#define COL_YEL  "\x1B[33m"
+#define COL_RESET "\033[0m"
+
 #define RET_IF_HSA_ERR(err) { \
   if ((err) != HSA_STATUS_SUCCESS) { \
-    printf("hsa api call failure at line %d, file: %s. Call returned %d\n", \
-                                                   __LINE__, __FILE__, err); \
-    return (err); \
-  } \
+    char err_val[12];                                                         \
+    char* err_str = NULL;                                                     \
+    if (hsa_status_string(err,                                                \
+            (const char**)&err_str) != HSA_STATUS_SUCCESS) {                  \
+      snprintf(&(err_val[0]), sizeof(err_val), "%#x", (uint32_t)err);         \
+      err_str = &(err_val[0]);                                                \
+    }                                                                         \
+    printf("%shsa api call failure at: %s:%d\n",                              \
+                      COL_RED, __FILE__, __LINE__);                           \
+    printf("%sCall returned %s\n", COL_RED, err_str);                         \
+    printf("%s", COL_RESET);                                                  \
+    return (err);                                                             \
+  }                                                                           \
 }
 
 // This structure holds system information acquired through hsa info related
@@ -73,6 +98,7 @@ typedef struct {
 typedef struct {
   char name[64];
   char vendor_name[64];
+  char device_mkt_name[64];
   hsa_agent_feature_t agent_feature;
   hsa_profile_t agent_profile;
   hsa_default_float_rounding_mode_t float_rounding_mode;
@@ -86,12 +112,19 @@ typedef struct {
   uint32_t chip_id;
   uint32_t cacheline_size;
   uint32_t max_clock_freq;
+  uint32_t internal_node_id;
+  uint32_t max_addr_watch_pts;
+  // HSA_AMD_AGENT_INFO_MEMORY_WIDTH is deprecated, so exclude
+  // uint32_t mem_max_freq; Not supported by get_info
   uint32_t compute_unit;
   uint32_t wavefront_size;
   uint32_t workgroup_max_size;
   uint32_t grid_max_size;
   uint32_t fbarrier_max_size;
-  uint32_t waves_per_cu;
+  uint32_t max_waves_per_cu;
+  uint32_t simds_per_cu;
+  uint32_t shader_engs;
+  uint32_t shader_arrs_per_sh_eng;
   hsa_isa_t agent_isa;
   hsa_dim3_t grid_max_dim;
   uint16_t workgroup_max_dim[3];
@@ -275,6 +308,12 @@ AcquireAgentInfo(hsa_agent_t agent, agent_info_t *agent_i) {
                                                        &agent_i->vendor_name);
   RET_IF_HSA_ERR(err);
 
+  // Get device marketing name
+  err = hsa_agent_get_info(agent,
+                         (hsa_agent_info_t)HSA_AMD_AGENT_INFO_PRODUCT_NAME,
+                                                   &agent_i->device_mkt_name);
+  RET_IF_HSA_ERR(err);
+
   // Get agent feature
   err = hsa_agent_get_info(agent, HSA_AGENT_INFO_FEATURE,
                                                      &agent_i->agent_feature);
@@ -347,9 +386,47 @@ AcquireAgentInfo(hsa_agent_t agent, agent_info_t *agent_i) {
                                                     &agent_i->max_clock_freq);
   RET_IF_HSA_ERR(err);
 
+  // Internal Driver node ID
+  err = hsa_agent_get_info(agent,
+                  (hsa_agent_info_t) HSA_AMD_AGENT_INFO_DRIVER_NODE_ID,
+                                                  &agent_i->internal_node_id);
+  RET_IF_HSA_ERR(err);
+
+  // Max number of watch points on mem. addr. ranges to generate exeception
+  // events
+  err = hsa_agent_get_info(agent,
+              (hsa_agent_info_t) HSA_AMD_AGENT_INFO_MAX_ADDRESS_WATCH_POINTS,
+                                                &agent_i->max_addr_watch_pts);
+  RET_IF_HSA_ERR(err);
+
   // Get Agent BDFID
   err = hsa_agent_get_info(agent,
                 (hsa_agent_info_t)HSA_AMD_AGENT_INFO_BDFID, &agent_i->bdf_id);
+  RET_IF_HSA_ERR(err);
+
+  // Get Max Memory Clock
+  // Not supported by hsa_agent_get_info
+  //  err = hsa_agent_get_info(agent,d
+  //              (hsa_agent_info_t)HSA_AMD_AGENT_INFO_MEMORY_MAX_FREQUENCY,
+  //                                                      &agent_i->mem_max_freq);
+  //  RET_IF_HSA_ERR(err);
+
+  // Get Num SIMDs per CU
+  err = hsa_agent_get_info(agent,
+              (hsa_agent_info_t)HSA_AMD_AGENT_INFO_NUM_SIMDS_PER_CU,
+                                                      &agent_i->simds_per_cu);
+  RET_IF_HSA_ERR(err);
+
+  // Get Num Shader Engines
+  err = hsa_agent_get_info(agent,
+              (hsa_agent_info_t)HSA_AMD_AGENT_INFO_NUM_SHADER_ENGINES,
+                                                      &agent_i->shader_engs);
+  RET_IF_HSA_ERR(err);
+
+  // Get Num Shader Arrays per Shader engine
+  err = hsa_agent_get_info(agent,
+              (hsa_agent_info_t)HSA_AMD_AGENT_INFO_NUM_SHADER_ARRAYS_PER_SE,
+                                            &agent_i->shader_arrs_per_sh_eng);
   RET_IF_HSA_ERR(err);
 
   // Get number of Compute Unit
@@ -397,7 +474,7 @@ AcquireAgentInfo(hsa_agent_t agent, agent_info_t *agent_i) {
 
     err = hsa_agent_get_info(agent,
                     (hsa_agent_info_t)HSA_AMD_AGENT_INFO_MAX_WAVES_PER_CU,
-                                                      &agent_i->waves_per_cu);
+                                                  &agent_i->max_waves_per_cu);
     RET_IF_HSA_ERR(err);
   }
   return err;
@@ -405,6 +482,7 @@ AcquireAgentInfo(hsa_agent_t agent, agent_info_t *agent_i) {
 
 static void DisplayAgentInfo(agent_info_t *agent_i) {
   printLabelStr("Name:", agent_i->name, 1);
+  printLabelStr("Marketing Name:", agent_i->device_mkt_name, 1);
   printLabelStr("Vendor Name:", agent_i->vendor_name, 1);
 
   printLabel("Feature:", false, 1);
@@ -481,9 +559,14 @@ static void DisplayAgentInfo(agent_info_t *agent_i) {
 
   printLabelStr("Chip ID:", int_to_string(agent_i->chip_id), 1);
   printLabelStr("Cacheline Size:", int_to_string(agent_i->cacheline_size), 1);
-  printLabelInt("Max Clock Frequency (MHz):", agent_i->max_clock_freq, 1);
-  printLabelStr("BDFID:", int_to_string(agent_i->bdf_id), 1);
-  printLabelStr("Compute Unit:", int_to_string(agent_i->compute_unit), 1);
+  printLabelInt("Max Clock Freq. (MHz):", agent_i->max_clock_freq, 1);
+  printLabelInt("BDFID:", agent_i->bdf_id, 1);
+  printLabelInt("Internal Node ID:", agent_i->internal_node_id, 1);
+  printLabelInt("Compute Unit:", agent_i->compute_unit, 1);
+  printLabelInt("SIMDs per CU:", agent_i->simds_per_cu, 1);
+  printLabelInt("Shader Engines:", agent_i->shader_engs, 1);
+  printLabelInt("Shader Arrs. per Eng.:", agent_i->shader_arrs_per_sh_eng, 1);
+  printLabelInt("WatchPts on Addr. Ranges:", agent_i->max_addr_watch_pts, 1);
 
   printLabel("Features:", false, 1);
   if (agent_i->agent_feature & HSA_AGENT_FEATURE_KERNEL_DISPATCH) {
@@ -514,9 +597,10 @@ static void DisplayAgentInfo(agent_info_t *agent_i) {
     printLabelStr("z",
       int_to_string(static_cast<uint32_t>(agent_i->workgroup_max_dim[2])), 2);
 
-    printLabelStr("Waves Per CU:", int_to_string(agent_i->waves_per_cu), 1);
+    printLabelStr("Max Waves Per CU:",
+                                 int_to_string(agent_i->max_waves_per_cu), 1);
     printLabelStr("Max Work-item Per CU:",
-             int_to_string(agent_i->wavefront_size*agent_i->waves_per_cu), 1);
+         int_to_string(agent_i->wavefront_size*agent_i->max_waves_per_cu), 1);
 
     printLabelStr("Grid Max Size:", int_to_string(agent_i->grid_max_size), 1);
     printLabel("Grid Max Size per Dimension:", true, 1);
@@ -524,8 +608,7 @@ static void DisplayAgentInfo(agent_info_t *agent_i) {
     printLabelStr("y", int_to_string(agent_i->grid_max_dim.y), 2);
     printLabelStr("z", int_to_string(agent_i->grid_max_dim.z), 2);
 
-    printLabelInt("Max number Of fbarriers Per Workgroup:",
-                                             agent_i->fbarrier_max_size, 1);
+    printLabelInt("Max fbarriers/Workgrp:", agent_i->fbarrier_max_size, 1);
   }
 }
 
@@ -939,6 +1022,72 @@ AcquireAndDisplayAgentInfo(hsa_agent_t agent, void* data) {
   return HSA_STATUS_SUCCESS;
 }
 
+void CheckInitialState(void) {
+  // Check kernel module for ROCk is loaded
+  FILE *fd = popen("lsmod | grep amdgpu", "r");
+  char buf[16];
+  if (fread (buf, 1, sizeof (buf), fd) <= 0) {
+    printf("%sROCk module is NOT loaded, possibly no GPU devices%s\n",
+                                                          COL_RED, COL_RESET);
+  } else {
+    printf("%sROCk module is loaded%s\n", COL_WHT, COL_RESET);
+  }
+
+  // Check if user belongs to group "video"
+  // @note: User who are not members of "video"
+  // group cannot access DRM services
+  char u_name[32];
+  bool member = false;
+  struct passwd *pw;
+  int num_groups = 0;
+  gid_t *groups;
+
+  struct group *gr_s = getgrnam("video");  // NOLINT
+  if (gr_s == nullptr) {
+    printf("%sFailed to get group info to check"
+                       " for video group membership%s\n", COL_RED, COL_RESET);
+    return;
+  }
+
+  if (getlogin_r(u_name, 32)) {
+    printf("%sFailed to get user name to check for"
+                           " video group membership%s\n", COL_RED, COL_RESET);
+    return;
+  }
+
+  pw = getpwnam(u_name); // NOLINT
+  if (pw == NULL) {
+    printf("%sFailed to find pwd entry for user %s%s\n",
+                                                  COL_RED, u_name, COL_RESET);
+    return;
+  }
+
+  (void)getgrouplist(u_name, pw->pw_gid, NULL, &num_groups);
+  groups = new gid_t[num_groups];
+  if (getgrouplist(u_name, pw->pw_gid, groups, &num_groups) == -1) {
+    printf("%sFailed to get user group list%s\n", COL_RED, COL_RESET);
+    delete []groups;
+    return;
+  }
+
+  for (int i = 0; i < num_groups; ++i) {
+    if (gr_s->gr_gid == groups[i]) {
+      printf("%s%s is member of video group%s\n", COL_WHT, u_name, COL_RESET);
+      member = true;
+      break;
+    }
+  }
+  if (member == false) {
+    printf("%s%s is not member of \"video\" group, the default DRM access "
+     "group. Users must be a member of the \"video\" group or another"
+        " DRM access group in order for ROCm applications to run "
+                             "successfully%s.\n", COL_RED, u_name, COL_RESET);
+  }
+
+  delete []groups;
+  return;
+}
+
 // Print out all static information known to HSA about the target system.
 // Throughout this program, the Acquire-type functions make HSA calls to
 // interate through HSA objects and then perform HSA get_info calls to
@@ -948,8 +1097,9 @@ AcquireAndDisplayAgentInfo(hsa_agent_t agent, void* data) {
 int main(int argc, char* argv[]) {
   hsa_status_t err;
 
+  CheckInitialState();
   err = hsa_init();
-  RET_IF_HSA_ERR(err);
+  RET_IF_HSA_ERR(err)
 
   // Acquire and display system information
   system_info_t sys_info;

@@ -27,6 +27,7 @@ THE SOFTWARE.
 #include <chrono>
 #include <iomanip>
 #include <sstream>
+#include <regex>
 #include "CUDA2HIP.h"
 #include "LLVMCompat.h"
 #include "HipifyAction.h"
@@ -36,7 +37,6 @@ THE SOFTWARE.
 
 #define DEBUG_TYPE "cuda2hip"
 
-std::string sHipify = "[HIPIFY] ", sConflict = "conflict: ", sError = "error: ";
 namespace ct = clang::tooling;
 
 std::string getAbsoluteFilePath(const std::string& sFile, std::error_code& EC) {
@@ -132,7 +132,11 @@ bool generatePerl(bool Generate = true) {
           continue;
         }
         if (i == ma.second.type) {
-          *perlStreamPtr.get() << "$ft{'" << counterNames[ma.second.type] << "'} += s/\\b" << ma.first.str() << "\\b/" << ma.second.hipName.str() << "/g;\n";
+          std::string sCUDA = ma.first.str();
+          std::string sHIP = ma.second.hipName.str();
+          sCUDA = std::regex_replace(sCUDA, std::regex("/"), "\\/");
+          sHIP = std::regex_replace(sHIP, std::regex("/"), "\\/");
+          *perlStreamPtr.get() << "$ft{'" << counterNames[ma.second.type] << "'} += s/\\b" << sCUDA << "\\b/" << sHIP << "/g;\n";
         }
       }
     } else {
@@ -234,14 +238,17 @@ int main(int argc, const char **argv) {
     argc++;
   }
   llcompat::PrintStackTraceOnErrorSignal();
-  ct::CommonOptionsParser OptionsParser(argc, argv, ToolTemplateCategory, llvm::cl::Optional);
+  ct::CommonOptionsParser OptionsParser(argc, argv, ToolTemplateCategory, llvm::cl::ZeroOrMore);
+  if (!llcompat::CheckCompatibility()) {
+    return 1;
+  }
   std::vector<std::string> fileSources = OptionsParser.getSourcePathList();
   if (fileSources.empty() && !GeneratePerl && !GeneratePython) {
-    llvm::errs() << "\n" << sHipify << sError << "Must specify at least 1 positional argument for source file." << "\n";
+    llvm::errs() << "\n" << sHipify << sError << "Must specify at least 1 positional argument for source file" << "\n";
     return 1;
   }
   if (!generatePerl(GeneratePerl)) {
-    llvm::errs() << "\n" << sHipify << sError << "hipify-perl generating failed." << "\n";
+    llvm::errs() << "\n" << sHipify << sError << "hipify-perl generating failed" << "\n";
     return 1;
   }
   bool bToRoc = TranslateToRoc;
@@ -249,7 +256,7 @@ int main(int argc, const char **argv) {
   bool bToPython = generatePython(GeneratePython);
   TranslateToRoc = bToRoc;
   if (!bToPython) {
-    llvm::errs() << "\n" << sHipify << sError << "hipify-python generating failed." << "\n";
+    llvm::errs() << "\n" << sHipify << sError << "hipify-python generating failed" << "\n";
     return 1;
   }
   if (fileSources.empty()) {
@@ -263,15 +270,15 @@ int main(int argc, const char **argv) {
   }
   if (!dst.empty()) {
     if (fileSources.size() > 1) {
-      llvm::errs() << sHipify << sConflict << "-o and multiple source files are specified.\n";
+      llvm::errs() << sHipify << sConflict << "-o and multiple source files are specified\n";
       return 1;
     }
     if (Inplace) {
-      llvm::errs() << sHipify << sConflict << "both -o and -inplace options are specified.\n";
+      llvm::errs() << sHipify << sConflict << "both -o and -inplace options are specified\n";
       return 1;
     }
     if (NoOutput) {
-      llvm::errs() << sHipify << sConflict << "both -no-output and -o options are specified.\n";
+      llvm::errs() << sHipify << sConflict << "both -no-output and -o options are specified\n";
       return 1;
     }
     if (!dstDir.empty()) {
@@ -279,11 +286,11 @@ int main(int argc, const char **argv) {
     }
   }
   if (NoOutput && Inplace) {
-    llvm::errs() << sHipify << sConflict << "both -no-output and -inplace options are specified.\n";
+    llvm::errs() << sHipify << sConflict << "both -no-output and -inplace options are specified\n";
     return 1;
   }
   if (!dstDir.empty() && Inplace) {
-    llvm::errs() << sHipify << sConflict << "both -o-dir and -inplace options are specified.\n";
+    llvm::errs() << sHipify << sConflict << "both -o-dir and -inplace options are specified\n";
     return 1;
   }
   if (Examine) {
@@ -291,7 +298,7 @@ int main(int argc, const char **argv) {
   }
   int Result = 0;
   SmallString<128> tmpFile;
-  StringRef sourceFileName, ext = "hip";
+  StringRef sourceFileName, ext = "hip", csv_ext = "csv";
   std::string sTmpFileName, sSourceAbsPath;
   std::string sTmpDirAbsParh = getAbsoluteDirectoryPath(TemporaryDir, EC);
   if (EC) {
@@ -300,7 +307,20 @@ int main(int argc, const char **argv) {
   // Arguments for the Statistics print routines.
   std::unique_ptr<std::ostream> csv = nullptr;
   llvm::raw_ostream* statPrint = nullptr;
+  bool create_csv = false;
   if (!OutputStatsFilename.empty()) {
+    PrintStatsCSV = true;
+    create_csv = true;
+  } else {
+    if (PrintStatsCSV && fileSources.size() > 1) {
+      OutputStatsFilename = "sum_stat.csv";
+      create_csv = true;
+    }
+  }
+  if (create_csv) {
+    if (!OutputDir.empty()) {
+      OutputStatsFilename = sOutputDirAbsPath + "/" + OutputStatsFilename;
+    }
     csv = std::unique_ptr<std::ostream>(new std::ofstream(OutputStatsFilename, std::ios_base::trunc));
   }
   if (PrintStats) {
@@ -341,6 +361,17 @@ int main(int argc, const char **argv) {
       llvm::errs() << "\n" << sHipify << sError << EC.message() << ": while copying " << src << " to " << tmpFile << "\n";
       Result = 1;
       continue;
+    }
+    if (PrintStatsCSV) {
+      if (OutputStatsFilename.empty()) {
+        OutputStatsFilename = sourceFileName.str() + "." + csv_ext.str();
+        if (!OutputDir.empty()) {
+          OutputStatsFilename = sOutputDirAbsPath + "/" + OutputStatsFilename;
+        }
+      }
+      if (!csv) {
+        csv = std::unique_ptr<std::ostream>(new std::ofstream(OutputStatsFilename, std::ios_base::trunc));
+      }
     }
     // Initialise the statistics counters for this file.
     Statistics::setActive(src);
@@ -396,6 +427,7 @@ int main(int argc, const char **argv) {
     // Hipify _all_ the things!
     if (Tool.runAndSave(&actionFactory)) {
       currentStat.hasErrors = true;
+      Result = 1;
       LLVM_DEBUG(llvm::dbgs() << "Skipped some replacements.\n");
     }
     // Copy the tmpfile to the output

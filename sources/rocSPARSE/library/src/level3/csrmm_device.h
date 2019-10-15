@@ -34,15 +34,15 @@ static __device__ void csrmmnn_general_device(rocsparse_int M,
                                               rocsparse_int N,
                                               rocsparse_int K,
                                               rocsparse_int nnz,
-                                              T alpha,
+                                              T             alpha,
                                               const rocsparse_int* __restrict__ csr_row_ptr,
                                               const rocsparse_int* __restrict__ csr_col_ind,
                                               const T* __restrict__ csr_val,
                                               const T* __restrict__ B,
                                               rocsparse_int ldb,
-                                              T beta,
+                                              T             beta,
                                               T* __restrict__ C,
-                                              rocsparse_int ldc,
+                                              rocsparse_int        ldc,
                                               rocsparse_index_base idx_base)
 {
     rocsparse_int tid = hipThreadIdx_x;
@@ -56,7 +56,7 @@ static __device__ void csrmmnn_general_device(rocsparse_int M,
     rocsparse_int colC = col * ldc;
 
     __shared__ rocsparse_int shared_col[BLOCKSIZE / WF_SIZE][WF_SIZE];
-    __shared__ T shared_val[BLOCKSIZE / WF_SIZE][WF_SIZE];
+    __shared__ T             shared_val[BLOCKSIZE / WF_SIZE][WF_SIZE];
 
     for(rocsparse_int row = gid / WF_SIZE; row < M; row += nwf)
     {
@@ -103,15 +103,15 @@ static __device__ void csrmmnt_general_device(rocsparse_int offset,
                                               rocsparse_int N,
                                               rocsparse_int K,
                                               rocsparse_int nnz,
-                                              T alpha,
+                                              T             alpha,
                                               const rocsparse_int* __restrict__ csr_row_ptr,
                                               const rocsparse_int* __restrict__ csr_col_ind,
                                               const T* __restrict__ csr_val,
                                               const T* __restrict__ B,
                                               rocsparse_int ldb,
-                                              T beta,
+                                              T             beta,
                                               T* __restrict__ C,
-                                              rocsparse_int ldc,
+                                              rocsparse_int        ldc,
                                               rocsparse_index_base idx_base)
 {
     rocsparse_int tid = hipThreadIdx_x;
@@ -126,7 +126,7 @@ static __device__ void csrmmnt_general_device(rocsparse_int offset,
     }
 
     __shared__ rocsparse_int shared_col[BLOCKSIZE / WF_SIZE][WF_SIZE];
-    __shared__ T shared_val[BLOCKSIZE / WF_SIZE][WF_SIZE];
+    __shared__ T             shared_val[BLOCKSIZE / WF_SIZE][WF_SIZE];
 
     rocsparse_int row_start = csr_row_ptr[row] - idx_base;
     rocsparse_int row_end   = csr_row_ptr[row + 1] - idx_base;
@@ -134,7 +134,7 @@ static __device__ void csrmmnt_general_device(rocsparse_int offset,
     for(rocsparse_int l = offset; l < ncol; l += WF_SIZE)
     {
         rocsparse_int col = l + lid;
-        T sum             = static_cast<T>(0);
+        T             sum = static_cast<T>(0);
 
         for(rocsparse_int j = row_start; j < row_end; j += WF_SIZE)
         {
@@ -149,8 +149,8 @@ static __device__ void csrmmnt_general_device(rocsparse_int offset,
 
             for(rocsparse_int i = 0; i < WF_SIZE; ++i)
             {
-                T val_B =
-                    (col < ncol) ? rocsparse_ldg(B + col + shared_col[wid][i]) : static_cast<T>(0);
+                T val_B = (col < ncol) ? rocsparse_ldg(B + col + shared_col[wid][i])
+                                       : static_cast<T>(0);
                 sum = rocsparse_fma(shared_val[wid][i], val_B, sum);
             }
         }

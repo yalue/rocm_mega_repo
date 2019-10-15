@@ -1,22 +1,21 @@
 /* ************************************************************************
- * Copyright 2018 Advanced Micro Devices, Inc.
+ * Copyright 2018-2019 Advanced Micro Devices, Inc.
  * ************************************************************************ */
 
-#include <mutex>
-#include <condition_variable>
-
-#include "rocblas_test.hpp"
-#include "rocblas_math.hpp"
-#include "rocblas_random.hpp"
-#include "rocblas_vector.hpp"
-#include "rocblas_init.hpp"
+#include "cblas_interface.hpp"
+#include "flops.hpp"
+#include "norm.hpp"
 #include "rocblas.hpp"
 #include "rocblas_datatype2string.hpp"
-#include "utility.hpp"
-#include "cblas_interface.hpp"
-#include "norm.hpp"
+#include "rocblas_init.hpp"
+#include "rocblas_math.hpp"
+#include "rocblas_random.hpp"
+#include "rocblas_test.hpp"
+#include "rocblas_vector.hpp"
 #include "unit.hpp"
-#include "flops.hpp"
+#include "utility.hpp"
+#include <condition_variable>
+#include <mutex>
 
 std::mutex memcpy_mutex;
 
@@ -26,8 +25,8 @@ template <typename T>
 void testing_gemm_parallel(const Arguments& arg,
                            // std::shared_future<void> & start_rocblas,
                            std::condition_variable& cv,
-                           int& waiting_threads,
-                           int total_threads)
+                           int&                     waiting_threads,
+                           int                      total_threads)
 {
     rocblas_operation transA = char2rocblas_operation(arg.transA);
     rocblas_operation transB = char2rocblas_operation(arg.transB);
@@ -67,9 +66,9 @@ void testing_gemm_parallel(const Arguments& arg,
     if(M < 0 || N < 0 || K < 0 || lda < A_row || ldb < B_row || ldc < M)
     {
         static const size_t safe_size = 100;
-        device_vector<T> dA(safe_size);
-        device_vector<T> dB(safe_size);
-        device_vector<T> dC(safe_size);
+        device_vector<T>    dA(safe_size);
+        device_vector<T>    dB(safe_size);
+        device_vector<T>    dC(safe_size);
         if(!dA || !dB || !dC)
         {
             CHECK_HIP_ERROR(hipErrorOutOfMemory);
@@ -83,9 +82,9 @@ void testing_gemm_parallel(const Arguments& arg,
         return;
     }
 
-    const auto size_A = static_cast<size_t>(lda) * static_cast<size_t>(A_col);
-    const auto size_B = static_cast<size_t>(ldb) * static_cast<size_t>(B_col);
-    const auto size_C = static_cast<size_t>(ldc) * static_cast<size_t>(N);
+    const auto size_A = size_t(lda) * size_t(A_col);
+    const auto size_B = size_t(ldb) * size_t(B_col);
+    const auto size_C = size_t(ldc) * size_t(N);
 
     // allocate memory on device
     device_vector<T> dA(size_A);
@@ -166,10 +165,10 @@ void testing_gemm_parallel(const Arguments& arg,
 
     if(arg.norm_check)
     {
-        double error_hst_ptr =
-            fabs(norm_check_general<T>('F', M, N, ldc, hC_gold.data(), hC_1.data()));
-        double error_dev_ptr =
-            fabs(norm_check_general<T>('F', M, N, ldc, hC_gold.data(), hC_2.data()));
+        double error_hst_ptr
+            = std::abs(norm_check_general<T>('F', M, N, ldc, hC_gold.data(), hC_1.data()));
+        double error_dev_ptr
+            = std::abs(norm_check_general<T>('F', M, N, ldc, hC_gold.data(), hC_2.data()));
         rocblas_error = error_hst_ptr > error_dev_ptr ? error_hst_ptr : error_dev_ptr;
     }
 }

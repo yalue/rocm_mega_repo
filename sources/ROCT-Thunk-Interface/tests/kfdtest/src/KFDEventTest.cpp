@@ -103,7 +103,7 @@ TEST_F(KFDEventTest, SignalEvent) {
     /* From gfx9 onward, m_pHsaEvent->EventId will also be passed to int_ctxid in
      * the Release Mem packet, which is used as context id in ISR.
      */
-    queue.PlaceAndSubmitPacket(PM4ReleaseMemoryPacket(false,
+    queue.PlaceAndSubmitPacket(PM4ReleaseMemoryPacket(m_FamilyId, false,
                     m_pHsaEvent->EventData.HWData2, m_pHsaEvent->EventId));
 
     queue.Wait4PacketConsumption();
@@ -147,8 +147,9 @@ class QueueAndSignalBenchmark {
         uint64_t startTime;
         PM4Queue queue;
 
+        unsigned int familyId = g_baseTest->GetFamilyIdFromNodeId(node);
         HsaEvent** pHsaEvent = reinterpret_cast<HsaEvent**>(calloc(eventCount, sizeof(HsaEvent*)));
-        size_t packetSize = PM4ReleaseMemoryPacket(false, 0, 0).SizeInBytes();
+        size_t packetSize = PM4ReleaseMemoryPacket(familyId, false, 0, 0).SizeInBytes();
         int qSize = fmax(PAGE_SIZE, pow2_round_up(packetSize*eventCount + 1));
 
         time = 0;
@@ -162,7 +163,7 @@ class QueueAndSignalBenchmark {
             if (r != HSAKMT_STATUS_SUCCESS)
                 goto exit;
 
-            queue.PlacePacket(PM4ReleaseMemoryPacket(false, pHsaEvent[i]->EventData.HWData2, pHsaEvent[i]->EventId));
+            queue.PlacePacket(PM4ReleaseMemoryPacket(familyId, false, pHsaEvent[i]->EventData.HWData2, pHsaEvent[i]->EventId));
         }
 
         startTime = gettime();
@@ -278,7 +279,7 @@ TEST_F(KFDEventTest, SignalMultipleEventsWaitForAll) {
 
     unsigned int pktSizeDwords = 0;
     for (i = 0; i < EVENT_NUMBER; i++) {
-        queue.PlaceAndSubmitPacket(PM4ReleaseMemoryPacket(false, pHsaEvent[i]->EventData.HWData2,
+        queue.PlaceAndSubmitPacket(PM4ReleaseMemoryPacket(m_FamilyId, false, pHsaEvent[i]->EventData.HWData2,
                                    pHsaEvent[i]->EventId));
         queue.Wait4PacketConsumption();
 

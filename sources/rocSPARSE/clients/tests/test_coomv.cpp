@@ -24,17 +24,17 @@
 #include "testing_coomv.hpp"
 #include "utility.hpp"
 
-#include <rocsparse.h>
 #include <gtest/gtest.h>
-#include <vector>
+#include <rocsparse.h>
 #include <string>
+#include <vector>
 
-typedef rocsparse_index_base base;
-typedef std::tuple<int, int, double, double, base> coomv_tuple;
-typedef std::tuple<double, double, base, std::string> coomv_bin_tuple;
+typedef rocsparse_index_base                                           base;
+typedef std::tuple<rocsparse_int, rocsparse_int, double, double, base> coomv_tuple;
+typedef std::tuple<double, double, base, std::string>                  coomv_bin_tuple;
 
-int coo_M_range[] = {-1, 0, 10, 500, 7111, 10000};
-int coo_N_range[] = {-3, 0, 33, 842, 4441, 10000};
+rocsparse_int coo_M_range[] = {-1, 0, 10, 500, 7111, 10000};
+rocsparse_int coo_N_range[] = {-3, 0, 33, 842, 4441, 10000};
 
 std::vector<double> coo_alpha_range = {2.0, 3.0};
 std::vector<double> coo_beta_range  = {0.0, 0.67, 1.0};
@@ -54,11 +54,16 @@ std::string coo_bin[] = {"rma10.bin",
                          "nos4.bin",
                          "nos5.bin",
                          "nos6.bin",
-                         "nos7.bin"};
+                         "nos7.bin",
+                         "amazon0312.bin",
+                         "Chebyshev4.bin",
+                         "sme3Dc.bin",
+                         "webbase-1M.bin",
+                         "shipsec1.bin"};
 
 class parameterized_coomv : public testing::TestWithParam<coomv_tuple>
 {
-    protected:
+protected:
     parameterized_coomv() {}
     virtual ~parameterized_coomv() {}
     virtual void SetUp() {}
@@ -67,7 +72,7 @@ class parameterized_coomv : public testing::TestWithParam<coomv_tuple>
 
 class parameterized_coomv_bin : public testing::TestWithParam<coomv_bin_tuple>
 {
-    protected:
+protected:
     parameterized_coomv_bin() {}
     virtual ~parameterized_coomv_bin() {}
     virtual void SetUp() {}
@@ -100,7 +105,7 @@ Arguments setup_coomv_arguments(coomv_bin_tuple tup)
     std::string bin_file = std::get<3>(tup);
 
     // Get current executables absolute path
-    char path_exe[PATH_MAX];
+    char    path_exe[PATH_MAX];
     ssize_t len = readlink("/proc/self/exe", path_exe, sizeof(path_exe) - 1);
     if(len < 14)
     {
@@ -112,12 +117,15 @@ Arguments setup_coomv_arguments(coomv_bin_tuple tup)
     }
 
     // Matrices are stored at the same path in matrices directory
-    arg.filename = std::string(path_exe) + "matrices/" + bin_file;
+    arg.filename = std::string(path_exe) + "../matrices/" + bin_file;
 
     return arg;
 }
 
-TEST(coomv_bad_arg, coomv_float) { testing_coomv_bad_arg<float>(); }
+TEST(coomv_bad_arg, coomv_float)
+{
+    testing_coomv_bad_arg<float>();
+}
 
 TEST_P(parameterized_coomv, coomv_float)
 {

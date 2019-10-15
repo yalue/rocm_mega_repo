@@ -1,5 +1,5 @@
 /*
-Copyright (c) 2015 - present Advanced Micro Devices, Inc. All rights reserved.
+Copyright (c) 2015-present Advanced Micro Devices, Inc. All rights reserved.
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal
@@ -58,10 +58,10 @@ bool runTest(int argc, char** argv) {
 
     hipArray* array;
     HIP_ARRAY_DESCRIPTOR desc;
-    desc.format = HIP_AD_FORMAT_FLOAT;
-    desc.numChannels = 1;
-    desc.width = width;
-    desc.height = height;
+    desc.Format = HIP_AD_FORMAT_FLOAT;
+    desc.NumChannels = 1;
+    desc.Width = width;
+    desc.Height = height;
     hipArrayCreate(&array, &desc);
 
     hip_Memcpy2D copyParam;
@@ -71,8 +71,8 @@ bool runTest(int argc, char** argv) {
     copyParam.srcMemoryType = hipMemoryTypeHost;
     copyParam.srcHost = hData;
     copyParam.srcPitch = width * sizeof(float);
-    copyParam.widthInBytes = copyParam.srcPitch;
-    copyParam.height = height;
+    copyParam.WidthInBytes = copyParam.srcPitch;
+    copyParam.Height = height;
     hipMemcpyParam2D(&copyParam);
 
     textureReference* texref;

@@ -109,7 +109,11 @@ typedef enum {
   RSMI_STATUS_NOT_FOUND,                 //!< An item was searched for but not
                                          //!< found
   RSMI_STATUS_INSUFFICIENT_SIZE,         //!< Not enough resources were
-                                         //!< for the operation
+                                         //!< available for the operation
+  RSMI_STATUS_INTERRUPT,                 //!< An interrupt occurred during
+                                         //!< execution of function
+  RSMI_STATUS_UNEXPECTED_SIZE,           //!< An unexpected amount of data
+                                         //!< was read
   RSMI_STATUS_UNKNOWN_ERROR = 0xFFFFFFFF,  //!< An unknown error occurred
 } rsmi_status_t;
 
@@ -170,6 +174,74 @@ typedef enum {
 
   RSMI_SW_COMP_LAST = RSMI_SW_COMP_DRIVER
 } rsmi_sw_component_t;
+
+/**
+ * Event counter types
+ */
+
+/**
+ * @brief Handle to performance event counter
+ */
+typedef uintptr_t rsmi_event_handle_t;
+
+/**
+ * Event Groups
+ *
+ * @brief Enum denoting an event group. The value of the enum is the
+ * base value for all the event enums in the group.
+ */
+typedef enum {
+  RSMI_EVNT_GRP_XGMI = 0,         //!< Data Fabric (XGMI) related events
+
+  RSMI_EVNT_GRP_INVALID = 0xFFFFFFFF
+} rsmi_event_group_t;
+
+/**
+ * Event types
+ * @brief Event type enum. Events belonging to a particular event group
+ * ::rsmi_event_group_t should begin ennumerating at the ::rsmi_event_group_t
+ * value for that group.
+ */
+typedef enum {
+  RSMI_EVNT_FIRST = RSMI_EVNT_GRP_XGMI,
+
+  RSMI_EVNT_XGMI_FIRST = RSMI_EVNT_GRP_XGMI,
+  RSMI_EVNT_XGMI_0_NOP_TX = RSMI_EVNT_XGMI_FIRST,  //!< NOPs sent to neighbor 0
+  RSMI_EVNT_XGMI_0_REQUEST_TX,                    //!< Outgoing requests to
+                                                  //!< neighbor 0
+  RSMI_EVNT_XGMI_0_RESPONSE_TX,                   //!< Outgoing responses to
+                                                  //!< neighbor 0
+  RSMI_EVNT_XGMI_0_BEATS_TX,                      //!< Data beats sent to
+                                                  //!< neighbor 0
+  RSMI_EVNT_XGMI_1_NOP_TX,                        //!< NOPs sent to neighbor 1
+  RSMI_EVNT_XGMI_1_REQUEST_TX,                        //!< Outgoing requests to
+                                                  //!< neighbor 1
+  RSMI_EVNT_XGMI_1_RESPONSE_TX,                   //!< Outgoing responses to
+                                                  //!< neighbor 1
+  RSMI_EVNT_XGMI_1_BEATS_TX,                      //!< Data beats sent to
+                                                  //!< neighbor 1
+
+  RSMI_EVNT_XGMI_LAST = RSMI_EVNT_XGMI_1_BEATS_TX,
+
+  RSMI_EVNT_LAST = RSMI_EVNT_XGMI_LAST
+} rsmi_event_type_t;
+
+/**
+ * Event counter commands
+ */
+typedef enum {
+  RSMI_CNTR_CMD_START = 0,  //!< Start the counter
+  RSMI_CNTR_CMD_STOP,       //!< Stop the counter
+} rsmi_counter_command_t;
+
+/**
+ * Counter value
+ */
+typedef struct {
+  uint64_t value;            //!< Counter value
+  uint64_t time_enabled;     //!< Time that the counter was enabled
+  uint64_t time_running;     //!< Time that che counter was running
+} rsmi_counter_value_t;
 
 /**
  * Clock types
@@ -256,7 +328,7 @@ typedef enum {
 /**
  * @brief Pre-set Profile Selections. These bitmasks can be AND'd with the
  * ::rsmi_power_profile_status_t.available_profiles returned from
- * ::rsmi_dev_power_profile_presets_get() to determine which power profiles
+ * ::rsmi_dev_power_profile_presets_get to determine which power profiles
  * are supported by the system.
  */
 typedef enum {
@@ -289,10 +361,19 @@ typedef enum {
   RSMI_GPU_BLOCK_UMC = RSMI_GPU_BLOCK_FIRST,      //!< UMC block
   RSMI_GPU_BLOCK_SDMA =      0x0000000000000002,  //!< SDMA block
   RSMI_GPU_BLOCK_GFX =       0x0000000000000004,  //!< GFX block
+  RSMI_GPU_BLOCK_MMHUB =     0x0000000000000008,  //!< MMHUB block
+  RSMI_GPU_BLOCK_ATHUB =     0x0000000000000010,  //!< ATHUB block
+  RSMI_GPU_BLOCK_PCIE_BIF =  0x0000000000000020,  //!< PCIE_BIF block
+  RSMI_GPU_BLOCK_HDP =       0x0000000000000040,  //!< HDP block
+  RSMI_GPU_BLOCK_XGMI_WAFL = 0x0000000000000080,  //!< XGMI block
+  RSMI_GPU_BLOCK_DF =        0x0000000000000100,  //!< DF block
+  RSMI_GPU_BLOCK_SMN =       0x0000000000000200,  //!< SMN block
+  RSMI_GPU_BLOCK_SEM =       0x0000000000000400,  //!< SEM block
+  RSMI_GPU_BLOCK_MP0 =       0x0000000000000800,  //!< MP0 block
+  RSMI_GPU_BLOCK_MP1 =       0x0000000000001000,  //!< MP1 block
+  RSMI_GPU_BLOCK_FUSE =      0x0000000000002000,  //!< Fuse block
 
-  // New enum elements will be added as support is added for other blocks
-
-  RSMI_GPU_BLOCK_LAST = RSMI_GPU_BLOCK_GFX,       //!< The highest bit position
+  RSMI_GPU_BLOCK_LAST = RSMI_GPU_BLOCK_FUSE,       //!< The highest bit position
                                                   //!< for supported blocks
   RSMI_GPU_BLOCK_RESERVED =  0x8000000000000000
 } rsmi_gpu_block_t;
@@ -311,8 +392,9 @@ typedef enum {
   RSMI_RAS_ERR_STATE_MULT_UC,    //!< Multiple uncorrectable errors
   RSMI_RAS_ERR_STATE_POISON,     //!< Firmware detected error and isolated
                                  //!< page. Treat as uncorrectable.
+  RSMI_RAS_ERR_STATE_ENABLED,    //!< ECC is enabled
 
-  RSMI_RAS_ERR_STATE_LAST = RSMI_RAS_ERR_STATE_POISON,
+  RSMI_RAS_ERR_STATE_LAST = RSMI_RAS_ERR_STATE_ENABLED,
   RSMI_RAS_ERR_STATE_INVALID = 0xFFFFFFFF
 } rsmi_ras_err_state_t;
 
@@ -330,7 +412,7 @@ typedef enum {
 } rsmi_memory_type_t;
 
 /**
- * @brief This values of this enum are used as frequency identifiers.
+ * @brief The values of this enum are used as frequency identifiers.
  */
 typedef enum {
   RSMI_FREQ_IND_MIN = 0,  //!< Index used for the minimum frequency value
@@ -341,6 +423,48 @@ typedef enum {
 typedef rsmi_freq_ind_t rsmi_freq_ind;
 /// \endcond
 
+
+/**
+ * @brief The values of this enum are used to identify the various firmware
+ * blocks.
+ */
+typedef enum {
+  RSMI_FW_BLOCK_FIRST = 0,
+
+  RSMI_FW_BLOCK_ASD = RSMI_FW_BLOCK_FIRST,
+  RSMI_FW_BLOCK_CE,
+  RSMI_FW_BLOCK_DMCU,
+  RSMI_FW_BLOCK_MC,
+  RSMI_FW_BLOCK_ME,
+  RSMI_FW_BLOCK_MEC,
+  RSMI_FW_BLOCK_MEC2,
+  RSMI_FW_BLOCK_PFP,
+  RSMI_FW_BLOCK_RLC,
+  RSMI_FW_BLOCK_RLC_SRLC,
+  RSMI_FW_BLOCK_RLC_SRLG,
+  RSMI_FW_BLOCK_RLC_SRLS,
+  RSMI_FW_BLOCK_SDMA,
+  RSMI_FW_BLOCK_SDMA2,
+  RSMI_FW_BLOCK_SMC,
+  RSMI_FW_BLOCK_SOS,
+  RSMI_FW_BLOCK_TA_RAS,
+  RSMI_FW_BLOCK_TA_XGMI,
+  RSMI_FW_BLOCK_UVD,
+  RSMI_FW_BLOCK_VCE,
+  RSMI_FW_BLOCK_VCN,
+
+  RSMI_FW_BLOCK_LAST = RSMI_FW_BLOCK_VCN
+} rsmi_fw_block_t;
+
+/**
+ * @brief XGMI Status
+ */
+typedef enum {
+  RSMI_XGMI_STATUS_NO_ERRORS = 0,
+  RSMI_XGMI_STATUS_ERROR,
+  RSMI_XGMI_STATUS_MULTIPLE_ERRORS,
+} rsmi_xgmi_status_t;
+
 /**
  * @brief Bitfield used in various RSMI calls
  */
@@ -348,6 +472,27 @@ typedef uint64_t rsmi_bit_field_t;
 /// \cond Ignore in docs.
 typedef rsmi_bit_field_t rsmi_bit_field;
 /// \endcond
+
+/**
+ * @brief Reserved Memory Page States
+ */
+typedef enum {
+  RSMI_MEM_PAGE_STATUS_RESERVED = 0,  //!< Reserved. This gpu page is reserved
+                                      //!<  and not available for use
+  RSMI_MEM_PAGE_STATUS_PENDING,       //!< Pending. This gpu page is marked
+                                      //!<  as bad and will be marked reserved
+                                      //!<  at the next window.
+  RSMI_MEM_PAGE_STATUS_UNRESERVABLE   //!< Unable to reserve this page
+} rsmi_memory_page_status_t;
+
+/**
+ * @brief Reserved Memory Page Record
+ */
+typedef struct {
+  uint64_t page_address;                  //!< Start address of page
+  uint64_t page_size;                     //!< Page size
+  rsmi_memory_page_status_t status;       //!< Page "reserved" status
+} rsmi_retired_page_record_t;
 
 /**
  * @brief Number of possible power profiles that a system could support
@@ -514,6 +659,14 @@ typedef struct {
     uint64_t uncorrectable_err;          //!< Accumulated uncorrectable errors
 } rsmi_error_count_t;
 
+/**
+ * @brief This structure contains information specific to a process.
+ */
+typedef struct {
+    uint32_t process_id;  //!< Process ID
+    uint32_t pasid;    //!< PASID
+} rsmi_process_info_t;
+
 /*****************************************************************************/
 /** @defgroup InitShutAdmin Initialization and Shutdown
  *  These functions are used for initialization of ROCm SMI and clean up when
@@ -632,6 +785,30 @@ rsmi_status_t rsmi_dev_vendor_id_get(uint32_t dv_ind, uint16_t *id);
 rsmi_status_t rsmi_dev_name_get(uint32_t dv_ind, char *name, size_t len);
 
 /**
+ *  @brief Get the brand string of a gpu device.
+ *
+ *  @details Given a device index @p dv_ind, a pointer to a caller provided
+ *  char buffer @p brand, and a length of this buffer @p len, this function
+ *  will write the brand of the device (up to @p len characters) to the buffer
+ *  @p brand.
+ *
+ *  If the sku associated with the device is not found as one of the values
+ *  contained within rsmi_dev_brand_get, then this function will return the
+ *  device marketing name as a string instead of the brand name.
+ *
+ *  @param[in] dv_ind a device index
+ *
+ *  @param[inout] brand a pointer to a caller provided char buffer to which the
+ *  brand will be written
+ *
+ *  @param[in] len the length of the caller provided buffer @p brand.
+ *
+ *  @retval ::RSMI_STATUS_SUCCESS is returned upon successful call.
+ *
+ */
+rsmi_status_t rsmi_dev_brand_get(uint32_t dv_ind, char *brand, uint32_t len);
+
+/**
  *  @brief Get the name string for a give vendor ID
  *
  *  @details Given vendor ID @p id, a pointer to a caller provided char buffer
@@ -660,6 +837,29 @@ rsmi_status_t rsmi_dev_name_get(uint32_t dv_ind, char *name, size_t len);
  */
 rsmi_status_t rsmi_dev_vendor_name_get(uint32_t id, char *name, size_t len);
 
+/**
+ * @brief Get the serial number string for a device
+ *
+ * @details Given a device index @p dv_ind, a pointer to a buffer of chars
+ * @p serial_num, and the length of the provided buffer @p len, this function
+ * will write the serial number string (up to @p len characters) to the buffer
+ * pointed to by @p serial_num.
+ *
+ *  @param[in] dv_ind a device index
+ *
+ *  @param[inout] serial_num a pointer to caller-provided memory to which the
+ *  serial number will be written
+ *
+ *  @param[in] len the length of the caller provided buffer @p serial_num.
+ *
+ *  @retval ::RSMI_STATUS_SUCCESS is returned upon successful call.
+ *  @retval ::RSMI_STATUS_INSUFFICIENT_SIZE is returned if @p len bytes is not
+ *  large enough to hold the entire name. In this case, only @p len bytes will
+ *  be written.
+ *
+ */
+rsmi_status_t rsmi_dev_serial_number_get(uint32_t dv_ind,
+                                              char *serial_num, uint32_t len);
 /**
  *  @brief Get the subsystem device id associated with the device with
  *  provided device index.
@@ -709,6 +909,25 @@ rsmi_status_t
 rsmi_dev_subsystem_name_get(uint32_t dv_ind, char *name, size_t len);
 
 /**
+ *  @brief Get the drm minor number associated with this device
+ *
+ *  @details Given a device index @p dv_ind, find its render device file
+ *  /dev/dri/renderDN where N corresponds to its minor number.
+ *
+ *  @param[in] dv_ind a device index
+ *
+ *  @param[inout] minor a pointer to a uint32_t into which minor number will
+ *  be copied
+ *
+ *  @retval :: RSMI_STATUS_SUCCESS is returned upon successful call.
+ *  @retval :: RSMI_STATUS_INIT_ERROR if failed to get minor number during
+ *  initialization.
+ *
+ */
+rsmi_status_t
+rsmi_dev_drm_render_minor_get(uint32_t dv_ind, uint32_t *minor);
+
+/**
  *  @brief Get the device subsystem vendor id associated with the device with
  *  provided device index.
  *
@@ -725,6 +944,22 @@ rsmi_dev_subsystem_name_get(uint32_t dv_ind, char *name, size_t len);
  *
  */
 rsmi_status_t rsmi_dev_subsystem_vendor_id_get(uint32_t dv_ind, uint16_t *id);
+
+/**
+ *  @brief Get Unique ID
+ *
+ *  @details Given a device index @p dv_ind and a pointer to a uint64_t @p
+ *  id, this function will write the unique ID of the GPU pointed to @p
+ *  id.
+ *
+ *  @param[in] dv_ind a device index
+ *
+ *  @param[inout] id a pointer to uint64_t to which the unique ID of the GPU
+ *  is written
+ *
+ *  @retval ::RSMI_STATUS_SUCCESS is returned upon successful call.
+ */
+rsmi_status_t rsmi_dev_unique_id_get(uint32_t dv_ind, uint64_t *id);
 
 /** @} */  // end of IDQuer
 
@@ -760,6 +995,19 @@ rsmi_dev_pci_bandwidth_get(uint32_t dv_ind, rsmi_pcie_bandwidth_t *bandwidth);
  *  bdfid, this function will write the Bus/Device/Function PCI identifier
  *  (BDFID) associated with device @p dv_ind to the value pointed to by
  *  @p bdfid.
+ *
+ *  The format of @p bdfid will be as follows:
+ *
+ *      BDFID = ((DOMAIN & 0xffffffff) << 32) | ((BUS & 0xff) << 8) |
+ *                                   ((DEVICE & 0x1f) <<3 ) | (FUNCTION & 0x7)
+ *
+ *  | Name     | Field   |
+ *  ---------- | ------- |
+ *  | Domain   | [64:32] |
+ *  | Reserved | [31:16] |
+ *  | Bus      | [15: 8] |
+ *  | Device   | [ 7: 3] |
+ *  | Function | [ 2: 0] |
  *
  *  @param[in] dv_ind a device index
  *
@@ -860,9 +1108,8 @@ rsmi_status_t rsmi_dev_pci_bandwidth_set(uint32_t dv_ind, uint64_t bw_bitmask);
  *  device index.
  *
  *  @details Given a device index @p dv_ind and a pointer to a uint64_t
- *  @p power, this function will write the current average power consumption to
- *  the uint64_t in microwatts pointed to by @p power. This function requires
- *  root privilege.
+ *  @p power, this function will write the current average power consumption
+ *  (in microwatts) to the uint64_t pointed to by @p power.
  *
  *  @param[in] dv_ind a device index
  *
@@ -1031,6 +1278,56 @@ rsmi_status_t
 rsmi_dev_memory_usage_get(uint32_t dv_ind, rsmi_memory_type_t mem_type,
                                                               uint64_t *used);
 
+/**
+ * @brief Get percentage of time any device memory is being used
+ *
+ * @details Given a device index @p dv_ind, this function returns the
+ * percentage of time that any device memory is being used for the specified
+ * device.
+ *
+ * @param[in] dv_ind a device index
+ *
+ * @param[inout] busy_percent a pointer to the uint32_t to which the busy
+ * percent will be written
+ *
+ * @retval ::RSMI_STATUS_SUCCESS is returned upon successful call
+ *
+ */
+rsmi_status_t
+rsmi_dev_memory_busy_percent_get(uint32_t dv_ind, uint32_t *busy_percent);
+
+/**
+ * @brief Get information about reserved ("retired") memory pages
+ *
+ * @details Given a device index @p dv_ind, this function returns retired page
+ * information @p records corresponding to the device with the provided device
+ * index @p dv_ind. The number of retired page records is returned through @p
+ * num_pages. @p records may be NULL on input. In this case, the number of
+ * records available for retrieval will be returned through @p num_pages.
+ *
+ * @param[in] dv_ind a device index
+ *
+ * @param[inout] num_pages a pointer to a uint32. As input, the value passed
+ * through this parameter is the number of ::rsmi_retired_page_record_t's that
+ * may be safely written to the memory pointed to by @p records. This is the
+ * limit on how many records will be written to @p records. On return, @p
+ * num_pages will contain the number of records written to @p records, or the
+ * number of records that could have been written if enough memory had been
+ * provided.
+ *
+ * @param[inout] records A pointer to a block of memory to which the
+ * ::rsmi_retired_page_record_t values will be written. This value may be NULL.
+ * In this case, this function can be used to query how many records are
+ * available to read.
+ *
+ * @retval ::RSMI_STATUS_SUCCESS is returned upon successful call.
+ *
+ * ::RSMI_STATUS_INSUFFICIENT_SIZE is returned if more records were available
+ * than allowed by the provided, allocated memory.
+ */
+rsmi_status_t
+rsmi_dev_memory_reserved_pages_get(uint32_t dv_ind, uint32_t *num_pages,
+                                         rsmi_retired_page_record_t *records);
 /** @} */  // end of MemQuer
 
 /** @defgroup PhysQuer Physical State Queries
@@ -1061,16 +1358,13 @@ rsmi_status_t rsmi_dev_fan_rpms_get(uint32_t dv_ind, uint32_t sensor_ind,
                                                               int64_t *speed);
 
 /**
- * @brief Get the fan speed for the specified device in RPMs.
- *
- * @details Given a device index @p dv_ind
- * this function will get the fan speed.
- *
- * @param[in] dv_ind a device index
+ * @brief Get the fan speed for the specified device as a value relative to
+ * ::RSMI_MAX_FAN_SPEED
  *
  * @details Given a device index @p dv_ind and a pointer to a uint32_t
  * @p speed, this function will write the current fan speed (a value
- * between 0 and 255) to the uint32_t pointed to by @p speed
+ * between 0 and the maximum fan speed, ::RSMI_MAX_FAN_SPEED) to the uint32_t
+ * pointed to by @p speed
  *
  * @param[in] dv_ind a device index
  *
@@ -1252,7 +1546,8 @@ rsmi_status_t rsmi_dev_overdrive_level_get(uint32_t dv_ind, uint32_t *od);
  *  @param[in] clk_type the type of clock for which the frequency is desired
  *
  *  @param[inout] f a pointer to a caller provided ::rsmi_frequencies_t structure
- *  to which the frequency information will be written
+ *  to which the frequency information will be written. Frequency values are in
+ *  Hz.
  *
  *  @retval ::RSMI_STATUS_SUCCESS is returned upon successful call.
  *
@@ -1522,6 +1817,27 @@ rsmi_version_str_get(rsmi_sw_component_t component, char *ver_str,
 rsmi_status_t
 rsmi_dev_vbios_version_get(uint32_t dv_ind, char *vbios, uint32_t len);
 
+/**
+ * @brief Get the firmware versions for a device
+ *
+ * @details Given a device ID @p dv_ind, and a pointer to a uint64_t,
+ * @p fw_version, this function will write the FW Versions as a string (up to @p len
+ * characters) for device @p dv_ind to @p vbios. The caller must ensure that
+ * it is safe to write at least @p len characters to @p vbios.
+ *
+ * @param[in] dv_ind a device index
+ *
+ * @param[in] block The firmware block for which the version is being requested
+ *
+ * @param[inout] fw_version The version for the firmware block
+ *
+ * @retval ::RSMI_STATUS_SUCCESS is returned upon successful call.
+ *
+ */
+rsmi_status_t
+rsmi_dev_firmware_version_get(uint32_t dv_ind, rsmi_fw_block_t block,
+                                                        uint64_t *fw_version);
+
 /** @} */  // end of VersQuer
 
 /*****************************************************************************/
@@ -1548,6 +1864,10 @@ rsmi_dev_vbios_version_get(uint32_t dv_ind, char *vbios, uint32_t len);
  *
  * @retval ::RSMI_STATUS_SUCCESS is returned upon successful call.
  *
+ * ::RSMI_STATUS_NOT_SUPPORTED will be returned if either ECC is not enabled
+ * for the specified block @p block, or if there is no kernel support for ECC
+ * for that block.
+ *
  */
 rsmi_status_t rsmi_dev_ecc_count_get(uint32_t dv_ind,
                               rsmi_gpu_block_t block, rsmi_error_count_t *ec);
@@ -1556,22 +1876,25 @@ rsmi_status_t rsmi_dev_ecc_count_get(uint32_t dv_ind,
  * @brief Retrieve the enabled ECC bit-mask
  *
  * @details Given a device index @p dv_ind, and a pointer to a uint64_t @p
- * enabled_mask, this function will write a bit_mask to memory pointed to by
- * @p enabled_mask. Upon a successful call, the bitmask can then be AND'd with
- * elements of the ::rsmi_gpu_block_t ennumeration to determine if the
- * corresponding block has ECC enabled. Note that the bits above
- * ::RSMI_GPU_BLOCK_LAST correspond to blocks that do not yet have ECC support.
+ * enabled_mask, this function will write bits to memory pointed to by
+ * @p enabled_blocks. Upon a successful call, @p enabled_blocks can then be
+ * AND'd with elements of the ::rsmi_gpu_block_t ennumeration to determine if
+ * the corresponding block has ECC enabled. Note that whether a block has ECC
+ * enabled or not in the device is independent of whether there is kernel
+ * support for error counting for that block. Although a block may be enabled,
+ * but there may not be kernel support for reading error counters for that
+ * block.
  *
  * @param[in] dv_ind a device index
  *
- * @param[inout] enabled_mask A pointer to a uint64_t to which the enabled
- * mask will be written
+ * @param[inout] enabled_blocks A pointer to a uint64_t to which the enabled
+ * blocks bits will be written
  *
  * @retval ::RSMI_STATUS_SUCCESS is returned upon successful call.
  *
  */
 rsmi_status_t rsmi_dev_ecc_enabled_get(uint32_t dv_ind,
-                                                      uint64_t *enabled_mask);
+                                                    uint64_t *enabled_blocks);
 
 /**
  * @brief Retrieve the ECC status for a GPU block
@@ -1611,6 +1934,240 @@ rsmi_status_t
 rsmi_status_string(rsmi_status_t status, const char **status_string);
 
 /** @} */  // end of ErrQuer
+
+/*****************************************************************************/
+/** @defgroup PerfCntr Performance Counter Functions
+ *  These functions are used to configure, query and control performance
+ *  counting.
+ *  @{
+ */
+
+/**
+ * @brief Tell if an event group is supported by a given device
+ *
+ * @details Given a device index @p dv_ind and an event group specifier @p
+ * group, tell if @p group type events are supported by the device associated
+ * with @p dv_ind
+ *
+ * @param[in] dv_ind device index of device being queried
+ *
+ * @param[in] group ::rsmi_event_group_t identifier of group for which support
+ * is being queried
+ *
+ * @retval
+ * ::RSMI_STATUS_SUCCESS if the device associatee with @p dv_ind
+ * support counting events of the type indicated by @p group.
+ *
+ * ::RSMI_STATUS_NOT_SUPPORTED If the device does not support event group @p
+ * group
+ *
+ */
+rsmi_status_t
+rsmi_dev_counter_group_supported(uint32_t dv_ind, rsmi_event_group_t group);
+
+/**
+ * @brief Create a performance counter object
+ *
+ * @details Create a performance counter object of type @p type for the device
+ * with a device index of @p dv_ind, and write a handle to the object to the
+ * memory location pointed to by @p evnt_handle. @p evnt_handle can be used
+ * with other performance event operations. The handle should be deallocated
+ * with ::rsmi_dev_counter_destroy() when no longer needed.
+ *
+ * @param[in] dv_ind a device index
+ *
+ * @param[in] type the type of performance event to create
+ *
+ * @param[inout] evnt_handle A pointer to a ::rsmi_event_handle_t which will be
+ * associated with a newly allocated counter
+ *
+ * @retval ::RSMI_STATUS_SUCCESS is returned upon successful call
+ *
+ */
+rsmi_status_t
+rsmi_dev_counter_create(uint32_t dv_ind, rsmi_event_type_t type,
+                                            rsmi_event_handle_t *evnt_handle);
+
+/**
+ * @brief Deallocate a performance counter object
+ *
+ * @details Deallocate the performance counter object with the provided
+ * ::rsmi_event_handle_t @p evnt_handle
+ *
+ * @param[in] evnt_handle handle to event object to be deallocated
+ *
+ * @retval ::RSMI_STATUS_SUCCESS is returned upon successful call
+ *
+ */
+rsmi_status_t
+rsmi_dev_counter_destroy(rsmi_event_handle_t evnt_handle);
+
+/**
+ * @brief Issue performance counter control commands
+ *
+ * @details Issue a command @p cmd on the event counter associated with the
+ * provided handle @p evt_handle.
+ *
+ * @param[in] evt_handle an event handle
+ *
+ * @param[in] cmd The event counter command to be issued
+ *
+ * @param[inout] cmd_args Currently not used. Should be set to NULL.
+ *
+ * @retval ::RSMI_STATUS_SUCCESS is returned upon successful call
+ *
+ */
+rsmi_status_t
+rsmi_counter_control(rsmi_event_handle_t evt_handle,
+                                  rsmi_counter_command_t cmd, void *cmd_args);
+
+/**
+ * @brief Read the current value of a performance counter
+ *
+ * @details Read the current counter value of the counter associated with the
+ * provided handle @p evt_handle and write the value to the location pointed
+ * to by @p value.
+ *
+ * @param[in] evt_handle an event handle
+ *
+ * @param[inout] value pointer to memory of size of ::rsmi_counter_value_t to
+ * which the counter value will be written
+ *
+ * @retval ::RSMI_STATUS_SUCCESS is returned upon successful call
+ *
+ */
+rsmi_status_t
+rsmi_counter_read(rsmi_event_handle_t evt_handle,
+                                                 rsmi_counter_value_t *value);
+
+/**
+ * @brief Get the number of currently available counters
+ *
+ * @details Given a device index @p dv_ind, a performance event group @p grp,
+ * and a pointer to a uint32_t @p available, this function will write the
+ * number of @p grp type counters that are available on the device with index
+ * @p dv_ind to the memory that @p available points to.
+ *
+ * @param[in] dv_ind a device index
+ *
+ * @param[in] grp an event device group
+ *
+ * @param[inout] available A pointer to a uint32_t to which the number of
+ * available counters will be written
+ *
+ * @retval ::RSMI_STATUS_SUCCESS is returned upon successful call
+ *
+ */
+rsmi_status_t
+rsmi_counter_available_counters_get(uint32_t dv_ind,
+                                 rsmi_event_group_t grp, uint32_t *available);
+/** @} */  // end of PerfCntr
+
+/*****************************************************************************/
+/** @defgroup SysInfo System Information Functions
+ *  These functions are used to configure, query and control performance
+ *  counting.
+ *  @{
+ */
+
+/**
+ * @brief Get process information about processes currently using GPU
+ *
+ * @details Given a non-NULL pointer to an array @p procs of
+ * ::rsmi_process_info_t's, of length *@p num_items, this function will write
+ * up to *@p num_items instances of ::rsmi_process_info_t to the memory pointed
+ * to by @p procs. These instances contain information about each process
+ * utilizing a GPU. If @p procs is not NULL, @p num_items will be updated with
+ * the number of processes actually written. If @p procs is NULL, @p num_items
+ * will be updated with the number of processes for which there is current
+ * process information. Calling this function with @p procs being NULL is a way
+ * to determine how much memory should be allocated for when @p procs is not
+ * NULL.
+ *
+ * @param[inout] procs a pointer to memory provided by the caller to which
+ * process information will be written. This may be NULL in which case only @p
+ * num_items will be updated with the number of processes found.
+ *
+ * @param[inout] num_items A pointer to a uint32_t, which on input, should
+ * contain the amount of memory in ::rsmi_process_info_t's which have been
+ * provided by the @p procs argument. On output, if @p procs is non-NULL, this
+ * will be updated with the number ::rsmi_process_info_t structs actually
+ * written. If @p procs is NULL, this argument will be updated with the number
+ * processes for which there is information.
+ *
+ * @retval ::RSMI_STATUS_SUCCESS is returned upon successful call
+ *
+ * ::RSMI_STATUS_INSUFFICIENT_SIZE is returned if there were more
+ * processes for which information was available, but not enough space was
+ * provided as indicated by @p procs and @p num_items, on input.
+ */
+rsmi_status_t
+rsmi_compute_process_info_get(rsmi_process_info_t *procs, uint32_t *num_items);
+
+/**
+ * @brief Get process information about a specific process
+ *
+ * @details Given a pointer to an ::rsmi_process_info_t @p proc and a process id
+ * @p pid, this function will write the process information for @p pid, if
+ * available, to the memory pointed to by @p proc.
+ *
+ * @param[in] pid The process ID for which process information is being requested
+ *
+ * @param[inout] proc a pointer to a ::rsmi_process_info_t to which
+ * process information for @p pid will be written if it is found.
+ *
+ * @retval ::RSMI_STATUS_SUCCESS is returned upon successful call
+ *
+ * ::RSMI_STATUS_NOT_FOUND is returned if there was no process information
+ * found for the provided @p pid
+ *
+ */
+rsmi_status_t
+rsmi_compute_process_info_by_pid_get(uint32_t pid, rsmi_process_info_t *proc);
+
+/** @} */  // end of SysInfo
+
+/*****************************************************************************/
+/** @defgroup XGMIInfo XGMI Functions
+ *  These functions are used to configure, query and control XGMI.
+ *  @{
+ */
+
+/**
+ * @brief Retrieve the XGMI error status for a device
+ *
+ * @details Given a device index @p dv_ind, and a pointer to an
+ * ::rsmi_xgmi_status_t @p status, this function will write the current XGMI
+ * error state ::rsmi_xgmi_status_t for the device @p dv_ind to the memory
+ * pointed to by @p status.
+ *
+ * @param[in] dv_ind a device index
+ *
+ * @param[inout] status A pointer to an ::rsmi_xgmi_status_t to which the
+ * XGMI error state should be written
+ *
+ * @retval ::RSMI_STATUS_SUCCESS is returned upon successful call.
+ *
+ */
+rsmi_status_t
+rsmi_dev_xgmi_error_status(uint32_t dv_ind, rsmi_xgmi_status_t *status);
+
+/**
+ * @brief Reset the XGMI error status for a device
+ *
+ * @details Given a device index @p dv_ind, this function will reset the
+ * current XGMI error state ::rsmi_xgmi_status_t for the device @p dv_ind to
+ * rsmi_xgmi_status_t::RSMI_XGMI_STATUS_NO_ERRORS
+ *
+ * @param[in] dv_ind a device index
+ *
+ * @retval ::RSMI_STATUS_SUCCESS is returned upon successful call.
+ *
+ */
+rsmi_status_t
+rsmi_dev_xgmi_error_reset(uint32_t dv_ind);
+
+/** @} */  // end of SysInfo
 
 #ifdef __cplusplus
 }

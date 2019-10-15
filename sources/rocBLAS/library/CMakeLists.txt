@@ -1,5 +1,5 @@
 # ########################################################################
-# Copyright 2016 Advanced Micro Devices, Inc.
+# Copyright 2016-2019 Advanced Micro Devices, Inc.
 # ########################################################################
 
 # The following helper functions wrap common cmake functions.  They are
@@ -49,7 +49,7 @@ endfunction( )
 # ########################################################################
 
 # This is incremented when the ABI to the library changes
-set( rocblas_SOVERSION 0 )
+set( rocblas_SOVERSION 0.1 )
 
 list( APPEND CMAKE_MODULE_PATH ${PROJECT_SOURCE_DIR}/cmake )
 
@@ -93,6 +93,7 @@ set( rocblas_headers_public
   include/rocblas.h
   #  include/rocblas.hpp
   include/rocblas-types.h
+  include/rocblas_bfloat16.h
   include/rocblas-auxiliary.h
   include/rocblas-functions.h
   ${PROJECT_BINARY_DIR}/include/rocblas-version.h

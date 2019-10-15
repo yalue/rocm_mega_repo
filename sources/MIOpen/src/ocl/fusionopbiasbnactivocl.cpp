@@ -1,6 +1,17 @@
 #include <miopen/fusion.hpp>
 
 namespace miopen {
+
+namespace fusion {
+
+bool IsWinograd(const std::vector<solver::AnySolver>& ss)
+{
+    assert(ss.size() == 1);
+    return ss[0].GetSolverDbId() == "ConvBinWinogradRxSFused";
+}
+
+} // namespace fusion
+
 miopenStatus_t FusionOpDescriptor::GetNetworkConfig(std::string& /*network_config*/,
                                                     Handle& /*handle*/)
 {
@@ -40,12 +51,15 @@ miopenStatus_t
 BiasFusionOpDescriptor::GetCompileParms(std::string& compile_config,
                                         Handle& /*handle*/,
                                         FusionKernelSourceType source,
-                                        const std::vector<solver::AnySolver>& /*solvers*/)
+                                        const std::vector<solver::AnySolver>& solvers)
 {
     std::string add;
     switch(source)
     {
-    case AsmText: add    = " -Wa,-defsym,bias_mode=" + std::to_string(1); break;
+    case AsmText:
+        if(!fusion::IsWinograd(solvers))
+            add = " -Wa,-defsym,bias_mode=" + std::to_string(1);
+        break;
     case OpenclText: add = " -DMLO_CONV_BIAS=" + std::to_string(1); break;
     case Binary: break;
     }
@@ -77,13 +91,14 @@ miopenStatus_t
 ActivFwdFusionOpDescriptor::GetCompileParms(std::string& compile_config,
                                             Handle& /*handle*/,
                                             const FusionKernelSourceType source,
-                                            const std::vector<solver::AnySolver>& /*solvers*/)
+                                            const std::vector<solver::AnySolver>& solvers)
 {
     std::string add;
     switch(source)
     {
     case AsmText:
-        add = " -Wa,-defsym,enable_activ=1 -Wa,-defsym,activ_mode=" + std::to_string(activMode);
+        if(!fusion::IsWinograd(solvers))
+            add = " -Wa,-defsym,enable_activ=1 -Wa,-defsym,activ_mode=" + std::to_string(activMode);
         break;
     case OpenclText:
         add = " -DMIOPEN_YES_ACTIV=1 -DMIOPEN_NRN_OP_ID=" + std::to_string(activMode);
@@ -119,13 +134,14 @@ miopenStatus_t
 ActivBwdFusionOpDescriptor::GetCompileParms(std::string& compile_config,
                                             Handle& /*handle*/,
                                             const FusionKernelSourceType source,
-                                            const std::vector<solver::AnySolver>& /*solvers*/)
+                                            const std::vector<solver::AnySolver>& solvers)
 {
     std::string add;
     switch(source)
     {
     case AsmText:
-        add = " -Wa,-defsym,enable_activ=1 -Wa,-defsym,activ_mode=" + std::to_string(activMode);
+        if(!fusion::IsWinograd(solvers))
+            add = " -Wa,-defsym,enable_activ=1 -Wa,-defsym,activ_mode=" + std::to_string(activMode);
         break;
     case OpenclText:
         add = " -DMIOPEN_YES_ACTIV=1 -DMIOPEN_NRN_OP_ID=" + std::to_string(activMode);
@@ -317,12 +333,13 @@ miopenStatus_t BatchNormBwdTrainFusionOpDescriptor::GetNetworkConfig(std::string
     if(input_desc.GetLengths().empty())
         MIOPEN_THROW("The input descriptor is not set");
 
-    network_config += std::to_string(variant) + std::to_string(xgridsize) + std::to_string(ldsgcn) +
-                      std::to_string(ygridsize) + std::to_string(xlocalsize) +
-                      std::to_string(ylocalsize) + "bn" + std::to_string(mode) + "n" +
-                      std::to_string(n) + "cstride" + std::to_string(in_cstride) + "nstride" +
-                      std::to_string(in_nstride) + "c" + std::to_string(c) + "nchw" +
-                      std::to_string(in_nchw);
+    network_config += "variant" + std::to_string(variant) + "gx" + std::to_string(xgridsize) +
+                      "gcn" + std::to_string(ldsgcn) + "gy" + std::to_string(ygridsize) + "lx" +
+                      std::to_string(xlocalsize) + "ly" + std::to_string(ylocalsize) + "bn" +
+                      std::to_string(mode) + "n" + std::to_string(n) + "cstride" +
+                      std::to_string(in_cstride) + "nstride" + std::to_string(in_nstride) + "c" +
+                      std::to_string(c) + "nchw" + std::to_string(in_nchw);
+
     return miopenStatusSuccess;
 }
 
@@ -390,11 +407,7 @@ BatchNormBwdTrainFusionOpDescriptor::GetLocalWGSz(Handle& /*handle*/,
 
     if(mode == miopenBNSpatial)
     {
-        if(in_cstride > 1024)
-        {
-            xlocalsize = 1024;
-        }
-        else if(in_cstride > 512)
+        if(in_cstride <= 1024 && in_cstride > 512)
         {
             xlocalsize = std::min(64 * ((in_cstride + 63) / 64), static_cast<unsigned long>(1024));
         }
@@ -513,12 +526,13 @@ miopenStatus_t BatchNormFwdTrainFusionOpDescriptor::GetNetworkConfig(std::string
     if(input_desc.GetLengths().empty())
         MIOPEN_THROW("The input descriptor is not set");
 
-    network_config +=
-        std::to_string(variant) + std::to_string(xgridsize) + std::to_string(ldsgcn) +
-        std::to_string(ygridsize) + std::to_string(xlocalsize) + std::to_string(ylocalsize) + "bn" +
-        std::to_string(mode) + "sbs" + std::to_string(static_cast<int>(saveBatchStats)) + "sps" +
-        std::to_string(static_cast<int>(savePopStats)) + std::to_string(n) +
-        std::to_string(in_cstride) + std::to_string(in_nstride) + std::to_string(in_nchw);
+    network_config += "variant" + std::to_string(variant) + "gx" + std::to_string(xgridsize) +
+                      "gcn" + std::to_string(ldsgcn) + "gy" + std::to_string(ygridsize) + "lx" +
+                      std::to_string(xlocalsize) + "ly" + std::to_string(ylocalsize) + "bn" +
+                      std::to_string(mode) + "sbs" +
+                      std::to_string(static_cast<int>(saveBatchStats)) + "sps" +
+                      std::to_string(static_cast<int>(savePopStats)) + "n" + std::to_string(n) +
+                      "hw" + std::to_string(in_cstride) + "chw" + std::to_string(in_nstride);
 
     return miopenStatusSuccess;
 }

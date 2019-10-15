@@ -1,24 +1,24 @@
 /* ************************************************************************
- * Copyright 2018 Advanced Micro Devices, Inc.
+ * Copyright 2018-2019 Advanced Micro Devices, Inc.
  * ************************************************************************ */
 
-#include "rocblas_test.hpp"
+#include "cblas_interface.hpp"
+#include "near.hpp"
+#include "norm.hpp"
+#include "rocblas.hpp"
+#include "rocblas_init.hpp"
 #include "rocblas_math.hpp"
 #include "rocblas_random.hpp"
+#include "rocblas_test.hpp"
 #include "rocblas_vector.hpp"
-#include "rocblas_init.hpp"
-#include "utility.hpp"
-#include "rocblas.hpp"
-#include "cblas_interface.hpp"
-#include "norm.hpp"
-#include "near.hpp"
 #include "unit.hpp"
+#include "utility.hpp"
 
 template <typename T1, typename T2 = T1>
-void testing_nrm2_bad_arg(const Arguments& arg)
+void testing_nrm2_bad_arg_template(const Arguments& arg)
 {
-    rocblas_int N                 = 100;
-    rocblas_int incx              = 1;
+    rocblas_int         N         = 100;
+    rocblas_int         incx      = 1;
     static const size_t safe_size = 100;
 
     rocblas_local_handle handle;
@@ -42,7 +42,7 @@ void testing_nrm2_bad_arg(const Arguments& arg)
 }
 
 template <typename T1, typename T2 = T1>
-void testing_nrm2(const Arguments& arg)
+void testing_nrm2_template(const Arguments& arg)
 {
     rocblas_int N    = arg.N;
     rocblas_int incx = arg.incx;
@@ -60,8 +60,8 @@ void testing_nrm2(const Arguments& arg)
     if(N <= 0 || incx <= 0)
     {
         static const size_t safe_size = 100; //  arbitrarily set to zero
-        device_vector<T1> dx(safe_size);
-        device_vector<T2> d_rocblas_result(1);
+        device_vector<T1>   dx(safe_size);
+        device_vector<T2>   d_rocblas_result(1);
         if(!dx || !d_rocblas_result)
         {
             CHECK_HIP_ERROR(hipErrorOutOfMemory);
@@ -73,7 +73,7 @@ void testing_nrm2(const Arguments& arg)
         return;
     }
 
-    size_t size_x = N * static_cast<size_t>(incx);
+    size_t size_x = N * size_t(incx);
 
     // allocate memory on device
     device_vector<T1> dx(size_x);
@@ -118,12 +118,12 @@ void testing_nrm2(const Arguments& arg)
         //      precision, so nrm2 will have accuracy =approx= sqrt(precision)
         T2 abs_error = pow(10.0, -(std::numeric_limits<T2>::digits10 / 2.0)) * cpu_result;
         T2 tolerance = 2.0; //  accounts for rounding in reduction sum. depends on n.
-                            //  If test fails, try decreasing n or increasing tolerance.
+            //  If test fails, try decreasing n or increasing tolerance.
         abs_error *= tolerance;
         if(arg.unit_check)
         {
-            near_check_general<T1>(1, 1, 1, &cpu_result, &rocblas_result_1, abs_error);
-            near_check_general<T1>(1, 1, 1, &cpu_result, &rocblas_result_2, abs_error);
+            near_check_general<T2>(1, 1, 1, &cpu_result, &rocblas_result_1, abs_error);
+            near_check_general<T2>(1, 1, 1, &cpu_result, &rocblas_result_2, abs_error);
         }
 
         if(arg.norm_check)
@@ -132,8 +132,8 @@ void testing_nrm2(const Arguments& arg)
                    cpu_result,
                    rocblas_result_1,
                    rocblas_result_2);
-            rocblas_error_1 = fabs((cpu_result - rocblas_result_1) / cpu_result);
-            rocblas_error_2 = fabs((cpu_result - rocblas_result_2) / cpu_result);
+            rocblas_error_1 = std::abs((cpu_result - rocblas_result_1) / cpu_result);
+            rocblas_error_2 = std::abs((cpu_result - rocblas_result_2) / cpu_result);
         }
     }
 
@@ -170,4 +170,40 @@ void testing_nrm2(const Arguments& arg)
 
         std::cout << std::endl;
     }
+}
+
+template <typename T>
+void testing_nrm2_bad_arg(const Arguments& arg)
+{
+    testing_nrm2_bad_arg_template<T>(arg);
+}
+
+template <>
+void testing_nrm2_bad_arg<rocblas_float_complex>(const Arguments& arg)
+{
+    testing_nrm2_bad_arg_template<rocblas_float_complex, float>(arg);
+}
+
+template <>
+void testing_nrm2_bad_arg<rocblas_double_complex>(const Arguments& arg)
+{
+    testing_nrm2_bad_arg_template<rocblas_double_complex, double>(arg);
+}
+
+template <typename T>
+void testing_nrm2(const Arguments& arg)
+{
+    testing_nrm2_template<T>(arg);
+}
+
+template <>
+void testing_nrm2<rocblas_float_complex>(const Arguments& arg)
+{
+    testing_nrm2_template<rocblas_float_complex, float>(arg);
+}
+
+template <>
+void testing_nrm2<rocblas_double_complex>(const Arguments& arg)
+{
+    testing_nrm2_template<rocblas_double_complex, double>(arg);
 }

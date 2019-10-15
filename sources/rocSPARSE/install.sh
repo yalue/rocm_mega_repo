@@ -16,7 +16,6 @@ function display_help()
   echo "    [-d|--dependencies] install build dependencies"
   echo "    [-c|--clients] build library clients too (combines with -i & -d)"
   echo "    [-g|--debug] -DCMAKE_BUILD_TYPE=Debug (default is =Release)"
-#  echo "    [--cuda] build library for cuda backend"
   echo "    [--hip-clang] build library for amdgpu backend using hip-clang"
 }
 
@@ -31,10 +30,10 @@ supported_distro( )
   fi
 
   case "${ID}" in
-    ubuntu|centos|rhel|fedora)
+    ubuntu|centos|rhel|fedora|sles)
         true
         ;;
-    *)  printf "This script is currently supported on Ubuntu, CentOS, RHEL and Fedora\n"
+    *)  printf "This script is currently supported on Ubuntu, CentOS, RHEL, Fedora and SLES\n"
         exit 2
         ;;
   esac
@@ -98,6 +97,18 @@ install_dnf_packages( )
   done
 }
 
+# Take an array of packages as input, and install those packages with 'zypper' if they are not already installed
+install_zypper_packages( )
+{
+  package_dependencies=("$@")
+  for package in "${package_dependencies[@]}"; do
+    if [[ $(rpm -q ${package} &> /dev/null; echo $? ) -ne 0 ]]; then
+      printf "\033[32mInstalling \033[33m${package}\033[32m from distro package manager\033[0m\n"
+      elevate_if_not_root zypper -n --no-gpg-checks install ${package}
+    fi
+  done
+}
+
 # Take an array of packages as input, and delegate the work to the appropriate distro installer
 # prereq: ${ID} must be defined before calling
 # prereq: ${build_clients} must be defined before calling
@@ -114,20 +125,15 @@ install_packages( )
   fi
 
   # dependencies needed for library and clients to build
-  local library_dependencies_ubuntu=( "make" "cmake-curses-gui" "hip_hcc" "pkg-config" "libnuma1" )
-  local library_dependencies_centos=( "epel-release" "make" "cmake3" "hip_hcc" "gcc-c++" "rpm-build" "numactl-libs" )
-  local library_dependencies_fedora=( "make" "cmake" "hip_hcc" "gcc-c++" "libcxx-devel" "rpm-build" "numactl-libs" )
-
-  if [[ "${build_cuda}" == true ]]; then
-    # Ideally, this could be cuda-cusparse-dev, but the package name has a version number in it
-    library_dependencies_ubuntu+=( "cuda" )
-    library_dependencies_centos+=( "" ) # how to install cuda on centos?
-    library_dependencies_fedora+=( "" ) # how to install cuda on fedora?
-  fi
+  local library_dependencies_ubuntu=( "make" "cmake-curses-gui" "hip_hcc" "pkg-config" "libnuma1" "rocprim")
+  local library_dependencies_centos=( "epel-release" "make" "cmake3" "hip_hcc" "gcc-c++" "rpm-build" "numactl-libs" "rocprim" )
+  local library_dependencies_fedora=( "make" "cmake" "hip_hcc" "gcc-c++" "libcxx-devel" "rpm-build" "numactl-libs" "rocprim" )
+  local library_dependencies_sles=( "make" "cmake" "hip_hcc" "gcc-c++" "libcxxtools9" "rpm-build" "rocprim" )
 
   local client_dependencies_ubuntu=( "libboost-program-options-dev" )
   local client_dependencies_centos=( "boost-devel" )
   local client_dependencies_fedora=( "boost-devel" )
+  local client_dependencies_sles=( "libboost_program_options1_66_0-devel" "pkg-config" "dpkg" )
 
   case "${ID}" in
     ubuntu)
@@ -156,6 +162,15 @@ install_packages( )
 
       if [[ "${build_clients}" == true ]]; then
         install_dnf_packages "${client_dependencies_fedora[@]}"
+      fi
+      ;;
+
+    sles)
+#     elevate_if_not_root zypper -y update
+      install_zypper_packages "${library_dependencies_sles[@]}"
+
+      if [[ "${build_clients}" == true ]]; then
+        install_zypper_packages "${client_dependencies_sles[@]}"
       fi
       ;;
     *)
@@ -197,7 +212,6 @@ install_package=false
 install_dependencies=false
 install_prefix=rocsparse-install
 build_clients=false
-build_cuda=false
 build_release=true
 build_hip_clang=false
 
@@ -238,9 +252,6 @@ while true; do
         shift ;;
     -g|--debug)
         build_release=false
-        shift ;;
-    --cuda)
-        build_cuda=true
         shift ;;
     --hip-clang)
         build_hip_clang=true
@@ -288,7 +299,7 @@ if [[ "${install_dependencies}" == true ]]; then
   pushd .
     printf "\033[32mBuilding \033[33mgoogletest\033[32m from source; installing into \033[33m/usr/local\033[0m\n"
     mkdir -p ${build_dir}/deps && cd ${build_dir}/deps
-    ${cmake_executable} -DBUILD_BOOST=OFF ../../deps
+    ${cmake_executable} ../../deps
     make -j$(nproc)
     elevate_if_not_root make install
   popd
@@ -319,22 +330,17 @@ pushd .
     cmake_client_options="${cmake_client_options} -DBUILD_CLIENTS_SAMPLES=ON -DBUILD_CLIENTS_TESTS=ON -DBUILD_CLIENTS_BENCHMARKS=ON"
   fi
 
-  # cpack
-  cmake_common_options="${cmake_common_options} -DCPACK_SET_DESTDIR=OFF -DCPACK_PACKAGING_INSTALL_PREFIX=/opt/rocm"
-
-  # compiler
-  compiler="hipcc"
-  if [[ "${build_cuda}" == false ]]; then
-    if [[ "${build_hip_clang}" == true ]]; then
-      cmake_common_options="${cmake_common_options} -DHIP_COMPILER=clang"
-    else
-      compiler="hcc"
-      cmake_common_options="${cmake_common_options} -DHIP_COMPILER=hcc"
-    fi
+  compiler="hcc"
+  if [[ "${build_hip_clang}" == true ]]; then
+    compiler="hipcc"
   fi
 
   # Build library with AMD toolchain because of existense of device kernels
-  CXX=${compiler} ${cmake_executable} ${cmake_common_options} ${cmake_client_options} -DCMAKE_INSTALL_PREFIX=rocsparse-install ../..
+  if [[ "${build_clients}" == true ]]; then
+    CXX=${compiler} ${cmake_executable} ${cmake_common_options} ${cmake_client_options} -DCPACK_SET_DESTDIR=OFF -DCMAKE_INSTALL_PREFIX=rocsparse-install -DCPACK_PACKAGING_INSTALL_PREFIX=/opt/rocm ../..
+  else
+    CXX=${compiler} ${cmake_executable} ${cmake_common_options} -DCPACK_SET_DESTDIR=OFF -DCMAKE_INSTALL_PREFIX=rocsparse-install -DCPACK_PACKAGING_INSTALL_PREFIX=/opt/rocm ../..
+  fi
   check_exit_code
 
   make -j$(nproc) install
@@ -357,6 +363,9 @@ pushd .
       ;;
       fedora)
         elevate_if_not_root dnf install rocsparse-*.rpm
+      ;;
+      sles)
+        elevate_if_not_root zypper -n --no-gpg-checks install rocsparse-*.rpm
       ;;
     esac
 

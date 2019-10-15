@@ -48,7 +48,7 @@
 // Print general mempry fault info
 static void PrintVMFaultInfo(uint32_t nodeId, hsa_amd_event_t event);
 
-// Find the waves in XNACK error state
+// Find the waves with memory violation
 static std::map<uint64_t, std::pair<uint64_t, WaveStateInfo*>> FindFaultyWaves(GPUAgentInfo *pAgent);
 
 hsa_status_t
@@ -66,8 +66,6 @@ HSADebugAgentHandleMemoryFault(hsa_amd_event_t event, void* pData)
 
     {
         std::lock_guard<std::mutex> lock(debugAgentAccessLock);
-
-        DebugAgentStatus status = DEBUG_AGENT_STATUS_SUCCESS;
         GPUAgentInfo* pAgent = GetAgentFromList(reinterpret_cast<void*>(event.memory_fault.agent.handle));
 
         if (g_gdbAttached)
@@ -76,18 +74,7 @@ HSADebugAgentHandleMemoryFault(hsa_amd_event_t event, void* pData)
         }
         else
         {
-            // TODO: Get all waves of all agents, force preempt the active ones.
-            // Get all the waves for the faulty agent.
-            QueueInfo* pQueue = pAgent->pQueueList;
-            while (pQueue != nullptr)
-            {
-                status = ProcessQueueWaveStates(pAgent->nodeId, pQueue->queueId);
-                if (status != DEBUG_AGENT_STATUS_SUCCESS)
-                {
-                    return HSA_STATUS_ERROR;
-                }
-                pQueue = pQueue->pNext;
-            }
+            PreemptAgentQueues(pAgent);
 
             // Print general mempry fault info.
             PrintVMFaultInfo(pAgent->nodeId, event);
@@ -99,8 +86,7 @@ HSADebugAgentHandleMemoryFault(hsa_amd_event_t event, void* pData)
             allQueueWaves.clear();
         }
     }
-
-    return HSA_STATUS_SUCCESS;
+   abort();
 }
 
 static std::map<uint64_t, std::pair<uint64_t, WaveStateInfo*>> FindFaultyWaves(GPUAgentInfo *pAgent)
@@ -118,7 +104,7 @@ static std::map<uint64_t, std::pair<uint64_t, WaveStateInfo*>> FindFaultyWaves(G
     {
         for (auto &wave : queueWaves.second)
         {
-            if (SQ_WAVE_TRAPSTS_XNACK_ERROR(wave.regs.trapsts))
+            if (SQ_WAVE_TRAPSTS_MEM_VIOL(wave.regs.trapsts))
             {
                 wave.regs.pc += 0x8;
 

@@ -371,17 +371,14 @@ bool ConvAsm1x1U::IsValidPerformanceConfig(const ConvolutionContext& problem,
 bool ConvAsm1x1U::IsApplicable(const ConvolutionContext& params) const
 {
     if(!params.use_asm_kernels)
-    {
         return false;
-    }
-    if(!(params.rmv == rocm_meta_version::V3 || params.rmv == rocm_meta_version::AMDHSA_1_0))
-    {
+    if(!params.Is2d())
         return false;
-    }
+    if(params.rmv != rocm_meta_version::AMDHSA_1_0)
+        return false;
     if(!(params.IsFp32() || params.IsFp16()))
-    {
         return false;
-    }
+
     const std::string name = params.GetStream().GetDeviceName();
     if(name.find("gfx8") == std::string::npos && name.find("gfx9") == std::string::npos)
     {
@@ -411,13 +408,6 @@ bool ConvAsm1x1U::IsApplicable(const ConvolutionContext& params) const
     if(!ok)
     {
         return false; // Early exit to speed up the check.
-    }
-    if (miopen::IsEnabled(MIOPEN_DEBUG_FIND_FIRST_CONV{})
-        && params.kernel_stride_w > 1)
-    {
-        /// Disabled asm_1x1u for stride=2 due to the overhead of
-        /// Up/Subsampler and SetTensor for UpSampler. (Refer to issue #940).
-        return false;
     }
     /// \todo Ilya: The checks below look adequate but needs to be double-checked.
     {
@@ -453,6 +443,17 @@ bool ConvAsm1x1U::IsApplicable(const ConvolutionContext& params) const
     return ok;
 }
 
+size_t ConvAsm1x1U::GetWorkspaceSize(const ConvolutionContext& params) const
+{
+    if(UseSubsample(params) || UseUpsample(params))
+    {
+        int in_batch_stride = AsmImgWidth(params) * AsmImgHeight(params) *
+                              (UseSubsample(params) ? params.n_inputs : params.n_outputs);
+        int data_len = GetTypeSize(params.out_data_type);
+        return in_batch_stride * params.batch_sz * data_len;
+    }
+    return 0;
+}
 bool ConvAsm1x1U::IsFast(const ConvolutionContext&) const { return true; }
 
 static int divide_round_plus_inf(const int x, const int y)
@@ -470,8 +471,6 @@ ConvSolution ConvAsm1x1U::GetSolution(const ConvolutionContext& params,
     ConvSolution result;
 
     std::ostringstream options;
-
-    result.workspce_sz = 0;
 
     KernelInfo kernel;
     int data_len = GetTypeSize(params.out_data_type);
@@ -525,9 +524,8 @@ ConvSolution ConvAsm1x1U::GetSolution(const ConvolutionContext& params,
             kernel.kernel_name = "UpSample";
 
         kernel.comp_options = subsample_kernel_compilation_options;
-
-        result.workspce_sz = in_batch_stride * params.batch_sz * data_len;
     }
+    result.workspce_sz = GetWorkspaceSize(params);
 
     GenerateClangDefsym(options, "stride_h", 1);
     GenerateClangDefsym(options, "stride_w", 1);
@@ -640,8 +638,7 @@ ConvSolution ConvAsm1x1U::GetSolution(const ConvolutionContext& params,
     GenerateClangDefsym(options, "filter_buffer_size", fbuf.total_byte_size);
     GenerateClangDefsym(options, "output_buffer_size", obuf.total_byte_size);
 
-    GenerateClangDefsym(
-        options, "ROCM_METADATA_VERSION", (params.rmv == rocm_meta_version::V3) ? 3 : 4);
+    GenerateClangDefsym(options, "ROCM_METADATA_VERSION", 4);
 
     const PerformanceConfigConvAsm1x1U* pcfg = &config;
     PerformanceConfigConvAsm1x1U fromEnv;
@@ -712,11 +709,12 @@ ConvSolution ConvAsm1x1U::GetSolution(const ConvolutionContext& params,
     return result;
 }
 
+template <typename B, typename T>
 int ConvAsm1x1U::RunAndMeasureSolution(miopen::Handle& profile_h,
-                                       Data_t bot_ocl_buf,
-                                       Data_t top_ocl_buf,
-                                       Data_t wei_ocl_buf,
-                                       Data_t bias_ocl_buf,
+                                       B bot_ocl_buf,
+                                       T top_ocl_buf,
+                                       ConstData_t wei_ocl_buf,
+                                       ConstData_t bias_ocl_buf,
                                        const ConvolutionContext& params,
                                        const ConvSolution& solution,
                                        float& elapsed_time) const
@@ -727,8 +725,6 @@ int ConvAsm1x1U::RunAndMeasureSolution(miopen::Handle& profile_h,
 
     if(UseSubsample(params))
         k_info = solution.construction_params[1];
-    else if(UseUpsample(params))
-        k_info = solution.construction_params[0];
     else
         k_info = solution.construction_params[0];
 
@@ -778,10 +774,20 @@ int ConvAsm1x1U::RunAndMeasureSolution(miopen::Handle& profile_h,
 
 PerformanceConfigConvAsm1x1U ConvAsm1x1U::Search(const ConvolutionContext& context) const
 {
-    if(UseSubsample(context) || UseUpsample(context))
-        return GenericSearch(*this, context, SearchTweak::OverrideXBufferSizeByWorkspaceSize);
+    if(context.direction.IsForward())
+    {
+        if(UseSubsample(context) || UseUpsample(context))
+            return GenericSearchFwd(*this, context, SearchTweak::WorkspaceInsteadOfXBuffer);
+        else
+            return GenericSearchFwd(*this, context);
+    }
     else
-        return GenericSearch(*this, context);
+    {
+        if(UseSubsample(context) || UseUpsample(context))
+            return GenericSearchBwd(*this, context, SearchTweak::WorkspaceInsteadOfXBuffer);
+        else
+            return GenericSearchBwd(*this, context);
+    }
 }
 
 } // namespace solver

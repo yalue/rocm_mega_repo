@@ -1,6 +1,6 @@
 # MIT License
 #
-# Copyright (c) 2018 Advanced Micro Devices, Inc. All rights reserved.
+# Copyright (c) 2018-2019 Advanced Micro Devices, Inc. All rights reserved.
 #
 # Permission is hereby granted, free of charge, to any person obtaining a copy
 # of this software and associated documentation files (the "Software"), to deal
@@ -20,13 +20,14 @@
 # OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 # SOFTWARE.
 
-cmake_minimum_required(VERSION 3.0.2 FATAL_ERROR)
+cmake_minimum_required(VERSION 3.5.1 FATAL_ERROR)
 
 # Install prefix
 set(CMAKE_INSTALL_PREFIX "/opt/rocm" CACHE PATH "Install path prefix, prepended onto install directories")
 
 # CMake modules
 list(APPEND CMAKE_MODULE_PATH
+    ${CMAKE_CURRENT_SOURCE_DIR}/cmake
     ${CMAKE_CURRENT_SOURCE_DIR}/cmake/Modules
     ${HIP_PATH}/cmake /opt/rocm/hip/cmake # FindHIP.cmake
 )
@@ -62,19 +63,24 @@ option(BUILD_CRUSH_TEST "Build Crush tests (requires TestU01)" OFF)
 option(BUILD_BENCHMARK "Build benchmarks" OFF)
 
 # Include cmake scripts
+include(cmake/Common.cmake)
 include(cmake/Dependencies.cmake)
-include(cmake/Summary.cmake)
-
-# Print configuration summary
-print_configuration_summary()
 
 # Set version variables
-include(cmake/Common.cmake)
-create_version_vars(hiprand 1 8 2)
-create_version_vars(rocrand 1 8 2)
+rocm_setup_version( VERSION "2.9.0" )
+set ( rocrand_VERSION ${rocRAND_VERSION} )
+set ( hiprand_VERSION ${rocRAND_VERSION} )
+# Old-style version number used within the library's API. rocrand_get_version should be modified.
+math(EXPR temp "${rocRAND_VERSION_MAJOR} * 100000 + ${rocRAND_VERSION_MINOR} * 100 + ${rocRAND_VERSION_PATCH}")
+set(hiprand_VERSION_NUMBER ${temp})
+set(rocrand_VERSION_NUMBER ${temp})
 
 # AMD targets
-set(AMDGPU_TARGETS gfx803;gfx900;gfx906 CACHE STRING "List of specific machine types for library to target")
+set(AMDGPU_TARGETS gfx803;gfx900;gfx906;gfx908 CACHE STRING "List of specific machine types for library to target")
+
+# Print configuration summary
+include(cmake/Summary.cmake)
+print_configuration_summary()
 
 # Tools
 add_subdirectory(tools)

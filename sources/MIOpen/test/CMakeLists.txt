@@ -32,11 +32,20 @@ include(CheckCXXCompilerFlag)
 option( MIOPEN_TEST_ALL "Run the full test suite" OFF )
 option( MIOPEN_TEST_HALF "Test in half mode" OFF )
 option( MIOPEN_TEST_INT8 "Test in int8 mode" OFF )
+option( MIOPEN_TEST_BFLOAT16 "Test in bfloat16 mode" OFF )
 option(MIOPEN_TEST_CONV Off)
 option(MIOPEN_TEST_DEEPBENCH Off)
+option(MIOPEN_TEST_DRIVER_ITER_MODE Off)
 
 set(MIOPEN_TEST_FLAGS "" CACHE STRING "")
 set(MIOPEN_TEST_GDB On CACHE BOOL "")
+
+
+if(MIOPEN_TEST_DRIVER_ITER_MODE)
+    add_definitions(-DMIOPEN_TEST_DRIVER_MODE=2)
+else()
+    add_definitions(-DMIOPEN_TEST_DRIVER_MODE=1)   
+endif()
 
 find_package(Threads REQUIRED)
 add_custom_target(check COMMAND ${CMAKE_CTEST_COMMAND} --output-on-failure -C ${CMAKE_CFG_INTDIR})
@@ -53,12 +62,17 @@ if(MIOPEN_TEST_HALF)
 endif()
 
 if(MIOPEN_TEST_INT8)
-    set(SKIP_ALL_EXCEPT_TESTS test_tensor_vec test_tensor_cast test_tensor_trans test_tensor_copy test_tensor_set test_tensor_transform test_conv)
+    set(SKIP_ALL_EXCEPT_TESTS test_tensor_vec test_tensor_cast test_tensor_trans test_tensor_copy test_tensor_set test_tensor_transform test_conv test_immed_conv)
     set(MIOPEN_TEST_FLOAT_ARG --int8)
 endif()
 
+if(MIOPEN_TEST_BFLOAT16)
+    set(SKIP_ALL_EXCEPT_TESTS test_conv test_tensor_copy test_tensor_set test_tensor_vec test_immed_conv)
+    set(MIOPEN_TEST_FLOAT_ARG --bfloat16)
+endif()
+
 function(add_test_command NAME EXE)
-    if((NOT (NAME IN_LIST SKIP_ALL_EXCEPT_TESTS)) AND MIOPEN_TEST_INT8)
+    if((NOT (NAME IN_LIST SKIP_ALL_EXCEPT_TESTS)) AND (MIOPEN_TEST_INT8 OR MIOPEN_TEST_BFLOAT16))
         add_test(NAME ${NAME} COMMAND echo skipped)
         set_tests_properties(${NAME} PROPERTIES DISABLED On)
     elseif(NAME IN_LIST SKIP_TESTS)
@@ -143,7 +157,7 @@ endforeach()
 # add_sanitize_test(type_name.cpp)
 
 function(add_custom_test NAME)
-    if(NOT MIOPEN_TEST_INT8)
+    if(NOT (MIOPEN_TEST_INT8 OR MIOPEN_TEST_BFLOAT16))
         set(options ALL)
         set(oneValueArgs)
         set(multiValueArgs)
@@ -411,6 +425,67 @@ COMMAND $<TARGET_FILE:test_conv> --verbose --conv_dim_type conv3d --input  8   5
 COMMAND $<TARGET_FILE:test_conv> --verbose --conv_dim_type conv3d --input 16    64   3    4     4  --weights    64    32   1  3    3  --pads_strides_dilations  0  0  0    1  2   3    1   2   3  --trans_output_pads 0 0 0 --group-count   4   --cmode trans  --pmode   default
 )
 
+add_custom_test(test_immed_conv_for_implicit_gemm ALL
+COMMAND	$<TARGET_FILE:test_immed_conv>	--verbose	--input	128	 16 	28	28	--weights	192  16 	3	3	--pads_strides_dilations	0	0	2	2	2	2	--disable-backward-data   --disable-backward-weights
+COMMAND	$<TARGET_FILE:test_immed_conv>	--verbose	--input	128	 16 	14	14	--weights	160  16 	3	3	--pads_strides_dilations	0	0	2	2	2	2	--disable-backward-data   --disable-backward-weights
+COMMAND	$<TARGET_FILE:test_immed_conv>	--verbose	--input	128	 16 	 7	 7	--weights	128  16 	3	3	--pads_strides_dilations	0	0	2	2	2	2	--disable-backward-data   --disable-backward-weights
+COMMAND	$<TARGET_FILE:test_immed_conv>	--verbose	--input	128	 16 	55	55	--weights	 96  16 	1	7	--pads_strides_dilations	0	0	2	2	1	2	--disable-backward-data   --disable-backward-weights
+COMMAND	$<TARGET_FILE:test_immed_conv>	--verbose	--input	128	 16 	28	28	--weights	 64  16 	1	7	--pads_strides_dilations	0	0	2	2	1	2	--disable-backward-data   --disable-backward-weights
+COMMAND	$<TARGET_FILE:test_immed_conv>	--verbose	--input	128	 16 	14	14	--weights	 32  16 	1	7	--pads_strides_dilations	0	0	2	2	1	2	--disable-backward-data   --disable-backward-weights
+COMMAND	$<TARGET_FILE:test_immed_conv>	--verbose	--input	128	128 	55	55	--weights	 16 128 	1	1	--pads_strides_dilations	0	0	1	1	1	2	--disable-forward         --disable-backward-weights
+COMMAND	$<TARGET_FILE:test_immed_conv>	--verbose	--input	128	128 	28	28	--weights	 16 128 	1	1	--pads_strides_dilations	0	0	1	1	1	2	--disable-forward         --disable-backward-weights
+COMMAND	$<TARGET_FILE:test_immed_conv>	--verbose	--input	128	128 	14	14	--weights	 16 128 	1	1	--pads_strides_dilations	0	0	1	1	1	2	--disable-forward         --disable-backward-weights
+COMMAND	$<TARGET_FILE:test_immed_conv>	--verbose	--input	128	128 	 7	 7	--weights	 16 128 	1	1	--pads_strides_dilations	0	0	1	1	1	2	--disable-forward         --disable-backward-weights
+COMMAND	$<TARGET_FILE:test_immed_conv>	--verbose	--input	128	128 	55	55	--weights	 16 128 	1	1	--pads_strides_dilations	0	0	2	2	1	2	--disable-forward         --disable-backward-weights
+COMMAND	$<TARGET_FILE:test_immed_conv>	--verbose	--input	128	128 	28	28	--weights	 16 128 	1	1	--pads_strides_dilations	0	0	2	2	1	2	--disable-forward         --disable-backward-weights
+COMMAND	$<TARGET_FILE:test_immed_conv>	--verbose	--input	128	128 	14	14	--weights	 16 128 	1	1	--pads_strides_dilations	0	0	2	2	1	2	--disable-forward         --disable-backward-weights
+COMMAND	$<TARGET_FILE:test_immed_conv>	--verbose	--input	128	128 	 7	 7	--weights	 16 128 	1	1	--pads_strides_dilations	0	0	2	2	1	2	--disable-forward         --disable-backward-weights
+COMMAND $<TARGET_FILE:test_immed_conv>  --verbose   --input 128  32     28  28  --weights   192  32     3   3   --pads_strides_dilations    0   0   2   2   2   2   --disable-backward-data   --disable-backward-weights
+COMMAND $<TARGET_FILE:test_immed_conv>  --verbose   --input 128  32     14  14  --weights   160  32     3   3   --pads_strides_dilations    0   0   2   2   2   2   --disable-backward-data   --disable-backward-weights
+COMMAND $<TARGET_FILE:test_immed_conv>  --verbose   --input 128  32     7   7   --weights   128  32     3   3   --pads_strides_dilations    0   0   2   2   2   2   --disable-backward-data   --disable-backward-weights
+COMMAND $<TARGET_FILE:test_immed_conv>  --verbose   --input 128  32     55  55  --weights    96  32     1   7   --pads_strides_dilations    0   0   2   2   1   2   --disable-backward-data   --disable-backward-weights
+COMMAND $<TARGET_FILE:test_immed_conv>  --verbose   --input 128  32     28  28  --weights    64  32     1   7   --pads_strides_dilations    0   0   2   2   1   2   --disable-backward-data   --disable-backward-weights
+COMMAND $<TARGET_FILE:test_immed_conv>  --verbose   --input 128  32     14  14  --weights    32  32     1   7   --pads_strides_dilations    0   0   2   2   1   2   --disable-backward-data   --disable-backward-weights
+COMMAND $<TARGET_FILE:test_immed_conv>  --verbose	--input	64	64	    56	56	--weights	256	 64	    1	1	--pads_strides_dilations	0	0	1	1	1	1	--disable-backward-weights
+COMMAND $<TARGET_FILE:test_immed_conv>  --verbose	--input	64	64	    56	56	--weights	64	 64	    1	1	--pads_strides_dilations	0	0	1	1	1	1	--disable-backward-weights
+COMMAND $<TARGET_FILE:test_immed_conv>  --verbose	--input	64	64	    73	73	--weights	80	 64     1	1	--pads_strides_dilations	0	0	1	1	1	1	--disable-backward-weights
+COMMAND $<TARGET_FILE:test_immed_conv>  --verbose	--input	64	64      56	56  --weights	64	 64     1	1	--pads_strides_dilations	0	0	1	1	1	1	--disable-backward-weights
+COMMAND $<TARGET_FILE:test_immed_conv>  --verbose	--input	64	128	    28	28	--weights	512	128	    1	1	--pads_strides_dilations	0	0	1	1	1	1	--disable-backward-weights
+COMMAND $<TARGET_FILE:test_immed_conv>  --verbose	--input	64	160	    73	73	--weights	64	160   	1	1	--pads_strides_dilations	0	0	1	1	1	1	--disable-backward-weights
+COMMAND $<TARGET_FILE:test_immed_conv>  --verbose	--input	64	192	    35	35	--weights	32	192   	1	1	--pads_strides_dilations	0	0	1	1	1	1	--disable-backward-weights
+COMMAND $<TARGET_FILE:test_immed_conv>  --verbose	--input	64	192	    35	35	--weights	48	192   	1	1	--pads_strides_dilations	0	0	1	1	1	1	--disable-backward-weights
+COMMAND $<TARGET_FILE:test_immed_conv>  --verbose	--input	64	192	    35	35	--weights	64	192   	1	1	--pads_strides_dilations	0	0	1	1	1	1	--disable-backward-weights
+COMMAND $<TARGET_FILE:test_immed_conv>  --verbose	--input	64	192 	28	28	--weights	16	192   	1	1	--pads_strides_dilations	0	0	1	1	1	1	--disable-backward-weights
+COMMAND $<TARGET_FILE:test_immed_conv>  --verbose	--input	64	192 	28	28	--weights	32	192   	1	1	--pads_strides_dilations	0	0	1	1	1	1	--disable-backward-weights
+COMMAND $<TARGET_FILE:test_immed_conv>  --verbose	--input	64	192 	28	28	--weights	64	192   	1	1	--pads_strides_dilations	0	0	1	1	1	1	--disable-backward-weights
+COMMAND $<TARGET_FILE:test_immed_conv>  --verbose	--input	64	192 	28	28	--weights	96	192   	1	1	--pads_strides_dilations	0	0	1	1	1	1	--disable-backward-weights
+COMMAND $<TARGET_FILE:test_immed_conv>  --verbose	--input	64	256	    35	35	--weights	48	256   	1	1	--pads_strides_dilations	0	0	1	1	1	1	--disable-backward-weights
+COMMAND $<TARGET_FILE:test_immed_conv>  --verbose	--input	64	256	    35	35	--weights	64	256   	1	1	--pads_strides_dilations	0	0	1	1	1	1	--disable-backward-weights
+COMMAND $<TARGET_FILE:test_immed_conv>  --verbose	--input	64	256	    56	56	--weights	128	256	    1	1	--pads_strides_dilations	0	0	2	2	1	1	--disable-backward-weights
+COMMAND $<TARGET_FILE:test_immed_conv>  --verbose	--input	64	256	    56	56	--weights	512	256	    1	1	--pads_strides_dilations	0	0	2	2	1	1	--disable-backward-weights
+COMMAND $<TARGET_FILE:test_immed_conv>  --verbose	--input	64	256	    56	56	--weights	64	256	    1	1	--pads_strides_dilations	0	0	1	1	1	1	--disable-backward-weights
+COMMAND $<TARGET_FILE:test_immed_conv>  --verbose	--input	64	256 	28	28	--weights	128	256   	1	1	--pads_strides_dilations	0	0	1	1	1	1	--disable-backward-weights
+COMMAND $<TARGET_FILE:test_immed_conv>  --verbose	--input	64	256 	28	28	--weights	32	256   	1	1	--pads_strides_dilations	0	0	1	1	1	1	--disable-backward-weights
+COMMAND $<TARGET_FILE:test_immed_conv>  --verbose	--input	64	256 	28	28	--weights	64	256   	1	1	--pads_strides_dilations	0	0	1	1	1	1	--disable-backward-weights
+COMMAND $<TARGET_FILE:test_immed_conv>  --verbose	--input	64	288	    35	35	--weights	48	288   	1	1	--pads_strides_dilations	0	0	1	1	1	1	--disable-backward-weights
+COMMAND $<TARGET_FILE:test_immed_conv>  --verbose	--input	64	288	    35	35	--weights	64	288   	1	1	--pads_strides_dilations	0	0	1	1	1	1	--disable-backward-weights
+COMMAND $<TARGET_FILE:test_immed_conv>  --verbose	--input	64	384	    35	35	--weights	192	384   	1	1	--pads_strides_dilations	0	0	1	1	1	1	--disable-backward-weights
+COMMAND $<TARGET_FILE:test_immed_conv>  --verbose	--input	64	384	    35	35	--weights	64	384   	1	1	--pads_strides_dilations	0	0	1	1	1	1	--disable-backward-weights
+COMMAND $<TARGET_FILE:test_immed_conv>  --verbose	--input	64	384	    35	35	--weights	96	384   	1	1	--pads_strides_dilations	0	0	1	1	1	1	--disable-backward-weights
+COMMAND $<TARGET_FILE:test_immed_conv>  --verbose	--input	64	480 	14	14	--weights	16	480   	1	1	--pads_strides_dilations	0	0	1	1	1	1	--disable-backward-weights
+COMMAND $<TARGET_FILE:test_immed_conv>  --verbose	--input	64	480 	14	14	--weights	192	480   	1	1	--pads_strides_dilations	0	0	1	1	1	1	--disable-backward-weights
+COMMAND $<TARGET_FILE:test_immed_conv>  --verbose	--input	64	480 	14	14	--weights	64	480   	1	1	--pads_strides_dilations	0	0	1	1	1	1	--disable-backward-weights
+COMMAND $<TARGET_FILE:test_immed_conv>  --verbose	--input	64	480 	14	14	--weights	96	480   	1	1	--pads_strides_dilations	0	0	1	1	1	1	--disable-backward-weights
+COMMAND $<TARGET_FILE:test_immed_conv>  --verbose	--input	64	512	    28	28	--weights	128	512	    1	1	--pads_strides_dilations	0	0	1	1	1	1	--disable-backward-weights
+COMMAND $<TARGET_FILE:test_immed_conv>  --verbose	--input	64	512	    28	28	--weights	256	512	    1	1	--pads_strides_dilations	0	0	2	2	1	1	--disable-backward-weights
+COMMAND $<TARGET_FILE:test_immed_conv>  --verbose	--input	64	512 	14	14	--weights	112	512   	1	1	--pads_strides_dilations	0	0	1	1	1	1	--disable-backward-weights
+COMMAND $<TARGET_FILE:test_immed_conv>  --verbose	--input	64	512 	14	14	--weights	128	512   	1	1	--pads_strides_dilations	0	0	1	1	1	1	--disable-backward-weights
+COMMAND $<TARGET_FILE:test_immed_conv>  --verbose	--input	64	512 	14	14	--weights	144	512   	1	1	--pads_strides_dilations	0	0	1	1	1	1	--disable-backward-weights
+COMMAND $<TARGET_FILE:test_immed_conv>  --verbose	--input	64	512 	14	14	--weights	160	512   	1	1	--pads_strides_dilations	0	0	1	1	1	1	--disable-backward-weights
+COMMAND $<TARGET_FILE:test_immed_conv>  --verbose	--input	64	512 	14	14	--weights	24	512   	1	1	--pads_strides_dilations	0	0	1	1	1	1	--disable-backward-weights
+COMMAND $<TARGET_FILE:test_immed_conv>  --verbose	--input	64	512 	14	14	--weights	32	512   	1	1	--pads_strides_dilations	0	0	1	1	1	1	--disable-backward-weights
+COMMAND $<TARGET_FILE:test_immed_conv>  --verbose	--input	64	512 	14	14	--weights	64	512   	1	1	--pads_strides_dilations	0	0	1	1	1	1	--disable-backward-weights
+)
 
 if(MIOPEN_TEST_DEEPBENCH)
     add_custom_test(test_deepbench_conv

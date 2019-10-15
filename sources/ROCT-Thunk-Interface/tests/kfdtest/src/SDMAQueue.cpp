@@ -63,7 +63,7 @@ unsigned int SDMAQueue::RptrWhenConsumed() {
 
 void SDMAQueue::SubmitPacket() {
     // m_pending Wptr is in dwords
-    if (g_TestGPUFamilyId < FAMILY_AI) {
+    if (m_FamilyId < FAMILY_AI) {
         // Pre-Vega10 uses 32-bit wptr and doorbell
         unsigned int wPtrInBytes = m_pendingWptr * sizeof(unsigned int);
         MemoryBarrier();
@@ -82,12 +82,12 @@ void SDMAQueue::SubmitPacket() {
 
 void SDMAQueue::Wait4PacketConsumption(HsaEvent *event, unsigned int timeOut) {
     if (event) {
-        PlacePacket(SDMAFencePacket((void*)event->EventData.HWData2, event->EventId));
+        PlacePacket(SDMAFencePacket(m_FamilyId, (void*)event->EventData.HWData2, event->EventId));
 
         PlaceAndSubmitPacket(SDMATrapPacket(event->EventId));
 
         EXPECT_SUCCESS(hsaKmtWaitOnEvent(event, timeOut));
     } else {
-        BaseQueue::Wait4PacketConsumption();
+        BaseQueue::Wait4PacketConsumption(NULL, timeOut);
     }
 }

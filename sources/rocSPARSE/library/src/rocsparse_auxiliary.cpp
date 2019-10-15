@@ -23,11 +23,13 @@
 
 #include "definitions.h"
 #include "handle.h"
-#include "definitions.h"
 #include "rocsparse.h"
 #include "utility.h"
 
 #include <hip/hip_runtime_api.h>
+
+#define TO_STR2(x) #x
+#define TO_STR(x) TO_STR2(x)
 
 #ifdef __cplusplus
 extern "C" {
@@ -154,8 +156,8 @@ rocsparse_status rocsparse_get_version(rocsparse_handle handle, int* version)
     {
         return rocsparse_status_invalid_handle;
     }
-    *version =
-        ROCSPARSE_VERSION_MAJOR * 100000 + ROCSPARSE_VERSION_MINOR * 100 + ROCSPARSE_VERSION_PATCH;
+    *version = ROCSPARSE_VERSION_MAJOR * 100000 + ROCSPARSE_VERSION_MINOR * 100
+               + ROCSPARSE_VERSION_PATCH;
 
     log_trace(handle, "rocsparse_get_version", *version);
 
@@ -173,7 +175,14 @@ rocsparse_status rocsparse_get_git_rev(rocsparse_handle handle, char* rev)
         return rocsparse_status_invalid_handle;
     }
 
-    strcpy(rev, ROCSPARSE_GIT_REVISION);
+    if(rev == nullptr)
+    {
+        return rocsparse_status_invalid_pointer;
+    }
+
+    static constexpr char v[] = TO_STR(ROCSPARSE_VERSION_TWEAK);
+
+    memcpy(rev, v, sizeof(v));
 
     log_trace(handle, "rocsparse_get_git_rev", rev);
 
@@ -288,8 +297,8 @@ rocsparse_status rocsparse_set_mat_type(rocsparse_mat_descr descr, rocsparse_mat
     {
         return rocsparse_status_invalid_pointer;
     }
-    if(type != rocsparse_matrix_type_general && type != rocsparse_matrix_type_symmetric &&
-       type != rocsparse_matrix_type_hermitian)
+    if(type != rocsparse_matrix_type_general && type != rocsparse_matrix_type_symmetric
+       && type != rocsparse_matrix_type_hermitian)
     {
         return rocsparse_status_invalid_value;
     }
@@ -498,6 +507,12 @@ rocsparse_status rocsparse_destroy_mat_info(rocsparse_mat_info info)
     if(info->csrsv_lower_info != nullptr)
     {
         RETURN_IF_ROCSPARSE_ERROR(rocsparse_destroy_csrtr_info(info->csrsv_lower_info));
+    }
+
+    // Clear csrgemm info struct
+    if(info->csrgemm_info != nullptr)
+    {
+        RETURN_IF_ROCSPARSE_ERROR(rocsparse_destroy_csrgemm_info(info->csrgemm_info));
     }
 
     // Destruct

@@ -22,14 +22,17 @@ add_clang_unittest(ToolingTests
   LexicallyOrderedRecursiveASTVisitorTest.cpp
   LookupTest.cpp
   QualTypeNamesTest.cpp
+  RangeSelectorTest.cpp
   RecursiveASTVisitorTests/Attr.cpp
   RecursiveASTVisitorTests/Class.cpp
   RecursiveASTVisitorTests/ConstructExpr.cpp
   RecursiveASTVisitorTests/CXXBoolLiteralExpr.cpp
   RecursiveASTVisitorTests/CXXMemberCall.cpp
+  RecursiveASTVisitorTests/CXXMethodDecl.cpp
   RecursiveASTVisitorTests/CXXOperatorCallExprTraverser.cpp
   RecursiveASTVisitorTests/DeclRefExpr.cpp
   RecursiveASTVisitorTests/ImplicitCtor.cpp
+  RecursiveASTVisitorTests/ImplicitCtorInitializer.cpp
   RecursiveASTVisitorTests/InitListExprPostOrder.cpp
   RecursiveASTVisitorTests/InitListExprPostOrderNoQueue.cpp
   RecursiveASTVisitorTests/InitListExprPreOrder.cpp
@@ -37,6 +40,7 @@ add_clang_unittest(ToolingTests
   RecursiveASTVisitorTests/IntegerLiteral.cpp
   RecursiveASTVisitorTests/LambdaDefaultCapture.cpp
   RecursiveASTVisitorTests/LambdaExpr.cpp
+  RecursiveASTVisitorTests/LambdaTemplateParams.cpp
   RecursiveASTVisitorTests/NestedNameSpecifiers.cpp
   RecursiveASTVisitorTests/ParenExpr.cpp
   RecursiveASTVisitorTests/TemplateArgumentLocTraverser.cpp
@@ -55,7 +59,7 @@ add_clang_unittest(ToolingTests
   TransformerTest.cpp
   )
 
-target_link_libraries(ToolingTests
+clang_target_link_libraries(ToolingTests
   PRIVATE
   clangAST
   clangASTMatchers
@@ -68,5 +72,12 @@ target_link_libraries(ToolingTests
   clangTooling
   clangToolingCore
   clangToolingInclusions
-  clangToolingRefactor
+  clangToolingRefactoring
   )
+
+target_link_libraries(ToolingTests
+  PRIVATE
+  LLVMTestingSupport
+)
+
+add_subdirectory(Syntax)

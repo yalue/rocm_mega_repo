@@ -38,8 +38,6 @@
 #define HSA_DEBUG_AGENT_VERSION 1
 #define AGENT_MAX_AGENT_NAME_LEN  64
 #define AGENT_MAX_FILE_PATH_LEN 128
-// Max breakpoint number based on the trap buffer size (0x1000)
-#define AGENT_MAX_BREAKPOINT 510
 
 #pragma pack(push,1)
 extern "C" {
@@ -67,8 +65,6 @@ typedef enum
 // Loaded code objects for ROCm-GDB to probe.
 typedef struct _CodeObjectInfo
 {
-    // Node id the code object is loaded to.
-    uint32_t nodeId;
     // Difference between the address in the ELF file and the addresses in memory.
     uint64_t addrDelta;
     // Absolute temp code object file path.
@@ -124,6 +120,8 @@ typedef struct _QueueInfo
     uint64_t queueId;
     // Agent node id the queue belongs to.
     uint32_t nodeId;
+    // Agent gpu_id the queue belongs to.
+    uint32_t gpuId;
     // Context save area
     void* pContextSaveArea;
     // Context save area size
@@ -167,6 +165,8 @@ typedef struct _GPUAgentInfo
     uint32_t numSIMDsPerCU;
     // num of shader engines.
     uint32_t numSEs;
+    // has acc vgprs.
+    bool hasAccVgprs;
     // Link list of queues of the agent.
     QueueInfo* pQueueList;
     // Next element of the agent link list.
@@ -175,12 +175,11 @@ typedef struct _GPUAgentInfo
     struct _GPUAgentInfo* pPrev;
 } GPUAgentInfo;
 
-// Debug trap handler buffer struct
-typedef struct _DebugTrapBuff
+// Displaced stepping buffer struct
+typedef struct _DisplacedSteppingBuffer
 {
-    uint64_t debugEventSignalHandle;
-    uint64_t breakPointPC[AGENT_MAX_BREAKPOINT];
-} DebugTrapBuff;
+    char data[4096];
+} DisplacedSteppingBuffer;
 
 // Struct that maintains all debug info for ROCm-GDB to probe.
 typedef struct _RocmGpuDebug
@@ -192,7 +191,7 @@ typedef struct _RocmGpuDebug
     // Head of the chain of loaded objects.
     ExecutableInfo* pExecutableList;
     // Debug trap buffer address.
-    DebugTrapBuff* pDebugTrapBuffer;
+    DisplacedSteppingBuffer* pDisplacedSteppingBuffer;
 } RocmGpuDebug;
 
 } // extern "C"

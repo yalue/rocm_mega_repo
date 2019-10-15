@@ -1,8 +1,8 @@
 #ifndef TEST_CLEANUP_H_
 #define TEST_CLEANUP_H_
 
-#include <stack>
 #include <functional>
+#include <stack>
 #include <utility>
 
 /*! \brief  Test cleanup handler. Frees memory or performs other cleanup at
@@ -17,7 +17,7 @@ class test_cleanup
         return stack;
     }
 
-    public:
+public:
     // Run all cleanup handlers pushed so far, in LIFO order
     static void cleanup()
     {
@@ -30,12 +30,12 @@ class test_cleanup
 
     // Create an object and register a cleanup handler
     template <typename T, typename... Args>
-    static T* allocate(T*& ptr, Args&&... args)
+    static T* allocate(T** ptr, Args&&... args)
     {
-        ptr = nullptr;
-        stack().push([&ptr] {
-            delete ptr;
-            ptr = nullptr;
+        *ptr = nullptr;
+        stack().push([=] {
+            delete *ptr;
+            *ptr = nullptr;
         });
         return new T(std::forward<Args>(args)...);
     }

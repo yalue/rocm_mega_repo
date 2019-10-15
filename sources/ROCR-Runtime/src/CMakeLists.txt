@@ -51,6 +51,17 @@ set ( CORE_RUNTIME_TARGET "${CORE_RUNTIME_NAME}64" )
 set ( CORE_RUNTIME_LIBRARY "lib${CORE_RUNTIME_TARGET}" )
 project( ${CORE_RUNTIME_TARGET} )
 
+# Optionally, build HSA Runtime with ccache.
+set(ROCM_CCACHE_BUILD OFF CACHE BOOL "Set to ON for a ccache enabled build")
+if (ROCM_CCACHE_BUILD)
+  find_program(CCACHE_PROGRAM ccache)
+  if (CCACHE_PROGRAM)
+    set_property(GLOBAL PROPERTY RULE_LAUNCH_COMPILE ${CCACHE_PROGRAM})
+  else()
+    message(WARNING "Unable to find ccache. Falling back to real compiler")
+  endif() # if (CCACHE_PROGRAM)
+endif() # if (ROCM_CCACHE_BUILD)
+
 list ( APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/cmake_modules" )
 include ( utils )
 include ( hsa_common )
@@ -79,7 +90,8 @@ set ( BUILD_VERSION_MAJOR ${VERSION_MAJOR} )
 set ( BUILD_VERSION_MINOR ${VERSION_MINOR} )
 set ( BUILD_VERSION_PATCH ${VERSION_PATCH} )
 set ( LIB_VERSION_STRING "${BUILD_VERSION_MAJOR}.${BUILD_VERSION_MINOR}.${BUILD_VERSION_PATCH}" )
-if ( DEFINED VERSION_BUILD )
+
+if ( VERSION_BUILD )
     set ( BUILD_VERSION_PATCH "${BUILD_VERSION_PATCH}-${VERSION_BUILD}" )
 endif ()
 set ( BUILD_VERSION_STRING "${BUILD_VERSION_MAJOR}.${BUILD_VERSION_MINOR}.${BUILD_VERSION_PATCH}" )
@@ -92,18 +104,18 @@ get_filename_component ( HSAKMT_LIB_PATH ${HSAKMT_LIB} DIRECTORY CACHE )
 unset( HSAKMT_INC CACHE )
 unset( HSAKMT_LIB CACHE )
 
-## Set include and link directories for libhsakmt
-include_directories ( ${HSAKMT_INC_PATH} )
-link_directories ( ${HSAKMT_LIB_PATH} )
-
 ## Set include directories for ROCr runtime
 include_directories ( ${CMAKE_CURRENT_SOURCE_DIR} )
 include_directories ( ${CMAKE_CURRENT_SOURCE_DIR}/inc )
 include_directories ( ${CMAKE_CURRENT_SOURCE_DIR}/core/inc )
 include_directories ( ${CMAKE_CURRENT_SOURCE_DIR}/libamdhsacode )
 
+## Set include and link directories for libhsakmt
+include_directories ( ${HSAKMT_INC_PATH} )
+link_directories ( ${HSAKMT_LIB_PATH} )
+
 ## ROCr build internal versioning
-if ( DEFINED VERSION_BUILD )
+if ( VERSION_BUILD )
     add_definitions ( -DROCR_BUILD_ID=${BUILD_VERSION_STRING} )
 else ()
     add_definitions ( -DROCR_BUILD_ID="${BUILD_VERSION_STRING}-unknown" )

@@ -27,6 +27,8 @@
 #include <miopen/kernel_cache.hpp>
 #include <miopen/util.hpp>
 #include <miopen/logger.hpp>
+#include <miopen/float_equal.hpp>
+#include <miopen/datatype.hpp>
 
 #include <boost/range/adaptors.hpp>
 
@@ -189,19 +191,11 @@ float Im2d2ColGPU(Handle& handle,
         params += " -DTILE_SZ_Y=" + std::to_string(tile_sz_y);
         params += " -DUSE_IM_OFF_GUARD=1";
 
-        if(type == miopenInt8)
-            params += " -DMIOPEN_USE_INT8=1";
-        else if(type == miopenInt8x4)
-            params += " -DMIOPEN_USE_INT8x4=1";
-        else if(type == miopenHalf)
-            params += " -DMIOPEN_USE_FP16=1";
-        else
-            params += " -DMIOPEN_USE_FP32=1";
+        params += GetDataTypeKernelParams(type);
 
         const std::vector<size_t> vld{256, 1, 1};
         size_t global_threads = 256 * std::max(1, (c_pack / num_ch_per_wg)) * num_blks;
         const std::vector<size_t> vgd{global_threads, 1, 1};
-
         handle.AddKernel(
             "miopenIm2Col", network_config, program_name, kernel_name, vld, vgd, params)(
             data_size_bound_pack,
@@ -308,16 +302,7 @@ float Im3d2ColGPU(Handle& handle,
     }
     else
     {
-        std::string params;
-
-        if(type == miopenInt8)
-            params += " -DMIOPEN_USE_INT8=1";
-        else if(type == miopenInt8x4)
-            params += " -DMIOPEN_USE_INT8x4=1";
-        else if(type == miopenHalf)
-            params += " -DMIOPEN_USE_FP16=1";
-        else
-            params += " -DMIOPEN_USE_FP32=1";
+        std::string params = GetDataTypeKernelParams(type);
 
         const std::vector<size_t> vld{256, 1, 1};
         size_t global_threads = std::min(
@@ -416,11 +401,7 @@ float Col2Im2dGPU(Handle& handle,
     }
     else
     {
-        std::string params;
-        if(type == miopenFloat)
-            params += "-DMIOPEN_USE_FP16=0 -DMIOPEN_USE_FP32=1";
-        else
-            params += "-DMIOPEN_USE_FP16=1 -DMIOPEN_USE_FP32=0";
+        std::string params = GetDataTypeKernelParams(type);
 
         const std::vector<size_t> vld{256, 1, 1};
         size_t global_threads = in_c * in_h * in_w;
@@ -525,11 +506,7 @@ float Col2Im3dGPU(Handle& handle,
     }
     else
     {
-        std::string params;
-        if(type == miopenFloat)
-            params += "-DMIOPEN_USE_FP16=0 -DMIOPEN_USE_FP32=1";
-        else
-            params += "-DMIOPEN_USE_FP16=1 -DMIOPEN_USE_FP32=0";
+        std::string params = GetDataTypeKernelParams(type);
 
         const std::vector<size_t> vld{256, 1, 1};
         size_t global_threads = in_c * in_d * in_h * in_w;
@@ -742,21 +719,14 @@ float transpose_NCHW2CNHW(Handle& handle,
     }
     else
     {
-        std::string params;
+        std::string params = GetDataTypeKernelParams(type);
 
-        if(type == miopenInt8)
-            params += " -DMIOPEN_USE_INT8=1";
-        else if(type == miopenInt8x4)
+        if(type == miopenInt8x4)
         {
             c /= 4;
             in_offset /= 4;
             out_offset /= 4;
-            params += " -DMIOPEN_USE_INT8x4=1";
         }
-        else if(type == miopenHalf)
-            params += " -DMIOPEN_USE_FP16=1";
-        else
-            params += " -DMIOPEN_USE_FP32=1";
 
         if(h_stride == 1 && w_stride == 1 && type == miopenFloat)
         {
@@ -874,21 +844,14 @@ float transpose_CNHW2NCHW(Handle& handle,
     }
     else
     {
-        std::string params;
+        std::string params = GetDataTypeKernelParams(type);
 
-        if(type == miopenInt8)
-            params += " -DMIOPEN_USE_INT8=1";
-        else if(type == miopenInt8x4)
+        if(type == miopenInt8x4)
         {
             c /= 4;
             in_offset /= 4;
             out_offset /= 4;
-            params += " -DMIOPEN_USE_INT8x4=1";
         }
-        else if(type == miopenHalf)
-            params += " -DMIOPEN_USE_FP16=1";
-        else
-            params += " -DMIOPEN_USE_FP32=1";
 
         if(h_stride == 1 && w_stride == 1 && type == miopenFloat)
         {
@@ -975,7 +938,9 @@ float transpose_NCHW2Vec(Handle& handle,
                          Data_t out,
                          std::size_t vec_size,
                          bool trans,
-                         bool forward)
+                         bool forward,
+                         const void* alpha,
+                         const void* beta)
 {
     std::string program_name = "MIOpenUtilKernels5.cl";
 
@@ -983,6 +948,9 @@ float transpose_NCHW2Vec(Handle& handle,
     {
         MIOPEN_THROW("Only support type half and int8!");
     }
+
+    const auto alpha_fp = *(static_cast<const float*>(alpha));
+    const auto beta_fp  = *(static_cast<const float*>(beta));
 
     const auto n = lens[0];
     const auto c = lens[1];
@@ -998,7 +966,8 @@ float transpose_NCHW2Vec(Handle& handle,
         "hw" + std::to_string(hw) +
         "t" + std::to_string(static_cast<int>(trans)) +
         "v" + std::to_string(vec_size) +
-        "f" + std::to_string(static_cast<int>(forward));
+        "f" + std::to_string(static_cast<int>(forward)) + "alp" + std::to_string(alpha_fp) + "beta" +
+            std::to_string(beta_fp);
     // clang-format on
 
     std::string algo_name = "transpose_NCHWVecForward";
@@ -1060,6 +1029,12 @@ float transpose_NCHW2Vec(Handle& handle,
         params += " -DREAD_TYPE=" + READ_TYPE;
         params += " -DWRITE_TYPE=" + WRITE_TYPE;
 
+        if(!float_equal(alpha_fp, 1.0))
+            params += " -DUSE_ALPHA=1";
+
+        if(!float_equal(beta_fp, 0))
+            params += " -DUSE_BETA=1";
+
         vgd[0] = MAP_RD;
 
         uint gd1 = trans ? static_cast<size_t>(n_vec / vec_size) : static_cast<size_t>(n);
@@ -1078,7 +1053,7 @@ float transpose_NCHW2Vec(Handle& handle,
         //}
 
         handle.AddKernel(algo_name, network_config, program_name, kernel_name, vld, vgd, params)(
-            in, out);
+            in, out, alpha_fp, beta_fp);
     }
 
     return handle.GetKernelTime();
@@ -1111,21 +1086,18 @@ float transpose_packed_MN2NM(Handle& handle,
     }
     else
     {
-        std::string params;
-
-        if(type == miopenInt8)
-            params += " -DMIOPEN_USE_INT8=1";
-        else if(type == miopenInt8x4)
+        std::string params = GetDataTypeKernelParams(type);
+        if(type == miopenInt8x4)
         {
             m /= 4;
             in_offset /= 4;
             out_offset /= 4;
-            params += " -DMIOPEN_USE_INT8x4=1";
         }
-        else if(type == miopenHalf)
-            params += " -DMIOPEN_USE_FP16=1";
-        else
-            params += " -DMIOPEN_USE_FP32=1";
+
+        if(!(type == miopenInt8x4 || type == miopenInt8))
+        {
+            MIOPEN_THROW("transpose_packed_MN2NM only meant for int8 variants.");
+        }
 
         params += " -DNC_TRANS_MN2NM=1";
 

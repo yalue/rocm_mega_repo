@@ -67,7 +67,9 @@ Settings::Settings() {
   numDeviceEvents_ = 1024;
   numWaitEvents_ = 8;
 
-  useLightning_ = GPU_ENABLE_LC;
+  useLightning_ = (!flagIsDefault(GPU_ENABLE_LC)) ? GPU_ENABLE_LC : true;
+
+  lcWavefrontSize64_ = true;
 }
 
 bool Settings::create(bool fullProfile, int gfxipVersion) {
@@ -115,10 +117,16 @@ bool Settings::create(bool fullProfile, int gfxipVersion) {
     // enable subnormals for gfx900 and later
     if (gfxipVersion >= 900) {
       singleFpDenorm_ = true;
+      enableCoopGroups_ = true;
+      enableCoopMultiDeviceGroups_ = true;
     }
   } else {
     // Also enable AMD double precision extension?
     enableExtension(ClAmdFp64);
+  }
+
+  if (gfxipVersion >= 1000) {
+    lcWavefrontSize64_ = false;
   }
 
   // Override current device settings
@@ -174,8 +182,11 @@ void Settings::override() {
         break;
     }
   }
+  if (!flagIsDefault(GPU_ENABLE_COOP_GROUPS)) {
+    enableCoopGroups_ = GPU_ENABLE_COOP_GROUPS;
+    enableCoopMultiDeviceGroups_ = GPU_ENABLE_COOP_GROUPS;
+  }
 }
-
 }  // namespace roc
 
 #endif  // WITHOUT_GPU_BACKEND

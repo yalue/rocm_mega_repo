@@ -1,5 +1,5 @@
 /*
-Copyright (c) 2015 - present Advanced Micro Devices, Inc. All rights reserved.
+Copyright (c) 2015-present Advanced Micro Devices, Inc. All rights reserved.
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal
@@ -21,7 +21,12 @@ THE SOFTWARE.
 */
 
 #include "hip/hip_runtime.h"
-extern texture<float, 2, hipReadModeElementType> tex;
+#if __HIP__
+__hip_pinned_shadow__
+#else
+extern
+#endif
+texture<float, 2, hipReadModeElementType> tex;
 
 extern "C" __global__ void tex2dKernel(float* outputData, int width, int height) {
     int x = hipBlockIdx_x * hipBlockDim_x + hipThreadIdx_x;

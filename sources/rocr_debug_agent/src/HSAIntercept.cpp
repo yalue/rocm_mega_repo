@@ -212,6 +212,7 @@ HsaDebugAgentHsaQueueCreate(
     pNewQueueInfo->pPrev = nullptr;
     pNewQueueInfo->pNext = nullptr;
     pNewQueueInfo->nodeId = agentNode;
+    pNewQueueInfo->gpuId = GetAgentFromList(agentNode)->gpuId;
 
     debugAgengQueueInfo.callback = reinterpret_cast<void*>(callback);
     debugAgengQueueInfo.data = data;
@@ -237,12 +238,11 @@ HsaDebugAgentHsaQueueCreate(
     pNewQueueInfo->queueId = (**queue).id;
 
     // preempt the queue
-    kmt_status = hsaKmtUpdateQueue(pNewQueueInfo->queueId ,
-                                   0,
-                                   HSA_QUEUE_PRIORITY_NORMAL,
-                                   NULL,
-                                   size,
-                                   NULL);
+    kmt_status = hsaKmtQueueSuspend(INVALID_PID,
+                                    1,
+                                    &pNewQueueInfo->queueId,
+                                    0,
+                                    0);
     if (kmt_status != HSAKMT_STATUS_SUCCESS)
     {
         AGENT_ERROR("Cannot preempt queues.");
@@ -258,10 +258,6 @@ HsaDebugAgentHsaQueueCreate(
         return HSA_STATUS_ERROR;
     }
 
-    pNewQueueInfo->pControlStack = queue_info.ControlStackTop;
-    pNewQueueInfo->controlStackSize = queue_info.ControlStackUsedInBytes;
-    pNewQueueInfo->pContextSaveArea = queue_info.UserContextSaveArea;
-    pNewQueueInfo->contextSaveAreaSize = queue_info.SaveAreaSizeInBytes;
     pNewQueueInfo->pSaveAreaHeader = queue_info.SaveAreaHeader;
 
     // Save the original queue error handler
@@ -285,12 +281,10 @@ HsaDebugAgentHsaQueueCreate(
     }
 
     // resume the queue
-    kmt_status = hsaKmtUpdateQueue(pNewQueueInfo->queueId ,
-                                   100,
-                                   HSA_QUEUE_PRIORITY_NORMAL,
-                                   (*queue)->base_address,
-                                   (*queue)->size,
-                                   NULL);
+    kmt_status = hsaKmtQueueResume(INVALID_PID,
+                                   1,
+                                   &pNewQueueInfo->queueId,
+                                   0);
     if (kmt_status != HSAKMT_STATUS_SUCCESS)
     {
         AGENT_ERROR("Cannot resume queues.");
@@ -365,14 +359,14 @@ HsaDebugAgentInternalQueueCreateCallback(const hsa_queue_t* queue,
     pNewQueueInfo->queue = (hsa_queue_t*)queue;
     pNewQueueInfo->queueId = queue->id;
     pNewQueueInfo->nodeId = agentNode;
+    pNewQueueInfo->gpuId = GetAgentFromList(agentNode)->gpuId;
 
     // preempt the queue
-    kmt_status = hsaKmtUpdateQueue(pNewQueueInfo->queueId ,
-                                   0,
-                                   HSA_QUEUE_PRIORITY_NORMAL,
-                                   NULL,
-                                   queue->size,
-                                   NULL);
+    kmt_status = hsaKmtQueueSuspend(INVALID_PID,
+                                    1,
+                                    &pNewQueueInfo->queueId,
+                                    0,
+                                    0);
     if (kmt_status != HSAKMT_STATUS_SUCCESS)
     {
         AGENT_ERROR("Cannot preempt queues.");
@@ -388,10 +382,7 @@ HsaDebugAgentInternalQueueCreateCallback(const hsa_queue_t* queue,
         return;
     }
 
-    pNewQueueInfo->pControlStack = queue_info.ControlStackTop;
-    pNewQueueInfo->controlStackSize = queue_info.ControlStackUsedInBytes;
-    pNewQueueInfo->pContextSaveArea = queue_info.UserContextSaveArea;
-    pNewQueueInfo->contextSaveAreaSize = queue_info.SaveAreaSizeInBytes;
+    pNewQueueInfo->pSaveAreaHeader = queue_info.SaveAreaHeader;
 
     // Save the original queue error handler
     debugAgengQueueInfo.callback = nullptr;
@@ -410,12 +401,10 @@ HsaDebugAgentInternalQueueCreateCallback(const hsa_queue_t* queue,
     ROCM_GDB_AGENT_QUEUE_CREATE(pNewQueueInfo);
 
     // resume the queue
-    kmt_status = hsaKmtUpdateQueue(pNewQueueInfo->queueId ,
-                                   100,
-                                   HSA_QUEUE_PRIORITY_NORMAL,
-                                   queue->base_address,
-                                   queue->size,
-                                   NULL);
+    kmt_status = hsaKmtQueueResume(INVALID_PID,
+                                   1,
+                                   &pNewQueueInfo->queueId,
+                                   0);
     if (kmt_status != HSAKMT_STATUS_SUCCESS)
     {
         AGENT_ERROR("Cannot resume queues.");
@@ -642,7 +631,6 @@ AddCodeObjectInfoCallback(
     ((ExecutableInfo *)data)->nodeId = pAgent->nodeId;
 
     CodeObjectInfo* pList = new CodeObjectInfo;
-    pList->nodeId = pAgent->nodeId;
     pList->addrMemory = (uintptr_t) new char[elfSize];
     memcpy((void*) pList->addrMemory, (const void*) elfBaseAddress, elfSize);
     pList->sizeMemory = elfSize;

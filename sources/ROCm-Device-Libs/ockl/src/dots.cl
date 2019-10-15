@@ -32,7 +32,7 @@ extern __attribute__((const)) int __llvm_amdgcn_sdot8(int a, int b, int c, bool 
 // __builtin_amdgcn_udot8
 extern __attribute__((const)) uint __llvm_amdgcn_udot8(uint a, uint b, uint c, bool s) __asm("llvm.amdgcn.udot8");
 
-#define SWDOT __oclc_ISA_version < 906 || __oclc_ISA_version == 909
+#define SWDOT __oclc_ISA_version < 9006 || __oclc_ISA_version == 9009 || __oclc_ISA_version == 10100
 #define AS_INT(X) __builtin_astype(X, int)
 #define AS_UINT(X) __builtin_astype(X, uint)
 #define ATTR __attribute__((const))
@@ -59,11 +59,11 @@ __ockl_sdot2(short2 a, short2 b, int c, bool s)
     if (SWDOT) {
         int p0 = (int)a.s0 * (int)b.s0;
         int p1 = (int)a.s1 * (int)b.s1;
-        int r = (long)c + (long)p0 + (long)p1;
+        long r = (long)c + (long)p0 + (long)p1;
 
         if (s)
             return r < -2147483648L ? -2147483648 :
-                   (r > 2147483647L ? 2147483647 : r);
+                   (r > 2147483647L ? 2147483647 : (int)r);
         else
             return (int)r;
     } else {

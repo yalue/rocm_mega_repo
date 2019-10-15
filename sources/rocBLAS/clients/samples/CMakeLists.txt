@@ -1,5 +1,5 @@
 # ########################################################################
-# Copyright 2016 Advanced Micro Devices, Inc.
+# Copyright 2016-2019 Advanced Micro Devices, Inc.
 # ########################################################################
 
 get_target_property( HIPHCC_LOCATION hip::hip_hcc IMPORTED_LOCATION_RELEASE )
@@ -11,8 +11,9 @@ add_executable( example-sgemm example_sgemm.cpp ${rocblas_samples_common} )
 add_executable( example-sgemm-strided-batched example_sgemm_strided_batched.cpp ${rocblas_samples_common} )
 add_executable( example-scal-template example_scal_template.cpp ${rocblas_samples_common} )
 add_executable( example-i8_r_gemm_ex example_i8_r_gemm_ex.cpp ${rocblas_samples_common} )
+add_executable( example_bf16_r_gemm_ex example_bf16_r_gemm_ex.cpp ${rocblas_samples_common} )
 
-set( sample_list example-sscal example-sgemm example-scal-template example-sgemm-strided-batched example-i8_r_gemm_ex)
+set( sample_list example-sscal example-sgemm example-scal-template example-sgemm-strided-batched example-i8_r_gemm_ex example_bf16_r_gemm_ex)
 foreach( exe ${sample_list} )
   target_link_libraries( ${exe} PRIVATE roc::rocblas )
   target_compile_features( ${exe} PRIVATE cxx_static_assert cxx_nullptr cxx_auto_type )
@@ -27,6 +28,7 @@ foreach( exe ${sample_list} )
   target_include_directories( ${exe}
     SYSTEM PRIVATE
       $<BUILD_INTERFACE:${HIP_INCLUDE_DIRS}>
+      $<BUILD_INTERFACE:${HCC_INCLUDE_DIRS}>
       )
 
   if( CUDA_FOUND )

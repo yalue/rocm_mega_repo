@@ -1,3 +1,25 @@
+/******************************************************************************
+* Copyright (c) 2016 - present Advanced Micro Devices, Inc. All rights reserved.
+*
+* Permission is hereby granted, free of charge, to any person obtaining a copy
+* of this software and associated documentation files (the "Software"), to deal
+* in the Software without restriction, including without limitation the rights
+* to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+* copies of the Software, and to permit persons to whom the Software is
+* furnished to do so, subject to the following conditions:
+*
+* The above copyright notice and this permission notice shall be included in
+* all copies or substantial portions of the Software.
+*
+* THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+* IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+* FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.  IN NO EVENT SHALL THE
+* AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+* LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+* OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
+* THE SOFTWARE.
+*******************************************************************************/
+
 #include "hip/hip_runtime_api.h"
 #include "hip/hip_vector_types.h"
 #include "rocfft.h"
@@ -68,4 +90,49 @@ TEST(rocfft_UnitTest, sample_code_iterative)
         // Free device buffer
         hipFree(x);
     }
+}
+
+TEST(rocfft_UnitTest, plan_description)
+{
+    rocfft_plan_description desc = nullptr;
+    EXPECT_TRUE(rocfft_status_success == rocfft_plan_description_create(&desc));
+
+    rocfft_array_type in_array_type  = rocfft_array_type_complex_interleaved;
+    rocfft_array_type out_array_type = rocfft_array_type_complex_interleaved;
+
+    size_t rank = 1;
+
+    size_t i_strides[3] = {1, 1, 1};
+    size_t o_strides[3] = {1, 1, 1};
+
+    size_t idist = 0;
+    size_t odist = 0;
+
+    rocfft_plan plan   = NULL;
+    size_t      length = 8;
+
+    EXPECT_TRUE(rocfft_status_success
+                == rocfft_plan_description_set_data_layout(desc,
+                                                           in_array_type,
+                                                           out_array_type,
+                                                           0,
+                                                           0,
+                                                           rank,
+                                                           i_strides,
+                                                           idist,
+                                                           rank,
+                                                           o_strides,
+                                                           odist));
+    EXPECT_TRUE(rocfft_status_success
+                == rocfft_plan_create(&plan,
+                                      rocfft_placement_inplace,
+                                      rocfft_transform_type_complex_forward,
+                                      rocfft_precision_single,
+                                      rank,
+                                      &length,
+                                      1,
+                                      desc));
+
+    EXPECT_TRUE(rocfft_status_success == rocfft_plan_description_destroy(desc));
+    EXPECT_TRUE(rocfft_status_success == rocfft_plan_destroy(plan));
 }

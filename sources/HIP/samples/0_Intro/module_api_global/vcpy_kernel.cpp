@@ -1,5 +1,5 @@
 /*
-Copyright (c) 2017 - present Advanced Micro Devices, Inc. All rights reserved.
+Copyright (c) 2017-present Advanced Micro Devices, Inc. All rights reserved.
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal
@@ -25,8 +25,7 @@ THE SOFTWARE.
 #define ARRAY_SIZE (16)
 
 __device__ float myDeviceGlobal;
-extern float myDeviceGlobalArray[16];
-;
+__device__ float myDeviceGlobalArray[16];
 
 extern "C" __global__ void hello_world(const float* a, float* b) {
     int tx = hipThreadIdx_x;

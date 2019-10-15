@@ -1,5 +1,9 @@
 # rocRAND library
 
+set( lib_SOVERSION 1.1 )
+set( hiprand_SOVERSION ${lib_SOVERSION} )
+set( rocrand_SOVERSION ${lib_SOVERSION} )
+
 # Get sources
 file(GLOB tmp ${CMAKE_CURRENT_SOURCE_DIR}/src/*.cpp)
 set(rocRAND_SRCS ${tmp})
@@ -74,12 +78,12 @@ target_include_directories(rocrand
         $<BUILD_INTERFACE:${PROJECT_SOURCE_DIR}/library/include>
         $<INSTALL_INTERFACE:rocrand/include>
 )
+
+rocm_set_soversion(rocrand ${rocrand_SOVERSION})
 set_target_properties(rocrand
     PROPERTIES
         RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/library"
         DEBUG_POSTFIX "-d"
-        VERSION ${rocrand_VERSION}
-        SOVERSION 1
 )
 # Set AMD targets
 if(HIP_PLATFORM STREQUAL "hcc")
@@ -177,12 +181,12 @@ else()
         target_link_libraries(hiprand PRIVATE --amdgpu-target=${amdgpu_target})
     endforeach()
 endif()
+  
+rocm_set_soversion(hiprand ${hiprand_SOVERSION})
 set_target_properties(hiprand
     PROPERTIES
         RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/library"
         DEBUG_POSTFIX "-d"
-        VERSION ${hiprand_VERSION}
-        SOVERSION 1
         INSTALL_RPATH "${CMAKE_INSTALL_PREFIX}/rocrand/lib"
 )
 
@@ -249,16 +253,22 @@ if(EXISTS ${DPKG_EXE})
 endif()
 set(CPACK_PACKAGE_NAME "rocrand")
 set(CPACK_PACKAGE_VENDOR "Advanced Micro Devices, Inc")
-set(CPACK_DEBIAN_PACKAGE_MAINTAINER "Stream HPC Maintainers <maintainer@streamhpc.com>")
-set(CPACK_DEBIAN_PACKAGE_DEPENDS "hip_hcc (>= 1.5.19055)") # 1.5.19055 is part of ROCm 2.2
-set(CPACK_RPM_PACKAGE_REQUIRES "hip_hcc >= 1.5.19055") # 1.5.19055 is part of ROCm 2.2
+set(CPACK_DEBIAN_PACKAGE_MAINTAINER "Saad Rahim <saad.rahim@amd.com>")
+if(HIP_PLATFORM STREQUAL "hcc")
+  set(CPACK_DEBIAN_PACKAGE_DEPENDS "hip_hcc (>= 1.5.19055)") # 1.5.19055 is part of ROCm 2.2
+  set(CPACK_RPM_PACKAGE_REQUIRES "hip_hcc >= 1.5.19055") # 1.5.19055 is part of ROCm 2.2
+else()
+  set(CPACK_DEBIAN_PACKAGE_DEPENDS "hip_nvcc (>= 1.5.19055)") # 1.5.19055 is part of ROCm 2.2
+  set(CPACK_RPM_PACKAGE_REQUIRES "hip_nvcc >= 1.5.19055") # 1.5.19055 is part of ROCm 2.2
+endif()
 set(CPACK_PACKAGE_DESCRIPTION_SUMMARY "The rocRAND library provides functions that generate pseudo-random and quasi-random numbers.")
 set(CPACK_SET_DESTDIR ON)
 set(CPACK_RPM_PACKAGE_RELOCATABLE OFF)
 set(CPACK_RPM_PACKAGE_AUTOREQPROV OFF CACHE BOOL "")
-set(CPACK_PACKAGE_VERSION_MAJOR ${rocrand_VERSION_MAJOR})
-set(CPACK_PACKAGE_VERSION_MINOR ${rocrand_VERSION_MINOR})
-set(CPACK_PACKAGE_VERSION_PATCH ${rocrand_VERSION_PATCH})
+set(CPACK_PACKAGE_VERSION ${rocRAND_VERSION})
+set(CPACK_PACKAGE_VERSION_MAJOR ${rocRAND_VERSION_MAJOR})
+set(CPACK_PACKAGE_VERSION_MINOR ${rocRAND_VERSION_MINOR})
+set(CPACK_PACKAGE_VERSION_PATCH ${rocRAND_VERSION_PATCH})
 package_set_postinst_prerm(
     "hiprand;rocrand"
     "${CMAKE_INSTALL_PREFIX}/hiprand/lib;${CMAKE_INSTALL_PREFIX}/rocrand/lib"

@@ -31,6 +31,7 @@
 #include "PM4Packet.hpp"
 #include "KFDTestUtil.hpp"
 #include "KFDTestUtilQueue.hpp"
+#include "KFDBaseComponentTest.hpp"
 
 #define MB_PER_SEC(size, time) ((((size) * 1ULL) >> 20) * 1000ULL * 1000ULL * 1000ULL / (time))
 
@@ -103,7 +104,7 @@ class AsyncMPSQ {
             if (m_queueType == HSA_QUEUE_SDMA)
                 return SDMATimePacket(0).SizeInBytes();
             else if (m_queueType == HSA_QUEUE_COMPUTE)
-                return PM4ReleaseMemoryPacket(0, 0, 0, 0, 0).SizeInBytes();
+                return PM4ReleaseMemoryPacket(m_queue->GetFamilyId(), 0, 0, 0, 0, 0).SizeInBytes();
             return 0;
         }
 
@@ -126,7 +127,7 @@ class AsyncMPSQ {
                 PlacePacket(SDMATimePacket(addr));
             else if (m_queueType == HSA_QUEUE_COMPUTE)
                 PlacePacket(
-                        PM4ReleaseMemoryPacket(true, (HSAuint64)addr, 0, true, true));
+                        PM4ReleaseMemoryPacket(m_queue->GetFamilyId(), true, (HSAuint64)addr, 0, true, true));
             else
                 WARN() << "Unsupported queue type!" << std::endl;
         }
@@ -355,7 +356,7 @@ void sdma_multicopy(std::vector<SDMACopyParams> &array, int mashup, TSPattern ts
 
     for (i = 0; i < array.size(); i++) {
         sharedPacket packet(new
-                SDMACopyDataPacket(array[i].dst, array[i].src, array[i].size));
+                SDMACopyDataPacket(g_baseTest->GetFamilyIdFromNodeId(array[i].node), array[i].dst, array[i].src, array[i].size));
         packetList.push_back(packet);
 
         /* We put the real queue_id in local handle[] to reduce some assignment.*/

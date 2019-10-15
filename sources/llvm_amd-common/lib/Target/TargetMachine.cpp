@@ -63,18 +63,6 @@ void TargetMachine::resetTargetOptions(const Function &F) const {
   RESET_OPTION(NoInfsFPMath, "no-infs-fp-math");
   RESET_OPTION(NoNaNsFPMath, "no-nans-fp-math");
   RESET_OPTION(NoSignedZerosFPMath, "no-signed-zeros-fp-math");
-  RESET_OPTION(NoTrappingFPMath, "no-trapping-math");
-
-  StringRef Denormal =
-    F.getFnAttribute("denormal-fp-math").getValueAsString();
-  if (Denormal == "ieee")
-    Options.FPDenormalMode = FPDenormal::IEEE;
-  else if (Denormal == "preserve-sign")
-    Options.FPDenormalMode = FPDenormal::PreserveSign;
-  else if (Denormal == "positive-zero")
-    Options.FPDenormalMode = FPDenormal::PositiveZero;
-  else
-    Options.FPDenormalMode = DefaultOptions.FPDenormalMode;
 }
 
 /// Returns the code generation relocation model. The choices are static, PIC,
@@ -167,13 +155,18 @@ bool TargetMachine::shouldAssumeDSOLocal(const Module &M,
   if (GV && !GV->hasDefaultVisibility())
     return true;
 
-  if (TT.isOSBinFormatMachO() || TT.isOSBinFormatWasm()) {
+  if (TT.isOSBinFormatMachO()) {
     if (RM == Reloc::Static)
       return true;
     return GV && GV->isStrongDefinitionForLinker();
   }
 
-  assert(TT.isOSBinFormatELF());
+  // Due to the AIX linkage model, any global with default visibility is
+  // considered non-local.
+  if (TT.isOSBinFormatXCOFF())
+    return false;
+
+  assert(TT.isOSBinFormatELF() || TT.isOSBinFormatWasm());
   assert(RM != Reloc::DynamicNoPIC);
 
   bool IsExecutable =
@@ -201,7 +194,7 @@ bool TargetMachine::shouldAssumeDSOLocal(const Module &M,
       return true;
   }
 
-  // ELF supports preemption of other symbols.
+  // ELF & wasm support preemption of other symbols.
   return false;
 }
 

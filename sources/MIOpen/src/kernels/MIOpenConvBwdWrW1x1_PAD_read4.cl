@@ -207,33 +207,7 @@
 
 #endif
 
-#define PPCAT_NX(A, B) A##B
-#define PPCAT(A, B) PPCAT_NX(A, B)
-#define TWO 2
-#define FOUR 4
-#define EIGHT 8
-
-#if MIOPEN_USE_FP16 == 1
-#pragma OPENCL EXTENSION cl_khr_fp16 : enable
-#define _FLOAT half
-#ifndef HALF_MAX
-#define MAX_VAL 65504 /* max value */
-#else
-#define MAX_VAL HALF_MAX
-#endif
-#endif
-#if MIOPEN_USE_FP32 == 1
-#define _FLOAT float
-#ifndef FLT_MAX
-#define MAX_VAL 3.402823466e+38F /* max value */
-#else
-#define MAX_VAL FLT_MAX
-#endif
-#endif
-
-#define _FLOAT2 PPCAT(_FLOAT, TWO)
-#define _FLOAT4 PPCAT(_FLOAT, FOUR)
-#define _FLOAT8 PPCAT(_FLOAT, EIGHT)
+#include "float_types.h"
 
 #define UNUSED __attribute__((__unused__))
 #define INLINE
@@ -251,7 +225,7 @@ MIOpenCvBwdWrW_8x8map(const __global _FLOAT* __restrict top_df,
                       __global _FLOAT* __restrict weights_df,
                       UNUSED _FLOAT padding_val)
 {
-    __local _FLOAT sdata[MLO_GRP_SZ0 * 8];
+    __local _FLOAT_ACCUM sdata[MLO_GRP_SZ0 * 8];
     // 8x8 MUL_ADD per thread
     // Every thread 1DWORDs per MAP * 8 Maps
     // every 64 threads Load continous 64 DWORDs per MAP * 8 Maps
@@ -286,19 +260,19 @@ MIOpenCvBwdWrW_8x8map(const __global _FLOAT* __restrict top_df,
     __private _FLOAT load_buf_top[MLO_N_LCL_OUT_MAPS * MLO_READ_UNIT];
     __private _FLOAT load_buf_bot[MLO_N_LCL_IN_MAPS * MLO_READ_UNIT];
 
-    __private _FLOAT accum[MLO_ACCUM_SZ];
+    __private _FLOAT_ACCUM accum[MLO_ACCUM_SZ];
 
     // CNHW will be continous address to utlize X4 load;
     // NCHW will be hard mode till now
 
     for(uint i = 0; i < MLO_ACCUM_SZ; i++)
     {
-        accum[i] = (_FLOAT)(0);
+        accum[i] = (_FLOAT_ACCUM)0;
     }
 
     for(uint i = 0; i < MLO_N_LCL_IN_MAPS; i++)
     {
-        sdata[local_Id0 + i * MLO_GRP_SZ0] = (_FLOAT)(0);
+        sdata[local_Id0 + i * MLO_GRP_SZ0] = (_FLOAT_ACCUM)(0);
     }
 
 #if MLO_OUT_CHANNEL_READ_SZ > 0
@@ -366,8 +340,9 @@ MIOpenCvBwdWrW_8x8map(const __global _FLOAT* __restrict top_df,
                 for(uint c = 0; c < MLO_N_LCL_IN_MAPS; ++c)
                 {
                     {
-                        accum[k * MLO_N_LCL_IN_MAPS + c] += load_buf_bot[c * MLO_READ_UNIT + i] *
-                                                            load_buf_top[k * MLO_READ_UNIT + i];
+                        accum[k * MLO_N_LCL_IN_MAPS + c] +=
+                            CVT_FLOAT2ACCUM(load_buf_bot[c * MLO_READ_UNIT + i]) *
+                            CVT_FLOAT2ACCUM(load_buf_top[k * MLO_READ_UNIT + i]);
                     }
                 }
             }
@@ -429,8 +404,9 @@ MIOpenCvBwdWrW_8x8map(const __global _FLOAT* __restrict top_df,
                 for(uint c = 0; c < MLO_N_LCL_IN_MAPS; ++c)
                 {
                     {
-                        accum[k * MLO_N_LCL_IN_MAPS + c] += load_buf_bot[c * MLO_READ_UNIT + i] *
-                                                            load_buf_top[k * MLO_READ_UNIT + i];
+                        accum[k * MLO_N_LCL_IN_MAPS + c] +=
+                            CVT_FLOAT2ACCUM(load_buf_bot[c * MLO_READ_UNIT + i]) *
+                            CVT_FLOAT2ACCUM(load_buf_top[k * MLO_READ_UNIT + i]);
                     }
                 }
             }
@@ -472,7 +448,7 @@ MIOpenCvBwdWrW_8x8map(const __global _FLOAT* __restrict top_df,
         // MLO_N_LCL_IN_MAPS store
         if((local_Id0 & ~0x7) == (K * MLO_N_LCL_IN_MAPS))
         {
-            accum_to_store = sdata[0 + (local_Id0 & 0x7) * MLO_GRP_SZ0];
+            accum_to_store = CVT_ACCUM2FLOAT(sdata[0 + (local_Id0 & 0x7) * MLO_GRP_SZ0]);
         }
 
         // only 1st wave need to barrier: it will remove all scratch registers
@@ -499,7 +475,7 @@ MIOpenCvBwdWrW_16x16map(const __global _FLOAT* __restrict top_df,
                         __global _FLOAT* __restrict weights_df,
                         UNUSED _FLOAT padding_val)
 {
-    __local _FLOAT sdata[MLO_GRP_SZ0 * 8];
+    __local _FLOAT_ACCUM sdata[MLO_GRP_SZ0 * 8];
     // 64 threds split into 4 grpoups: every 16 threads accumulate 8x8
     //
     // 256 threads split inot 4 groups : every 64 threads accumulate 8x8
@@ -537,19 +513,19 @@ MIOpenCvBwdWrW_16x16map(const __global _FLOAT* __restrict top_df,
     __private _FLOAT load_buf_top[MLO_N_LCL_OUT_MAPS_ONCE * MLO_READ_UNIT];
     __private _FLOAT load_buf_bot[MLO_N_LCL_IN_MAPS_ONCE * MLO_READ_UNIT];
 
-    __private _FLOAT accum[MLO_ACCUM_SZ];
+    __private _FLOAT_ACCUM accum[MLO_ACCUM_SZ];
 
     // CNHW will be continous address to utlize X4 load;
     // NCHW will be hard mode till now
 
     for(uint i = 0; i < MLO_ACCUM_SZ; i++)
     {
-        accum[i] = (_FLOAT)(0);
+        accum[i] = (_FLOAT_ACCUM)(0);
     }
 
     for(uint i = 0; i < MLO_N_LCL_OUT_MAPS_ONCE; i++)
     {
-        sdata[local_Id0 + i * MLO_GRP_SZ0] = (_FLOAT)(0);
+        sdata[local_Id0 + i * MLO_GRP_SZ0] = (_FLOAT_ACCUM)(0);
     }
 
 #if MLO_OUT_CHANNEL_READ_SZ > 0
@@ -642,8 +618,8 @@ MIOpenCvBwdWrW_16x16map(const __global _FLOAT* __restrict top_df,
                     // for(uint i = 0; i < MLO_READ_UNIT; ++i)
                     {
                         accum[k * MLO_N_LCL_IN_MAPS_ONCE + c] +=
-                            load_buf_bot[c * MLO_READ_UNIT + i] *
-                            load_buf_top[k * MLO_READ_UNIT + i];
+                            CVT_FLOAT2ACCUM(load_buf_bot[c * MLO_READ_UNIT + i]) *
+                            CVT_FLOAT2ACCUM(load_buf_top[k * MLO_READ_UNIT + i]);
                     }
                 }
             }
@@ -708,8 +684,8 @@ MIOpenCvBwdWrW_16x16map(const __global _FLOAT* __restrict top_df,
                 {
                     {
                         accum[k * MLO_N_LCL_IN_MAPS_ONCE + c] +=
-                            load_buf_bot[c * MLO_READ_UNIT + i] *
-                            load_buf_top[k * MLO_READ_UNIT + i];
+                            CVT_FLOAT2ACCUM(load_buf_bot[c * MLO_READ_UNIT + i]) *
+                            CVT_FLOAT2ACCUM(load_buf_top[k * MLO_READ_UNIT + i]);
                     }
                 }
             }
@@ -760,10 +736,10 @@ MIOpenCvBwdWrW_16x16map(const __global _FLOAT* __restrict top_df,
         // MLO_N_LCL_IN_MAPS store 32 DWORD once
         if((local_Id0 & ~0x7) == (K * (MLO_N_LCL_IN_MAPS_ONCE)))
         {
-            accum_to_store[0] = sdata[0 + (local_Id0 & 0x7) * MLO_GRP_SZ0];
-            accum_to_store[1] = sdata[1 + (local_Id0 & 0x7) * MLO_GRP_SZ0];
-            accum_to_store[2] = sdata[2 + (local_Id0 & 0x7) * MLO_GRP_SZ0];
-            accum_to_store[3] = sdata[3 + (local_Id0 & 0x7) * MLO_GRP_SZ0];
+            accum_to_store[0] = CVT_ACCUM2FLOAT(sdata[0 + (local_Id0 & 0x7) * MLO_GRP_SZ0]);
+            accum_to_store[1] = CVT_ACCUM2FLOAT(sdata[1 + (local_Id0 & 0x7) * MLO_GRP_SZ0]);
+            accum_to_store[2] = CVT_ACCUM2FLOAT(sdata[2 + (local_Id0 & 0x7) * MLO_GRP_SZ0]);
+            accum_to_store[3] = CVT_ACCUM2FLOAT(sdata[3 + (local_Id0 & 0x7) * MLO_GRP_SZ0]);
         }
 
         // only 1st wave need to barrier: it will remove all scratch registers

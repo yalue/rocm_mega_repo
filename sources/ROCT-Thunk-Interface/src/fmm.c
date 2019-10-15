@@ -37,6 +37,7 @@
 #include <sys/time.h>
 #include <errno.h>
 #include <pci/pci.h>
+#include <numa.h>
 #include <numaif.h>
 #include "rbtree.h"
 #ifndef MPOL_F_STATIC_NODES
@@ -221,7 +222,6 @@ static gpu_mem_t *gpu_mem;
 static unsigned int gpu_mem_count;
 static gpu_mem_t *g_first_gpu_mem;
 
-static bool hsa_debug;
 static void *dgpu_shared_aperture_base;
 static void *dgpu_shared_aperture_limit;
 
@@ -413,8 +413,6 @@ static vm_object_t *vm_find_object_by_address_userptr(manageable_aperture_t *app
 {
 	vm_object_t *cur = NULL;
 
-	if (is_userptr == 0)
-		size = ALIGN_UP(size, app->align);
 	rbtree_t *tree = vm_object_tree(app, is_userptr);
 	rbtree_key_t key = rbtree_key((unsigned long)address, size);
 	void *start;
@@ -561,8 +559,7 @@ static bool aperture_is_valid(void *app_base, void *app_limit)
  */
 static uint64_t vm_align_area_size(manageable_aperture_t *app, uint64_t size)
 {
-	return ALIGN_UP(ALIGN_UP(size, app->align) + (uint64_t)app->guard_pages * PAGE_SIZE,
-			app->align);
+	return size + (uint64_t)app->guard_pages * PAGE_SIZE;
 }
 
 /*
@@ -632,6 +629,7 @@ static void *reserved_aperture_allocate_aligned(manageable_aperture_t *app,
 						uint64_t MemorySizeInBytes,
 						uint64_t align)
 {
+	uint64_t offset = 0, orig_align = align;
 	vm_area_t *cur, *next;
 	void *start;
 
@@ -644,12 +642,22 @@ static void *reserved_aperture_allocate_aligned(manageable_aperture_t *app,
 	while (align < GPU_HUGE_PAGE_SIZE && MemorySizeInBytes >= (align << 1))
 		align <<= 1;
 
+	/* If no specific alignment was requested, align the end of
+	 * buffers instead of the start. For fragment optimizations,
+	 * aligning the start or the end achieves the same effective
+	 * optimization. End alignment to the TLB cache line size is
+	 * needed as a workaround for TLB issues on some older GPUs.
+	 */
+	if (orig_align <= (uint64_t)PAGE_SIZE)
+		offset = align - (MemorySizeInBytes & (align - 1));
+
 	MemorySizeInBytes = vm_align_area_size(app, MemorySizeInBytes);
 
 	/* Find a big enough "hole" in the address space */
 	cur = NULL;
 	next = app->vm_ranges;
-	start = address ? address : (void *)ALIGN_UP((uint64_t)app->base, align);
+	start = address ? address :
+		(void *)(ALIGN_UP((uint64_t)app->base, align) + offset);
 	while (next) {
 		if (next->start > start &&
 		    VOID_PTRS_SUB(next->start, start) >= MemorySizeInBytes)
@@ -658,7 +666,7 @@ static void *reserved_aperture_allocate_aligned(manageable_aperture_t *app,
 		cur = next;
 		next = next->next;
 		if (!address)
-			start = (void *)ALIGN_UP((uint64_t)cur->end + 1, align);
+			start = (void *)(ALIGN_UP((uint64_t)cur->end + 1, align) + offset);
 	}
 	if (!next && VOID_PTRS_SUB(app->limit, start) + 1 < MemorySizeInBytes)
 		/* No hole found and not enough space after the last area */
@@ -706,17 +714,11 @@ static void *mmap_aperture_allocate_aligned(manageable_aperture_t *aper,
 		return NULL;
 	}
 
-	if (align < aper->align)
-		align = aper->align;
-
 	/* Align big buffers to the next power-of-2 up to huge page
 	 * size for flexible fragment size TLB optimizations
 	 */
 	while (align < GPU_HUGE_PAGE_SIZE && size >= (align << 1))
 		align <<= 1;
-
-	/* Align memory size to match aperture requirements */
-	size = ALIGN_UP(size, aper->align);
 
 	/* Add padding to guarantee proper alignment and leave guard
 	 * pages on both sides
@@ -763,9 +765,6 @@ static void mmap_aperture_release(manageable_aperture_t *aper,
 		return;
 	}
 
-	/* Align memory size to match aperture requirements */
-	size = ALIGN_UP(size, aper->align);
-
 	/* Reset NUMA policy */
 	mbind(addr, size, MPOL_DEFAULT, NULL, 0, 0);
 
@@ -800,8 +799,6 @@ static vm_object_t *aperture_allocate_object(manageable_aperture_t *app,
 					     uint32_t flags)
 {
 	vm_object_t *new_object;
-
-	MemorySizeInBytes = ALIGN_UP(MemorySizeInBytes, app->align);
 
 	/* Allocate new object */
 	new_object = vm_create_and_init_object(new_address,
@@ -929,7 +926,7 @@ static vm_object_t *fmm_allocate_memory_object(uint32_t gpu_id, void *mem,
 
 	/* Allocate memory from amdkfd */
 	args.gpu_id = gpu_id;
-	args.size = ALIGN_UP(MemorySizeInBytes, aperture->align);
+	args.size = MemorySizeInBytes;
 
 	args.flags = flags |
 		KFD_IOC_ALLOC_MEM_FLAGS_NO_SUBSTITUTE;
@@ -1351,7 +1348,7 @@ void *fmm_allocate_device(uint32_t gpu_id, void *address, uint64_t MemorySizeInB
 		pthread_mutex_unlock(&aperture->fmm_mutex);
 	}
 
-	if (mem && (flags.ui32.HostAccess || hsa_debug)) {
+	if (mem) {
 		int map_fd = mmap_offset >= (1ULL<<40) ? kfd_fd :
 					gpu_mem[gpu_mem_id].drm_render_fd;
 		int prot = flags.ui32.HostAccess ? PROT_READ | PROT_WRITE :
@@ -1457,6 +1454,45 @@ static void *fmm_allocate_host_cpu(void *address, uint64_t MemorySizeInBytes,
 	return mem;
 }
 
+static int bind_mem_to_numa(uint32_t node_id, void *mem,
+			    uint64_t MemorySizeInBytes, HsaMemFlags flags)
+{
+	int mode = MPOL_F_STATIC_NODES;
+	struct bitmask *node_mask;
+	int num_node;
+
+	if (numa_available() == -1)
+		return 0;
+
+	num_node = numa_num_task_nodes();
+
+	/* Ignore binding requests to invalid nodes IDs */
+	if (node_id >= (unsigned)num_node) {
+		pr_warn("node_id %d >= num_node %d\n", node_id, num_node);
+		return 0;
+	}
+
+	if (num_node > 1) {
+		node_mask = numa_bitmask_alloc(num_node);
+		if (!node_mask)
+			return -ENOMEM;
+
+		numa_bitmask_setbit(node_mask, node_id);
+		mode |= flags.ui32.NoSubstitute ? MPOL_BIND : MPOL_PREFERRED;
+		if (mbind(mem, MemorySizeInBytes, mode, node_mask->maskp,
+			  num_node + 1, 0)) {
+			pr_warn("Failed to set NUMA policy for %p\n", mem);
+
+			numa_bitmask_free(node_mask);
+			return -EFAULT;
+		}
+
+		numa_bitmask_free(node_mask);
+	}
+
+	return 0;
+}
+
 static void *fmm_allocate_host_gpu(uint32_t node_id, void *address,
 				   uint64_t MemorySizeInBytes, HsaMemFlags flags)
 {
@@ -1493,10 +1529,6 @@ static void *fmm_allocate_host_gpu(uint32_t node_id, void *address,
 	 * memory is allocated from KFD
 	 */
 	if (!flags.ui32.NonPaged && svm.userptr_for_paged_mem) {
-		const unsigned int bits_per_long = sizeof(unsigned long) * 8;
-		unsigned long node_mask[node_id / bits_per_long + 1];
-		int mode = MPOL_F_STATIC_NODES;
-
 		/* Allocate address space */
 		pthread_mutex_lock(&aperture->fmm_mutex);
 		mem = aperture_allocate_area(aperture, address, size);
@@ -1504,24 +1536,15 @@ static void *fmm_allocate_host_gpu(uint32_t node_id, void *address,
 		if (!mem)
 			return NULL;
 
-		/* Bind to NUMA node */
-		memset(node_mask, 0, sizeof(node_mask));
-		node_mask[node_id / bits_per_long] = 1UL << (node_id % bits_per_long);
-		mode |= flags.ui32.NoSubstitute ? MPOL_BIND : MPOL_PREFERRED;
-		if (mbind(mem, MemorySizeInBytes, mode, node_mask, node_id+1, 0))
-			pr_warn("Failed to set NUMA policy for %lu pages at %p\n",
-				MemorySizeInBytes >> 12, mem);
-
 		/* Map anonymous pages */
 		if (mmap(mem, MemorySizeInBytes, PROT_READ | PROT_WRITE,
 			 MAP_ANONYMOUS | MAP_PRIVATE | MAP_FIXED, -1, 0)
-		    == MAP_FAILED) {
-			/* Release address space */
-			pthread_mutex_lock(&aperture->fmm_mutex);
-			aperture_release_area(aperture, mem, size);
-			pthread_mutex_unlock(&aperture->fmm_mutex);
-			return NULL;
-		}
+		    == MAP_FAILED)
+			goto out_release_area;
+
+		/* Bind to NUMA node */
+		if (bind_mem_to_numa(node_id, mem, MemorySizeInBytes, flags))
+			goto out_release_area;
 
 		/* Mappings in the DGPU aperture don't need to be copied on
 		 * fork. This avoids MMU notifiers and evictions due to user
@@ -1535,13 +1558,8 @@ static void *fmm_allocate_host_gpu(uint32_t node_id, void *address,
 		vm_obj = fmm_allocate_memory_object(gpu_id, mem, size,
 						       aperture, &mmap_offset,
 						       ioc_flags);
-		if (!vm_obj) {
-			/* Release address space */
-			pthread_mutex_lock(&aperture->fmm_mutex);
-			aperture_release_area(aperture, mem, size);
-			pthread_mutex_unlock(&aperture->fmm_mutex);
-			return NULL;
-		}
+		if (!vm_obj)
+			goto out_release_area;
 	} else {
 		ioc_flags |= KFD_IOC_ALLOC_MEM_FLAGS_GTT;
 		mem =  __fmm_allocate_device(gpu_id, address, size, aperture,
@@ -1558,7 +1576,7 @@ static void *fmm_allocate_host_gpu(uint32_t node_id, void *address,
 			}
 
 			if (flags.ui32.AQLQueueMemory) {
-				uint64_t my_buf_size = ALIGN_UP(size, aperture->align) / 2;
+				uint64_t my_buf_size = size / 2;
 
 				memset(ret, 0, MemorySizeInBytes);
 				mmap(VOID_PTR_ADD(mem, my_buf_size), MemorySizeInBytes,
@@ -1577,6 +1595,14 @@ static void *fmm_allocate_host_gpu(uint32_t node_id, void *address,
 	}
 
 	return mem;
+
+out_release_area:
+	/* Release address space */
+	pthread_mutex_lock(&aperture->fmm_mutex);
+	aperture_release_area(aperture, mem, size);
+	pthread_mutex_unlock(&aperture->fmm_mutex);
+
+	return NULL;
 }
 
 void *fmm_allocate_host(uint32_t node_id, void *address,
@@ -1766,6 +1792,15 @@ static HSAKMT_STATUS init_mmap_apertures(HSAuint64 base, HSAuint64 limit,
 					 HSAuint32 align, HSAuint32 guard_pages)
 {
 	void *addr;
+
+	if (align > (HSAuint32)PAGE_SIZE) {
+		/* This should never happen. Alignment constraints
+		 * only apply to old GPUs that don't support 48-bit
+		 * virtual addresses.
+		 */
+		pr_info("Falling back to reserved SVM apertures due to alignment contraints.\n");
+		return HSAKMT_STATUS_ERROR;
+	}
 
 	/* Set up one SVM aperture */
 	svm.apertures[SVM_DEFAULT].base  = (void *)base;
@@ -2055,24 +2090,20 @@ HSAKMT_STATUS fmm_init_process_apertures(unsigned int NumNodes)
 	uint32_t num_of_sysfs_nodes;
 	HSAKMT_STATUS ret = HSAKMT_STATUS_SUCCESS;
 	char *disableCache, *pagedUserptr, *checkUserptr, *guardPagesStr, *reserveSvm;
-	char *hsaDebug;
 	unsigned int guardPages = 1;
 	struct pci_access *pacc;
 	uint64_t svm_base = 0, svm_limit = 0;
 	uint32_t svm_alignment = 0;
 
-	hsaDebug = getenv("HSA_DEBUG");
-	hsa_debug = hsaDebug && strcmp(hsaDebug, "0");
-
 	/* If HSA_DISABLE_CACHE is set to a non-0 value, disable caching */
 	disableCache = getenv("HSA_DISABLE_CACHE");
 	svm.disable_cache = (disableCache && strcmp(disableCache, "0"));
 
-	/* If HSA_USERPTR_FOR_PAGED_MEM is set to a non-0 value,
-	 * enable userptr for all paged memory allocations
+	/* If HSA_USERPTR_FOR_PAGED_MEM is not set or set to a non-0
+	 * value, enable userptr for all paged memory allocations
 	 */
 	pagedUserptr = getenv("HSA_USERPTR_FOR_PAGED_MEM");
-	svm.userptr_for_paged_mem = (pagedUserptr && strcmp(pagedUserptr, "0"));
+	svm.userptr_for_paged_mem = (!pagedUserptr || strcmp(pagedUserptr, "0"));
 
 	/* If HSA_CHECK_USERPTR is set to a non-0 value, check all userptrs
 	 * when they are registered
@@ -2297,7 +2328,7 @@ HSAKMT_STATUS fmm_init_process_apertures(unsigned int NumNodes)
 		gpu_mem[gpu_mem_id].mmio_aperture.base = map_mmio(
 				gpu_mem[gpu_mem_id].node_id,
 				gpu_mem[gpu_mem_id].gpu_id,
-				gpu_mem[gpu_mem_id].drm_render_fd);
+				kfd_fd);
 		if (gpu_mem[gpu_mem_id].mmio_aperture.base)
 			gpu_mem[gpu_mem_id].mmio_aperture.limit = (void *)
 			((char *)gpu_mem[gpu_mem_id].mmio_aperture.base +
@@ -3055,7 +3086,7 @@ HSAKMT_STATUS fmm_register_graphics_handle(HSAuint64 GraphicsResourceHandle,
 		goto error_free_metadata;
 	pthread_mutex_lock(&aperture->fmm_mutex);
 	mem = aperture_allocate_area_aligned(aperture, NULL, infoArgs.size,
-					     MAX(aperture->align, IMAGE_ALIGN));
+					     IMAGE_ALIGN);
 	pthread_mutex_unlock(&aperture->fmm_mutex);
 	if (!mem)
 		goto error_free_metadata;
@@ -3534,17 +3565,7 @@ void fmm_clear_all_mem(void)
 			drm_render_fds[i] = 0;
 		}
 
-	/* Nothing is initialized. */
-	if (!gpu_mem)
-		return;
-
 	fmm_clear_aperture(&cpuvm_aperture);
-
-	for (i = 0; i < gpu_mem_count; i++) {
-		fmm_clear_aperture(&gpu_mem[i].gpuvm_aperture);
-		fmm_clear_aperture(&gpu_mem[i].scratch_physical);
-	}
-
 	fmm_clear_aperture(&svm.apertures[SVM_DEFAULT]);
 	fmm_clear_aperture(&svm.apertures[SVM_COHERENT]);
 
@@ -3573,6 +3594,16 @@ void fmm_clear_all_mem(void)
 	all_gpu_id_array_size = 0;
 	all_gpu_id_array = NULL;
 
+	/* Nothing is initialized. */
+	if (!gpu_mem)
+		return;
+
+	for (i = 0; i < gpu_mem_count; i++) {
+		fmm_clear_aperture(&gpu_mem[i].gpuvm_aperture);
+		fmm_clear_aperture(&gpu_mem[i].scratch_physical);
+	}
+
 	gpu_mem_count = 0;
 	free(gpu_mem);
+	gpu_mem = NULL;
 }

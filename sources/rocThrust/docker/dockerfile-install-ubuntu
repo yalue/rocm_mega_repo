@@ -1,0 +1,5 @@
+# Parameters related to building rocthrust
+ARG base_image
+
+FROM ${base_image}
+MAINTAINER rocthrust-maintainer@amd.com

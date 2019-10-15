@@ -1,32 +1,42 @@
-################################################################################
-# Copyright (C) 2016 Advanced Micro Devices, Inc. All rights reserved.
-################################################################################
+# #############################################################################
+# Copyright (c) 2016 - present Advanced Micro Devices, Inc. All rights reserved.
+#
+# Permission is hereby granted, free of charge, to any person obtaining a copy
+# of this software and associated documentation files (the "Software"), to deal
+# in the Software without restriction, including without limitation the rights
+# to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+# copies of the Software, and to permit persons to whom the Software is
+# furnished to do so, subject to the following conditions:
+#
+# The above copyright notice and this permission notice shall be included in
+# all copies or substantial portions of the Software.
+#
+# THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+# IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+# FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.  IN NO EVENT SHALL THE
+# AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+# LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+# OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
+# THE SOFTWARE.
+# #############################################################################
 
-# ########################################################################
-# The following check are hacks to get compiles working for CUDA backend
-# These should be removed in the future.
+CMAKE_MINIMUM_REQUIRED(VERSION 3.0)
 
-# NVCC can not compile fftw.3 header file appropriately before v3.3.5
-# https://github.com/FFTW/fftw3/issues/18
-# v3.3.5 is installed by default on Ubuntu 16, workaround is to trick fftw3
-# into thinking nvcc is an Intel compiler as desribed in above issue
-if( CMAKE_CXX_COMPILER MATCHES ".*/hipcc$" )
-  add_definitions( -D__INTEL_COMPILER )
-endif( )
-# ########################################################################
+find_package(hip)
+find_package(rocfft)
 
-set( sample_list hipfft_planmany_2d_r2c hipfft_planmany_2d_z2z)
+set( sample_list hipfft_1d_z2z hipfft_1d_d2z hipfft_2d_z2z hipfft_2d_d2z hipfft_3d_z2z
+  hipfft_3d_d2z hipfft_planmany_2d_z2z hipfft_planmany_2d_r2c hipfft_setworkarea)
 
 foreach( sample ${sample_list} )
 
   add_executable( ${sample} ${sample}.cpp )
 
   target_include_directories( ${sample}
-    PRIVATE $<BUILD_INTERFACE:${FFTW_INCLUDE_DIRS}>
-            $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/../include>
+    PRIVATE $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/../include>
   )
 
-  target_link_libraries( ${sample} PRIVATE roc::rocfft ${FFTW_LIBRARIES} )
+  target_link_libraries( ${sample} PRIVATE roc::rocfft)
 
   target_compile_features( ${sample} PRIVATE cxx_static_assert cxx_nullptr cxx_auto_type )
 
@@ -45,14 +55,12 @@ foreach( sample ${sample_list} )
     target_link_libraries( ${sample} PRIVATE hip::hip_hcc )
   endif( )
 
-  if( CMAKE_CXX_COMPILER MATCHES ".*/hcc$" )
-    # Remove following when hcc is fixed; hcc emits following spurious warning ROCm v1.6.1
-    # "clang-5.0: warning: argument unused during compilation: '-isystem /opt/rocm/include'"
-    target_compile_options( ${sample} PRIVATE -Wno-unused-command-line-argument )
+if(CMAKE_CXX_COMPILER MATCHES ".*/hcc$")
+  target_compile_options( ${sample} PRIVATE -Wno-unused-command-line-argument -hc )
+endif( )
 
-    # foreach( target ${AMDGPU_TARGETS} )
-    #   target_link_libraries( ${sample} PRIVATE --amdgpu-target=${target} )
-    # endforeach( )
-  endif( )
+if(HIP_PLATFORM STREQUAL "hip-clang")
+  target_compile_options( ${sample} PRIVATE -Wno-unused-command-line-argument )
+endif( )
 
 endforeach( )

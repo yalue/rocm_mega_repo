@@ -32,10 +32,14 @@
 //
 ////////////////////////////////////////////////////////////////////////////////
 
+
+#include <atomic>
+#include <sys/types.h>
+#include <dirent.h>
+
 // HSA headers
 #include <hsakmt.h>
 #include <hsa_api_trace.h>
-#include <atomic>
 
 // Debug Agent Headers
 #include "AgentLogging.h"
@@ -44,9 +48,9 @@
 #include "HSADebugAgent.h"
 #include "HSATrapHandler_s_gfx900.h"
 #include "HSATrapHandler_s_gfx906.h"
+#include "HSATrapHandler_s_gfx908.h"
 #include "HSADebugInfo.h"
 #include "HSAIntercept.h"
-#include "HSAHandleDebugTrapSignal.h"
 #include "HSAHandleLinuxSignals.h"
 #include "HSAHandleMemoryFault.h"
 
@@ -73,9 +77,6 @@ bool g_gdbAttached = false;
 // If debug agent is successfully loaded and initialized
 std::atomic<bool> g_debugAgentInitialSuccess{false};
 
-// Debug trap signal used by trap handler
-hsa_signal_t debugTrapSignal = {0};
-
 // Debug trap handler code object reader
 hsa_code_object_reader_t debugTrapHandlerCodeObjectReader = {0};
 
@@ -99,9 +100,6 @@ static DebugAgentStatus AgentCheckVersion(uint64_t runtimeVersion,
                                           uint64_t failedToolCount,
                                           const char *const *pFailedToolNames);
 
-// Check if ISA is supported by debug agent
-static bool AgentIsSupportedISA(char *isaName);
-
 // Clean _r_rocm_debug_info
 static void AgentCleanDebugInfo();
 
@@ -123,7 +121,6 @@ static hsa_status_t FindKernargSegment(hsa_region_t region, void *pData);
 // Handle runtime event based on event type.
 static hsa_status_t
 HSADebugAgentHandleRuntimeEvent(const hsa_amd_event_t* event, void* pData);
-
 
 extern "C" bool OnLoad(void *pTable,
                        uint64_t runtimeVersion, uint64_t failedToolCount,
@@ -166,14 +163,6 @@ extern "C" bool OnLoad(void *pTable,
     {
         AGENT_ERROR("Unsupported runtime version");
         return false;
-    }
-
-    // Check if ROC GDB is attached.
-    char *pGDBEnvVar;
-    pGDBEnvVar = std::getenv("ROCM_ENABLE_GDB");
-    if (pGDBEnvVar != NULL)
-    {
-        g_gdbAttached = true;
     }
 
     status = AgentInitDebugInfo();
@@ -334,22 +323,53 @@ static DebugAgentStatus AgentInitDebugInfo()
     return DEBUG_AGENT_STATUS_SUCCESS;
 }
 
-static hsa_status_t GetGpuId(uint32_t nodeId, uint32_t *gpuId)
+static hsa_status_t GetGpuId(hsa_agent_t agent, uint32_t *gpuId)
 {
-    constexpr char sysfs_path[] = "/sys/devices/virtual/kfd/kfd/topology/nodes";
-    char path[256];
-    FILE *fd;
-    hsa_status_t ret = HSA_STATUS_SUCCESS;
+    static const std::string sysfs_nodes_path (
+        "/sys/devices/virtual/kfd/kfd/topology/nodes/");
 
-    snprintf(path, sizeof(path), "%s/%d/gpu_id", sysfs_path, nodeId);
-    fd = fopen(path, "r");
-    if (!fd)
+    uint32_t location_id;
+    if (hsa_agent_get_info(
+            agent,
+            static_cast<hsa_agent_info_t>(HSA_AMD_AGENT_INFO_BDFID),
+            &location_id) != HSA_STATUS_SUCCESS)
         return HSA_STATUS_ERROR;
-    if (fscanf(fd, "%ul", gpuId) != 1)
-        ret = HSA_STATUS_ERROR;
-    fclose(fd);
 
-    return ret;
+    auto *dirp = opendir (sysfs_nodes_path.c_str ());
+    if (!dirp)
+        return HSA_STATUS_ERROR;
+
+    struct dirent *dir;
+    while ((dir = readdir (dirp)) != 0)
+    {
+        if (!strcmp (dir->d_name, ".") || !strcmp (dir->d_name, ".."))
+            continue;
+
+        std::string node_path (sysfs_nodes_path + dir->d_name);
+        std::ifstream props_ifs (node_path + "/properties");
+        if (!props_ifs.is_open ())
+            continue;
+
+        std::string prop_name;
+        uint64_t prop_value;
+        while (props_ifs >> prop_name >> prop_value)
+        {
+            if (!prop_name.compare ("location_id"))
+            {
+                if (location_id != static_cast<uint32_t> (prop_value))
+                    break;
+
+                /* Retrieve the GPU ID.  */
+                std::ifstream gpu_id_ifs (node_path + "/gpu_id");
+                if (!gpu_id_ifs.is_open ())
+                    return HSA_STATUS_ERROR;
+
+                gpu_id_ifs >> *gpuId;
+                return HSA_STATUS_SUCCESS;
+            }
+        }
+    }
+    return HSA_STATUS_ERROR;
 }
 
 static hsa_status_t QueryAgentCallback(hsa_agent_t agent, void *pData)
@@ -384,7 +404,7 @@ static hsa_status_t QueryAgentCallback(hsa_agent_t agent, void *pData)
             agent, HSA_AGENT_INFO_VENDOR_NAME, nameBuf);
     // Insert a space between the vendor and product names.
     size_t vendorNameLen = strnlen(nameBuf, AGENT_MAX_AGENT_NAME_LEN);
-    strncpy(nameBuf + vendorNameLen, " ", 1);
+    nameBuf[vendorNameLen] = ' ';
 
     status |= hsa_agent_get_info(
             agent, HSA_AGENT_INFO_NAME, nameBuf + vendorNameLen + 1);
@@ -396,7 +416,7 @@ static hsa_status_t QueryAgentCallback(hsa_agent_t agent, void *pData)
             agent,
             static_cast<hsa_agent_info_t>(HSA_AGENT_INFO_NODE),
             &(pGpuAgent->nodeId));
-    status |= GetGpuId(pGpuAgent->nodeId, &pGpuAgent->gpuId);
+    status |= GetGpuId(agent, &pGpuAgent->gpuId);
     status |= hsa_agent_get_info(
             agent,
             static_cast<hsa_agent_info_t>(HSA_AMD_AGENT_INFO_CHIP_ID),
@@ -430,6 +450,7 @@ static hsa_status_t QueryAgentCallback(hsa_agent_t agent, void *pData)
         AGENT_WARNING("Failed to get some of the device info");
     }
 
+    pGpuAgent->hasAccVgprs = false;
     status = hsa_agent_iterate_isas(
             agent, QueryAgentISACallback, pGpuAgent);
     if (status != HSA_STATUS_SUCCESS)
@@ -469,26 +490,21 @@ static hsa_status_t QueryAgentISACallback(hsa_isa_t isa, void *pData)
     }
 
     char isaName[AGENT_MAX_AGENT_NAME_LEN];
-    //TODO: check isa name length
     hsa_status_t status = hsa_isa_get_info_alt(
             isa, HSA_ISA_INFO_NAME, isaName);
-    if (AgentIsSupportedISA(isaName))
-    {
-        ((GPUAgentInfo *)pData)->agentStatus = AGENT_STATUS_ACTIVE;
-    }
-    return status;
-}
 
-// TODO: should be a better way to check isa version,
-// as the naming could change.
-static bool AgentIsSupportedISA(char *isaName)
-{
     if ((strcmp(isaName, gfx900) == 0) ||
         (strcmp(isaName, gfx906) == 0))
     {
-        return true;
+        ((GPUAgentInfo *)pData)->agentStatus = AGENT_STATUS_ACTIVE;
     }
-    return false;
+    else if (strcmp(isaName, gfx908) == 0)
+    {
+        ((GPUAgentInfo *)pData)->agentStatus = AGENT_STATUS_ACTIVE;
+        ((GPUAgentInfo *)pData)->hasAccVgprs = true;
+    }
+
+    return status;
 }
 
 static void AgentCleanDebugInfo()
@@ -550,6 +566,8 @@ static void* FindDebugTrapHandler(char* pAgentName)
                 return HSATrapHandler_s_gfx900_co;
             else if (gfxMinor == 6)
                 return HSATrapHandler_s_gfx906_co;
+            else if (gfxMinor == 8)
+                return HSATrapHandler_s_gfx908_co;
             else
                 return nullptr;
         default:
@@ -567,10 +585,9 @@ static DebugAgentStatus AgentSetDebugTrapHandler()
         void* HSATrapHandler = nullptr;
         void* pTrapHandlerEntry = nullptr;
         uint64_t trapHandlerSize = 0;
-        uint64_t trapHandlerBufferSize = 0;
         const char* pEntryPointName = "debug_trap_handler";
         uint64_t kernelCodeAddress = 0;
-        DebugTrapBuff* pTrapHandlerBuffer = nullptr;
+        DisplacedSteppingBuffer* pDisplacedSteppingBuffer = nullptr;
 
         hsa_agent_t agent = { reinterpret_cast<decltype(hsa_agent_s::handle)>(pAgent->agent) };
         hsa_region_t kernargSegment = {0};
@@ -650,71 +667,36 @@ static DebugAgentStatus AgentSetDebugTrapHandler()
             return DEBUG_AGENT_STATUS_FAILURE;
         }
 
-        status = gs_OrigCoreApiTable.hsa_signal_create_fn(
-                0, 0, &(agent), &debugTrapSignal);
-        if (status != HSA_STATUS_SUCCESS)
-        {
-            AGENT_ERROR("Cannot create debug event signal.");
-            return DEBUG_AGENT_STATUS_FAILURE;
-        }
-
         // find kernarg segment
         // TODO: put the trap buffer in device memory for efficiency
         //       use the copy APIs to update the value
         status = gs_OrigCoreApiTable.hsa_agent_iterate_regions_fn(
                 agent, FindKernargSegment, &kernargSegment);
-        if (!kernargSegment.handle | (status != HSA_STATUS_SUCCESS)) {
+        if (!kernargSegment.handle || (status != HSA_STATUS_SUCCESS)) {
             AGENT_ERROR("Cannot find kernarg segment for trap buffer.");
             return DEBUG_AGENT_STATUS_FAILURE;
         }
 
         // allocate memory in kernarg segment for trap buffer
         status = gs_OrigCoreApiTable.hsa_memory_allocate_fn(
-                kernargSegment, sizeof(DebugTrapBuff), (void**)&pTrapHandlerBuffer);
-        if (!kernargSegment.handle | (status != HSA_STATUS_SUCCESS)) {
+                kernargSegment, sizeof(DisplacedSteppingBuffer),
+                (void**)&pDisplacedSteppingBuffer);
+        if (!pDisplacedSteppingBuffer || (status != HSA_STATUS_SUCCESS)) {
             AGENT_ERROR("Cannot allocate memory for trap buffer.");
             return DEBUG_AGENT_STATUS_FAILURE;
         }
-        *pTrapHandlerBuffer = {};
-        _r_rocm_debug_info.pDebugTrapBuffer = pTrapHandlerBuffer;
-
-        pTrapHandlerBuffer->debugEventSignalHandle = debugTrapSignal.handle;
-        if(!IsMultipleOf(pTrapHandlerBuffer, 0x100))
-        {
-            AGENT_ERROR("Trap Handler Buffer address is not 256B aligned.");
-            return DEBUG_AGENT_STATUS_FAILURE;
-        }
-
-        trapHandlerBufferSize = sizeof(DebugTrapBuff);
+        *pDisplacedSteppingBuffer = {};
+        _r_rocm_debug_info.pDisplacedSteppingBuffer = pDisplacedSteppingBuffer;
 
         // Register trap handler in KFD
         kmtStatus = hsaKmtSetTrapHandler(
                 pAgent->nodeId, pTrapHandlerEntry,
-                trapHandlerSize, pTrapHandlerBuffer, trapHandlerBufferSize);
+                trapHandlerSize, nullptr, 0);
         if (kmtStatus != HSAKMT_STATUS_SUCCESS)
         {
             AGENT_ERROR("Cannot register debug trap handler.");
             return DEBUG_AGENT_STATUS_FAILURE;
         }
-
-        kmtStatus = hsaKmtEnableDebugTrap(pAgent->nodeId, INVALID_QUEUEID);
-        if (kmtStatus != HSAKMT_STATUS_SUCCESS)
-        {
-            AGENT_ERROR("Cannot enable debug trap handler.");
-            return DEBUG_AGENT_STATUS_FAILURE;
-        }
-
-#if 0
-        // Bind trap handler event signal in runtime
-        status = gs_OrigExtApiTable.hsa_amd_signal_async_handler_fn(
-                debugTrapSignal, HSA_SIGNAL_CONDITION_NE, 0,
-                HSADebugTrapSignalHandler, NULL);
-        if (status != HSA_STATUS_SUCCESS)
-        {
-            AGENT_ERROR("Cannot bind debug event signal handler.");
-            return DEBUG_AGENT_STATUS_FAILURE;
-        }
-#endif
 
         pAgentNext = pAgent->pNext;
         pAgent = pAgentNext;
@@ -737,13 +719,6 @@ static DebugAgentStatus AgentUnsetDebugTrapHandler()
         if (kmtStatus != HSAKMT_STATUS_SUCCESS)
         {
             AGENT_ERROR("Cannot set wave in normal mode.");
-            return DEBUG_AGENT_STATUS_FAILURE;
-        }
-
-        kmtStatus = hsaKmtDisableDebugTrap(pAgent->nodeId);
-        if (kmtStatus != HSAKMT_STATUS_SUCCESS)
-        {
-            AGENT_ERROR("Cannot disable debug trap handler.");
             return DEBUG_AGENT_STATUS_FAILURE;
         }
 
@@ -777,19 +752,9 @@ static DebugAgentStatus AgentUnsetDebugTrapHandler()
             }
         }
 
-        if (debugTrapSignal.handle)
+        if (_r_rocm_debug_info.pDisplacedSteppingBuffer)
         {
-            status = gs_OrigCoreApiTable.hsa_signal_destroy_fn(debugTrapSignal);
-            if (status != HSA_STATUS_SUCCESS)
-            {
-                AGENT_ERROR("Cannot destroy debug event signal.");
-                return DEBUG_AGENT_STATUS_FAILURE;
-            }
-        }
-
-        if (_r_rocm_debug_info.pDebugTrapBuffer)
-        {
-            status = gs_OrigCoreApiTable.hsa_memory_free_fn((void*)_r_rocm_debug_info.pDebugTrapBuffer);
+            status = gs_OrigCoreApiTable.hsa_memory_free_fn((void*)_r_rocm_debug_info.pDisplacedSteppingBuffer);
             if (status != HSA_STATUS_SUCCESS)
             {
                 AGENT_ERROR("Cannot destroy debug event signal.");

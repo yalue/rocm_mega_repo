@@ -1,18 +1,18 @@
 /* ************************************************************************
- * Copyright 2018 Advanced Micro Devices, Inc.
+ * Copyright 2018-2019 Advanced Micro Devices, Inc.
  * ************************************************************************ */
 
-#include "rocblas_test.hpp"
+#include "flops.hpp"
+#include "norm.hpp"
+#include "rocblas.hpp"
+#include "rocblas_datatype2string.hpp"
+#include "rocblas_init.hpp"
 #include "rocblas_math.hpp"
 #include "rocblas_random.hpp"
+#include "rocblas_test.hpp"
 #include "rocblas_vector.hpp"
-#include "rocblas_init.hpp"
-#include "rocblas_datatype2string.hpp"
-#include "utility.hpp"
-#include "rocblas.hpp"
-#include "norm.hpp"
 #include "unit.hpp"
-#include "flops.hpp"
+#include "utility.hpp"
 
 /* ============================================================================================ */
 
@@ -34,9 +34,9 @@ void testing_geam_bad_arg(const Arguments& arg)
 
     rocblas_local_handle handle;
 
-    size_t size_A = N * static_cast<size_t>(lda);
-    size_t size_B = N * static_cast<size_t>(ldb);
-    size_t size_C = N * static_cast<size_t>(ldc);
+    size_t size_A = N * size_t(lda);
+    size_t size_B = N * size_t(ldb);
+    size_t size_C = N * size_t(ldc);
 
     host_vector<T> hA(size_A);
     host_vector<T> hB(size_B);
@@ -150,17 +150,17 @@ void testing_geam(const Arguments& arg)
         inc2_B = 1;
     }
 
-    size_t size_A = lda * static_cast<size_t>(A_col);
-    size_t size_B = ldb * static_cast<size_t>(B_col);
-    size_t size_C = ldc * static_cast<size_t>(N);
+    size_t size_A = lda * size_t(A_col);
+    size_t size_B = ldb * size_t(B_col);
+    size_t size_C = ldc * size_t(N);
 
     // check here to prevent undefined memory allocation error
     if(M <= 0 || N <= 0 || lda < A_row || ldb < B_row || ldc < M)
     {
         static const size_t safe_size = 100; // arbitararily set to 100
-        device_vector<T> dA(safe_size);
-        device_vector<T> dB(safe_size);
-        device_vector<T> dC(safe_size);
+        device_vector<T>    dA(safe_size);
+        device_vector<T>    dB(safe_size);
+        device_vector<T>    dC(safe_size);
         if(!dA || !dB || !dC)
         {
             CHECK_HIP_ERROR(hipErrorOutOfMemory);
@@ -240,8 +240,8 @@ void testing_geam(const Arguments& arg)
         {
             for(int i2 = 0; i2 < N; i2++)
             {
-                hC_gold[i1 + i2 * ldc] = h_alpha * hA_copy[i1 * inc1_A + i2 * inc2_A] +
-                                         h_beta * hB_copy[i1 * inc1_B + i2 * inc2_B];
+                hC_gold[i1 + i2 * ldc] = h_alpha * hA_copy[i1 * inc1_A + i2 * inc2_A]
+                                         + h_beta * hB_copy[i1 * inc1_B + i2 * inc2_B];
             }
         }
 
@@ -295,8 +295,8 @@ void testing_geam(const Arguments& arg)
                 {
                     for(int i2 = 0; i2 < N; i2++)
                     {
-                        hC_gold[i1 + i2 * ldc] = h_alpha * hA_copy[i1 * inc1_A + i2 * inc2_A] +
-                                                 h_beta * hB[i1 * inc1_B + i2 * inc2_B];
+                        hC_gold[i1 + i2 * ldc] = h_alpha * hA_copy[i1 * inc1_A + i2 * inc2_A]
+                                                 + h_beta * hB[i1 * inc1_B + i2 * inc2_B];
                     }
                 }
 
@@ -347,8 +347,8 @@ void testing_geam(const Arguments& arg)
                 {
                     for(int i2 = 0; i2 < N; i2++)
                     {
-                        hC_gold[i1 + i2 * ldc] = h_alpha * hA_copy[i1 * inc1_A + i2 * inc2_A] +
-                                                 h_beta * hB_copy[i1 * inc1_B + i2 * inc2_B];
+                        hC_gold[i1 + i2 * ldc] = h_alpha * hA_copy[i1 * inc1_A + i2 * inc2_A]
+                                                 + h_beta * hB_copy[i1 * inc1_B + i2 * inc2_B];
                     }
                 }
 

@@ -32,7 +32,9 @@ namespace solver {
 
 bool ConvOclDirectFwdGen::IsApplicable(const ConvolutionContext& params) const
 {
-    if(!(params.IsFp32() || params.IsFp16()))
+    if(!params.Is2d())
+        return false;
+    if(!(params.IsFp32() || params.IsFp16() || params.IsBfp16()))
         return false;
 
     if(params.group_counts > 1)

@@ -1,20 +1,19 @@
 /* ************************************************************************
- * Copyright 2018 Advanced Micro Devices, Inc.
+ * Copyright 2018-2019 Advanced Micro Devices, Inc.
  * ************************************************************************ */
-
-#include "rocblas_test.hpp"
+#include "cblas_interface.hpp"
+#include "flops.hpp"
+#include "near.hpp"
+#include "norm.hpp"
+#include "rocblas.hpp"
+#include "rocblas_datatype2string.hpp"
+#include "rocblas_init.hpp"
 #include "rocblas_math.hpp"
 #include "rocblas_random.hpp"
+#include "rocblas_test.hpp"
 #include "rocblas_vector.hpp"
-#include "rocblas_init.hpp"
-#include "rocblas_datatype2string.hpp"
-#include "utility.hpp"
-#include "rocblas.hpp"
-#include "cblas_interface.hpp"
-#include "norm.hpp"
 #include "unit.hpp"
-#include "near.hpp"
-#include "flops.hpp"
+#include "utility.hpp"
 
 /* ============================================================================================ */
 template <typename Ti, typename To, typename Tc>
@@ -41,13 +40,11 @@ void testing_gemm_ex_bad_arg(const Arguments& arg)
     const float alpha_float = 1.0;
     const float beta_float  = 1.0;
 
-    const rocblas_gemm_algo algo  = rocblas_gemm_algo_standard;
-    static const size_t safe_size = 100;
+    const rocblas_gemm_algo algo      = rocblas_gemm_algo_standard;
+    static const size_t     safe_size = 100;
 
-    int32_t solution_index = 0;
-    rocblas_int flags      = 0;
-    size_t workspace_size  = 0;
-    void* workspace        = nullptr;
+    int32_t              solution_index = 0;
+    rocblas_int          flags          = 0;
     rocblas_local_handle handle;
 
     // allocate memory on device
@@ -84,9 +81,7 @@ void testing_gemm_ex_bad_arg(const Arguments& arg)
                                           compute_type,
                                           algo,
                                           solution_index,
-                                          flags,
-                                          &workspace_size,
-                                          workspace),
+                                          flags),
                           rocblas_status_invalid_pointer);
 
     EXPECT_ROCBLAS_STATUS(rocblas_gemm_ex(handle,
@@ -112,9 +107,7 @@ void testing_gemm_ex_bad_arg(const Arguments& arg)
                                           compute_type,
                                           algo,
                                           solution_index,
-                                          flags,
-                                          &workspace_size,
-                                          workspace),
+                                          flags),
                           rocblas_status_invalid_pointer);
 
     EXPECT_ROCBLAS_STATUS(rocblas_gemm_ex(handle,
@@ -140,9 +133,7 @@ void testing_gemm_ex_bad_arg(const Arguments& arg)
                                           compute_type,
                                           algo,
                                           solution_index,
-                                          flags,
-                                          &workspace_size,
-                                          workspace),
+                                          flags),
                           rocblas_status_invalid_pointer);
 
     EXPECT_ROCBLAS_STATUS(rocblas_gemm_ex(handle,
@@ -168,9 +159,7 @@ void testing_gemm_ex_bad_arg(const Arguments& arg)
                                           compute_type,
                                           algo,
                                           solution_index,
-                                          flags,
-                                          &workspace_size,
-                                          workspace),
+                                          flags),
                           rocblas_status_invalid_pointer);
 
     EXPECT_ROCBLAS_STATUS(rocblas_gemm_ex(handle,
@@ -196,9 +185,7 @@ void testing_gemm_ex_bad_arg(const Arguments& arg)
                                           compute_type,
                                           algo,
                                           solution_index,
-                                          flags,
-                                          &workspace_size,
-                                          workspace),
+                                          flags),
                           rocblas_status_invalid_pointer);
 
     EXPECT_ROCBLAS_STATUS(rocblas_gemm_ex(handle,
@@ -224,9 +211,7 @@ void testing_gemm_ex_bad_arg(const Arguments& arg)
                                           compute_type,
                                           algo,
                                           solution_index,
-                                          flags,
-                                          &workspace_size,
-                                          workspace),
+                                          flags),
                           rocblas_status_invalid_pointer);
 
     EXPECT_ROCBLAS_STATUS(rocblas_gemm_ex(nullptr,
@@ -252,93 +237,50 @@ void testing_gemm_ex_bad_arg(const Arguments& arg)
                                           compute_type,
                                           algo,
                                           solution_index,
-                                          flags,
-                                          &workspace_size,
-                                          workspace),
+                                          flags),
                           rocblas_status_invalid_handle);
 }
 
 template <typename Ti, typename To, typename Tc>
 void testing_gemm_ex(const Arguments& arg)
 {
-    rocblas_gemm_algo algo = static_cast<rocblas_gemm_algo>(arg.algo);
-    int32_t solution_index = arg.solution_index;
-    uint32_t flags         = arg.flags;
-    size_t workspace_size  = arg.workspace_size;
-    void* workspace        = nullptr;
+    rocblas_gemm_algo algo = rocblas_gemm_algo(arg.algo);
+    int32_t           solution_index(arg.solution_index);
+    uint32_t          flags(arg.flags);
 
     bool nantest = rocblas_isnan(arg.beta);
-    if(!std::is_same<To, float>{} && !std::is_same<To, double>{} &&
-       !std::is_same<To, rocblas_half>{} && nantest)
+    if(!std::is_same<To, float>{} && !std::is_same<To, double>{}
+       && !std::is_same<To, rocblas_half>{} && nantest)
         return; // Exclude integers or other types which don't support NaN
 
-    To h_alpha_To, h_beta_To;
-    if(std::is_same<To, rocblas_half>{})
-    {
-        h_alpha_To = float_to_half(arg.alpha);
-        h_beta_To  = nantest ? 0 : float_to_half(arg.beta);
-    }
-    else if(std::is_same<To, float>{} || std::is_same<To, double>{} || std::is_same<To, int32_t>{})
-    {
-        h_alpha_To = static_cast<To>(arg.alpha);
-        h_beta_To  = nantest ? 0 : static_cast<To>(arg.beta);
-    }
-    else
-    {
-#ifdef GOOGLE_TEST
-        ADD_FAILURE() << "Unimplemented types";
-#else
-        fputs("Error: Unimplmented types\n", stderr);
-#endif
-        return;
-    }
-
-    Tc h_alpha_Tc, h_beta_Tc;
-    if(std::is_same<Tc, rocblas_half>{})
-    {
-        h_alpha_Tc = float_to_half(arg.alpha);
-        h_beta_Tc  = nantest ? 0 : float_to_half(arg.beta);
-    }
-    else if(std::is_same<Tc, float>{} || std::is_same<Tc, double>{} || std::is_same<Tc, int32_t>{})
-    {
-        h_alpha_Tc = static_cast<Tc>(arg.alpha);
-        h_beta_Tc  = nantest ? 0 : static_cast<Tc>(arg.beta);
-    }
-    else
-    {
-#ifdef GOOGLE_TEST
-        ADD_FAILURE() << "Unimplemented types";
-#else
-        fputs("Error: Unimplmented types\n", stderr);
-#endif
-        return;
-    }
+    Tc h_alpha_Tc = arg.get_alpha<Tc>();
+    Tc h_beta_Tc  = arg.get_beta<Tc>();
 
     double gpu_time_used, cpu_time_used;
     double rocblas_gflops, cblas_gflops;
     double rocblas_error = 0.0;
 
     rocblas_local_handle handle;
-    auto transA = char2rocblas_operation(arg.transA);
-    auto transB = char2rocblas_operation(arg.transB);
-    auto M = arg.M, N = arg.N, K = arg.K;
-    auto lda = arg.lda, ldb = arg.ldb, ldc = arg.ldc, ldd = arg.ldd;
-    auto A_row = transA == rocblas_operation_none ? M : K;
-    auto A_col = transA == rocblas_operation_none ? K : M;
-    auto B_row = transB == rocblas_operation_none ? K : N;
-    auto B_col = transB == rocblas_operation_none ? N : K;
+    auto                 transA = char2rocblas_operation(arg.transA);
+    auto                 transB = char2rocblas_operation(arg.transB);
+    auto                 M = arg.M, N = arg.N, K = arg.K;
+    auto                 lda = arg.lda, ldb = arg.ldb, ldc = arg.ldc, ldd = arg.ldd;
+    auto                 A_row = transA == rocblas_operation_none ? M : K;
+    auto                 A_col = transA == rocblas_operation_none ? K : M;
+    auto                 B_row = transB == rocblas_operation_none ? K : N;
+    auto                 B_col = transB == rocblas_operation_none ? N : K;
 
     // check for invalid sizes
-    if(M < 0 || N < 0 || K < 0 || lda < A_row || ldb < B_row || ldc < M || ldd < M ||
-       (std::is_same<Ti, int8_t>{} &&
-        (K % 4 != 0 || (transA != rocblas_operation_none && lda % 4 != 0) ||
-         (transB == rocblas_operation_none && ldb % 4 != 0))))
+    if(M < 0 || N < 0 || K < 0 || lda < A_row || ldb < B_row || ldc < M || ldd < M
+       || (std::is_same<Ti, int8_t>{}
+           && (K % 4 != 0 || (transA != rocblas_operation_none && lda % 4 != 0)
+               || (transB == rocblas_operation_none && ldb % 4 != 0))))
     {
         static const size_t safe_size = 100;
-        device_vector<Ti> dA(safe_size);
-        device_vector<Ti> dB(safe_size);
-        device_vector<To> dC(safe_size);
-        device_vector<To> dD(safe_size);
+        device_vector<Ti>   dA(safe_size);
+        device_vector<Ti>   dB(safe_size);
+        device_vector<To>   dC(safe_size);
+        device_vector<To>   dD(safe_size);
         if(!dA || !dB || !dC || !dD)
         {
             CHECK_HIP_ERROR(hipErrorOutOfMemory);
@@ -368,17 +310,15 @@ void testing_gemm_ex(const Arguments& arg)
                                               arg.compute_type,
                                               algo,
                                               solution_index,
-                                              flags,
-                                              &workspace_size,
-                                              workspace),
+                                              flags),
                               rocblas_status_invalid_size);
         return;
     }
 
-    const size_t size_A = static_cast<size_t>(lda) * static_cast<size_t>(A_col);
-    const size_t size_B = static_cast<size_t>(ldb) * static_cast<size_t>(B_col);
-    const size_t size_C = static_cast<size_t>(ldc) * static_cast<size_t>(N);
-    const size_t size_D = static_cast<size_t>(ldd) * static_cast<size_t>(N);
+    const size_t size_A = size_t(lda) * size_t(A_col);
+    const size_t size_B = size_t(ldb) * size_t(B_col);
+    const size_t size_C = size_t(ldc) * size_t(N);
+    const size_t size_D = size_t(ldd) * size_t(N);
 
     // allocate memory on device
     device_vector<Ti> dA(size_A);
@@ -417,7 +357,7 @@ void testing_gemm_ex(const Arguments& arg)
     if(std::is_same<To, rocblas_half>{} && std::is_same<Tc, float>{})
     {
         // half precision IEEE has max and lowest values 65504 and -65504,
-        // foat precision IEEE has max and lowest values 3.403e+38 and -3.403e+38
+        // float precision IEEE has max and lowest values 3.403e+38 and -3.403e+38
         // the following will overflow to inf in half arithmetic,
         // but it will equal zero in float arithmetic   65504 * 2 - 65504 * 2
         //
@@ -432,14 +372,42 @@ void testing_gemm_ex(const Arguments& arg)
         const rocblas_half negative_two       = float_to_half(-2.0);
         if(M >= 2 && N >= 2 && K >= 2)
         {
-            hA[0]       = ieee_half_near_max;
-            hA[1]       = ieee_half_near_max;
-            hA[lda]     = ieee_half_near_max;
-            hA[lda + 1] = ieee_half_near_max;
-            hB[0]       = positive_two;
-            hB[1]       = negative_two;
-            hB[ldb]     = negative_two;
-            hB[ldb + 1] = positive_two;
+            hA[0]       = Ti(ieee_half_near_max);
+            hA[1]       = Ti(ieee_half_near_max);
+            hA[lda]     = Ti(ieee_half_near_max);
+            hA[lda + 1] = Ti(ieee_half_near_max);
+            hB[0]       = Ti(positive_two);
+            hB[1]       = Ti(negative_two);
+            hB[ldb]     = Ti(negative_two);
+            hB[ldb + 1] = Ti(positive_two);
+        }
+    }
+    else if(std::is_same<Ti, rocblas_bfloat16>{} && std::is_same<Tc, float>{})
+    {
+        // half precision IEEE has max and lowest values 65504 and -65504,
+        // float precision IEEE has max and lowest values 3.403e+38 and -3.403e+38
+        // the following will overflow to inf in half arithmetic,
+        // but it will equal zero in float arithmetic   65504 * 2 - 65504 * 2
+        //
+        // set matrix A and matrix B upper left block to values below to cause
+        // inf overflow with 16 bit arithmetic, but no overflow for 32 bit arithmetic
+        //
+        // 65500 65500             2   -2
+        // 65500 65500            -2    2
+        //
+        const float ieee_half_near_max = 65504.0f - 4.0f;
+        const float positive_two       = 2.0f;
+        const float negative_two       = -2.0f;
+        if(M >= 2 && N >= 2 && K >= 2)
+        {
+            hA[0]       = Ti(ieee_half_near_max);
+            hA[1]       = Ti(ieee_half_near_max);
+            hA[lda]     = Ti(ieee_half_near_max);
+            hA[lda + 1] = Ti(ieee_half_near_max);
+            hB[0]       = Ti(positive_two);
+            hB[1]       = Ti(negative_two);
+            hB[ldb]     = Ti(negative_two);
+            hB[ldb + 1] = Ti(positive_two);
         }
     }
 
@@ -505,9 +473,7 @@ void testing_gemm_ex(const Arguments& arg)
                                             arg.compute_type,
                                             algo,
                                             solution_index,
-                                            flags,
-                                            &workspace_size,
-                                            workspace));
+                                            flags));
 
         CHECK_HIP_ERROR(hipMemcpy(hD_1, dD, sizeof(To) * size_D, hipMemcpyDeviceToHost));
         CHECK_HIP_ERROR(hipMemcpy(hC_1, dC, sizeof(To) * size_C, hipMemcpyDeviceToHost));
@@ -540,9 +506,7 @@ void testing_gemm_ex(const Arguments& arg)
                                             arg.compute_type,
                                             algo,
                                             solution_index,
-                                            flags,
-                                            &workspace_size,
-                                            workspace));
+                                            flags));
 
         CHECK_HIP_ERROR(hipMemcpy(hD_2, dD, sizeof(To) * size_D, hipMemcpyDeviceToHost));
         CHECK_HIP_ERROR(hipMemcpy(hC_2, dC, sizeof(To) * size_C, hipMemcpyDeviceToHost));
@@ -558,8 +522,8 @@ void testing_gemm_ex(const Arguments& arg)
         }
         cpu_time_used = get_time_us();
 
-        cblas_gemm<Ti, To>(
-            transA, transB, M, N, K, h_alpha_To, hA, lda, hB, ldb, h_beta_To, hD_gold, ldd);
+        cblas_gemm<Ti, To, Tc>(
+            transA, transB, M, N, K, h_alpha_Tc, hA, lda, hB, ldb, h_beta_Tc, hD_gold, ldd);
 
         cpu_time_used = get_time_us() - cpu_time_used;
         cblas_gflops  = gemm_gflop_count<To>(M, N, K) / cpu_time_used * 1e6;
@@ -587,12 +551,12 @@ void testing_gemm_ex(const Arguments& arg)
 
         if(arg.norm_check)
         {
-            auto err1 = fabs(norm_check_general<To>('F', M, N, ldd, hD_gold, hD_1));
-            auto err2 = fabs(norm_check_general<To>('F', M, N, ldd, hD_gold, hD_2));
+            auto err1 = std::abs(norm_check_general<To>('F', M, N, ldd, hD_gold, hD_1));
+            auto err2 = std::abs(norm_check_general<To>('F', M, N, ldd, hD_gold, hD_2));
             auto errD = err1 > err2 ? err1 : err2;
 
-            auto err3 = fabs(norm_check_general<To>('F', M, N, ldc, hC_gold, hC_1));
-            auto err4 = fabs(norm_check_general<To>('F', M, N, ldc, hC_gold, hC_2));
+            auto err3 = std::abs(norm_check_general<To>('F', M, N, ldc, hC_gold, hC_1));
+            auto err4 = std::abs(norm_check_general<To>('F', M, N, ldc, hC_gold, hC_2));
             auto errC = err3 > err4 ? err3 : err4;
 
             rocblas_error = errD > errC ? errD : errC;
@@ -631,9 +595,7 @@ void testing_gemm_ex(const Arguments& arg)
                                                 arg.compute_type,
                                                 algo,
                                                 solution_index,
-                                                flags,
-                                                &workspace_size,
-                                                workspace));
+                                                flags));
         }
 
         gpu_time_used = get_time_us(); // in microseconds
@@ -662,9 +624,7 @@ void testing_gemm_ex(const Arguments& arg)
                             arg.compute_type,
                             algo,
                             solution_index,
-                            flags,
-                            &workspace_size,
-                            workspace);
+                            flags);
         }
         gpu_time_used  = get_time_us() - gpu_time_used;
         rocblas_gflops = gemm_gflop_count<Ti>(M, N, K) * number_hot_calls / gpu_time_used * 1e6;
@@ -677,11 +637,9 @@ void testing_gemm_ex(const Arguments& arg)
         std::cout << std::endl;
 
         std::cout << rocblas2char_operation(transA) << "," << rocblas2char_operation(transB) << ","
-                  << M << "," << N << "," << K << ","
-                  << (std::is_same<To, rocblas_half>{} ? half_to_float(h_alpha_To) : h_alpha_To)
-                  << "," << lda << "," << ldb << ","
-                  << (std::is_same<To, rocblas_half>{} ? half_to_float(h_beta_To) : h_beta_To)
-                  << "," << ldc << "," << rocblas_gflops << "," << gpu_time_used / number_hot_calls;
+                  << M << "," << N << "," << K << "," << arg.alpha << "," << lda << "," << ldb
+                  << "," << arg.beta << "," << ldc << "," << rocblas_gflops << ","
+                  << gpu_time_used / number_hot_calls;
 
         if(arg.unit_check || arg.norm_check)
         {

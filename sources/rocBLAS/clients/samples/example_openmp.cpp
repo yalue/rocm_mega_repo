@@ -1,5 +1,5 @@
 /* ************************************************************************
- * Copyright 2016 Advanced Micro Devices, Inc.
+ * Copyright 2016-2019 Advanced Micro Devices, Inc.
  *
  * ************************************************************************ */
 
@@ -19,15 +19,14 @@
            If users do not create streams explicitely like what I am doing here,
            all rocblas routine take the NULL (0) stream.
 */
-
-#include <omp.h>
-#include <cstdlib>
-#include <cstdio>
-#include <iostream>
-#include <vector>
-
 #include "rocblas.hpp"
 #include "utility.hpp"
+#include <cstdio>
+#include <cstdlib>
+#include <hip/hip_runtime.h>
+#include <iostream>
+#include <omp.h>
+#include <vector>
 
 #define NUM_THREADS 4
 
@@ -35,9 +34,8 @@
 
 int main()
 {
-
-    rocblas_int N = 102400;
-    float alpha   = 10.0;
+    rocblas_int N     = 102400;
+    float       alpha = 10.0;
 
     omp_set_num_threads(NUM_THREADS);
     int thread_id;
@@ -46,12 +44,12 @@ int main()
     // Naming: dX is in GPU (device) memory. hK is in CPU (host) memory, plz follow this practice
     std::vector<float> hx(N * NUM_THREADS);
     std::vector<float> hz(N * NUM_THREADS);
-    float *dx, *dy;
+    float *            dx, *dy;
 
     double gpu_time_used;
 
     rocblas_handle handles[NUM_THREADS];
-    hipStream_t streams[NUM_THREADS];
+    hipStream_t    streams[NUM_THREADS];
 
     // Create handle/stream have overhead
     for(rocblas_int i = 0; i < NUM_THREADS; i++)

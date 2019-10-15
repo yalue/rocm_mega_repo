@@ -116,6 +116,9 @@ unsigned int FamilyIdFromNode(const HsaNodeProperties *props) {
         if (props->EngineId.ui32.Stepping == 2)
             familyId = FAMILY_RV;
         break;
+    case 10:
+        familyId = FAMILY_NV;
+        break;
     }
 
     if (props->NumCPUCores && props->NumFComputeCores)
@@ -128,22 +131,22 @@ unsigned int FamilyIdFromNode(const HsaNodeProperties *props) {
 
 void GetSdmaInfo(const HsaNodeProperties *props,
                  unsigned int *p_num_sdma_engines,
+                 unsigned int *p_num_sdma_xgmi_engines,
                  unsigned int *p_num_sdma_queues_per_engine) {
-    int num_sdma_engines = 2;
     int num_sdma_queues_per_engine = 2;
 
-    switch (props->EngineId.ui32.Major) {
-    case 9:
-        if (props->EngineId.ui32.Stepping == 2)  // RAVEN
-            num_sdma_engines = 1;
-        else if (props->EngineId.ui32.Stepping == 6)  // VEGA20
+    if (props->EngineId.ui32.Major == 9) {
+        if (props->EngineId.ui32.Stepping == 6)  // VEGA20
             num_sdma_queues_per_engine = 8;
-
-        break;
+    } else if (props->EngineId.ui32.Major == 10) { //NAVIi
+            num_sdma_queues_per_engine = 8;
     }
 
     if (p_num_sdma_engines)
-        *p_num_sdma_engines = num_sdma_engines;
+        *p_num_sdma_engines = props->NumSdmaEngines;
+
+    if (p_num_sdma_xgmi_engines)
+        *p_num_sdma_xgmi_engines = props->NumSdmaXgmiEngines;
 
     if (p_num_sdma_queues_per_engine)
         *p_num_sdma_queues_per_engine = num_sdma_queues_per_engine;
@@ -181,9 +184,11 @@ HsaMemoryBuffer::HsaMemoryBuffer(HSAuint64 size, unsigned int node, bool zero, b
         if (isLocal) {
             m_Flags.ui32.HostAccess = 0;
             m_Flags.ui32.NonPaged = 1;
+            m_Flags.ui32.CoarseGrain = 1;
         } else {
             m_Flags.ui32.HostAccess = 1;
             m_Flags.ui32.NonPaged = 0;
+            m_Flags.ui32.CoarseGrain = 0;
         }
 
         if (isExec)
@@ -271,8 +276,10 @@ void HsaMemoryBuffer::Fill(HSAuint32 value, BaseQueue& baseQueue, HSAuint64 offs
     size = size ? size : m_Size;
     ASSERT_TRUE(size + offset <= m_Size) << "Buffer Overflow" << std::endl;
 
-    baseQueue.PlacePacket(SDMAFillDataPacket((reinterpret_cast<void *>(this->As<char*>() + offset)), value, size));
-    baseQueue.PlacePacket(SDMAFencePacket(reinterpret_cast<void*>(event->EventData.HWData2), event->EventId));
+    baseQueue.PlacePacket(SDMAFillDataPacket(baseQueue.GetFamilyId(),
+                                (reinterpret_cast<void *>(this->As<char*>() + offset)), value, size));
+    baseQueue.PlacePacket(SDMAFencePacket(baseQueue.GetFamilyId(),
+                                reinterpret_cast<void*>(event->EventData.HWData2), event->EventId));
     baseQueue.PlaceAndSubmitPacket(SDMATrapPacket(event->EventId));
     EXPECT_SUCCESS(hsaKmtWaitOnEvent(event, g_TestTimeOut));
 
@@ -325,10 +332,10 @@ bool HsaMemoryBuffer::IsPattern(HSAuint64 location, HSAuint32 pattern, BaseQueue
         return false;
 
     *tmp = ~pattern;
-    baseQueue.PlacePacket(SDMACopyDataPacket((void *)tmp,
+    baseQueue.PlacePacket(SDMACopyDataPacket(baseQueue.GetFamilyId(), (void *)tmp,
             reinterpret_cast<void *>(this->As<HSAuint64>() + location),
             sizeof(HSAuint32)));
-    baseQueue.PlacePacket(SDMAFencePacket(reinterpret_cast<void*>(event->EventData.HWData2),
+    baseQueue.PlacePacket(SDMAFencePacket(baseQueue.GetFamilyId(), reinterpret_cast<void*>(event->EventData.HWData2),
             event->EventId));
     baseQueue.PlaceAndSubmitPacket(SDMATrapPacket(event->EventId));
 

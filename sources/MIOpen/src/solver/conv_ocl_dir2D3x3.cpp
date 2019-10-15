@@ -1,4 +1,4 @@
-/**************************************************kernel_size_w*****************************
+/*******************************************************************************
  *
  * MIT License
  *
@@ -32,7 +32,9 @@ namespace solver {
 
 bool ConvOclDirectFwd3x3::IsApplicable(const ConvolutionContext& params) const
 {
-    if(!(params.IsFp32() || params.IsFp16()))
+    if(!params.Is2d())
+        return false;
+    if(!(params.IsFp32() || params.IsFp16() || params.IsBfp16()))
         return false;
 
     return params.kernel_size_w == 3 && params.kernel_size_h == 3 && params.pad_w == 1 &&

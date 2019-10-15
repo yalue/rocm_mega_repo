@@ -26,26 +26,29 @@
 #define ROCSPARSE_CSRSV_HPP
 
 #include "rocsparse.h"
+
 #include "definitions.h"
 #include "handle.h"
 #include "utility.h"
+
 #include "csrsv_device.h"
 
 #include <limits>
+
 #include <hip/hip_runtime.h>
-#include <hipcub/hipcub.hpp>
+#include <rocprim/rocprim.hpp>
 
 template <typename T>
-rocsparse_status rocsparse_csrsv_buffer_size_template(rocsparse_handle handle,
-                                                      rocsparse_operation trans,
-                                                      rocsparse_int m,
-                                                      rocsparse_int nnz,
+rocsparse_status rocsparse_csrsv_buffer_size_template(rocsparse_handle          handle,
+                                                      rocsparse_operation       trans,
+                                                      rocsparse_int             m,
+                                                      rocsparse_int             nnz,
                                                       const rocsparse_mat_descr descr,
-                                                      const T* csr_val,
-                                                      const rocsparse_int* csr_row_ptr,
-                                                      const rocsparse_int* csr_col_ind,
-                                                      rocsparse_mat_info info,
-                                                      size_t* buffer_size)
+                                                      const T*                  csr_val,
+                                                      const rocsparse_int*      csr_row_ptr,
+                                                      const rocsparse_int*      csr_col_ind,
+                                                      rocsparse_mat_info        info,
+                                                      size_t*                   buffer_size)
 {
     // Check for valid handle and matrix descriptor
     if(handle == nullptr)
@@ -85,6 +88,12 @@ rocsparse_status rocsparse_csrsv_buffer_size_template(rocsparse_handle handle,
         return rocsparse_status_not_implemented;
     }
 
+    // Check operation type
+    if(trans != rocsparse_operation_none)
+    {
+        return rocsparse_status_not_implemented;
+    }
+
     // Check sizes
     if(m < 0)
     {
@@ -93,6 +102,12 @@ rocsparse_status rocsparse_csrsv_buffer_size_template(rocsparse_handle handle,
     else if(nnz < 0)
     {
         return rocsparse_status_invalid_size;
+    }
+
+    // Check for valid buffer_size pointer
+    if(buffer_size == nullptr)
+    {
+        return rocsparse_status_invalid_pointer;
     }
 
     // Quick return if possible
@@ -116,10 +131,6 @@ rocsparse_status rocsparse_csrsv_buffer_size_template(rocsparse_handle handle,
     {
         return rocsparse_status_invalid_pointer;
     }
-    else if(buffer_size == nullptr)
-    {
-        return rocsparse_status_invalid_pointer;
-    }
 
     // Stream
     hipStream_t stream = handle->stream;
@@ -136,29 +147,31 @@ rocsparse_status rocsparse_csrsv_buffer_size_template(rocsparse_handle handle,
     // rocsparse_int workspace2
     *buffer_size += sizeof(int) * ((m - 1) / 256 + 1) * 256;
 
-    size_t hipcub_size = 0;
-    rocsparse_int* ptr = reinterpret_cast<rocsparse_int*>(buffer_size);
-    int* ptr2          = reinterpret_cast<int*>(buffer_size);
-    hipcub::DoubleBuffer<rocsparse_int> dummy(ptr, ptr);
-    hipcub::DoubleBuffer<rocsparse_int> dummy2(ptr2, ptr2);
-    RETURN_IF_HIP_ERROR(
-        hipcub::DeviceRadixSort::SortPairs(nullptr, hipcub_size, dummy2, dummy, m, 0, 32, stream));
+    size_t         rocprim_size = 0;
+    rocsparse_int* ptr          = reinterpret_cast<rocsparse_int*>(buffer_size);
+    int*           ptr2         = reinterpret_cast<int*>(buffer_size);
 
-    // hipcub buffer
-    *buffer_size += hipcub_size;
+    rocprim::double_buffer<rocsparse_int> dummy(ptr, ptr);
+    rocprim::double_buffer<int>           dummy2(ptr2, ptr2);
+
+    RETURN_IF_HIP_ERROR(
+        rocprim::radix_sort_pairs(nullptr, rocprim_size, dummy2, dummy, m, 0, 32, stream));
+
+    // rocprim buffer
+    *buffer_size += rocprim_size;
 
     return rocsparse_status_success;
 }
 
-static rocsparse_status rocsparse_csrtr_analysis(rocsparse_handle handle,
-                                                 rocsparse_operation trans,
-                                                 rocsparse_int m,
-                                                 rocsparse_int nnz,
+static rocsparse_status rocsparse_csrtr_analysis(rocsparse_handle          handle,
+                                                 rocsparse_operation       trans,
+                                                 rocsparse_int             m,
+                                                 rocsparse_int             nnz,
                                                  const rocsparse_mat_descr descr,
-                                                 const rocsparse_int* csr_row_ptr,
-                                                 const rocsparse_int* csr_col_ind,
-                                                 rocsparse_csrtr_info info,
-                                                 void* temp_buffer)
+                                                 const rocsparse_int*      csr_row_ptr,
+                                                 const rocsparse_int*      csr_col_ind,
+                                                 rocsparse_csrtr_info      info,
+                                                 void*                     temp_buffer)
 {
     // Stream
     hipStream_t stream = handle->stream;
@@ -186,8 +199,8 @@ static rocsparse_status rocsparse_csrtr_analysis(rocsparse_handle handle,
     int* workspace2 = reinterpret_cast<int*>(ptr);
     ptr += sizeof(int) * ((m - 1) / 256 + 1) * 256;
 
-    // hipcub buffer
-    void* hipcub_buffer = reinterpret_cast<void*>(ptr);
+    // rocprim buffer
+    void* rocprim_buffer = reinterpret_cast<void*>(ptr);
 
     // Allocate buffer to hold diagonal entry point
     RETURN_IF_HIP_ERROR(hipMalloc((void**)&info->csr_diag_ind, sizeof(rocsparse_int) * m));
@@ -200,8 +213,11 @@ static rocsparse_status rocsparse_csrtr_analysis(rocsparse_handle handle,
 
     // Initialize zero pivot
     rocsparse_int max = std::numeric_limits<rocsparse_int>::max();
-    RETURN_IF_HIP_ERROR(
-        hipMemcpy(info->zero_pivot, &max, sizeof(rocsparse_int), hipMemcpyHostToDevice));
+    RETURN_IF_HIP_ERROR(hipMemcpyAsync(
+        info->zero_pivot, &max, sizeof(rocsparse_int), hipMemcpyHostToDevice, stream));
+
+    // Wait for device transfer to finish
+    RETURN_IF_HIP_ERROR(hipStreamSynchronize(stream));
 
 // Run analysis
 #define CSRILU0_DIM 1024
@@ -288,25 +304,28 @@ static rocsparse_status rocsparse_csrtr_analysis(rocsparse_handle handle,
     RETURN_IF_HIP_ERROR(hipMemcpyAsync(
         &info->max_nnz, d_max_nnz, sizeof(rocsparse_int), hipMemcpyDeviceToHost, stream));
 
+    // Wait for host transfer to finish
+    RETURN_IF_HIP_ERROR(hipStreamSynchronize(stream));
+
     RETURN_IF_ROCSPARSE_ERROR(rocsparse_create_identity_permutation(handle, m, workspace));
 
-    size_t hipcub_size;
+    size_t rocprim_size;
 
     unsigned int startbit = 0;
     unsigned int endbit   = rocsparse_clz(m);
 
-    hipcub::DoubleBuffer<int> keys(done_array, workspace2);
-    hipcub::DoubleBuffer<rocsparse_int> vals(workspace, info->row_map);
+    rocprim::double_buffer<int>           keys(done_array, workspace2);
+    rocprim::double_buffer<rocsparse_int> vals(workspace, info->row_map);
 
-    RETURN_IF_HIP_ERROR(hipcub::DeviceRadixSort::SortPairs(
-        nullptr, hipcub_size, keys, vals, m, startbit, endbit, stream));
-    RETURN_IF_HIP_ERROR(hipcub::DeviceRadixSort::SortPairs(
-        hipcub_buffer, hipcub_size, keys, vals, m, startbit, endbit, stream));
+    RETURN_IF_HIP_ERROR(
+        rocprim::radix_sort_pairs(nullptr, rocprim_size, keys, vals, m, startbit, endbit, stream));
+    RETURN_IF_HIP_ERROR(rocprim::radix_sort_pairs(
+        rocprim_buffer, rocprim_size, keys, vals, m, startbit, endbit, stream));
 
-    if(vals.Current() != info->row_map)
+    if(vals.current() != info->row_map)
     {
         RETURN_IF_HIP_ERROR(hipMemcpyAsync(info->row_map,
-                                           vals.Current(),
+                                           vals.current(),
                                            sizeof(rocsparse_int) * m,
                                            hipMemcpyDeviceToDevice,
                                            stream));
@@ -323,18 +342,18 @@ static rocsparse_status rocsparse_csrtr_analysis(rocsparse_handle handle,
 }
 
 template <typename T>
-rocsparse_status rocsparse_csrsv_analysis_template(rocsparse_handle handle,
-                                                   rocsparse_operation trans,
-                                                   rocsparse_int m,
-                                                   rocsparse_int nnz,
+rocsparse_status rocsparse_csrsv_analysis_template(rocsparse_handle          handle,
+                                                   rocsparse_operation       trans,
+                                                   rocsparse_int             m,
+                                                   rocsparse_int             nnz,
                                                    const rocsparse_mat_descr descr,
-                                                   const T* csr_val,
-                                                   const rocsparse_int* csr_row_ptr,
-                                                   const rocsparse_int* csr_col_ind,
-                                                   rocsparse_mat_info info,
+                                                   const T*                  csr_val,
+                                                   const rocsparse_int*      csr_row_ptr,
+                                                   const rocsparse_int*      csr_col_ind,
+                                                   rocsparse_mat_info        info,
                                                    rocsparse_analysis_policy analysis,
-                                                   rocsparse_solve_policy solve,
-                                                   void* temp_buffer)
+                                                   rocsparse_solve_policy    solve,
+                                                   void*                     temp_buffer)
 {
     // Check for valid handle and matrix descriptor
     if(handle == nullptr)
@@ -364,6 +383,12 @@ rocsparse_status rocsparse_csrsv_analysis_template(rocsparse_handle handle,
               solve,
               analysis,
               (const void*&)temp_buffer);
+
+    // Check operation type
+    if(trans != rocsparse_operation_none)
+    {
+        return rocsparse_status_not_implemented;
+    }
 
     // Check index base
     if(descr->base != rocsparse_index_base_zero && descr->base != rocsparse_index_base_one)
@@ -509,7 +534,7 @@ rocsparse_status rocsparse_csrsv_analysis_template(rocsparse_handle handle,
 template <typename T, unsigned int BLOCKSIZE, unsigned int WF_SIZE>
 __launch_bounds__(BLOCKSIZE) __global__
     void csrsv_host_pointer(rocsparse_int m,
-                            T alpha,
+                            T             alpha,
                             const rocsparse_int* __restrict__ csr_row_ptr,
                             const rocsparse_int* __restrict__ csr_col_ind,
                             const T* __restrict__ csr_val,
@@ -520,8 +545,8 @@ __launch_bounds__(BLOCKSIZE) __global__
                             rocsparse_int offset,
                             rocsparse_int* __restrict__ zero_pivot,
                             rocsparse_index_base idx_base,
-                            rocsparse_fill_mode fill_mode,
-                            rocsparse_diag_type diag_type)
+                            rocsparse_fill_mode  fill_mode,
+                            rocsparse_diag_type  diag_type)
 {
     csrsv_device<T, BLOCKSIZE, WF_SIZE>(m,
                                         alpha,
@@ -542,7 +567,7 @@ __launch_bounds__(BLOCKSIZE) __global__
 template <typename T, unsigned int BLOCKSIZE, unsigned int WF_SIZE>
 __launch_bounds__(BLOCKSIZE) __global__
     void csrsv_device_pointer(rocsparse_int m,
-                              const T* alpha,
+                              const T*      alpha,
                               const rocsparse_int* __restrict__ csr_row_ptr,
                               const rocsparse_int* __restrict__ csr_col_ind,
                               const T* __restrict__ csr_val,
@@ -553,8 +578,8 @@ __launch_bounds__(BLOCKSIZE) __global__
                               rocsparse_int offset,
                               rocsparse_int* __restrict__ zero_pivot,
                               rocsparse_index_base idx_base,
-                              rocsparse_fill_mode fill_mode,
-                              rocsparse_diag_type diag_type)
+                              rocsparse_fill_mode  fill_mode,
+                              rocsparse_diag_type  diag_type)
 {
     csrsv_device<T, BLOCKSIZE, WF_SIZE>(m,
                                         *alpha,
@@ -573,20 +598,20 @@ __launch_bounds__(BLOCKSIZE) __global__
 }
 
 template <typename T>
-rocsparse_status rocsparse_csrsv_solve_template(rocsparse_handle handle,
-                                                rocsparse_operation trans,
-                                                rocsparse_int m,
-                                                rocsparse_int nnz,
-                                                const T* alpha,
+rocsparse_status rocsparse_csrsv_solve_template(rocsparse_handle          handle,
+                                                rocsparse_operation       trans,
+                                                rocsparse_int             m,
+                                                rocsparse_int             nnz,
+                                                const T*                  alpha,
                                                 const rocsparse_mat_descr descr,
-                                                const T* csr_val,
-                                                const rocsparse_int* csr_row_ptr,
-                                                const rocsparse_int* csr_col_ind,
-                                                rocsparse_mat_info info,
-                                                const T* x,
-                                                T* y,
-                                                rocsparse_solve_policy policy,
-                                                void* temp_buffer)
+                                                const T*                  csr_val,
+                                                const rocsparse_int*      csr_row_ptr,
+                                                const rocsparse_int*      csr_col_ind,
+                                                rocsparse_mat_info        info,
+                                                const T*                  x,
+                                                T*                        y,
+                                                rocsparse_solve_policy    policy,
+                                                void*                     temp_buffer)
 {
     // Check for valid handle and matrix descriptor
     if(handle == nullptr)
@@ -645,6 +670,12 @@ rocsparse_status rocsparse_csrsv_solve_template(rocsparse_handle handle,
                   (const void*&)y,
                   policy,
                   (const void*&)temp_buffer);
+    }
+
+    // Check operation type
+    if(trans != rocsparse_operation_none)
+    {
+        return rocsparse_status_not_implemented;
     }
 
     // Check index base
@@ -722,12 +753,20 @@ rocsparse_status rocsparse_csrsv_solve_template(rocsparse_handle handle,
                                      ? info->csrsv_upper_info
                                      : info->csrsv_lower_info;
 
+    if(csrsv == nullptr)
+    {
+        return rocsparse_status_invalid_pointer;
+    }
+
     // If diag type is unit, re-initialize zero pivot to remove structural zeros
     if(descr->diag_type == rocsparse_diag_type_unit)
     {
         rocsparse_int max = std::numeric_limits<rocsparse_int>::max();
-        RETURN_IF_HIP_ERROR(
-            hipMemcpy(csrsv->zero_pivot, &max, sizeof(rocsparse_int), hipMemcpyHostToDevice));
+        RETURN_IF_HIP_ERROR(hipMemcpyAsync(
+            csrsv->zero_pivot, &max, sizeof(rocsparse_int), hipMemcpyHostToDevice, stream));
+
+        // Wait for device transfer to finish
+        RETURN_IF_HIP_ERROR(hipStreamSynchronize(stream));
     }
 
 #define CSRSV_DIM 1024

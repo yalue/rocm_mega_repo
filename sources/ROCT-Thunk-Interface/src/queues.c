@@ -34,6 +34,7 @@
 #include <sys/types.h>
 #include <sys/mman.h>
 #include <fcntl.h>
+#include <errno.h>
 
 /* 1024 doorbells, 4 or 8 bytes each doorbell depending on ASIC generation */
 #define DOORBELL_SIZE_GFX7 4
@@ -41,8 +42,13 @@
 #define DOORBELL_SIZE_GFX9 8
 #define DOORBELLS_PAGE_SIZE(ds) (1024 * (ds))
 
-#define WG_CONTEXT_DATA_SIZE_PER_CU_VI	344576
-#define WAVES_PER_CU_VI		32
+#define VGPR_SIZE_PER_CU(asic_family)	(asic_family == CHIP_ARCTURUS ? 0x80000 : 0x40000)
+#define SGPR_SIZE_PER_CU	0x4000
+#define LDS_SIZE_PER_CU		0x10000
+#define HWREG_SIZE_PER_CU	0x1000
+#define WG_CONTEXT_DATA_SIZE_PER_CU(asic_family)	(VGPR_SIZE_PER_CU(asic_family) + SGPR_SIZE_PER_CU + LDS_SIZE_PER_CU + HWREG_SIZE_PER_CU)
+#define WAVES_PER_CU		32
+#define CNTL_STACK_BYTES_PER_WAVE	8
 
 struct device_info {
 	enum asic_family_type asic_family;
@@ -128,6 +134,23 @@ const struct device_info vega20_device_info = {
 	.doorbell_size = DOORBELL_SIZE_GFX9,
 };
 
+const struct device_info arcturus_device_info = {
+	.asic_family = CHIP_ARCTURUS,
+	.eop_buffer_size = 4096,
+	.doorbell_size = DOORBELL_SIZE_GFX9,
+};
+
+const struct device_info navi10_device_info = {
+	.asic_family = CHIP_NAVI10,
+	.eop_buffer_size = 4096,
+	.doorbell_size = DOORBELL_SIZE_GFX9,
+};
+
+const struct device_info navi14_device_info = {
+    .asic_family = CHIP_NAVI14,
+    .eop_buffer_size = 4096,
+    .doorbell_size = DOORBELL_SIZE_GFX9,
+};
 
 static const struct device_info *dev_lookup_table[] = {
 	[CHIP_KAVERI] = &kaveri_device_info,
@@ -142,7 +165,10 @@ static const struct device_info *dev_lookup_table[] = {
 	[CHIP_VEGA10] = &vega10_device_info,
 	[CHIP_VEGA12] = &vega12_device_info,
 	[CHIP_VEGA20] = &vega20_device_info,
-	[CHIP_RAVEN] = &raven_device_info
+	[CHIP_RAVEN] = &raven_device_info,
+	[CHIP_ARCTURUS] = &arcturus_device_info,
+	[CHIP_NAVI10] = &navi10_device_info,
+	[CHIP_NAVI14] = &navi14_device_info,
 };
 
 struct queue {
@@ -371,9 +397,8 @@ static bool update_ctx_save_restore_size(uint32_t nodeid, struct queue *q)
 		uint32_t ctl_stack_size, wg_data_size;
 		uint32_t cu_num = node.NumFComputeCores / node.NumSIMDPerCU;
 
-		ctl_stack_size = cu_num * WAVES_PER_CU_VI * 8 + 8;
-		wg_data_size = cu_num * WG_CONTEXT_DATA_SIZE_PER_CU_VI;
-
+		ctl_stack_size = cu_num * WAVES_PER_CU * CNTL_STACK_BYTES_PER_WAVE + 8;
+		wg_data_size = cu_num * WG_CONTEXT_DATA_SIZE_PER_CU(q->dev_info->asic_family);
 		q->ctl_stack_size = PAGE_ALIGN_UP(ctl_stack_size
 					+ sizeof(HsaUserContextSaveAreaHeader));
 
@@ -715,23 +740,11 @@ HSAKMT_STATUS HSAKMTAPI hsaKmtSetQueueCUMask(HSA_QUEUEID QueueId,
 {
 	struct queue *q = PORT_UINT64_TO_VPTR(QueueId);
 	struct kfd_ioctl_set_cu_mask_args args = {0};
-	HSAuint32 i;
-	int is_set;
-	printf("Setting %d-bit CU mask for queue %lu: ", (int) CUMaskCount,
-		(unsigned long) QueueId);
 
 	CHECK_KFD_OPEN();
 
-	if (CUMaskCount == 0 || !QueueCUMask || ((CUMaskCount % 32) != 0)) {
-		printf("ERROR!\n");
+	if (CUMaskCount == 0 || !QueueCUMask || ((CUMaskCount % 32) != 0))
 		return HSAKMT_STATUS_INVALID_PARAMETER;
-	}
-
-	for (i = 0; i < CUMaskCount; i++) {
-		is_set = (QueueCUMask[i / 32] & (1 << (i % 32))) != 0;
-		printf("%s", is_set ? "1" : "0");
-	}
-	printf("\n");
 
 	args.queue_id = q->queue_id;
 	args.num_cu_mask = CUMaskCount;
@@ -829,3 +842,34 @@ uint32_t *convert_queue_ids(HSAuint32 NumQueues, HSA_QUEUEID *Queues)
 	return queue_ids_ptr;
 }
 
+HSAKMT_STATUS
+HSAKMTAPI
+hsaKmtAllocQueueGWS(
+                HSA_QUEUEID        QueueId,
+                HSAuint32          nGWS,
+                HSAuint32          *firstGWS)
+{
+	struct kfd_ioctl_alloc_queue_gws_args args = {0};
+	struct queue *q = PORT_UINT64_TO_VPTR(QueueId);
+
+	CHECK_KFD_OPEN();
+
+	args.queue_id = (HSAuint32)q->queue_id;
+	args.num_gws = nGWS;
+
+	int err = kmtIoctl(kfd_fd, AMDKFD_IOC_ALLOC_QUEUE_GWS, &args);
+
+	if (!err && firstGWS)
+		*firstGWS = args.first_gws;
+
+	if (!err)
+		return HSAKMT_STATUS_SUCCESS;
+	else if (err == -EINVAL)
+		return HSAKMT_STATUS_INVALID_PARAMETER;
+	else if (err == -EBUSY)
+		return HSAKMT_STATUS_OUT_OF_RESOURCES;
+	else if (err == -ENODEV)
+		return HSAKMT_STATUS_NOT_SUPPORTED;
+	else
+		return HSAKMT_STATUS_ERROR;
+}

@@ -17,7 +17,6 @@ function display_help()
   echo "    [-c|--clients] build library clients too (combines with -i & -d)"
   echo "    [-g|--debug] -DCMAKE_BUILD_TYPE=Debug (default is =Release)"
   echo "    [--cuda] build library for cuda backend"
-  echo "    [--hip-clang] build library with hip-clang"
 }
 
 # This function is helpful for dockerfiles that do not have sudo installed, but the default user is root
@@ -31,10 +30,10 @@ supported_distro( )
   fi
 
   case "${ID}" in
-    ubuntu|centos|rhel|fedora)
+    ubuntu|centos|rhel|fedora|sles)
         true
         ;;
-    *)  printf "This script is currently supported on Ubuntu, CentOS, RHEL and Fedora\n"
+    *)  printf "This script is currently supported on Ubuntu, CentOS, RHEL, Fedora and SLES\n"
         exit 2
         ;;
   esac
@@ -98,6 +97,18 @@ install_dnf_packages( )
   done
 }
 
+# Take an array of packages as input, and install those packages with 'zypper' if they are not already installed
+install_zypper_packages( )
+{
+  package_dependencies=("$@")
+  for package in "${package_dependencies[@]}"; do
+    if [[ $(rpm -q ${package} &> /dev/null; echo $? ) -ne 0 ]]; then
+      printf "\033[32mInstalling \033[33m${package}\033[32m from distro package manager\033[0m\n"
+      elevate_if_not_root zypper -n --no-gpg-checks install ${package}
+    fi
+  done
+}
+
 # Take an array of packages as input, and delegate the work to the appropriate distro installer
 # prereq: ${ID} must be defined before calling
 # prereq: ${build_clients} must be defined before calling
@@ -117,16 +128,19 @@ install_packages( )
   local library_dependencies_ubuntu=( "make" "cmake-curses-gui" "hip_hcc" "pkg-config" "libnuma1" )
   local library_dependencies_centos=( "epel-release" "make" "cmake3" "hip_hcc" "gcc-c++" "rpm-build" "numactl-libs" )
   local library_dependencies_fedora=( "make" "cmake" "hip_hcc" "gcc-c++" "libcxx-devel" "rpm-build" "numactl-libs" )
+  local library_dependencies_sles=( "make" "cmake" "hip_hcc" "gcc-c++" "libcxxtools9" "rpm-build" )
 
   if [[ "${build_cuda}" == false ]]; then
     library_dependencies_ubuntu+=( "rocsparse" )
     library_dependencies_centos+=( "rocsparse" )
     library_dependencies_fedora+=( "rocsparse" )
+    library_dependencies_sles+=( "rocsparse" )
   fi
 
   local client_dependencies_ubuntu=( "libboost-program-options-dev" )
   local client_dependencies_centos=( "boost-devel" )
   local client_dependencies_fedora=( "boost-devel" )
+  local client_dependencies_sles=( "libboost_program_options1_66_0-devel" "pkg-config" "dpkg" )
 
   case "${ID}" in
     ubuntu)
@@ -155,6 +169,15 @@ install_packages( )
 
       if [[ "${build_clients}" == true ]]; then
         install_dnf_packages "${client_dependencies_fedora[@]}"
+      fi
+      ;;
+
+    sles)
+#     elevate_if_not_root zypper -y update
+      install_zypper_packages "${library_dependencies_sles[@]}"
+
+      if [[ "${build_clients}" == true ]]; then
+        install_zypper_packages "${client_dependencies_sles[@]}"
       fi
       ;;
     *)
@@ -197,7 +220,6 @@ install_dependencies=false
 install_prefix=hipsparse-install
 build_clients=false
 build_cuda=false
-build_hip_clang=false
 build_release=true
 
 # #################################################
@@ -207,7 +229,7 @@ build_release=true
 # check if we have a modern version of getopt that can handle whitespace and long parameters
 getopt -T
 if [[ $? -eq 4 ]]; then
-  GETOPT_PARSE=$(getopt --name "${0}" --longoptions help,install,clients,dependencies,debug,cuda,hip-clang --options hicdg -- "$@")
+  GETOPT_PARSE=$(getopt --name "${0}" --longoptions help,install,clients,dependencies,debug,cuda --options hicdg -- "$@")
 else
   echo "Need a new version of getopt"
   exit 1
@@ -240,9 +262,6 @@ while true; do
         shift ;;
     --cuda)
         build_cuda=true
-        shift ;;
-    --hip-clang)
-        build_hip_clang=true
         shift ;;
     --prefix)
         install_prefix=${2}
@@ -328,15 +347,8 @@ pushd .
     cmake_common_options="${cmake_common_options} -DBUILD_CUDA=ON"
   fi
 
-  # Check if using HIP built on HCC or HIP-Clang
-  if [[ "${build_hip_clang}" == true ]]; then
-     HIP_COMPILER=clang
-  else
-     HIP_COMPILER=hcc
-  fi
-
   # Build library
-  ${cmake_executable} -DHIP_COMPILER=$HIP_COMPILER ${cmake_common_options} ${cmake_client_options} -DCMAKE_INSTALL_PREFIX=hipsparse-install ../..
+  ${cmake_executable} ${cmake_common_options} ${cmake_client_options} -DCMAKE_INSTALL_PREFIX=hipsparse-install ../..
   check_exit_code
 
   make -j$(nproc) install
@@ -359,6 +371,9 @@ pushd .
       ;;
       fedora)
         elevate_if_not_root dnf install hipsparse-*.rpm
+      ;;
+      sles)
+        elevate_if_not_root zypper -n --no-gpg-checks install hipsparse-*.rpm
       ;;
     esac
 

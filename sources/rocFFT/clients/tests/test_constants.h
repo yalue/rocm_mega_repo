@@ -1,6 +1,24 @@
-/*******************************************************************************
- * Copyright (C) 2016 Advanced Micro Devices, Inc. All rights reserved.
- ******************************************************************************/
+/******************************************************************************
+* Copyright (c) 2016 - present Advanced Micro Devices, Inc. All rights reserved.
+*
+* Permission is hereby granted, free of charge, to any person obtaining a copy
+* of this software and associated documentation files (the "Software"), to deal
+* in the Software without restriction, including without limitation the rights
+* to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+* copies of the Software, and to permit persons to whom the Software is
+* furnished to do so, subject to the following conditions:
+*
+* The above copyright notice and this permission notice shall be included in
+* all copies or substantial portions of the Software.
+*
+* THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+* IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+* FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.  IN NO EVENT SHALL THE
+* AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+* LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+* OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
+* THE SOFTWARE.
+*******************************************************************************/
 
 #pragma once
 #if !defined(TESTCONSTANTS_H)
@@ -22,8 +40,8 @@ enum data_pattern
 #define PRE_MULVAL                                             \
     float2 mulval_pre(void* in, uint offset, void* userdata)\n \
     {                                                          \
-        \n float scalar = *((float*)userdata + offset);        \
-        \n float2 ret   = *((float2*)in + offset) * scalar;    \
+        \n float  scalar = *((float*)userdata + offset);       \
+        \n float2 ret    = *((float2*)in + offset) * scalar;   \
         \n return ret;                                         \
         \n                                                     \
     }
@@ -38,7 +56,7 @@ enum data_pattern
     {                                                             \
         \n USER_DATA* data   = ((USER_DATA*)userdata + offset);   \
         \n float      scalar = data->scalar1 * data->scalar2;     \
-        \n float2 ret        = *((float2*)in + offset) * scalar;  \
+        \n float2     ret    = *((float2*)in + offset) * scalar;  \
         \n return ret;                                            \
         \n                                                        \
     }
@@ -46,8 +64,8 @@ enum data_pattern
 #define PRE_MULVAL_DP                                           \
     double2 mulval_pre(void* in, uint offset, void* userdata)\n \
     {                                                           \
-        \n double scalar = *((double*)userdata + offset);       \
-        \n double2 ret   = *((double2*)in + offset) * scalar;   \
+        \n double  scalar = *((double*)userdata + offset);      \
+        \n double2 ret    = *((double2*)in + offset) * scalar;  \
         \n return ret;                                          \
         \n                                                      \
     }
@@ -55,7 +73,7 @@ enum data_pattern
 #define PRE_MULVAL_PLANAR                                                    \
     float2 mulval_pre(void* inRe, void* inIm, uint offset, void* userdata)\n \
     {                                                                        \
-        \n float scalar = *((float*)userdata + offset);                      \
+        \n float  scalar = *((float*)userdata + offset);                     \
         \n float2 ret;                                                       \
         \n        ret.x = *((float*)inRe + offset) * scalar;                 \
         \n        ret.y = *((float*)inIm + offset) * scalar;                 \
@@ -66,7 +84,7 @@ enum data_pattern
 #define PRE_MULVAL_PLANAR_DP                                                  \
     double2 mulval_pre(void* inRe, void* inIm, uint offset, void* userdata)\n \
     {                                                                         \
-        \n double scalar = *((double*)userdata + offset);                     \
+        \n double  scalar = *((double*)userdata + offset);                    \
         \n double2 ret;                                                       \
         \n         ret.x = *((double*)inRe + offset) * scalar;                \
         \n         ret.y = *((double*)inIm + offset) * scalar;                \
@@ -103,7 +121,7 @@ enum data_pattern
         \n float          prev = offset <= 0 ? 0 : *(lds - 1);                         \
         \n float          next = offset >= get_global_size(0) ? 0 : *(lds + 1);        \
         \n float          avg  = (prev + *lds + next) / 3.0f;                          \
-        \n float2 ret          = *((float2*)in + offset) * avg;                        \
+        \n float2         ret  = *((float2*)in + offset) * avg;                        \
         \n return ret;                                                                 \
         \n                                                                             \
     }

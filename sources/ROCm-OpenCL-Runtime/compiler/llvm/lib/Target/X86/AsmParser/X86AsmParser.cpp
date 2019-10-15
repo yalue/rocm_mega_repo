@@ -6,10 +6,11 @@
 //
 //===----------------------------------------------------------------------===//
 
-#include "InstPrinter/X86IntelInstPrinter.h"
 #include "MCTargetDesc/X86BaseInfo.h"
+#include "MCTargetDesc/X86IntelInstPrinter.h"
 #include "MCTargetDesc/X86MCExpr.h"
 #include "MCTargetDesc/X86TargetStreamer.h"
+#include "TargetInfo/X86TargetInfo.h"
 #include "X86AsmParserCommon.h"
 #include "X86Operand.h"
 #include "llvm/ADT/STLExtras.h"
@@ -847,6 +848,8 @@ private:
                                               const SMLoc &StartLoc,
                                               SMLoc &EndLoc);
 
+  X86::CondCode ParseConditionCode(StringRef CCode);
+
   bool ParseIntelMemoryOperandSize(unsigned &Size);
   std::unique_ptr<X86Operand>
   CreateMemForInlineAsm(unsigned SegReg, const MCExpr *Disp, unsigned BaseReg,
@@ -952,6 +955,8 @@ private:
 public:
   enum X86MatchResultTy {
     Match_Unsupported = FIRST_TARGET_MATCH_RESULT_TY,
+#define GET_OPERAND_DIAGNOSTIC_TYPES
+#include "X86GenAsmMatcher.inc"
   };
 
   X86AsmParser(const MCSubtargetInfo &sti, MCAsmParser &Parser,
@@ -2004,6 +2009,29 @@ std::unique_ptr<X86Operand> X86AsmParser::ParseATTOperand() {
   }
 }
 
+// X86::COND_INVALID if not a recognized condition code or alternate mnemonic,
+// otherwise the EFLAGS Condition Code enumerator.
+X86::CondCode X86AsmParser::ParseConditionCode(StringRef CC) {
+  return StringSwitch<X86::CondCode>(CC)
+      .Case("o", X86::COND_O)          // Overflow
+      .Case("no", X86::COND_NO)        // No Overflow
+      .Cases("b", "nae", X86::COND_B)  // Below/Neither Above nor Equal
+      .Cases("ae", "nb", X86::COND_AE) // Above or Equal/Not Below
+      .Cases("e", "z", X86::COND_E)    // Equal/Zero
+      .Cases("ne", "nz", X86::COND_NE) // Not Equal/Not Zero
+      .Cases("be", "na", X86::COND_BE) // Below or Equal/Not Above
+      .Cases("a", "nbe", X86::COND_A)  // Above/Neither Below nor Equal
+      .Case("s", X86::COND_S)          // Sign
+      .Case("ns", X86::COND_NS)        // No Sign
+      .Cases("p", "pe", X86::COND_P)   // Parity/Parity Even
+      .Cases("np", "po", X86::COND_NP) // No Parity/Parity Odd
+      .Cases("l", "nge", X86::COND_L)  // Less/Neither Greater nor Equal
+      .Cases("ge", "nl", X86::COND_GE) // Greater or Equal/Not Less
+      .Cases("le", "ng", X86::COND_LE) // Less or Equal/Not Greater
+      .Cases("g", "nle", X86::COND_G)  // Greater/Neither Less nor Equal
+      .Default(X86::COND_INVALID);
+}
+
 // true on failure, false otherwise
 // If no {z} mark was found - Parser doesn't advance
 bool X86AsmParser::ParseZ(std::unique_ptr<X86Operand> &Z,
@@ -2353,16 +2381,21 @@ bool X86AsmParser::ParseInstruction(ParseInstructionInfo &Info, StringRef Name,
 
   StringRef PatchedName = Name;
 
-  if ((Name.equals("jmp") || Name.equals("jc") || Name.equals("jz")) &&
-      isParsingIntelSyntax() && isParsingInlineAsm()) {
+  // Hack to skip "short" following Jcc.
+  if (isParsingIntelSyntax() &&
+      (PatchedName == "jmp" || PatchedName == "jc" || PatchedName == "jnc" ||
+       PatchedName == "jcxz" || PatchedName == "jexcz" ||
+       (PatchedName.startswith("j") &&
+        ParseConditionCode(PatchedName.substr(1)) != X86::COND_INVALID))) {
     StringRef NextTok = Parser.getTok().getString();
     if (NextTok == "short") {
       SMLoc NameEndLoc =
           NameLoc.getFromPointer(NameLoc.getPointer() + Name.size());
-      // Eat the short keyword
+      // Eat the short keyword.
       Parser.Lex();
-      // MS ignores the short keyword, it determines the jmp type based
-      // on the distance of the label
+      // MS and GAS ignore the short keyword; they both determine the jmp type
+      // based on the distance of the label. (NASM does emit different code with
+      // and without "short," though.)
       InstInfo->AsmRewrites->emplace_back(AOK_Skip, NameEndLoc,
                                           NextTok.size() + 1);
     }
@@ -2373,7 +2406,7 @@ bool X86AsmParser::ParseInstruction(ParseInstructionInfo &Info, StringRef Name,
       PatchedName != "setb" && PatchedName != "setnb")
     PatchedName = PatchedName.substr(0, Name.size()-1);
 
-  unsigned ComparisonCode = ~0U;
+  unsigned ComparisonPredicate = ~0U;
 
   // FIXME: Hack to recognize cmp<comparison code>{ss,sd,ps,pd}.
   if ((PatchedName.startswith("cmp") || PatchedName.startswith("vcmp")) &&
@@ -2441,9 +2474,9 @@ bool X86AsmParser::ParseInstruction(ParseInstructionInfo &Info, StringRef Name,
       else if (PatchedName.endswith("pd"))
         PatchedName = IsVCMP ? "vcmppd" : "cmppd";
       else
-        llvm_unreachable("Unexpecte suffix!");
+        llvm_unreachable("Unexpected suffix!");
 
-      ComparisonCode = CC;
+      ComparisonPredicate = CC;
     }
   }
 
@@ -2472,7 +2505,7 @@ bool X86AsmParser::ParseInstruction(ParseInstructionInfo &Info, StringRef Name,
       case 'q': PatchedName = SuffixSize == 2 ? "vpcmpuq" : "vpcmpq"; break;
       }
       // Set up the immediate to push into the operands later.
-      ComparisonCode = CC;
+      ComparisonPredicate = CC;
     }
   }
 
@@ -2501,7 +2534,7 @@ bool X86AsmParser::ParseInstruction(ParseInstructionInfo &Info, StringRef Name,
       case 'q': PatchedName = SuffixSize == 2 ? "vpcomuq" : "vpcomq"; break;
       }
       // Set up the immediate to push into the operands later.
-      ComparisonCode = CC;
+      ComparisonPredicate = CC;
     }
   }
 
@@ -2577,8 +2610,8 @@ bool X86AsmParser::ParseInstruction(ParseInstructionInfo &Info, StringRef Name,
   Operands.push_back(X86Operand::CreateToken(PatchedName, NameLoc));
 
   // Push the immediate if we extracted one from the mnemonic.
-  if (ComparisonCode != ~0U && !isParsingIntelSyntax()) {
-    const MCExpr *ImmOp = MCConstantExpr::create(ComparisonCode,
+  if (ComparisonPredicate != ~0U && !isParsingIntelSyntax()) {
+    const MCExpr *ImmOp = MCConstantExpr::create(ComparisonPredicate,
                                                  getParser().getContext());
     Operands.push_back(X86Operand::CreateImm(ImmOp, NameLoc, NameLoc));
   }
@@ -2618,8 +2651,8 @@ bool X86AsmParser::ParseInstruction(ParseInstructionInfo &Info, StringRef Name,
   }
 
   // Push the immediate if we extracted one from the mnemonic.
-  if (ComparisonCode != ~0U && isParsingIntelSyntax()) {
-    const MCExpr *ImmOp = MCConstantExpr::create(ComparisonCode,
+  if (ComparisonPredicate != ~0U && isParsingIntelSyntax()) {
+    const MCExpr *ImmOp = MCConstantExpr::create(ComparisonPredicate,
                                                  getParser().getContext());
     Operands.push_back(X86Operand::CreateImm(ImmOp, NameLoc, NameLoc));
   }
@@ -2647,13 +2680,13 @@ bool X86AsmParser::ParseInstruction(ParseInstructionInfo &Info, StringRef Name,
     static_cast<X86Operand &>(*Operands[0]).setTokenValue(Repl);
   }
 
-  // Moving a 32 or 16 bit value into a segment register has the same
-  // behavior. Modify such instructions to always take shorter form.
   if ((Name == "mov" || Name == "movw" || Name == "movl") &&
       (Operands.size() == 3)) {
     X86Operand &Op1 = (X86Operand &)*Operands[1];
     X86Operand &Op2 = (X86Operand &)*Operands[2];
     SMLoc Loc = Op1.getEndLoc();
+    // Moving a 32 or 16 bit value into a segment register has the same
+    // behavior. Modify such instructions to always take shorter form.
     if (Op1.isReg() && Op2.isReg() &&
         X86MCRegisterClasses[X86::SEGMENT_REGRegClassID].contains(
             Op2.getReg()) &&
@@ -3142,6 +3175,13 @@ bool X86AsmParser::MatchAndEmitATTInstruction(SMLoc IDLoc, unsigned &Opcode,
       EmitInstruction(Inst, Operands, Out);
     Opcode = Inst.getOpcode();
     return false;
+  case Match_InvalidImmUnsignedi4: {
+    SMLoc ErrorLoc = ((X86Operand &)*Operands[ErrorInfo]).getStartLoc();
+    if (ErrorLoc == SMLoc())
+      ErrorLoc = IDLoc;
+    return Error(ErrorLoc, "immediate must be an integer in range [0, 15]",
+                 EmptyRange, MatchingInlineAsm);
+  }
   case Match_MissingFeature:
     return ErrorMissingFeature(IDLoc, MissingFeatures, MatchingInlineAsm);
   case Match_InvalidOperand:
@@ -3487,6 +3527,15 @@ bool X86AsmParser::MatchAndEmitIntelInstruction(SMLoc IDLoc, unsigned &Opcode,
                  Match_InvalidOperand) == 1) {
     return Error(IDLoc, "invalid operand for instruction", EmptyRange,
                  MatchingInlineAsm);
+  }
+
+  if (std::count(std::begin(Match), std::end(Match),
+                 Match_InvalidImmUnsignedi4) == 1) {
+    SMLoc ErrorLoc = ((X86Operand &)*Operands[ErrorInfo]).getStartLoc();
+    if (ErrorLoc == SMLoc())
+      ErrorLoc = IDLoc;
+    return Error(ErrorLoc, "immediate must be an integer in range [0, 15]",
+                 EmptyRange, MatchingInlineAsm);
   }
 
   // If all of these were an outright failure, report it in a useless way.

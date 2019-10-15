@@ -85,13 +85,7 @@ config.substitutions.append(
                              os.path.join(config.clang_tools_dir, 'hmaptool'))))
 
 # Plugins (loadable modules)
-# TODO: This should be supplied by Makefile or autoconf.
-if sys.platform in ['win32', 'cygwin']:
-    has_plugins = config.enable_shared
-else:
-    has_plugins = True
-
-if has_plugins and config.llvm_plugin_ext:
+if config.has_plugins and config.llvm_plugin_ext:
     config.available_features.add('plugins')
 
 # Set available features we allow tests to conditionalize on.
@@ -102,6 +96,10 @@ if config.clang_default_cxx_stdlib != '':
 # As of 2011.08, crash-recovery tests still do not pass on FreeBSD.
 if platform.system() not in ['FreeBSD']:
     config.available_features.add('crash-recovery')
+
+# Support for new pass manager.
+if config.enable_experimental_new_pass_manager:
+    config.available_features.add('experimental-new-pass-manager')
 
 # ANSI escape sequences in non-dumb terminal
 if platform.system() not in ['Windows']:
@@ -185,7 +183,10 @@ if run_console_tests != 0:
 lit.util.usePlatformSdkOnDarwin(config, lit_config)
 macOSSDKVersion = lit.util.findPlatformSdkVersionOnMacOS(config, lit_config)
 if macOSSDKVersion is not None:
-    config.available_features.add('macos-sdk-' + macOSSDKVersion)
+    config.available_features.add('macos-sdk-' + str(macOSSDKVersion))
 
 if os.path.exists('/etc/gentoo-release'):
     config.available_features.add('gentoo')
+
+if config.enable_shared:
+    config.available_features.add("enable_shared")

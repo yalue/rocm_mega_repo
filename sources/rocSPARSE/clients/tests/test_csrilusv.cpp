@@ -24,35 +24,37 @@
 #include "testing_csrilusv.hpp"
 #include "utility.hpp"
 
-#include <rocsparse.h>
 #include <gtest/gtest.h>
+#include <rocsparse.h>
+#include <string>
 #include <unistd.h>
 #include <vector>
-#include <string>
 
-typedef rocsparse_index_base base;
+typedef rocsparse_index_base      base;
 typedef rocsparse_analysis_policy analysis;
 
 typedef std::tuple<base, analysis, std::string> csrilusv_bin_tuple;
 
-base csrilusv_idxbase_range[]      = {rocsparse_index_base_zero, rocsparse_index_base_one};
-analysis csrilusv_analysis_range[] = {rocsparse_analysis_policy_reuse,
-                                      rocsparse_analysis_policy_force};
+base     csrilusv_idxbase_range[] = {rocsparse_index_base_zero, rocsparse_index_base_one};
+analysis csrilusv_analysis_range[]
+    = {rocsparse_analysis_policy_reuse, rocsparse_analysis_policy_force};
 
 std::string csrilusv_bin[] = {"mac_econ_fwd500.bin",
                               "mc2depi.bin",
                               "scircuit.bin",
-                              "bmwcra_1.bin",
+                              //                              "bmwcra_1.bin",
                               "nos1.bin",
                               "nos3.bin",
                               "nos4.bin",
                               "nos5.bin",
                               "nos6.bin",
-                              "nos7.bin"};
+                              "nos7.bin",
+                              "amazon0312.bin",
+                              "sme3Dc.bin"};
 
 class parameterized_csrilusv_bin : public testing::TestWithParam<csrilusv_bin_tuple>
 {
-    protected:
+protected:
     parameterized_csrilusv_bin() {}
     virtual ~parameterized_csrilusv_bin() {}
     virtual void SetUp() {}
@@ -70,7 +72,7 @@ Arguments setup_csrilusv_arguments(csrilusv_bin_tuple tup)
     std::string bin_file = std::get<2>(tup);
 
     // Get current executables absolute path
-    char path_exe[PATH_MAX];
+    char    path_exe[PATH_MAX];
     ssize_t len = readlink("/proc/self/exe", path_exe, sizeof(path_exe) - 1);
     if(len < 14)
     {
@@ -82,7 +84,7 @@ Arguments setup_csrilusv_arguments(csrilusv_bin_tuple tup)
     }
 
     // Matrices are stored at the same path in matrices directory
-    arg.filename = std::string(path_exe) + "matrices/" + bin_file;
+    arg.filename = std::string(path_exe) + "../matrices/" + bin_file;
 
     return arg;
 }
@@ -103,7 +105,7 @@ TEST_P(parameterized_csrilusv_bin, csrilusv_bin_double)
     EXPECT_EQ(status, rocsparse_status_success);
 }
 
-INSTANTIATE_TEST_CASE_P(csrilusv_bin,
+INSTANTIATE_TEST_CASE_P(DISABLED_csrilusv_bin,
                         parameterized_csrilusv_bin,
                         testing::Combine(testing::ValuesIn(csrilusv_idxbase_range),
                                          testing::ValuesIn(csrilusv_analysis_range),

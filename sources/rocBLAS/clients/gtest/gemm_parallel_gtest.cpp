@@ -1,23 +1,23 @@
 /* ************************************************************************
- * Copyright 2018 Advanced Micro Devices, Inc.
+ * Copyright 2018-2019 Advanced Micro Devices, Inc.
  * ************************************************************************ */
 
 #include "rocblas_data.hpp"
-#include "testing_gemm_parallel.hpp"
 #include "testing_gemm.hpp"
-#include <unordered_map>
+#include "testing_gemm_parallel.hpp"
 #include <algorithm>
-#include <list>
 #include <future>
+#include <list>
 #include <thread>
+#include <unordered_map>
 //#include <omp.h>
 
 /* =====================================================================
      BLAS-3 GEMM:
    =================================================================== */
 
-namespace {
-
+namespace
+{
 #if 0 // TODO: Need to refactor into new framework; currently disabled because of HIP bug
 
 // Parallel GEMM testing class
