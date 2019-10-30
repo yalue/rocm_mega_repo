@@ -136,7 +136,7 @@ if (defined $HIP_VDI_HOME) {
 if (defined $HIP_COMPILER and $HIP_COMPILER eq "clang") {
   $HIP_PLATFORM = "clang";
   if (!defined $HIP_CLANG_PATH) {
-    $HIP_CLANG_PATH = "/opt/rocm/llvm/bin";
+    $HIP_CLANG_PATH = "/opt/rocm/bin";
   }
   if (!defined $DEVICE_LIB_PATH) {
     $DEVICE_LIB_PATH = "/opt/rocm/lib";
