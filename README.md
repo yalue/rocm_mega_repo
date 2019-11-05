@@ -1,5 +1,14 @@
+The ROCm Mega Repo
+==================
+
+This repository contains a copy of the entire ROCm stack, minus kernel
+components, sufficient to run HIP programs. The objective of this is to
+simplify the process of obtaining and compiling a standalone version of the
+entire ROCm stack from source, with few to no changes requiring administrator
+access.
+
 About
-=====
+-----
 
 This contains all of the ROCm 2.9 source code, as downloaded by the repo tool.
 The source code was downloaded as follows:
@@ -18,7 +27,7 @@ find . -type d -name *.git -exec rm -rf {} \;
 I made a few small modifications to the files. There may be more of them, but
 from what I remember, they are as follows:
 
- - I modified the `hipcc` script to change the LLVM path. (Other hardcoded
+ - I modified the `hipcc` script to change the LLVM path. Other hardcoded
    paths in this script will be updated by `install.sh`.
 
  - I changed some `CMakeLists.txt` files to specify C++14 explicitly.
@@ -91,7 +100,9 @@ script:
     If the above steps worked correctly, you should have a file at
     `/etc/ld.so.conf.d/ROCm.conf` containing two lines--a path to the
     `<...>/install/lib` directory, and a path to the `<...>/install/hsa/lib`
-    directories.
+    directories. Alternatively, you can add these paths to the
+    `LD_LIBRARY_PATH` environment variable using the means of your choice, for
+    example if you want to avoid requiring administrator access.
 
 Uninstallation
 --------------

@@ -821,6 +821,10 @@ hipError_t hipStreamWaitEvent(hipStream_t stream, hipEvent_t event, unsigned int
  */
 hipError_t hipStreamGetFlags(hipStream_t stream, unsigned int* flags);
 
+/**
+ * Sets the compute unit mask associated with this stream's queue.
+ */
+hipError_t hipStreamSetComputeUnitMask(hipStream_t stream, uint64_t mask);
 
 /**
  * @brief Query the priority of a stream.
