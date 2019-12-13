@@ -48,13 +48,19 @@ out_uptodate()
     done
 }
 
-HCC=/opt/rocm/hcc/bin/hcc
+if [ -z "$ROCM_PATH" ] ; then
+	echo "Warning: The modified header_compilation_tests.sh script expects "
+	echo "the ROCM_PATH environment variable to be set. Using /opt/rocm."
+	ROCM_PATH="/opt/rocm"
+fi;
 
-HCC_OPTS="-Werror -DBUILD_WITH_TENSILE=1 -DTensile_RUNTIME_LANGUAGE_HIP=1 -DTensile_RUNTIME_LANGUAGE_OCL=0 -Drocblas_EXPORTS -I$(realpath library/include) -I$(realpath library/src/include) -I$(realpath build/release/include) -I$(realpath library/src/blas3/Tensile) -isystem /opt/rocm/hip/include -isystem /opt/rocm/hsa/include -isystem /opt/rocm/hcc/include -isystem /opt/rocm/include -I$(realpath build/release/Tensile) -O3 -DNDEBUG -fPIC -fvisibility=hidden -fvisibility-inlines-hidden -Wno-unused-command-line-argument"
+HCC=$ROCM_PATH/hcc_home/bin/hcc
+
+HCC_OPTS="-Werror -DBUILD_WITH_TENSILE=1 -DTensile_RUNTIME_LANGUAGE_HIP=1 -DTensile_RUNTIME_LANGUAGE_OCL=0 -Drocblas_EXPORTS -I$(realpath library/include) -I$(realpath library/src/include) -I$(realpath build/release/include) -I$(realpath library/src/blas3/Tensile) -isystem $ROCM_PATH/include -isystem $ROCM_PATH/hsa/include -isystem $ROCM_PATH/hcc_home/include -I$(realpath build/release/Tensile) -O3 -DNDEBUG -fPIC -fvisibility=hidden -fvisibility-inlines-hidden -Wno-unused-command-line-argument"
 
 GPU_OPTS="-hc -fno-gpu-rdc --amdgpu-target=gfx803 --amdgpu-target=gfx900 --amdgpu-target=gfx906 -Werror"
 
-CLANG=/opt/rocm/llvm/bin/clang
+CLANG=$ROCM_PATH/install/bin/clang
 CLANG_OPTS="-xc-header -std=c99 -D__HIP_PLATFORM_HCC__"
 
 C99="$HCC -xc-header -std=c99"

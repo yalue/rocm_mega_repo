@@ -162,6 +162,46 @@ cd $ROCM_INSTALL_DIR/..
 # Fix some hardcoded paths in the hipcc script.
 sed -i 's@/opt/rocm@'"$ROCM_INSTALL_DIR"'@g' $ROCM_INSTALL_DIR/bin/hipcc
 
+echo -e "\nInstalling rocRAND\n"
+cd sources/rocRAND
+rm -r build
+mkdir build
+cd build
+cmake \
+	-DCMAKE_INSTALL_PREFIX=$ROCM_INSTALL_DIR \
+	-DHIP_PLATFORM=hcc \
+	-DBUILD_TEST=OFF \
+	-DCMAKE_CXX_COMPILER=$ROCM_INSTALL_DIR/bin/hipcc \
+	..
+make
+make install
+cd $ROCM_INSTALL_DIR/..
+
+cd sources/rocBLAS
+rm -r build
+mkdir -p build/release
+cd build/release
+# NOTE: This cmake command may take a while to complete--it takes about 10
+# minutes on my machine.
+CXX=$ROCM_INSTALL_DIR/hcc_home/bin/hcc \
+TENSILE_ROCM_ASSEMBLER_PATH=$ROCM_INSTALL_DIR/hcc_home/bin/hcc \
+	cmake \
+	-DCMAKE_INSTALL_PREFIX=$ROCM_INSTALL_DIR \
+	-DCMAKE_PREFIX_PATH=$ROCM_INSTALL_DIR \
+	-DTensile_LOGIC=hip_lite \
+	-DTensile_COMPILER=hipcc \
+	-DTensile_CODE_OBJECT_VERSION=V2 \
+	-DCMAKE_BUILD_TYPE=Release \
+	../..
+# I modified a script in rocBLAS so that it uses a ROCM_PATH environment
+# variable rather than a hardcoded path to /opt/rocm. Also be aware that this
+# compilation may be very memory-hungry; one of the Tensile files is auto-
+# generated and includes hundreds of thousands to millions of lines of code,
+# depending on if you modified the above cmake command.
+ROCM_PATH=$ROCM_INSTALL_DIR make
+make install
+cd $ROCM_INSTALL_DIR/..
+
 echo "Installation complete!"
 echo ""
 echo "After checking for errors, make sure the following environment variables"
