@@ -54,9 +54,9 @@ if [ -z "$ROCM_PATH" ] ; then
 	ROCM_PATH="/opt/rocm"
 fi;
 
-HCC=$ROCM_PATH/hcc_home/bin/hcc
+HCC=$ROCM_PATH/bin/hcc
 
-HCC_OPTS="-Werror -DBUILD_WITH_TENSILE=1 -DTensile_RUNTIME_LANGUAGE_HIP=1 -DTensile_RUNTIME_LANGUAGE_OCL=0 -Drocblas_EXPORTS -I$(realpath library/include) -I$(realpath library/src/include) -I$(realpath build/release/include) -I$(realpath library/src/blas3/Tensile) -isystem $ROCM_PATH/include -isystem $ROCM_PATH/hsa/include -isystem $ROCM_PATH/hcc_home/include -I$(realpath build/release/Tensile) -O3 -DNDEBUG -fPIC -fvisibility=hidden -fvisibility-inlines-hidden -Wno-unused-command-line-argument"
+HCC_OPTS="-Werror -DBUILD_WITH_TENSILE=1 -DTensile_RUNTIME_LANGUAGE_HIP=1 -DTensile_RUNTIME_LANGUAGE_OCL=0 -Drocblas_EXPORTS -I$(realpath library/include) -I$(realpath library/src/include) -I$(realpath build/release/include) -I$(realpath library/src/blas3/Tensile) -isystem $ROCM_PATH/include -isystem $ROCM_PATH/hsa/include -isystem $ROCM_PATH/llvm/include -I$(realpath build/release/Tensile) -O3 -DNDEBUG -fPIC -fvisibility=hidden -fvisibility-inlines-hidden -Wno-unused-command-line-argument"
 
 GPU_OPTS="-hc -fno-gpu-rdc --amdgpu-target=gfx803 --amdgpu-target=gfx900 --amdgpu-target=gfx906 -Werror"
 

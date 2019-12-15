@@ -3,9 +3,9 @@
 set -e
  
 OPENCL_ROOT=@OPENCL_ROOT@
-BITCODE_DIR=${OPENCL_ROOT}/lib/x86_64/bitcode
-CLANG=${OPENCL_ROOT}/bin/x86_64/clang
-LLVM_LINK=${OPENCL_ROOT}/bin/x86_64/llvm-link
+BITCODE_DIR=${OPENCL_ROOT}/lib
+CLANG=${OPENCL_ROOT}/bin/hipcc
+LLVM_LINK=${OPENCL_ROOT}/bin/llvm-link
 
 TRIPLE=@TRIPLE@
 
