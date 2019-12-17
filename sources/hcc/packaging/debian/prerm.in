@@ -1,0 +1,61 @@
+#!/bin/bash
+
+set -e
+
+PACKAGE_NAME=@PACKAGE_NAME@
+INSTALL_PATH=@INSTALL_PATH@
+LIBRARY_DIR=@LIBRARY_DIR@
+PROCESSOR=@PROCESSOR@
+HCC_LIB_VERSION_MAJOR=@HCC_LIB_VERSION_MAJOR@
+HCC_LIB_VERSION_STRING=@HCC_LIB_VERSION_STRING@
+ROCM_INSTALL_PREFIX=@ROCM_INSTALL_PREFIX@
+
+ROCM_PATH=${ROCM_INSTALL_PREFIX}
+
+# TODO: NOTE: if you modify this table, also update the same table in postinst
+SOFTLINKS=(
+# <SOURCE DIRECTORY> <DESTINATION DIRECTORY> <FILE>
+  "bin" "bin" "clamp-config"
+  "bin" "bin" "extractkernel"
+  "bin" "bin" "hcc"
+  "bin" "bin" "hcc-config"
+  "$LIBRARY_DIR" "lib" "libhc_am.so"
+  "$LIBRARY_DIR" "lib" "libhc_am.so.${HCC_LIB_VERSION_MAJOR}"
+  "$LIBRARY_DIR" "lib" "libhc_am.so.${HCC_LIB_VERSION_STRING}"
+  "$LIBRARY_DIR" "lib" "libmcwamp.so"
+  "$LIBRARY_DIR" "lib" "libmcwamp.so.${HCC_LIB_VERSION_MAJOR}"
+  "$LIBRARY_DIR" "lib" "libmcwamp.so.${HCC_LIB_VERSION_STRING}"
+  "$LIBRARY_DIR" "lib" "libmcwamp_cpu.so"
+  "$LIBRARY_DIR" "lib" "libmcwamp_cpu.so.${HCC_LIB_VERSION_MAJOR}"
+  "$LIBRARY_DIR" "lib" "libmcwamp_cpu.so.${HCC_LIB_VERSION_STRING}"
+  "$LIBRARY_DIR" "lib" "libmcwamp_hsa.so"
+  "$LIBRARY_DIR" "lib" "libmcwamp_hsa.so.${HCC_LIB_VERSION_MAJOR}"
+  "$LIBRARY_DIR" "lib" "libmcwamp_hsa.so.${HCC_LIB_VERSION_STRING}"
+  "$LIBRARY_DIR" "lib" "libclang_rt.builtins-${PROCESSOR}.a"
+)
+
+remove_all_softlinks() {
+
+  rm -f $INSTALL_PATH/include/hcc
+
+  for (( i=0; i<${#SOFTLINKS[@]}; i+=3 ))
+  do
+    SOURCE_DIR=${SOFTLINKS[i]}
+    DEST_DIR=${SOFTLINKS[i+1]}
+    FILE=${SOFTLINKS[i+2]}
+
+    rm -f  $ROCM_PATH/$DEST_DIR/$FILE
+  done
+  rm -f $ROCM_PATH/include/hcc
+  rm -f $ROCM_PATH/lib/cmake/hcc
+
+  rmdir --ignore-fail-on-non-empty $ROCM_PATH/lib
+  rmdir --ignore-fail-on-non-empty $ROCM_PATH/lib/cmake
+  rmdir --ignore-fail-on-non-empty $ROCM_PATH/include
+  rmdir --ignore-fail-on-non-empty $ROCM_PATH/bin
+  rmdir --ignore-fail-on-non-empty $ROCM_PATH
+}
+
+if [ $1 == "remove" ] || [ $1 == "purge" ] || [ $1 == "upgrade" ] || [ "$1" -eq "0" ] ; then
+  remove_all_softlinks
+fi
