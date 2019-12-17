@@ -91,10 +91,6 @@ struct Bundled_code {
 
 #define magic_string_  "__CLANG_OFFLOAD_BUNDLE__"
 
-#ifdef __GNUC__
-#pragma GCC visibility push (default)
-#endif
-
 class Bundled_code_header {
     // DATA - STATICS
     static constexpr auto magic_string_sz_ = sizeof(magic_string_) - 1;
@@ -175,10 +171,6 @@ class Bundled_code_header {
 
     size_t bundled_code_size = 0;
 };
-
-#ifdef __GNUC__
-#pragma GCC visibility pop
-#endif
 
 // CREATORS
 template <typename RandomAccessIterator>

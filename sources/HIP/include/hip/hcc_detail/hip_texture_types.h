@@ -45,15 +45,10 @@ THE SOFTWARE.
  *                                                                              *
  *                                                                              *
  *******************************************************************************/
-#if __HIP__
-#define __HIP_TEXTURE_ATTRIB __attribute__((device_builtin_texture_type))
-#else
-#define __HIP_TEXTURE_ATTRIB
-#endif
 
 template <class T, int texType = hipTextureType1D,
           enum hipTextureReadMode mode = hipReadModeElementType>
-struct __HIP_TEXTURE_ATTRIB texture : public textureReference {
+struct texture : public textureReference {
     texture(int norm = 0, enum hipTextureFilterMode fMode = hipFilterModePoint,
             enum hipTextureAddressMode aMode = hipAddressModeClamp) {
         normalized = norm;

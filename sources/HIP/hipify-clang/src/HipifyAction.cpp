@@ -25,7 +25,6 @@ THE SOFTWARE.
 #include "clang/Frontend/CompilerInstance.h"
 #include "clang/ASTMatchers/ASTMatchFinder.h"
 #include "clang/ASTMatchers/ASTMatchers.h"
-#include "clang/Lex/HeaderSearch.h"
 #include "LLVMCompat.h"
 #include "CUDA2HIP.h"
 #include "StringUtils.h"
@@ -67,6 +66,7 @@ void HipifyAction::RewriteString(StringRef s, clang::SourceLocation start) {
   * Otherwise, the source file is updated with the corresponding hipification.
   */
 void HipifyAction::RewriteToken(const clang::Token& t) {
+  clang::SourceManager& SM = getCompilerInstance().getSourceManager();
   // String literals containing CUDA references need fixing.
   if (t.is(clang::tok::string_literal)) {
     StringRef s(t.getLiteralData(), t.getLength());
@@ -77,19 +77,13 @@ void HipifyAction::RewriteToken(const clang::Token& t) {
     return;
   }
   StringRef name = t.getRawIdentifier();
-  clang::SourceLocation sl = t.getLocation();
-  FindAndReplace(name, sl, CUDA_RENAMES_MAP());
-}
-
-void HipifyAction::FindAndReplace(llvm::StringRef name,
-                                  clang::SourceLocation sl,
-                                  const std::map<llvm::StringRef, hipCounter>& repMap) {
-  const auto found = repMap.find(name);
-  if (found == repMap.end()) {
+  const auto found = CUDA_RENAMES_MAP().find(name);
+  if (found == CUDA_RENAMES_MAP().end()) {
     // So it's an identifier, but not CUDA? Boring.
     return;
   }
   Statistics::current().incrementCounter(found->second, name.str());
+  clang::SourceLocation sl = t.getLocation();
   clang::DiagnosticsEngine& DE = getCompilerInstance().getDiagnostics();
   // Warn the user about unsupported identifier.
   if (Statistics::isUnsupported(found->second)) {
@@ -101,7 +95,6 @@ void HipifyAction::FindAndReplace(llvm::StringRef name,
     return;
   }
   StringRef repName = Statistics::isToRoc(found->second) ? found->second.rocName : found->second.hipName;
-  clang::SourceManager& SM = getCompilerInstance().getSourceManager();
   ct::Replacement Rep(SM, sl, name.size(), repName.str());
   clang::FullSourceLoc fullSL(sl, SM);
   insertReplacement(Rep, fullSL);
@@ -196,9 +189,6 @@ bool HipifyAction::Exclude(const hipCounter & hipToken) {
       }
       return false;
     case CONV_INCLUDE:
-      if (hipToken.hipName.empty()) {
-        return true;
-      }
       switch (hipToken.apiType) {
         case API_RAND:
           if (hipToken.hipName == "hiprand_kernel.h") {
@@ -274,12 +264,11 @@ void HipifyAction::PragmaDirective(clang::SourceLocation Loc, clang::PragmaIntro
     return;
   }
   clang::Preprocessor& PP = getCompilerInstance().getPreprocessor();
-  clang::Token tok;
-  PP.Lex(tok);
+  const clang::Token tok = PP.LookAhead(0);
   StringRef Text(SM.getCharacterData(tok.getLocation()), tok.getLength());
   if (Text == "once") {
     pragmaOnce = true;
-    pragmaOnceLoc = tok.getEndLoc();
+    pragmaOnceLoc = PP.LookAhead(1).getLocation();
   }
 }
 
@@ -363,7 +352,7 @@ bool HipifyAction::cudaSharedIncompleteArrayVar(const clang::ast_matchers::Match
   }
 
   if (!typeName.empty()) {
-    clang::SourceLocation slStart = sharedVar->getOuterLocStart();
+    clang::SourceLocation slStart = llcompat::getBeginLoc(sharedVar->getTypeSourceInfo()->getTypeLoc());
     clang::SourceLocation slEnd = llcompat::getEndLoc(sharedVar->getTypeSourceInfo()->getTypeLoc());
     clang::SourceManager* SM = Result.SourceManager;
     size_t repLength = SM->getCharacterData(slEnd) - SM->getCharacterData(slStart) + 1;
@@ -374,14 +363,6 @@ bool HipifyAction::cudaSharedIncompleteArrayVar(const clang::ast_matchers::Match
     insertReplacement(Rep, fullSL);
     hipCounter counter = {"HIP_DYNAMIC_SHARED", "", ConvTypes::CONV_MEMORY, ApiTypes::API_RUNTIME};
     Statistics::current().incrementCounter(counter, refName.str());
-  }
-  return true;
-}
-
-bool HipifyAction::cudaDeviceFuncCall(const clang::ast_matchers::MatchFinder::MatchResult& Result) {
-  if (const clang::CallExpr *call = Result.Nodes.getNodeAs<clang::CallExpr>("cudaDeviceFuncCall")) {
-    const clang::FunctionDecl *funcDcl = call->getDirectCallee();
-    FindAndReplace(funcDcl->getDeclName().getAsString(), llcompat::getBeginLoc(call), CUDA_DEVICE_FUNC_MAP);
   }
   return true;
 }
@@ -409,32 +390,8 @@ std::unique_ptr<clang::ASTConsumer> HipifyAction::CreateASTConsumer(clang::Compi
     ).bind("cudaSharedIncompleteArrayVar"),
     this
   );
-  Finder->addMatcher(
-    mat::callExpr(
-      mat::isExpansionInMainFile(),
-      mat::callee(
-        mat::functionDecl(
-          mat::anyOf(
-            mat::hasAttr(clang::attr::CUDADevice),
-            mat::hasAttr(clang::attr::CUDAGlobal)
-          ),
-          mat::unless(mat::hasAttr(clang::attr::CUDAHost))
-        )
-      )
-    ).bind("cudaDeviceFuncCall"),
-    this
-  );
-  // Ownership is transferred to the caller.
+  // Ownership is transferred to the caller...
   return Finder->newASTConsumer();
-}
-
-void HipifyAction::Ifndef(clang::SourceLocation Loc, const clang::Token &MacroNameTok, const clang::MacroDefinition &MD) {
-  clang::SourceManager& SM = getCompilerInstance().getSourceManager();
-  if (!SM.isWrittenInMainFile(Loc)) {
-    return;
-  }
-  StringRef Text(SM.getCharacterData(MacroNameTok.getLocation()), MacroNameTok.getLength());
-  Ifndefs.insert(std::make_pair(Text.str(), MacroNameTok.getEndLoc()));
 }
 
 void HipifyAction::EndSourceFileAction() {
@@ -443,35 +400,14 @@ void HipifyAction::EndSourceFileAction() {
     // It's not sufficient to just replace CUDA headers with hip ones, because numerous CUDA headers are
     // implicitly included by the compiler. Instead, we _delete_ CUDA headers, and unconditionally insert
     // one copy of the hip include into every file.
-    bool placeForIncludeCalculated = false;
-    clang::SourceLocation sl, controllingMacroLoc;
     clang::SourceManager& SM = getCompilerInstance().getSourceManager();
-    clang::Preprocessor& PP = getCompilerInstance().getPreprocessor();
-    clang::HeaderSearch& HS = PP.getHeaderSearchInfo();
-    clang::ExternalPreprocessorSource* EPL = HS.getExternalLookup();
-    const clang::FileEntry* FE = SM.getFileEntryForID(SM.getMainFileID());
-    const clang::IdentifierInfo* controllingMacro = HS.getFileInfo(FE).getControllingMacro(EPL);
-    if (controllingMacro) {
-      auto found = Ifndefs.find(controllingMacro->getName().str());
-      if (found != Ifndefs.end()) {
-        controllingMacroLoc = found->second;
-        placeForIncludeCalculated = true;
-      }
-    }
+    clang::SourceLocation sl;
     if (pragmaOnce) {
-      if (placeForIncludeCalculated) {
-        sl = pragmaOnceLoc < controllingMacroLoc ? pragmaOnceLoc : controllingMacroLoc;
-      } else {
-        sl = pragmaOnceLoc;
-      }
-      placeForIncludeCalculated = true;
-    }
-    if (!placeForIncludeCalculated) {
-      if (firstHeader) {
-        sl = firstHeaderLoc;
-      } else {
-        sl = SM.getLocForStartOfFile(SM.getMainFileID());
-      }
+      sl = pragmaOnceLoc;
+    } else if (firstHeader) {
+      sl = firstHeaderLoc;
+    } else {
+      sl = SM.getLocForStartOfFile(SM.getMainFileID());
     }
     clang::FullSourceLoc fullSL(sl, SM);
     ct::Replacement Rep(SM, sl, 0, "\n#include <hip/hip_runtime.h>\n");
@@ -505,17 +441,8 @@ public:
   void PragmaDirective(clang::SourceLocation Loc, clang::PragmaIntroducerKind Introducer) override {
     hipifyAction.PragmaDirective(Loc, Introducer);
   }
-
-  void Ifndef(clang::SourceLocation Loc, const clang::Token &MacroNameTok, const clang::MacroDefinition &MD) override {
-    hipifyAction.Ifndef(Loc, MacroNameTok, MD);
-  }
 };
 
-}
-
-bool HipifyAction::BeginInvocation(clang::CompilerInstance &CI) {
-  llcompat::RetainExcludedConditionalBlocks(CI);
-  return true;
 }
 
 void HipifyAction::ExecuteAction() {
@@ -546,5 +473,4 @@ void HipifyAction::ExecuteAction() {
 void HipifyAction::run(const clang::ast_matchers::MatchFinder::MatchResult& Result) {
   if (cudaLaunchKernel(Result)) return;
   if (cudaSharedIncompleteArrayVar(Result)) return;
-  if (cudaDeviceFuncCall(Result)) return;
 }

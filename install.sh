@@ -139,6 +139,8 @@ cmake \
 	-DCMAKE_INSTALL_PREFIX=$ROCM_INSTALL_DIR \
 	-DCMAKE_BUILD_TYPE=Release \
 	-DHSA_AMDGPU_GPU_TARGET="gfx803;gfx900" \
+	-DROCM_ROOT=$ROCM_INSTALL_DIR \
+	-DROCM_INSTALL_PATH=$ROCM_INSTALL_DIR \
 	..
 make -j6
 make -j6 install
@@ -187,13 +189,11 @@ mkdir -p build/release
 cd build/release
 # NOTE: This cmake command may take a while to complete--it takes about 10
 # minutes on my machine.
-CXX=hipcc \
-TENSILE_ROCM_ASSEMBLER_PATH=$ROCM_INSTALL_DIR/bin/hcc \
-	cmake \
+CXX=hipcc cmake \
 	-DCMAKE_INSTALL_PREFIX=$ROCM_INSTALL_DIR \
-	-DCMAKE_PREFIX_PATH="$ROCM_INSTALL_DIR;$ROCM_INSTALL_DIR/llvm" \
+	-DCMAKE_PREFIX_PATH="$ROCM_INSTALL_DIR" \
 	-DTensile_LOGIC=hip_lite \
-	-DTensile_COMPILER=hipcc \
+	-DTensile_COMPILER=hcc \
 	-DTensile_CODE_OBJECT_VERSION=V2 \
 	-DCMAKE_BUILD_TYPE=Release \
 	../..
@@ -205,6 +205,7 @@ TENSILE_ROCM_ASSEMBLER_PATH=$ROCM_INSTALL_DIR/bin/hcc \
 ROCM_PATH=$ROCM_INSTALL_DIR make
 make install
 cd $ROCM_INSTALL_DIR/..
+CXX=hipcc    cmake         -DCMAKE_INSTALL_PREFIX=$ROCM_INSTALL_DIR         -DCMAKE_PREFIX_PATH="$ROCM_INSTALL_DIR"         -DTensile_LOGIC=hip_lite         -DTensile_COMPILER=hcc         -DTensile_CODE_OBJECT_VERSION=V2         -DCMAKE_BUILD_TYPE=Release         ../..
 
 echo -e "\nInstalling clang-ocl\n"
 cd sources/clang-ocl

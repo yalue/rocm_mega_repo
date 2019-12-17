@@ -48,7 +48,7 @@ enum queue_priority
 #endif
 
 //---
-hipError_t ihipStreamCreate(TlsData *tls, hipStream_t* stream, unsigned int flags, int priority) {
+hipError_t ihipStreamCreate(hipStream_t* stream, unsigned int flags, int priority) {
     ihipCtx_t* ctx = ihipGetTlsDefaultCtx();
 
     hipError_t e = hipSuccess;
@@ -56,8 +56,6 @@ hipError_t ihipStreamCreate(TlsData *tls, hipStream_t* stream, unsigned int flag
     if (ctx) {
         if (HIP_FORCE_NULL_STREAM) {
             *stream = 0;
-        } else if( NULL == stream ){
-            e = hipErrorInvalidValue;
         } else {
             hc::accelerator acc = ctx->getWriteableDevice()->_acc;
 
@@ -67,7 +65,7 @@ hipError_t ihipStreamCreate(TlsData *tls, hipStream_t* stream, unsigned int flag
             // CUDA stream behavior is that all kernels submitted will automatically
             // wait for prev to complete, this behaviour will be mainatined by 
             // hipModuleLaunchKernel. execute_any_order will help 
-	    // hipExtModuleLaunchKernel , which uses a special flag
+            // hipExtModuleLaunchKernel , which uses a special flag
 
             {
                 // Obtain mutex access to the device critical data, release by destructor
@@ -82,9 +80,9 @@ hipError_t ihipStreamCreate(TlsData *tls, hipStream_t* stream, unsigned int flag
                 ctxCrit->addStream(istream);
                 *stream = istream;
             }
-            tprintf(DB_SYNC, "hipStreamCreate, %s\n", ToString(*stream).c_str());
         }
 
+        tprintf(DB_SYNC, "hipStreamCreate, %s\n", ToString(*stream).c_str());
     } else {
         e = hipErrorInvalidDevice;
     }
@@ -96,17 +94,15 @@ hipError_t ihipStreamCreate(TlsData *tls, hipStream_t* stream, unsigned int flag
 //---
 hipError_t hipStreamCreateWithFlags(hipStream_t* stream, unsigned int flags) {
     HIP_INIT_API(hipStreamCreateWithFlags, stream, flags);
-    if(flags == hipStreamDefault || flags == hipStreamNonBlocking)
-        return ihipLogStatus(ihipStreamCreate(tls, stream, flags, priority_normal));
-    else
-        return ihipLogStatus(hipErrorInvalidValue);
+
+    return ihipLogStatus(ihipStreamCreate(stream, flags, priority_normal));
 }
 
 //---
 hipError_t hipStreamCreate(hipStream_t* stream) {
     HIP_INIT_API(hipStreamCreate, stream);
 
-    return ihipLogStatus(ihipStreamCreate(tls, stream, hipStreamDefault, priority_normal));
+    return ihipLogStatus(ihipStreamCreate(stream, hipStreamDefault, priority_normal));
 }
 
 //---
@@ -115,7 +111,7 @@ hipError_t hipStreamCreateWithPriority(hipStream_t* stream, unsigned int flags, 
 
     // clamp priority to range [priority_high:priority_low]
     priority = (priority < priority_high ? priority_high : (priority > priority_low ? priority_low : priority));
-    return ihipLogStatus(ihipStreamCreate(tls, stream, flags, priority));
+    return ihipLogStatus(ihipStreamCreate(stream, flags, priority));
 }
 
 //---
@@ -132,24 +128,25 @@ hipError_t hipStreamWaitEvent(hipStream_t stream, hipEvent_t event, unsigned int
 
     hipError_t e = hipSuccess;
 
+    auto ecd = event->locked_copyCrit();
+
     if (event == nullptr) {
         e = hipErrorInvalidResourceHandle;
 
-    } else {
-        auto ecd = event->locked_copyCrit(); 
-        if ((ecd._state != hipEventStatusUnitialized) && (ecd._state != hipEventStatusCreated)) {
-            if (HIP_SYNC_STREAM_WAIT || (HIP_SYNC_NULL_STREAM && (stream == 0))) {
-                // conservative wait on host for the specified event to complete:
-                // return _stream->locked_eventWaitComplete(this, waitMode);
-                //
-                ecd.marker().wait((event->_flags & hipEventBlockingSync) ? hc::hcWaitModeBlocked
-                                                                         : hc::hcWaitModeActive);
-            } else {
-                stream = ihipSyncAndResolveStream(stream);
-                // This will use create_blocking_marker to wait on the specified queue.
-                stream->locked_streamWaitEvent(ecd);
-            }
+    } else if ((ecd._state != hipEventStatusUnitialized) && (ecd._state != hipEventStatusCreated)) {
+        if (HIP_SYNC_STREAM_WAIT || (HIP_SYNC_NULL_STREAM && (stream == 0))) {
+            // conservative wait on host for the specified event to complete:
+            // return _stream->locked_eventWaitComplete(this, waitMode);
+            //
+            ecd._stream->locked_eventWaitComplete(
+                ecd.marker(), (event->_flags & hipEventBlockingSync) ? hc::hcWaitModeBlocked
+                                                                     : hc::hcWaitModeActive);
+        } else {
+            stream = ihipSyncAndResolveStream(stream);
+            // This will use create_blocking_marker to wait on the specified queue.
+            stream->locked_streamWaitEvent(ecd);
         }
+
     }  // else event not recorded, return immediately and don't create marker.
 
     return ihipLogStatus(e);
@@ -183,7 +180,7 @@ hipError_t hipStreamQuery(hipStream_t stream) {
 hipError_t hipStreamSynchronize(hipStream_t stream) {
     HIP_INIT_SPECIAL_API(hipStreamSynchronize, TRACE_SYNC, stream);
 
-    return ihipLogStatus(ihipStreamSynchronize(tls, stream));
+    return ihipLogStatus(ihipStreamSynchronize(stream));
 }
 
 
@@ -251,6 +248,7 @@ hipError_t hipStreamSetComputeUnitMask(hipStream_t stream, uint64_t mask) {
   return ihipLogStatus(hipSuccess);
 }
 
+
 //--
 hipError_t hipStreamGetPriority(hipStream_t stream, int* priority) {
     HIP_INIT_API(hipStreamGetPriority, stream, priority);
@@ -263,7 +261,7 @@ hipError_t hipStreamGetPriority(hipStream_t stream, int* priority) {
 #if defined(__HCC__) && (__hcc_minor__ < 3)
         *priority = 0;
 #else
-        LockedAccessor_StreamCrit_t crit(stream->criticalData());
+        LockedAccessor_StreamCrit_t crit(stream->_criticalData);
         *priority = crit->_av.get_queue_priority();
 #endif
         return ihipLogStatus(hipSuccess);

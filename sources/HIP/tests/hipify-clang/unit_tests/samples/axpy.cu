@@ -19,8 +19,6 @@ __global__ void axpy(T a, T *x, T *y) {
   y[threadIdx.x] = a * x[threadIdx.x];
 }
 
-__global__ void empty() {
-}
 
 int main(int argc, char* argv[]) {
   const int kDataLen = 4;
@@ -65,15 +63,6 @@ int main(int argc, char* argv[]) {
 
   // CHECK: hipLaunchKernelGGL(axpy<float>, dim3(1), dim3(kDataLen), 0, 0, ARG_LIST_AS_MACRO);
   KERNEL_CALL_AS_MACRO(ARG_LIST_AS_MACRO);
-
-  // CHECK: hipLaunchKernelGGL(empty, dim3(1), dim3(kDataLen), 0, 0);
-  empty<<<1, kDataLen>>> ( );
-
-  // CHECK: hipLaunchKernelGGL(empty, dim3(1), dim3(kDataLen), 0, 0);
-  empty<<<1, kDataLen, 0>>>();
-
-  // CHECK: hipLaunchKernelGGL(empty, dim3(1), dim3(kDataLen), 0, 0);
-  empty<<<1, kDataLen, 0, 0>>>();
 
   // CHECK: COMPLETE_LAUNCH;
   COMPLETE_LAUNCH;

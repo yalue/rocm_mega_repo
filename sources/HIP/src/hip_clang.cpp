@@ -29,10 +29,6 @@ THE SOFTWARE.
 #include "hip_fatbin.h"
 #include "trace_helper.h"
 
-#ifdef __GNUC__
-#pragma GCC visibility push (default)
-#endif
-
 extern "C" std::vector<hipModule_t>*
 __hipRegisterFatBinary(const void* data)
 {
@@ -181,7 +177,6 @@ hipError_t hipConfigureCall(
   size_t sharedMem,
   hipStream_t stream)
 {
-  GET_TLS();
   auto ctx = ihipGetTlsDefaultCtx();
   LockedAccessor_CtxCrit_t crit(ctx->criticalData());
 
@@ -253,6 +248,4 @@ hipError_t hipLaunchByPtr(const void *hostFunction)
 
   return ihipLogStatus(e);
 }
-#ifdef __GNUC__
-#pragma GCC visibility pop
-#endif
+

@@ -30,33 +30,41 @@ THE SOFTWARE.
 #include <cstddef>
 #include <cstdint>
 #include <cstdlib>
-
-#include <hip/hip_common.h>
+#include <stdexcept>
+#include <string>
+#include <unordered_map>
+#include <vector>
 
 struct ihipModuleSymbol_t;
 using hipFunction_t = ihipModuleSymbol_t*;
 
+namespace std {
+template<>
+struct hash<hsa_agent_t> {
+    size_t operator()(hsa_agent_t x) const {
+        return hash<decltype(x.handle)>{}(x.handle);
+    }
+};
+
+template<>
+struct hash<hsa_isa_t> {
+    size_t operator()(hsa_isa_t x) const {
+        return hash<decltype(x.handle)>{}(x.handle);
+    }
+};
+}  // namespace std
+
+inline constexpr bool operator==(hsa_agent_t x, hsa_agent_t y) {
+    return x.handle == y.handle;
+}
+inline constexpr bool operator==(hsa_isa_t x, hsa_isa_t y) {
+    return x.handle == y.handle;
+}
+
 namespace hip_impl {
 
-// This section contains internal APIs that
-// needs to be exported
-#ifdef __GNUC__
-#pragma GCC visibility push (default)
-#endif
-
-struct kernarg_impl;
-class kernarg {
-public:
-    kernarg();
-    kernarg(kernarg&&);
-    ~kernarg();
-    std::uint8_t* data();
-    std::size_t   size();
-    void reserve(std::size_t);
-    void resize(std::size_t);
-private:
-    kernarg_impl* impl;
-};
+[[noreturn]]
+void hip_throw(const std::exception&);
 
 class kernargs_size_align;
 class program_state_impl;
@@ -64,11 +72,10 @@ class program_state {
 public:
     program_state();
     ~program_state();
-    program_state(const program_state&) = delete;
 
     hipFunction_t kernel_descriptor(std::uintptr_t,
                                     hsa_agent_t);
-
+    
     kernargs_size_align get_kernargs_size_align(std::uintptr_t);
     hsa_executable_t load_executable(const char*, const size_t,
                                      hsa_executable_t,
@@ -76,8 +83,12 @@ public:
 
     void* global_addr_by_name(const char* name);
 
+    // to fix later
+    const std::vector<hsa_executable_t>& executables(hsa_agent_t agent);
+
+    program_state(const program_state&) = delete;
+
 private:
-    friend class agent_globals_impl;
     program_state_impl* impl;
 };
 
@@ -85,15 +96,10 @@ class kernargs_size_align {
 public:
     std::size_t size(std::size_t n) const;
     std::size_t alignment(std::size_t n) const;
-    const void* getHandle() const {return handle;};
 private:
     const void* handle;
     friend kernargs_size_align program_state::get_kernargs_size_align(std::uintptr_t);
 };
-
-#ifdef __GNUC__
-#pragma GCC visibility pop
-#endif
 
 inline
 __attribute__((visibility("hidden")))

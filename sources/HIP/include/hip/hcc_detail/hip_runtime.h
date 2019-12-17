@@ -206,15 +206,12 @@ class Coordinates {
 
     struct X {
         __device__ operator R() const { return f(0); }
-        __device__ uint32_t operator=(R _) { return f(0); }
     };
     struct Y {
         __device__ operator R() const { return f(1); }
-        __device__ uint32_t operator=(R _) { return f(1); }
     };
     struct Z {
         __device__ operator R() const { return f(2); }
-        __device__ uint32_t operator=(R _) { return f(2); }
     };
 
    public:
@@ -273,14 +270,14 @@ static inline __device__ void printf(const char* format, All... all) {}
 
 #if defined __HCC_CPP__
 extern hipStream_t ihipPreLaunchKernel(hipStream_t stream, dim3 grid, dim3 block,
-                                       grid_launch_parm* lp, const char* kernelNameStr, bool lockAcquired = 0);
+                                       grid_launch_parm* lp, const char* kernelNameStr);
 extern hipStream_t ihipPreLaunchKernel(hipStream_t stream, dim3 grid, size_t block,
-                                       grid_launch_parm* lp, const char* kernelNameStr, bool lockAcquired = 0);
+                                       grid_launch_parm* lp, const char* kernelNameStr);
 extern hipStream_t ihipPreLaunchKernel(hipStream_t stream, size_t grid, dim3 block,
-                                       grid_launch_parm* lp, const char* kernelNameStr, bool lockAcquired = 0);
+                                       grid_launch_parm* lp, const char* kernelNameStr);
 extern hipStream_t ihipPreLaunchKernel(hipStream_t stream, size_t grid, size_t block,
-                                       grid_launch_parm* lp, const char* kernelNameStr, bool lockAcquired = 0);
-extern void ihipPostLaunchKernel(const char* kernelName, hipStream_t stream, grid_launch_parm& lp, bool unlockPostponed = 0);
+                                       grid_launch_parm* lp, const char* kernelNameStr);
+extern void ihipPostLaunchKernel(const char* kernelName, hipStream_t stream, grid_launch_parm& lp);
 
 #if GENERIC_GRID_LAUNCH == 0
 //#warning "Original hipLaunchKernel defined"
@@ -330,6 +327,11 @@ extern void ihipPostLaunchKernel(const char* kernelName, hipStream_t stream, gri
 #define HIP_SYMBOL(X) #X
 
 typedef int hipLaunchParm;
+
+#define hipLaunchKernel(kernelName, numblocks, numthreads, memperblock, streamId, ...)             \
+    do {                                                                                           \
+        kernelName<<<(numblocks), (numthreads), (memperblock), (streamId)>>>(hipLaunchParm{}, ##__VA_ARGS__); \
+    } while (0)
 
 #define hipLaunchKernelGGL(kernelName, numblocks, numthreads, memperblock, streamId, ...)          \
     do {                                                                                           \
@@ -447,7 +449,6 @@ hc_get_workitem_absolute_id(int dim)
 #endif
 
 // Support std::complex.
-#ifndef _OPENMP
 #pragma push_macro("__CUDA__")
 #define __CUDA__
 #include <__clang_cuda_math_forward_declares.h>
@@ -457,9 +458,7 @@ hc_get_workitem_absolute_id(int dim)
 #include <cuda_wrappers/new>
 #undef __CUDA__
 #pragma pop_macro("__CUDA__")
-#endif // ndef _OPENMP
 
-#if __HIP_VDI__
 hipError_t hipExtModuleLaunchKernel(hipFunction_t f, uint32_t globalWorkSizeX,
                                     uint32_t globalWorkSizeY, uint32_t globalWorkSizeZ,
                                     uint32_t localWorkSizeX, uint32_t localWorkSizeY,
@@ -477,7 +476,7 @@ hipError_t hipHccModuleLaunchKernel(hipFunction_t f, uint32_t globalWorkSizeX,
                                     hipEvent_t startEvent = nullptr,
                                     hipEvent_t stopEvent = nullptr)
                                     __attribute__((deprecated("use hipExtModuleLaunchKernel instead")));
-#endif // __HIP_VDI__
+
 #endif // defined(__clang__) && defined(__HIP__)
 
 #include <hip/hcc_detail/hip_memory.h>

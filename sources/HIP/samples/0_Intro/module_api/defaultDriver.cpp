@@ -1,5 +1,5 @@
 /*
-Copyright (c) 2015-present Advanced Micro Devices, Inc. All rights reserved.
+Copyright (c) 2015-2017 Advanced Micro Devices, Inc. All rights reserved.
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal
@@ -21,6 +21,7 @@ THE SOFTWARE.
 */
 
 #include "hip/hip_runtime.h"
+#include "hip/hip_runtime_api.h"
 #include <iostream>
 #include <fstream>
 #include <vector>
@@ -28,18 +29,20 @@ THE SOFTWARE.
 #define LEN 64
 #define SIZE LEN << 2
 
-#define fileName "vcpy_kernel.code"
-#define kernel_name "hello_world"
+#define fileName "test.co"
+#define kernel_name "vadd"
 
 int main() {
-    float *A, *B;
-    hipDeviceptr_t Ad, Bd;
+    float *A, *B, *C;
+    hipDeviceptr_t Ad, Bd, Cd;
     A = new float[LEN];
     B = new float[LEN];
+    C = new float[LEN];
 
     for (uint32_t i = 0; i < LEN; i++) {
         A[i] = i * 1.0f;
-        B[i] = 0.0f;
+        B[i] = 1.0f;
+        C[i] = 0.0f;
     }
 
     hipInit(0);
@@ -50,25 +53,28 @@ int main() {
 
     hipMalloc((void**)&Ad, SIZE);
     hipMalloc((void**)&Bd, SIZE);
+    hipMalloc((void**)&Cd, SIZE);
 
     hipMemcpyHtoD(Ad, A, SIZE);
     hipMemcpyHtoD(Bd, B, SIZE);
+    hipMemcpyHtoD(Cd, C, SIZE);
 
     hipModule_t Module;
     hipFunction_t Function;
     hipModuleLoad(&Module, fileName);
     hipModuleGetFunction(&Function, Module, kernel_name);
 
-    void* args[2] = {&Ad, &Bd};
+    int n = LEN;
+    void* args[4] = {&Ad, &Bd, &Cd, &n};
 
     hipModuleLaunchKernel(Function, 1, 1, 1, LEN, 1, 1, 0, 0, args, nullptr);
 
-    hipMemcpyDtoH(B, Bd, SIZE);
+    hipMemcpyDtoH(C, Cd, SIZE);
     int mismatchCount = 0;
     for (uint32_t i = 0; i < LEN; i++) {
-        if (A[i] != B[i]) {
+        if (A[i] + B[i] != C[i]) {
             mismatchCount++;
-            std::cout << "error: mismatch " << A[i] << " != " << B[i] << std::endl;
+            std::cout << "error: mismatch " << A[i] << " + " << B[i] << " != " << C[i] << std::endl;
         }
     }
 
@@ -78,10 +84,6 @@ int main() {
         std::cout << "FAILED!\n";
     };
 
-    hipFree(Ad);
-    hipFree(Bd);
-    delete A;
-    delete B;
     hipCtxDestroy(context);
     return 0;
 }

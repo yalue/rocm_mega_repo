@@ -31,6 +31,11 @@ THE SOFTWARE.
 
 typedef int hipLaunchParm;
 
+#define hipLaunchKernel(kernelName, numblocks, numthreads, memperblock, streamId, ...)             \
+    do {                                                                                           \
+        kernelName<<<numblocks, numthreads, memperblock, streamId>>>(0, ##__VA_ARGS__);            \
+    } while (0)
+
 #define hipLaunchKernelGGL(kernelName, numblocks, numthreads, memperblock, streamId, ...)          \
     do {                                                                                           \
         kernelName<<<numblocks, numthreads, memperblock, streamId>>>(__VA_ARGS__);                 \

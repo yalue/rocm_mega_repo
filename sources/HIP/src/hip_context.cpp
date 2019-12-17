@@ -29,10 +29,13 @@ THE SOFTWARE.
 #include "hip_hcc_internal.h"
 #include "trace_helper.h"
 
+// Stack of contexts
+thread_local std::stack<ihipCtx_t*> tls_ctxStack;
+thread_local bool tls_getPrimaryCtx = true;
+
 void ihipCtxStackUpdate() {
-    GET_TLS();
-    if (tls->ctxStack.empty()) {
-        tls->ctxStack.push(ihipGetTlsDefaultCtx());
+    if (tls_ctxStack.empty()) {
+        tls_ctxStack.push(ihipGetTlsDefaultCtx());
     }
 }
 
@@ -59,8 +62,8 @@ hipError_t hipCtxCreate(hipCtx_t* ctx, unsigned int flags, hipDevice_t device) {
         auto ictx = new ihipCtx_t(deviceHandle, g_deviceCnt, flags);
         *ctx = ictx;
         ihipSetTlsDefaultCtx(*ctx);
-        tls->ctxStack.push(*ctx);
-        tls->getPrimaryCtx = false;
+        tls_ctxStack.push(*ctx);
+        tls_getPrimaryCtx = false;
         deviceCrit->addContext(ictx);
     }
 
@@ -116,7 +119,7 @@ hipError_t hipCtxDestroy(hipCtx_t ctx) {
     } else {
         if (currentCtx == ctx) {
             // need to destroy the ctx associated with calling thread
-            tls->ctxStack.pop();
+            tls_ctxStack.pop();
         }
         {
             auto deviceHandle = ctx->getWriteableDevice();
@@ -137,12 +140,12 @@ hipError_t hipCtxPopCurrent(hipCtx_t* ctx) {
     auto deviceHandle = currentCtx->getDevice();
     *ctx = currentCtx;
 
-    if (!tls->ctxStack.empty()) {
-        tls->ctxStack.pop();
+    if (!tls_ctxStack.empty()) {
+        tls_ctxStack.pop();
     }
 
-    if (!tls->ctxStack.empty()) {
-        currentCtx = tls->ctxStack.top();
+    if (!tls_ctxStack.empty()) {
+        currentCtx = tls_ctxStack.top();
     } else {
         currentCtx = deviceHandle->_primaryCtx;
     }
@@ -156,8 +159,8 @@ hipError_t hipCtxPushCurrent(hipCtx_t ctx) {
     hipError_t e = hipSuccess;
     if (ctx != NULL) {  // TODO- is this check needed?
         ihipSetTlsDefaultCtx(ctx);
-        tls->ctxStack.push(ctx);
-        tls->getPrimaryCtx = false;
+        tls_ctxStack.push(ctx);
+        tls_getPrimaryCtx = false;
     } else {
         e = hipErrorInvalidContext;
     }
@@ -167,10 +170,10 @@ hipError_t hipCtxPushCurrent(hipCtx_t ctx) {
 hipError_t hipCtxGetCurrent(hipCtx_t* ctx) {
     HIP_INIT_API(hipCtxGetCurrent, ctx);
     hipError_t e = hipSuccess;
-    if ((tls->getPrimaryCtx) || tls->ctxStack.empty()) {
+    if ((tls_getPrimaryCtx) || tls_ctxStack.empty()) {
         *ctx = ihipGetTlsDefaultCtx();
     } else {
-        *ctx = tls->ctxStack.top();
+        *ctx = tls_ctxStack.top();
     }
     return ihipLogStatus(e);
 }
@@ -179,11 +182,11 @@ hipError_t hipCtxSetCurrent(hipCtx_t ctx) {
     HIP_INIT_API(hipCtxSetCurrent, ctx);
     hipError_t e = hipSuccess;
     if (ctx == NULL) {
-        tls->ctxStack.pop();
+        tls_ctxStack.pop();
     } else {
         ihipSetTlsDefaultCtx(ctx);
-        tls->ctxStack.push(ctx);
-        tls->getPrimaryCtx = false;
+        tls_ctxStack.push(ctx);
+        tls_getPrimaryCtx = false;
     }
     return ihipLogStatus(e);
 }
@@ -248,7 +251,7 @@ hipError_t hipCtxGetSharedMemConfig(hipSharedMemConfig* pConfig) {
 
 hipError_t hipCtxSynchronize(void) {
     HIP_INIT_API(hipCtxSynchronize, 1);
-    return ihipLogStatus(ihipSynchronize(tls));  // TODO Shall check validity of ctx?
+    return ihipLogStatus(ihipSynchronize());  // TODP Shall check validity of ctx?
 }
 
 hipError_t hipCtxGetFlags(unsigned int* flags) {

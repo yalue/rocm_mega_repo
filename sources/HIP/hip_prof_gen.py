@@ -13,7 +13,7 @@ line_num = -1
 
 # Verbose message
 def message(msg):
-  if verbose: sys.stdout.write(msg + '\n')
+  if verbose: print >>sys.stdout, msg
 
 # Fatal error termination
 def error(msg):
@@ -24,19 +24,14 @@ def error(msg):
   else:
     msg = " Warning: " + msg
 
-  sys.stdout.write(msg + '\n')
-  sys.stderr.write(sys.argv[0] + msg +'\n')
+  print >>sys.stdout, msg
+  print >>sys.stderr, sys.argv[0] + msg
 
 def fatal(msg):
   error(msg)
   if errexit: sys.exit(1)
 
 #############################################################
-# Normalizing API name
-def filtr_api_name(name):
-  name = re.sub(r'\s*$', r'', name);
-  return name
-
 # Normalizing API arguments
 def filtr_api_args(args_str):
   args_str = re.sub(r'^\s*', r'', args_str);
@@ -132,7 +127,7 @@ def parse_api(inp_file_p, out):
       if m:
         found = 0
         if end_pattern.search(record): break
-        out[filtr_api_name(m.group(2))] = m.group(3)
+        out[m.group(2)] = m.group(3)
       else: continue
 
     hidden = 0
@@ -206,7 +201,7 @@ def parse_content(inp_file_p, api_map, out):
       # Checking if complete API matched
       if m:
         found = 2
-        api_name = filtr_api_name(m.group(2));
+        api_name = m.group(2);
         # Checking if API name is in the API map
         if api_name in api_map:
           # Getting API arguments
@@ -306,6 +301,8 @@ def generate_prof_header(f, api_map, opts_map):
   f.write('// automatically generated sources\n')
   f.write('#ifndef _HIP_PROF_STR_H\n');
   f.write('#define _HIP_PROF_STR_H\n');
+  f.write('#include <sstream>\n');
+  f.write('#include <string>\n');
   
   # Generating dummy macro for non-public API
   f.write('\n// Dummy API primitives\n')
@@ -338,7 +335,7 @@ def generate_prof_header(f, api_map, opts_map):
   
   # Generating the callbacks ID enumaration
   f.write('\n// Return HIP API string\n')
-  f.write('static inline const char* hip_api_name(const uint32_t id) {\n')
+  f.write('static const char* hip_api_name(const uint32_t& id) {\n')
   f.write('  switch(id) {\n')
   for name in api_map.keys():
     f.write('    case HIP_API_ID_' + name + ': return "' +  name + '";\n')
@@ -358,10 +355,7 @@ def generate_prof_header(f, api_map, opts_map):
     if len(args) != 0:
       f.write('    struct {\n')
       for arg_tuple in args:
-        if arg_tuple[0] == "hipLimit_t":
-          f.write('      enum ' + arg_tuple[0] + ' ' + arg_tuple[1] + ';\n')
-        else:
-          f.write('      ' + arg_tuple[0] + ' ' + arg_tuple[1] + ';\n')
+        f.write('      ' + arg_tuple[0] + ' ' + arg_tuple[1] + ';\n')
       f.write('    } ' + name + ';\n')
   f.write(
   '  } args;\n' +
@@ -389,30 +383,27 @@ def generate_prof_header(f, api_map, opts_map):
   f.write('#define INIT_CB_ARGS_DATA(cb_id, cb_data) INIT_##cb_id##_CB_ARGS_DATA(cb_data)\n')
   
   # Generating the method for the API string, name and parameters
-  if False:
-    f.write('\n')
-    f.write('#if 0\n')
-    f.write('#include <sstream>\n');
-    f.write('#include <string>\n');
-    f.write('// HIP API string method, method name and parameters\n')
-    f.write('const char* hipApiString(hip_api_id_t id, const hip_api_data_t* data) {\n')
-    f.write('  std::ostringstream oss;\n')
-    f.write('  switch (id) {\n')
-    for name, args in api_map.items():
-      f.write('    case HIP_API_ID_' + name + ':\n')
-      f.write('      oss << "' + name + '("')
-      for ind in range(0, len(args)):
-        arg_tuple = args[ind]
-        arg_name = arg_tuple[1]
-        if ind != 0: f.write(' << ","')
-        f.write('\n          << " ' + arg_name  + '=" << data->args.' + name + '.' + arg_name)
-      f.write('\n          << ")";\n')
-      f.write('    break;\n')
-    f.write('    default: oss << "unknown";\n')
-    f.write('  };\n')
-    f.write('  return strdup(oss.str().c_str());\n')
-    f.write('};\n')
-    f.write('#endif\n')
+  f.write('\n')
+  f.write('#if 0\n')
+  f.write('// HIP API string method, method name and parameters\n')
+  f.write('const char* hipApiString(hip_api_id_t id, const hip_api_data_t* data) {\n')
+  f.write('  std::ostringstream oss;\n')
+  f.write('  switch (id) {\n')
+  for name, args in api_map.items():
+    f.write('    case HIP_API_ID_' + name + ':\n')
+    f.write('      oss << "' + name + '("')
+    for ind in range(0, len(args)):
+      arg_tuple = args[ind]
+      arg_name = arg_tuple[1]
+      if ind != 0: f.write(' << ","')
+      f.write('\n          << " ' + arg_name  + '=" << data->args.' + name + '.' + arg_name)
+    f.write('\n          << ")";\n')
+    f.write('    break;\n')
+  f.write('    default: oss << "unknown";\n')
+  f.write('  };\n')
+  f.write('  return strdup(oss.str().c_str());\n')
+  f.write('};\n')
+  f.write('#endif\n')
   
   f.write('#endif  // _HIP_PROF_STR_H\n');
 
@@ -460,7 +451,7 @@ parse_api(api_hfile, api_map)
 parse_src(api_map, src_dir, src_pat, opts_map)
 
 # Checking for non-conformant APIs
-for name in list(opts_map.keys()):
+for name in opts_map.keys():
   m = re.match(r'\.(\S*)', name)
   if m:
     message("Init missing: " + m.group(1))

@@ -102,41 +102,36 @@ sub delete_temp_dirs {
 $HIP_PLATFORM= `$HIP_PATH/bin/hipconfig --platform` // "hcc";
 $HIP_VERSION= `$HIP_PATH/bin/hipconfig --version`;
 ($HIP_VERSION_MAJOR, $HIP_VERSION_MINOR, $HIP_VERSION_PATCH) = split(/\./, $HIP_VERSION);
-my ($HIP_VERSION_GITDATE, $HIP_VERSION_GITHASH) = split(/-/, $HIP_VERSION_PATCH);
 $HIP_COMPILER= $hipConfig{'HIP_COMPILER'};
 $HIP_RUNTIME= $hipConfig{'HIP_RUNTIME'};
 
 # If using VDI runtime, need to find HIP_VDI_HOME
-if (defined $HIP_RUNTIME and $HIP_RUNTIME eq "VDI" and !defined $HIP_VDI_HOME) {
-    my $hipcc_dir = dirname($0);
-    if (-e "$hipcc_dir/../lib/bitcode") {
-        $HIP_VDI_HOME = abs_path($hipcc_dir . "/..");
-    } else {
-        $HIP_VDI_HOME = "/opt/rocm/hip";
-    }
+if ($HIP_RUNTIME eq "VDI" and !defined $HIP_VDI_HOME) {
+    $HIP_VDI_HOME = "/opt/rocm/hip"
 }
 
 if (defined $HIP_VDI_HOME) {
-    if (!defined $HIP_CLANG_PATH and (-e "$HIP_VDI_HOME/bin/clang" or -e "$HIP_VDI_HOME/bin/clang.exe")) {
-        $HIP_CLANG_PATH = "$HIP_VDI_HOME/bin";
-        # With HIP_VDI_HOME defined, assume the installation of clang components, including headers.
-        if (!defined $HIP_CLANG_INCLUDE_PATH) {
-            $HIP_CLANG_INCLUDE_PATH = "$HIP_VDI_HOME/include/clang";
-        }
+    my $bits = "";
+    if (-d "$HIP_VDI_HOME/bin/x86_64") {
+        $bits = "/x86_64";
     }
-    if (!defined $DEVICE_LIB_PATH and -e "$HIP_VDI_HOME/lib/bitcode") {
-        $DEVICE_LIB_PATH = "$HIP_VDI_HOME/lib/bitcode";
+    if (!defined $HIP_CLANG_PATH) {
+        $HIP_CLANG_PATH = "$HIP_VDI_HOME/bin" . $bits;
     }
+    if (!defined $DEVICE_LIB_PATH) {
+        $DEVICE_LIB_PATH = "$HIP_VDI_HOME/lib" . $bits . "/bitcode";
+    }
+    $HIP_CLANG_INCLUDE_PATH = "$HIP_VDI_HOME/include/clang";
     $HIP_INCLUDE_PATH = "$HIP_VDI_HOME/include";
     if (!defined $HIP_LIB_PATH) {
-        $HIP_LIB_PATH = "$HIP_VDI_HOME/lib";
+        $HIP_LIB_PATH = "$HIP_VDI_HOME/lib" . $bits;
     }
 }
 
-if (defined $HIP_COMPILER and $HIP_COMPILER eq "clang") {
+if ($HIP_COMPILER eq "clang") {
   $HIP_PLATFORM = "clang";
   if (!defined $HIP_CLANG_PATH) {
-    $HIP_CLANG_PATH = "/opt/rocm/bin";
+    $HIP_CLANG_PATH = "/opt/rocm/llvm/bin";
   }
   if (!defined $DEVICE_LIB_PATH) {
     $DEVICE_LIB_PATH = "/opt/rocm/lib";
@@ -157,9 +152,6 @@ $target_gfx802 = 0;
 $target_gfx803 = 0;
 $target_gfx900 = 0;
 $target_gfx906 = 0;
-$target_gfx908 = 0;
-$target_gfx1010 = 0;
-$target_gfx1012 = 0;
 $default_amdgpu_target = 1;
 
 if ($HIP_PLATFORM eq "clang") {
@@ -177,7 +169,7 @@ if ($HIP_PLATFORM eq "clang") {
     $HIP_CLANG_VERSION=$1;
 
     if (! defined $HIP_CLANG_INCLUDE_PATH) {
-        $HIP_CLANG_INCLUDE_PATH = abs_path("$HIP_CLANG_PATH/../lib/clang/$HIP_CLANG_VERSION/include");
+        $HIP_CLANG_INCLUDE_PATH = "$HIP_CLANG_PATH/../lib/clang/$HIP_CLANG_VERSION/include";
     }
     if (! defined $HIP_INCLUDE_PATH) {
         $HIP_INCLUDE_PATH = "$HIP_PATH/include";
@@ -196,12 +188,7 @@ if ($HIP_PLATFORM eq "clang") {
         print ("DEVICE_LIB_PATH=$DEVICE_LIB_PATH\n");
     }
 
-    if ($isWindows) {
-      $HIPCXXFLAGS .= " -std=c++14 -fms-extensions -fms-compatibility";
-    } else {
-      $HIPCXXFLAGS .= " -std=c++11";
-    }
-    $HIPCXXFLAGS .= " -isystem $HIP_CLANG_INCLUDE_PATH";
+    $HIPCXXFLAGS .= " -std=c++11 -isystem $HIP_CLANG_INCLUDE_PATH";
     $HIPLDFLAGS .= " -L$HIP_LIB_PATH";
     if (not $isWindows) {
       $HIPLDFLAGS .= " -Wl,--rpath-link=$HIP_LIB_PATH";
@@ -324,7 +311,7 @@ if ($HIP_PLATFORM eq "clang") {
 }
 
 # Add paths to common HIP includes:
-$HIPCXXFLAGS .= " -isystem $HIP_INCLUDE_PATH -DHIP_VERSION_MAJOR=$HIP_VERSION_MAJOR -DHIP_VERSION_MINOR=$HIP_VERSION_MINOR -DHIP_VERSION_PATCH=$HIP_VERSION_GITDATE" ;
+$HIPCXXFLAGS .= " -isystem $HIP_INCLUDE_PATH -DHIP_VERSION_MAJOR=$HIP_VERSION_MAJOR -DHIP_VERSION_MINOR=$HIP_VERSION_MINOR -DHIP_VERSION_PATCH=$HIP_VERSION_PATCH" ;
 
 my $compileOnly = 0;
 my $needCXXFLAGS = 0;  # need to add CXX flags to compile step
@@ -383,6 +370,7 @@ if($HIP_PLATFORM eq "nvcc"){
 
 my $toolArgs = "";  # arguments to pass to the hcc or nvcc tool
 my $optArg = ""; # -O args
+my $rdc = 0;
 
 foreach $arg (@ARGV)
 {
@@ -435,21 +423,6 @@ foreach $arg (@ARGV)
         $target_gfx906 = 1;
         $default_amdgpu_target = 0;
     }
-    if($arg eq '--amdgpu-target=gfx908')
-    {
-        $target_gfx908 = 1;
-        $default_amdgpu_target = 0;
-    }
-    if($arg eq '--amdgpu-target=gfx1010')
-    {
-        $target_gfx1010 = 1;
-        $default_amdgpu_target = 0;
-    }
-    if($arg eq '--amdgpu-target=gfx1012')
-    {
-        $target_gfx1012 = 1;
-        $default_amdgpu_target = 0;
-    }
 
     # hip-clang does not accept --amdgpu-target= options.
     if (($arg =~ /--amdgpu-target=/) and $HIP_PLATFORM eq 'clang' ) {
@@ -492,6 +465,14 @@ foreach $arg (@ARGV)
     if($arg =~ m/^-O/)
     {
         $optArg = $arg;
+    }
+    if($arg =~ /-fgpu-rdc/)
+    {
+        $rdc = 1;
+    }
+    if($arg =~ /-fno-gpu-rdc/)
+    {
+        $rdc = 0;
     }
 
     ## process linker response file for hip-clang
@@ -620,7 +601,7 @@ foreach $arg (@ARGV)
         #print "O: <$arg>\n";
     } else {
         # input files and libraries
-        if (($arg =~ /\.cpp$/) or ($arg =~ /\.cxx$/) or ($arg =~ /\.c$/) or ($arg =~ /\.cc$/) ) {
+        if (($arg =~ /\.cpp$/) or ($arg =~ /\.c$/) or ($arg =~ /\.cc$/) ) {
             $hasC = 1;
             $needCXXFLAGS = 1;
             if ($HIP_PLATFORM eq 'clang') {
@@ -677,21 +658,6 @@ if($HIP_PLATFORM eq "hcc" or $HIP_PLATFORM eq "clang"){
                 $target_gfx906 = 1;
                 $default_amdgpu_target = 0;
             }
-            if($target eq 'gfx908')
-            {
-                $target_gfx908 = 1;
-                $default_amdgpu_target = 0;
-            }
-            if($target eq 'gfx1010')
-            {
-                $target_gfx1010 = 1;
-                $default_amdgpu_target = 0;
-            }
-            if($target eq 'gfx1012')
-            {
-                $target_gfx1012 = 1;
-                $default_amdgpu_target = 0;
-            }
         }
     }
     # Else try using rocm_agent_enumerator
@@ -725,20 +691,6 @@ if($HIP_PLATFORM eq "hcc" or $HIP_PLATFORM eq "clang"){
             }
             if($val eq "gfx906") {
                 $target_gfx906 = 1;
-                $default_amdgpu_target = 0;
-            }
-            if($val eq "gfx908") {
-                $target_gfx908 = 1;
-                $default_amdgpu_target = 0;
-            }
-            if($val eq 'gfx1010')
-            {
-                $target_gfx1010 = 1;
-                $default_amdgpu_target = 0;
-            }
-            if($val eq 'gfx1012')
-            {
-                $target_gfx1012 = 1;
                 $default_amdgpu_target = 0;
             }
         }
@@ -805,30 +757,6 @@ if($HIP_PLATFORM eq "hcc" or $HIP_PLATFORM eq "clang"){
         }
         $HIPCXXFLAGS .= " -D__HIP_ARCH_GFX906__=1 ";
     }
-    if ($target_gfx908 eq 1) {
-        $GPU_ARCH_ARG = $GPU_ARCH_OPT . "gfx908";
-        $HIPLDFLAGS .= $GPU_ARCH_ARG;
-        if ($HIP_PLATFORM eq 'clang') {
-            $HIPCXXFLAGS .= $GPU_ARCH_ARG;;
-        }
-        $HIPCXXFLAGS .= " -D__HIP_ARCH_GFX908__=1 ";
-    }
-    if ($target_gfx1010 eq 1) {
-        $GPU_ARCH_ARG = $GPU_ARCH_OPT . "gfx1010";
-        $HIPLDFLAGS .= $GPU_ARCH_ARG;
-        if ($HIP_PLATFORM eq 'clang') {
-            $HIPCXXFLAGS .= $GPU_ARCH_ARG;;
-        }
-        $HIPCXXFLAGS .= " -D__HIP_ARCH_GFX1010__=1 ";
-    }
-    if ($target_gfx1012 eq 1) {
-        $GPU_ARCH_ARG = $GPU_ARCH_OPT . "gfx1012";
-        $HIPLDFLAGS .= $GPU_ARCH_ARG;
-        if ($HIP_PLATFORM eq 'clang') {
-            $HIPCXXFLAGS .= $GPU_ARCH_ARG;;
-        }
-        $HIPCXXFLAGS .= " -D__HIP_ARCH_GFX1012__=1 ";
-    }
 }
 
 if ($hasC and $HIP_PLATFORM eq 'nvcc') {
@@ -876,8 +804,14 @@ if ($HIP_PLATFORM eq "clang") {
         $HIPLDFLAGS .= " -O3";
     }
     $HIP_DEVLIB_FLAGS = " --hip-device-lib-path=$DEVICE_LIB_PATH";
-    $HIPCXXFLAGS .= " $HIP_DEVLIB_FLAGS";
-    if (not $isWindows) {
+    if ($rdc eq 0) {
+        $HIPCXXFLAGS .= " $HIP_DEVLIB_FLAGS";
+    } else {
+        $HIPLDFLAGS .= " $HIP_DEVLIB_FLAGS";
+    }
+    if ($isWindows) {
+        $HIPCXXFLAGS .= " -std=c++14 -fms-extensions -fms-compatibility";
+    } else {
         $HIPLDFLAGS .= " -lgcc_s -lgcc -lpthread -lm";
     }
 }
@@ -914,21 +848,7 @@ if ($runCmd) {
         print ("HIP ($HIP_PATH) was built using hcc $hipConfig{'HCC_VERSION'}, but you are using $HCC_HOME/hcc with version $HCC_VERSION from hipcc. Please rebuild HIP including cmake or update HCC_HOME variable.\n") ;
         die unless $ENV{'HIP_IGNORE_HCC_VERSION'};
     }
-    system ("$CMD");
-    if ($? == -1) {
-        print "failed to execute: $!\n";
-        exit($?);
-    }
-    elsif ($? & 127) {
-        printf "child died with signal %d, %s coredump\n",
-        ($? & 127),  ($? & 128) ? 'with' : 'without';
-        exit($?);
-    }
-    else {
-         $CMD_EXIT_CODE = $? >> 8;
-    }
-    $? or delete_temp_dirs ();
-    exit($CMD_EXIT_CODE);
+    system ("$CMD") or delete_temp_dirs () and die ();
 }
 
 # vim: ts=4:sw=4:expandtab:smartindent

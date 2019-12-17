@@ -43,10 +43,9 @@ THE SOFTWARE.
 #include <hc.hpp>
 #include <hc_am.hpp>
 #include "hsa/hsa_ext_amd.h"
-#include "hsa/hsa_ext_image.h"
+
 #include "hip/hip_runtime.h"
 #include "hip_hcc_internal.h"
-#include "hip/hip_hcc.h"
 #include "trace_helper.h"
 #include "env.h"
 
@@ -141,11 +140,23 @@ std::vector<ProfTrigger> g_dbStartTriggers;
 std::vector<ProfTrigger> g_dbStopTriggers;
 
 //=================================================================================================
+// Thread-local storage:
+//=================================================================================================
+
+// This is the implicit context used by all HIP commands.
+// It can be set by hipSetDevice or by the CTX manipulation commands:
+thread_local hipError_t tls_lastHipError = hipSuccess;
+
+
+thread_local TidInfo tls_tidInfo;
+
+
+//=================================================================================================
 // Top-level "free" functions:
 //=================================================================================================
-uint64_t recordApiTrace(TlsData *tls, std::string* fullStr, const std::string& apiStr) {
-    auto apiSeqNum = tls->tidInfo.apiSeqNum();
-    auto tid = tls->tidInfo.tid();
+uint64_t recordApiTrace(std::string* fullStr, const std::string& apiStr) {
+    auto apiSeqNum = tls_tidInfo.apiSeqNum();
+    auto tid = tls_tidInfo.tid();
 
     if ((tid < g_dbStartTriggers.size()) && (apiSeqNum >= g_dbStartTriggers[tid].nextTrigger())) {
         printf("info: resume profiling at %lu\n", apiSeqNum);
@@ -168,7 +179,7 @@ uint64_t recordApiTrace(TlsData *tls, std::string* fullStr, const std::string& a
 
 
     if (COMPILE_HIP_DB && HIP_TRACE_API) {
-        fprintf(stderr, "%s<<hip-api pid:%d tid:%s @%lu%s\n", API_COLOR, tls->tidInfo.pid(), fullStr->c_str(), apiStartTick,
+        fprintf(stderr, "%s<<hip-api pid:%d tid:%s @%lu%s\n", API_COLOR, tls_tidInfo.pid(), fullStr->c_str(), apiStartTick,
                 API_COLOR_END);
     }
 
@@ -195,16 +206,30 @@ ihipCtx_t* ihipGetPrimaryCtx(unsigned deviceIndex) {
     return device ? device->getPrimaryCtx() : NULL;
 };
 
-hipError_t ihipSynchronize(TlsData *tls) {
+
+static thread_local ihipCtx_t* tls_defaultCtx = nullptr;
+void ihipSetTlsDefaultCtx(ihipCtx_t* ctx) { tls_defaultCtx = ctx; }
+
+
+//---
+// TODO - review the context creation strategy here.  Really should be:
+//  - first "non-device" runtime call creates the context for this thread.  Allowed to call
+//  setDevice first.
+//  - hipDeviceReset destroys the primary context for device?
+//  - Then context is created again for next usage.
+ihipCtx_t* ihipGetTlsDefaultCtx() {
+    // Per-thread initialization of the TLS:
+    if ((tls_defaultCtx == nullptr) && (g_deviceCnt > 0)) {
+        ihipSetTlsDefaultCtx(ihipGetPrimaryCtx(0));
+    }
+    return tls_defaultCtx;
+}
+
+hipError_t ihipSynchronize(void) {
     ihipGetTlsDefaultCtx()->locked_waitAllStreams();  // ignores non-blocking streams, this waits
                                                       // for all activity to finish.
 
     return (hipSuccess);
-}
-
-TlsData* tls_get_ptr() {
-    static thread_local TlsData data;
-    return &data;
 }
 
 //=================================================================================================
@@ -220,17 +245,8 @@ TidInfo::TidInfo() : _apiSeqNum(0) {
         tid_ss_num << std::this_thread::get_id();
         tid_ss << std::hex << std::stoull(tid_ss_num.str());
 
-        // cannot use tprintf here since it will recurse back into TlsData constructor
-#if COMPILE_HIP_DB
-        if (HIP_DB & (1 << DB_API)) {
-            char msgStr[1000];
-            snprintf(msgStr, sizeof(msgStr),
-                    "HIP initialized short_tid#%d (maps to full_tid: 0x%s)\n",
-                    tid(), tid_ss.str().c_str());
-            fprintf(stderr, "  %ship-%s pid:%d tid:%d:%s%s", dbName[DB_API]._color,
-                    dbName[DB_API]._shortName, pid(), tid(), msgStr, KNRM);
-        }
-#endif
+        tprintf(DB_API, "HIP initialized short_tid#%d (maps to full_tid: 0x%s)\n", _shortTid,
+                tid_ss.str().c_str());
     };
 }
 
@@ -300,20 +316,16 @@ void ihipStream_t::wait(LockedAccessor_StreamCrit_t& crit) {
     tprintf(DB_SYNC, "%s wait for queue-empty..\n", ToString(this).c_str());
 
     crit->_av.wait(waitMode());
+
+    crit->_kernelCnt = 0;
 }
 
 //---
 // Wait for all kernel and data copy commands in this stream to complete.
 void ihipStream_t::locked_wait() {
-    // create a marker while holding stream lock,
-    // but release lock prior to waiting on the marker
-    hc::completion_future marker;
-    {
-        LockedAccessor_StreamCrit_t crit(_criticalData);
-        marker = crit->_av.create_marker(hc::no_scope);
-    }
+    LockedAccessor_StreamCrit_t crit(_criticalData);
 
-    marker.wait(waitMode());
+    wait(crit);
 };
 
 // Causes current stream to wait for specified event to complete:
@@ -328,14 +340,30 @@ void ihipStream_t::locked_streamWaitEvent(ihipEventData_t& ecd) {
 // Causes current stream to wait for specified event to complete:
 // Note this does not provide any kind of host serialization.
 bool ihipStream_t::locked_eventIsReady(hipEvent_t event) {
+    // Event query that returns "Complete" may cause HCC to manipulate
+    // internal queue state so lock the stream's queue here.
+    LockedAccessor_StreamCrit_t scrit(_criticalData);
+
     LockedAccessor_EventCrit_t ecrit(event->criticalData());
 
     return (ecrit->_eventData.marker().is_ready());
 }
 
+// Waiting on event can cause HCC to reclaim stream resources - so need to lock the stream.
+void ihipStream_t::locked_eventWaitComplete(hc::completion_future& marker,
+                                            hc::hcWaitMode waitMode) {
+    LockedAccessor_StreamCrit_t crit(_criticalData);
+
+    marker.wait(waitMode);
+}
+
+
 // Create a marker in this stream.
 // Save state in the event so it can track the status of the event.
 hc::completion_future ihipStream_t::locked_recordEvent(hipEvent_t event) {
+    // Lock the stream to prevent simultaneous access
+    LockedAccessor_StreamCrit_t crit(_criticalData);
+
     auto scopeFlag = hc::accelerator_scope;
     // The env var HIP_EVENT_SYS_RELEASE sets the default,
     // The explicit flags override the env var (if specified)
@@ -347,8 +375,6 @@ hc::completion_future ihipStream_t::locked_recordEvent(hipEvent_t event) {
         scopeFlag = HIP_EVENT_SYS_RELEASE ? hc::system_scope : hc::accelerator_scope;
     }
 
-    // Lock the stream to prevent simultaneous access
-    LockedAccessor_StreamCrit_t crit(_criticalData);
     return crit->_av.create_marker(scopeFlag);
 };
 
@@ -378,7 +404,7 @@ LockedAccessor_StreamCrit_t ihipStream_t::lockopen_preKernelCommand() {
 //---
 // Must be called after kernel finishes, this releases the lock on the stream so other commands can
 // submit.
-void ihipStream_t::lockclose_postKernelCommand(const char* kernelName, hc::accelerator_view* av, bool unlockPostponed) {
+void ihipStream_t::lockclose_postKernelCommand(const char* kernelName, hc::accelerator_view* av) {
     bool blockThisKernel = false;
 
     if (!g_hipLaunchBlockingKernels.empty()) {
@@ -400,10 +426,7 @@ void ihipStream_t::lockclose_postKernelCommand(const char* kernelName, hc::accel
                 kernelName);
     }
 
-    // if unlockPostponed is true then this stream will be unlocked later (e.g., see hipExtLaunchMultiKernelMultiDevice for a sample call)
-    if (!unlockPostponed) {
-        _criticalData.unlock();  // paired with lock from lockopen_preKernelCommand.
-    }
+    _criticalData.unlock();  // paired with lock from lockopen_preKernelCommand.
 };
 
 
@@ -887,31 +910,6 @@ hipError_t ihipDevice_t::initProperties(hipDeviceProp_t* prop) {
     if(agent_profile == HSA_PROFILE_FULL) {
         prop->integrated = 1;
     }
-
-    // Enable the cooperative group for gfx9+
-    prop->cooperativeLaunch = (prop->gcnArch < 900) ? 0 : 1;
-    prop->cooperativeMultiDeviceLaunch = (prop->gcnArch < 900) ? 0 : 1;
-
-    err = hsa_agent_get_info(_hsaAgent, (hsa_agent_info_t)HSA_EXT_AGENT_INFO_IMAGE_1D_MAX_ELEMENTS,
-          &prop->maxTexture1D);
-    DeviceErrorCheck(err);
-
-    err = hsa_agent_get_info(_hsaAgent, (hsa_agent_info_t)HSA_EXT_AGENT_INFO_IMAGE_2D_MAX_ELEMENTS,
-          prop->maxTexture2D);
-    DeviceErrorCheck(err);
-
-    err = hsa_agent_get_info(_hsaAgent, (hsa_agent_info_t)HSA_EXT_AGENT_INFO_IMAGE_3D_MAX_ELEMENTS,
-          prop->maxTexture3D);
-    DeviceErrorCheck(err);
-
-    // Get Agent HDP Flush Register Memory
-    hsa_amd_hdp_flush_t hdpinfo;
-    err = hsa_agent_get_info(_hsaAgent, (hsa_agent_info_t)HSA_AMD_AGENT_INFO_HDP_FLUSH, &hdpinfo);
-    DeviceErrorCheck(err);
-
-    prop->hdpMemFlushCntl = hdpinfo.HDP_MEM_FLUSH_CNTL;
-    prop->hdpRegFlushCntl = hdpinfo.HDP_REG_FLUSH_CNTL;
-
     return e;
 }
 
@@ -1037,7 +1035,7 @@ void ihipCtx_t::locked_syncDefaultStream(bool waitOnSelf, bool syncHost) {
             }
         } else {
             if (waitThisStream) {
-                LockedAccessor_StreamCrit_t streamCrit(stream->criticalData());
+                LockedAccessor_StreamCrit_t streamCrit(stream->_criticalData);
 
                 // The last marker will provide appropriate visibility:
                 if (!streamCrit->_av.get_is_empty()) {
@@ -1055,7 +1053,7 @@ void ihipCtx_t::locked_syncDefaultStream(bool waitOnSelf, bool syncHost) {
 
     // Enqueue a barrier to wait on all the barriers we sent above:
     if (!HIP_SYNC_NULL_STREAM && !depOps.empty()) {
-        LockedAccessor_StreamCrit_t defaultStreamCrit(_defaultStream->criticalData());
+        LockedAccessor_StreamCrit_t defaultStreamCrit(_defaultStream->_criticalData);
         tprintf(DB_SYNC, "  null-stream wait on %zu non-empty streams. sync_host=%d\n",
                 depOps.size(), syncHost);
         hc::completion_future defaultCf = defaultStreamCrit->_av.create_blocking_marker(
@@ -1398,7 +1396,7 @@ void ihipInit() {
 
     // Make sure the hip visible devices are within the deviceCnt range
     for (int i = 0; i < g_hip_visible_devices.size(); i++) {
-        if ((g_hip_visible_devices[i] >= deviceCnt) ||(g_hip_visible_devices[i] < 0)){
+        if (g_hip_visible_devices[i] >= deviceCnt) {
             // Make sure any DeviceID after invalid DeviceID will be erased.
             g_hip_visible_devices.resize(i);
             break;
@@ -1414,21 +1412,17 @@ void ihipInit() {
 
     g_deviceArray = new ihipDevice_t*[deviceCnt];
     g_deviceCnt = 0;
-
-    if(g_visible_device) {
-        for (int i = 0; i < g_hip_visible_devices.size(); i++) {
-            int devIndex = g_hip_visible_devices[i];
-            if (!accs[devIndex+1].get_is_emulated()) {
-                g_deviceArray[g_deviceCnt] = new ihipDevice_t(g_deviceCnt, deviceCnt, accs[devIndex+1]);
-                g_deviceCnt++;
+    for (int i = 0; i < accs.size(); i++) {
+        // check if the device id is included in the HIP_VISIBLE_DEVICES env variable
+        if (!accs[i].get_is_emulated()) {
+            if (std::find(g_hip_visible_devices.begin(), g_hip_visible_devices.end(), (i - 1)) ==
+                    g_hip_visible_devices.end() &&
+                g_visible_device) {
+                // If device is not in visible devices list, ignore
+                continue;
             }
-        }
-    }else {
-        for (int i = 0; i < accs.size(); i++) {
-            if (!accs[i].get_is_emulated()) {
-                g_deviceArray[g_deviceCnt] = new ihipDevice_t(g_deviceCnt, deviceCnt, accs[i]);
-                g_deviceCnt++;
-            }
+            g_deviceArray[g_deviceCnt] = new ihipDevice_t(g_deviceCnt, deviceCnt, accs[i]);
+            g_deviceCnt++;
         }
     }
 
@@ -1466,7 +1460,7 @@ hipError_t hip_init() {
 }
 }
 
-hipError_t ihipStreamSynchronize(TlsData *tls, hipStream_t stream) {
+hipError_t ihipStreamSynchronize(hipStream_t stream) {
     hipError_t e = hipSuccess;
 
     if (stream == hipStreamNull) {
@@ -1487,8 +1481,7 @@ void ihipStreamCallbackHandler(ihipStreamCallback_t* cb) {
     // Synchronize stream
     tprintf(DB_SYNC, "ihipStreamCallbackHandler wait on stream %s\n",
             ToString(cb->_stream).c_str());
-    GET_TLS();
-    e = ihipStreamSynchronize(tls, cb->_stream);
+    e = ihipStreamSynchronize(cb->_stream);
 
     // Call registered callback function
     cb->_callback(cb->_stream, e, cb->_userData);
@@ -1500,10 +1493,9 @@ void ihipStreamCallbackHandler(ihipStreamCallback_t* cb) {
 //
 // If stream==NULL synchronize appropriately with other streams and return the default av for the
 // device. If stream is valid, return the AV to use.
-hipStream_t ihipSyncAndResolveStream(hipStream_t stream, bool lockAcquired) {
+hipStream_t ihipSyncAndResolveStream(hipStream_t stream) {
     if (stream == hipStreamNull) {
         // Submitting to NULL stream, call locked_syncDefaultStream to wait for all other streams:
-        GET_TLS();
         ihipCtx_t* ctx = ihipGetTlsDefaultCtx();
         tprintf(DB_SYNC, "ihipSyncAndResolveStream %s wait on default stream\n",
                 ToString(stream).c_str());
@@ -1543,14 +1535,9 @@ hipStream_t ihipSyncAndResolveStream(hipStream_t stream, bool lockAcquired) {
                 if (needGatherMarker) {
                     // ensure any commands sent to this stream wait on the NULL stream before
                     // continuing
-                    if (!lockAcquired) {
-                        LockedAccessor_StreamCrit_t thisStreamCrit(stream->criticalData());
-                        // TODO - could be "noret" version of create_blocking_marker
-                        thisStreamCrit->_av.create_blocking_marker(dcf, hc::accelerator_scope);
-                    } else {
-                        // this stream is already locked (e.g., call from hipExtLaunchMultiKernelMultiDevice)
-                        stream->criticalData()._av.create_blocking_marker(dcf, hc::accelerator_scope);
-                    }
+                    LockedAccessor_StreamCrit_t thisStreamCrit(stream->criticalData());
+                    // TODO - could be "noret" version of create_blocking_marker
+                    thisStreamCrit->_av.create_blocking_marker(dcf, hc::accelerator_scope);
                     tprintf(
                         DB_SYNC,
                         "  %s adding marker to wait for freshly recorded default-stream marker \n",
@@ -1567,16 +1554,15 @@ void ihipPrintKernelLaunch(const char* kernelName, const grid_launch_parm* lp,
                            const hipStream_t stream) {
     if ((HIP_TRACE_API & (1 << TRACE_KCMD)) || HIP_PROFILE_API ||
         (COMPILE_HIP_DB & HIP_TRACE_API)) {
-        GET_TLS();
         std::stringstream os;
-        os << tls->tidInfo.pid() << " " << tls->tidInfo.tid() << "." << tls->tidInfo.apiSeqNum() << " hipLaunchKernel '"
+        os << tls_tidInfo.pid() << " " << tls_tidInfo.tid() << "." << tls_tidInfo.apiSeqNum() << " hipLaunchKernel '"
            << kernelName << "'"
            << " gridDim:" << lp->grid_dim << " groupDim:" << lp->group_dim << " sharedMem:+"
            << lp->dynamic_group_mem_bytes << " " << *stream;
 
         if (COMPILE_HIP_DB && HIP_TRACE_API) {
             std::string fullStr;
-            recordApiTrace(tls, &fullStr, os.str());
+            recordApiTrace(&fullStr, os.str());
         }
 
         if (HIP_PROFILE_API == 0x1) {
@@ -1592,8 +1578,8 @@ void ihipPrintKernelLaunch(const char* kernelName, const grid_launch_parm* lp,
 // Called just before a kernel is launched from hipLaunchKernel.
 // Allows runtime to track some information about the stream.
 hipStream_t ihipPreLaunchKernel(hipStream_t stream, dim3 grid, dim3 block, grid_launch_parm* lp,
-                                const char* kernelNameStr, bool lockAcquired) {
-    stream = ihipSyncAndResolveStream(stream, lockAcquired);
+                                const char* kernelNameStr) {
+    stream = ihipSyncAndResolveStream(stream);
     lp->grid_dim.x = grid.x;
     lp->grid_dim.y = grid.y;
     lp->grid_dim.z = grid.z;
@@ -1603,13 +1589,8 @@ hipStream_t ihipPreLaunchKernel(hipStream_t stream, dim3 grid, dim3 block, grid_
     lp->barrier_bit = barrier_bit_queue_default;
     lp->launch_fence = -1;
 
-    if (!lockAcquired) {
-        auto crit = stream->lockopen_preKernelCommand();
-        lp->av = &(crit->_av);
-    } else {
-        // this stream is already locked (e.g., call from hipExtLaunchMultiKernelMultiDevice)
-        lp->av = &(stream->criticalData()._av);
-    }
+    auto crit = stream->lockopen_preKernelCommand();
+    lp->av = &(crit->_av);
     lp->cf = nullptr;
     ihipPrintKernelLaunch(kernelNameStr, lp, stream);
 
@@ -1618,30 +1599,30 @@ hipStream_t ihipPreLaunchKernel(hipStream_t stream, dim3 grid, dim3 block, grid_
 
 
 hipStream_t ihipPreLaunchKernel(hipStream_t stream, size_t grid, dim3 block, grid_launch_parm* lp,
-                                const char* kernelNameStr, bool lockAcquired) {
-    return ihipPreLaunchKernel(stream, dim3(grid), block, lp, kernelNameStr, lockAcquired);
+                                const char* kernelNameStr) {
+    return ihipPreLaunchKernel(stream, dim3(grid), block, lp, kernelNameStr);
 }
 
 
 hipStream_t ihipPreLaunchKernel(hipStream_t stream, dim3 grid, size_t block, grid_launch_parm* lp,
-                                const char* kernelNameStr, bool lockAcquired) {
-    return ihipPreLaunchKernel(stream, grid, dim3(block), lp, kernelNameStr, lockAcquired);
+                                const char* kernelNameStr) {
+    return ihipPreLaunchKernel(stream, grid, dim3(block), lp, kernelNameStr);
 }
 
 
 hipStream_t ihipPreLaunchKernel(hipStream_t stream, size_t grid, size_t block, grid_launch_parm* lp,
-                                const char* kernelNameStr, bool lockAcquired) {
-    return ihipPreLaunchKernel(stream, dim3(grid), dim3(block), lp, kernelNameStr, lockAcquired);
+                                const char* kernelNameStr) {
+    return ihipPreLaunchKernel(stream, dim3(grid), dim3(block), lp, kernelNameStr);
 }
 
 
 //---
 // Called after kernel finishes execution.
 // This releases the lock on the stream.
-void ihipPostLaunchKernel(const char* kernelName, hipStream_t stream, grid_launch_parm& lp, bool unlockPostponed) {
+void ihipPostLaunchKernel(const char* kernelName, hipStream_t stream, grid_launch_parm& lp) {
     tprintf(DB_SYNC, "ihipPostLaunchKernel, unlocking stream\n");
 
-    stream->lockclose_postKernelCommand(kernelName, lp.av, unlockPostponed);
+    stream->lockclose_postKernelCommand(kernelName, lp.av);
     if (HIP_PROFILE_API) {
         MARKER_END();
     }
@@ -1680,8 +1661,6 @@ const char* ihipErrorString(hipError_t hip_error) {
             return "hipErrorProfilerAlreadyStarted";
         case hipErrorProfilerAlreadyStopped:
             return "hipErrorProfilerAlreadyStopped";
-         case hipErrorInsufficientDriver:
-            return "hipErrorInsufficientDriver";
         case hipErrorInvalidImage:
             return "hipErrorInvalidImage";
         case hipErrorInvalidContext:
@@ -1736,8 +1715,6 @@ const char* ihipErrorString(hipError_t hip_error) {
             return "hipErrorNotFound";
         case hipErrorIllegalAddress:
             return "hipErrorIllegalAddress";
-        case hipErrorInvalidSymbol:
-            return "hipErrorInvalidSymbol";
 
         case hipErrorMissingConfiguration:
             return "hipErrorMissingConfiguration";
@@ -1786,12 +1763,6 @@ const char* ihipErrorString(hipError_t hip_error) {
             return "hipErrorHostMemoryAlreadyRegistered";
         case hipErrorHostMemoryNotRegistered:
             return "hipErrorHostMemoryNotRegistered";
-        case hipErrorMapBufferObjectFailed:
-            return "hipErrorMapBufferObjectFailed";
-        case hipErrorAssert:
-            return "hipErrorAssert";
-        case hipErrorNotSupported:
-            return "hipErrorNotSupported";
         case hipErrorTbd:
             return "hipErrorTbd";
         default:
@@ -2514,8 +2485,6 @@ namespace hip_impl {
     [[noreturn]]
     void hip_throw(const std::exception& ex) {
         #if defined(__cpp_exceptions)
-            if (auto rte = dynamic_cast<const std::runtime_error*>(&ex)) throw *rte;
-            if (auto lge = dynamic_cast<const std::logic_error*>(&ex)) throw *lge;
             throw ex;
         #else
             std::cerr << ex.what() << std::endl;
@@ -2523,4 +2492,13 @@ namespace hip_impl {
         #endif
     }
 
+    std::mutex executables_cache_mutex;
+
+    std::vector<hsa_executable_t>& executables_cache(
+            std::string elf, hsa_isa_t isa, hsa_agent_t agent) {
+        static std::unordered_map<std::string,
+            std::unordered_map<hsa_isa_t,
+                std::unordered_map<hsa_agent_t, std::vector<hsa_executable_t>>>> cache;
+        return cache[elf][isa][agent];
+    }
 } // Namespace hip_impl.

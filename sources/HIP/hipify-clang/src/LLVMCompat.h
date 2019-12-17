@@ -30,8 +30,6 @@ THE SOFTWARE.
 
 namespace ct = clang::tooling;
 
-extern const std::string sHipify, sConflict, sError, sWarning;
-
 // Things for papering over the differences between different LLVM versions.
 
 namespace llcompat {
@@ -84,9 +82,5 @@ std::error_code real_path(const Twine &path, SmallVectorImpl<char> &output,
                           bool expand_tilde = false);
 
 bool pragma_once_outside_header();
-
-void RetainExcludedConditionalBlocks(clang::CompilerInstance &CI);
-
-bool CheckCompatibility();
 
 } // namespace llcompat
