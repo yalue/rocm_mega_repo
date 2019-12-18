@@ -11,11 +11,10 @@ if(BUILD_TESTS)
   endif()
 
   # OpenMP is used to drive GPUs (one per thread)
-  if(EXISTS /etc/redhat-release)
-    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fopenmp=libgomp -pthread")
-  else()
-    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fopenmp -pthread")
-  endif()    
+  find_package(OpenMP REQUIRED)
+  set (CMAKE_C_FLAGS "${CMAKE_C_FLAGS} ${OpenMP_C_FLAGS}")
+  set (CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} ${OpenMP_CXX_FLAGS}")
+  set (CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} ${OpenMP_EXE_LINKER_FLAGS}")
 
   # Download and unpack googletest at configure time
   configure_file(CMakeLists.txt.in googletest-download/CMakeLists.txt)
@@ -52,8 +51,6 @@ if(BUILD_TESTS)
     test_ReduceScatter.cpp
     test_GroupCalls.cpp
     test_CombinedCalls.cpp
-    test_AllReduceAbort.cpp
-    test_BroadcastAbort.cpp
   )
 
   add_executable(UnitTests ${TEST_SOURCES})

@@ -304,6 +304,39 @@ make
 make install
 cd $ROCM_INSTALL_DIR/..
 
+echo -e "\nInstalling hipCUB\n"
+cd sources/hipCUB
+rm -r build
+mkdir build
+cd build
+cmake \
+	-DCMAKE_CXX_COMPILER=$ROCM_INSTALL_DIR/bin/hcc \
+	-DCMAKE_PREFIX_PATH=$ROCM_INSTALL_DIR \
+	-DCMAKE_INSTALL_PREFIX=$ROCM_INSTALL_DIR \
+	-DHIP_PLATFORM=hcc \
+	-Drocprim_DIR=$ROCM_INSTALL_DIR \
+	-DBUILD_TEST=OFF \
+	-DCMAKE_BUILD_TYPE=Release \
+	..
+make -j6
+make -j6 install
+cd $ROCM_INSTALL_DIR/..
+
+echo -e "\nInstalling rccl\n"
+cd sources/rccl
+rm -r build
+mkdir build
+cd build
+CXX=hcc cmake \
+	-DCMAKE_INSTALL_PREFIX=$ROCM_INSTALL_DIR \
+	-DCMAKE_PREFIX_PATH=$ROCM_INSTALL_DIR \
+	-DCMAKE_BUILD_TYPE=Release \
+	-DBUILD_TESTS=OFF \
+	..
+make -j6
+make -j6 install
+cd $ROCM_INSTALL_DIR/..
+
 echo "Installation complete!"
 echo ""
 echo "After checking for errors, make sure the following environment variables"
