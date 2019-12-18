@@ -337,6 +337,23 @@ make -j6
 make -j6 install
 cd $ROCM_INSTALL_DIR/..
 
+echo -e "\nInstalling rocThrust\n"
+cd sources/rocThrust
+rm -r build
+mkdir build
+cd build
+CXX=hcc cmake \
+	-DHIP_PLATFORM=hcc \
+	-DCMAKE_PREFIX_PATH=$ROCM_INSTALL_DIR \
+	-DCMAKE_INSTALL_PREFIX=$ROCM_INSTALL_DIR \
+	-DBUILD_TEST=OFF \
+	-DCMAKE_BUILD_TYPE=Release \
+	-DROCPRIM_ROOT=$ROCM_INSTALL_DIR \
+	..
+make
+make install
+cd $ROCM_INSTALL_DIR/..
+
 echo "Installation complete!"
 echo ""
 echo "After checking for errors, make sure the following environment variables"
