@@ -353,6 +353,21 @@ make
 make install
 cd $ROCM_INSTALL_DIR/..
 
+echo -e "\nInstalling roctracer\n"
+cd sources/roctracer
+rm -r build
+mkdir build
+cd build
+cmake \
+	-DCMAKE_MODULE_PATH=$ROCM_INSTALL_DIR/roctracer/cmake_modules \
+	-DCMAKE_BUILD_TYPE=Release \
+	-DCMAKE_PREFIX_PATH=$ROCM_INSTALL_DIR \
+	-DCMAKE_INSTALL_PREFIX=$ROCM_INSTALL_DIR \
+	..
+make -j6
+make -j6 install
+cd $ROCM_INSTALL_DIR/..
+
 echo "Installation complete!"
 echo ""
 echo "After checking for errors, make sure the following environment variables"
