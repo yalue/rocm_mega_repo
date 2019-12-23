@@ -22,29 +22,19 @@ THE SOFTWARE.
 
 #pragma once
 
-#include "code_object_bundle.hpp"
 #include "concepts.hpp"
 #include "helpers.hpp"
 #include "program_state.hpp"
+#include "hip_runtime_api.h"
 
-#include "hc.hpp"
-#include "hip/hip_hcc.h"
-#include "hip_runtime.h"
-
-#include <algorithm>
-#include <cstddef>
 #include <cstdint>
 #include <cstring>
-#include <functional>
-#include <iostream>
-#include <mutex>
 #include <stdexcept>
-#include <string>
 #include <tuple>
 #include <type_traits>
-#include <unordered_map>
 #include <utility>
-#include <vector>
+
+#pragma GCC visibility push(hidden)
 
 namespace hip_impl {
 template <typename T, typename std::enable_if<std::is_integral<T>{}>::type* = nullptr>
@@ -57,10 +47,10 @@ template <
     std::size_t n,
     typename... Ts,
     typename std::enable_if<n == sizeof...(Ts)>::type* = nullptr>
-inline std::vector<std::uint8_t> make_kernarg(
+inline hip_impl::kernarg make_kernarg(
     const std::tuple<Ts...>&,
     const kernargs_size_align&,
-    std::vector<std::uint8_t> kernarg) {
+    hip_impl::kernarg kernarg) {
     return kernarg;
 }
 
@@ -68,10 +58,10 @@ template <
     std::size_t n,
     typename... Ts,
     typename std::enable_if<n != sizeof...(Ts)>::type* = nullptr>
-inline std::vector<std::uint8_t> make_kernarg(
+inline hip_impl::kernarg make_kernarg(
     const std::tuple<Ts...>& formals,
     const kernargs_size_align& size_align,
-    std::vector<std::uint8_t> kernarg) {
+    hip_impl::kernarg kernarg) {
     using T = typename std::tuple_element<n, std::tuple<Ts...>>::type;
 
     static_assert(
@@ -96,7 +86,7 @@ inline std::vector<std::uint8_t> make_kernarg(
 }
 
 template <typename... Formals, typename... Actuals>
-inline std::vector<std::uint8_t> make_kernarg(
+inline hip_impl::kernarg make_kernarg(
     void (*kernel)(Formals...), std::tuple<Actuals...> actuals) {
     static_assert(sizeof...(Formals) == sizeof...(Actuals),
         "The count of formal arguments must match the count of actuals.");
@@ -104,7 +94,7 @@ inline std::vector<std::uint8_t> make_kernarg(
     if (sizeof...(Formals) == 0) return {};
 
     std::tuple<Formals...> to_formals{std::move(actuals)};
-    std::vector<std::uint8_t> kernarg;
+    hip_impl::kernarg kernarg;
     kernarg.reserve(sizeof(to_formals));
 
     auto& ps = hip_impl::get_program_state();
@@ -115,7 +105,7 @@ inline std::vector<std::uint8_t> make_kernarg(
 }
 
 
-hsa_agent_t target_agent(hipStream_t stream);
+HIP_INTERNAL_EXPORTED_API hsa_agent_t target_agent(hipStream_t stream);
 
 inline
 __attribute__((visibility("hidden")))
@@ -135,6 +125,36 @@ void hipLaunchKernelGGLImpl(
                           stream, nullptr, kernarg);
 }
 } // Namespace hip_impl.
+
+
+template <typename F>
+inline
+hipError_t hipOccupancyMaxPotentialBlockSize(uint32_t* gridSize, uint32_t* blockSize,
+    F kernel, size_t dynSharedMemPerBlk, uint32_t blockSizeLimit) {
+
+    using namespace hip_impl;
+
+    hip_impl::hip_init();
+    auto f = get_program_state().kernel_descriptor(reinterpret_cast<std::uintptr_t>(kernel),
+                                                   target_agent(0));
+
+    return hipOccupancyMaxPotentialBlockSize(gridSize, blockSize, f,
+                                      dynSharedMemPerBlk, blockSizeLimit);
+}
+
+template <typename F>
+inline
+hipError_t hipOccupancyMaxActiveBlocksPerMultiprocessor(uint32_t* numBlocks, F kernel,
+    uint32_t blockSize, size_t dynSharedMemPerBlk) {
+
+    using namespace hip_impl;
+
+    hip_impl::hip_init();
+    auto f = get_program_state().kernel_descriptor(reinterpret_cast<std::uintptr_t>(kernel),
+                                                   target_agent(0));
+
+    return hipOccupancyMaxActiveBlocksPerMultiprocessor(numBlocks, f, blockSize, dynSharedMemPerBlk);
+}
 
 template <typename... Args, typename F = void (*)(Args...)>
 inline
@@ -157,11 +177,4 @@ void hipLaunchKernelGGL(F kernel, const dim3& numBlocks, const dim3& dimBlocks,
                                      stream, &config[0]);
 }
 
-template <typename... Args, typename F = void (*)(hipLaunchParm, Args...)>
-[[deprecated("hipLaunchKernel is deprecated and will be removed in the next "
-             "version of HIP; please upgrade to hipLaunchKernelGGL.")]]
-inline void hipLaunchKernel(F kernel, const dim3& numBlocks, const dim3& dimBlocks,
-                            std::uint32_t groupMemBytes, hipStream_t stream, Args... args) {
-    hipLaunchKernelGGL(kernel, numBlocks, dimBlocks, groupMemBytes, stream, hipLaunchParm{},
-                       std::move(args)...);
-}
+#pragma GCC visibility pop

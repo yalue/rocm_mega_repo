@@ -28,20 +28,48 @@ list(GET VERSION_LIST 0 HIP_VERSION_MAJOR)
 list(GET VERSION_LIST 1 HIP_VERSION_MINOR)
 
 # get date information based on UTC
-# use the last two digits of year + week number + day in the week as HIP_VERSION_PATCH
+# use the last two digits of year + week number + day in the week as HIP_VERSION_GITDATE
 # use the commit date, instead of build date
 # add xargs to remove strange trailing newline character
 execute_process(COMMAND git show -s --format=@%ct
     COMMAND xargs
     COMMAND date -f - --utc +%y%U%w
     WORKING_DIRECTORY ${PROJECT_SOURCE_DIR}
-    OUTPUT_VARIABLE HIP_VERSION_PATCH
+    OUTPUT_VARIABLE HIP_VERSION_GITDATE
     OUTPUT_STRIP_TRAILING_WHITESPACE)
 
-set(HIP_VERSION ${HIP_VERSION_MAJOR}.${HIP_VERSION_MINOR}.${HIP_VERSION_PATCH})
+# get commit short hash
+execute_process(COMMAND git rev-parse --short HEAD
+    WORKING_DIRECTORY ${PROJECT_SOURCE_DIR}
+    OUTPUT_VARIABLE HIP_VERSION_GITHASH
+    OUTPUT_STRIP_TRAILING_WHITESPACE)
+
+# get commit count
+execute_process(COMMAND git rev-list --count HEAD
+    WORKING_DIRECTORY ${PROJECT_SOURCE_DIR}
+    OUTPUT_VARIABLE HIP_VERSION_GITCOUNT
+    OUTPUT_STRIP_TRAILING_WHITESPACE)
+
+set(HIP_VERSION_PATCH ${HIP_VERSION_GITDATE}-${HIP_VERSION_GITHASH})
 add_to_config(_versionInfo HIP_VERSION_MAJOR)
 add_to_config(_versionInfo HIP_VERSION_MINOR)
 add_to_config(_versionInfo HIP_VERSION_PATCH)
+
+if(CMAKE_CXX_COMPILER MATCHES ".*hcc")
+    set(HIP_COMPILER "hcc" CACHE STRING "HIP Compiler")
+    set(HIP_PLATFORM "hcc" CACHE STRING "HIP Platform")
+    get_filename_component(CXX_PATH ${CMAKE_CXX_COMPILER} DIRECTORY)
+    get_filename_component(CXX_PATH ${CXX_PATH} DIRECTORY)
+    set(HCC_HOME "${CXX_PATH}" CACHE PATH "Path to which HCC has been installed")
+endif()
+
+# overwrite HIP_VERSION_PATCH for packaging
+if(DEFINED ENV{ROCM_BUILD_ID})
+    set(HIP_VERSION_PATCH ${HIP_VERSION_GITDATE}.${HIP_VERSION_GITCOUNT}-$ENV{ROCM_BUILD_ID}-${HIP_VERSION_GITHASH})
+else()
+    set(HIP_VERSION_PATCH ${HIP_VERSION_GITDATE}.${HIP_VERSION_GITCOUNT}-${HIP_VERSION_GITHASH})
+endif()
+set(HIP_VERSION ${HIP_VERSION_MAJOR}.${HIP_VERSION_MINOR}.${HIP_VERSION_PATCH})
 
 #############################
 # Configure variables
@@ -218,10 +246,10 @@ if(HIP_PLATFORM STREQUAL "hcc")
     endif()
 
     # Add HIP_VERSION to CMAKE_<LANG>_FLAGS
-    set(HIP_HCC_BUILD_FLAGS "${HIP_HCC_BUILD_FLAGS} -DHIP_VERSION_MAJOR=${HIP_VERSION_MAJOR} -DHIP_VERSION_MINOR=${HIP_VERSION_MINOR} -DHIP_VERSION_PATCH=${HIP_VERSION_PATCH}")
+    set(HIP_HCC_BUILD_FLAGS "${HIP_HCC_BUILD_FLAGS} -DHIP_VERSION_MAJOR=${HIP_VERSION_MAJOR} -DHIP_VERSION_MINOR=${HIP_VERSION_MINOR} -DHIP_VERSION_PATCH=${HIP_VERSION_GITDATE}")
 
     # Add remaining flags
-    execute_process(COMMAND ${HCC_HOME}/bin/hcc-config --cxxflags OUTPUT_VARIABLE HCC_CXX_FLAGS)
+    set(HCC_CXX_FLAGS  "-hc -fno-gpu-rdc --amdgpu-target=gfx803 --amdgpu-target=gfx900 --amdgpu-target=gfx906 --amdgpu-target=gfx908 ")
     set(HIP_HCC_BUILD_FLAGS "${HIP_HCC_BUILD_FLAGS} -fPIC ${HCC_CXX_FLAGS} -I${HSA_PATH}/include")
 
     # Set compiler and compiler flags
@@ -252,9 +280,6 @@ if(HIP_PLATFORM STREQUAL "hcc")
         src/env.cpp
         src/h2f.cpp)
 
-    execute_process(COMMAND ${HCC_HOME}/bin/hcc-config --ldflags OUTPUT_VARIABLE HCC_LD_FLAGS)
-    set(CMAKE_SHARED_LINKER_FLAGS "${CMAKE_SHARED_LINKER_FLAGS} ${HCC_LD_FLAGS} -Wl,-Bsymbolic")
-    set(CMAKE_SHARED_LINKER_FLAGS "${CMAKE_SHARED_LINKER_FLAGS} --amdgpu-target=gfx701 --amdgpu-target=gfx803 --amdgpu-target=gfx900 --amdgpu-target=gfx906")
     if(COMPILE_HIP_ATP_MARKER)
         set(CMAKE_SHARED_LINKER_FLAGS "${CMAKE_SHARED_LINKER_FLAGS} -L/opt/rocm/profiler/CXLActivityLogger/bin/x86_64 -lCXLActivityLogger")
     endif()
@@ -263,7 +288,29 @@ if(HIP_PLATFORM STREQUAL "hcc")
     if(HIP_COMPILER STREQUAL "hcc")
         target_link_libraries(hip_hcc PRIVATE hc_am)
         target_link_libraries(hip_hcc_static PRIVATE hc_am)
+
+        add_library(hiprtc SHARED src/hiprtc.cpp)
+        target_include_directories(
+            hiprtc SYSTEM
+                PRIVATE ${PROJECT_SOURCE_DIR}/include ${HSA_PATH}/include)
+        target_link_libraries(hiprtc PUBLIC stdc++fs)
     endif()
+    set_target_properties(hip_hcc PROPERTIES CXX_VISIBILITY_PRESET hidden)
+    set_target_properties(hip_hcc PROPERTIES VISIBILITY_INLINES_HIDDEN 1)
+
+    if(HIP_PLATFORM STREQUAL "hcc")
+        find_package(amd_comgr REQUIRED CONFIG
+            PATHS
+                /opt/rocm/
+            PATH_SUFFIXES
+                cmake/amd_comgr
+                lib/cmake/amd_comgr
+        )
+        MESSAGE(STATUS "Code Object Manager found at ${amd_comgr_DIR}.")
+    endif()
+
+    target_link_libraries(hip_hcc PRIVATE amd_comgr)
+    target_link_libraries(hip_hcc_static PRIVATE amd_comgr)
 
     string(REPLACE " " ";" HCC_CXX_FLAGS_LIST ${HCC_CXX_FLAGS})
     foreach(TARGET hip_hcc hip_hcc_static)
@@ -297,7 +344,11 @@ endif()
 #############################
 # Install hip_hcc if platform is hcc
 if(HIP_PLATFORM STREQUAL "hcc")
-    install(TARGETS hip_hcc_static hip_hcc DESTINATION lib)
+    if(HIP_COMPILER STREQUAL "hcc")
+      install(TARGETS hip_hcc_static hip_hcc hiprtc DESTINATION lib)
+    else()
+      install(TARGETS hip_hcc_static hip_hcc DESTINATION lib)
+    endif()
 
     # Install .hipInfo
     install(FILES ${PROJECT_BINARY_DIR}/.hipInfo DESTINATION lib)
@@ -347,7 +398,7 @@ if(HIP_PLATFORM STREQUAL "hcc")
 
     write_basic_package_version_file(
         ${CMAKE_CURRENT_BINARY_DIR}/hip-config-version.cmake
-        VERSION "${HIP_VERSION}"
+        VERSION "${HIP_VERSION_MAJOR}.${HIP_VERSION_MINOR}.${HIP_VERSION_GITDATE}"
         COMPATIBILITY SameMajorVersion
         )
     install(
@@ -394,7 +445,7 @@ add_custom_target(pkg_hip_hcc  COMMAND ${CMAKE_COMMAND} .
     COMMAND cp *.rpm ${PROJECT_BINARY_DIR}
     COMMAND cp *.tar.gz ${PROJECT_BINARY_DIR}
     WORKING_DIRECTORY ${BUILD_DIR}
-    DEPENDS hip_hcc hip_hcc_static)
+    DEPENDS hip_hcc hip_hcc_static hiprtc)
 
 # Package: hip_nvcc
 set(BUILD_DIR ${CMAKE_CURRENT_BINARY_DIR}/packages/hip_nvcc)
@@ -434,7 +485,11 @@ if(POLICY CMP0037)
     cmake_policy(PUSH)
     cmake_policy(SET CMP0037 OLD)
 endif()
-add_custom_target(package DEPENDS pkg_hip_base pkg_hip_hcc pkg_hip_nvcc pkg_hip_doc pkg_hip_samples)
+add_custom_target(package
+    COMMAND rename -v "'s/([a-z0-9_.\-]).deb/$1-amd64.deb/'" *.deb
+    COMMAND rename -v "'s/([a-z0-9_.\-]).rpm/$1.x86_64.rpm/'" *.rpm
+    WORKING_DIRECTORY ${PROJECT_BINARY_DIR}
+    DEPENDS pkg_hip_base pkg_hip_hcc pkg_hip_nvcc pkg_hip_doc pkg_hip_samples)
 if(POLICY CMP0037)
     cmake_policy(POP)
 endif()

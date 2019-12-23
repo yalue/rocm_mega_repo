@@ -50,7 +50,7 @@ __device__ static inline int __clz(int input) {
 }
 
 __device__ static inline int __clzll(long long int input) {
-    return __ockl_clz_u64((ulong)input);
+    return __ockl_clz_u64((ullong)input);
 }
 
 __device__ static inline unsigned int __ffs(unsigned int input) {
@@ -736,47 +736,47 @@ int __any(int predicate) {
 __device__
 inline
 unsigned long long int __ballot(int predicate) {
-#if defined(__HCC__)
-    return __llvm_amdgcn_icmp_i32(predicate, 0, ICMP_NE);
-#else
-     return __builtin_amdgcn_uicmp(predicate, 0, ICMP_NE);
-#endif
+    return __builtin_amdgcn_uicmp(predicate, 0, ICMP_NE);
 }
 
 __device__
 inline
 unsigned long long int __ballot64(int predicate) {
-#if defined(__HCC__)
-    return __llvm_amdgcn_icmp_i32(predicate, 0, ICMP_NE);
-#else
-     return __builtin_amdgcn_uicmp(predicate, 0, ICMP_NE);
-#endif
+    return __builtin_amdgcn_uicmp(predicate, 0, ICMP_NE);
 }
 
 // hip.amdgcn.bc - lanemask
 __device__
 inline
-int64_t  __lanemask_gt()
+uint64_t  __lanemask_gt()
 {
-    int32_t activelane = __ockl_activelane_u32();
-    int64_t ballot = __ballot64(1);
-    if (activelane != 63) {
-        int64_t tmp = (~0ULL) << (activelane + 1);
-        return tmp & ballot;
-    }
-    return 0;
+    uint32_t lane = __ockl_lane_u32();
+    if (lane == 63)
+      return 0;
+    uint64_t ballot = __ballot64(1);
+    uint64_t mask = (~((uint64_t)0)) << (lane + 1);
+    return mask & ballot;
 }
 
 __device__
 inline
-int64_t __lanemask_lt()
+uint64_t __lanemask_lt()
 {
-    int32_t activelane = __ockl_activelane_u32();
+    uint32_t lane = __ockl_lane_u32();
     int64_t ballot = __ballot64(1);
-    if (activelane == 0)
-        return 0;
-    return ballot;
+    uint64_t mask = ((uint64_t)1 << lane) - (uint64_t)1;
+    return mask & ballot;
 }
+
+__device__
+inline
+uint64_t  __lanemask_eq()
+{
+    uint32_t lane = __ockl_lane_u32();
+    int64_t mask = ((uint64_t)1 << lane);
+    return mask;
+}
+
 
 __device__ inline void* __local_to_generic(void* p) { return p; }
 
@@ -970,7 +970,7 @@ static void __barrier(int n)
 
 __device__
 inline
-__attribute__((noduplicate))
+__attribute__((convergent))
 void __syncthreads()
 {
   __barrier(__CLK_LOCAL_MEM_FENCE);
@@ -1007,16 +1007,22 @@ void __syncthreads()
    SIZE         15:11   Range: 1..32
  */
 
-#define GETREG_IMMED(SZ,OFF,REG) (SZ << 11) | (OFF << 6) | REG
+#define GETREG_IMMED(SZ,OFF,REG) (((SZ) << 11) | ((OFF) << 6) | (REG))
 
+/*
+  __smid returns the wave's assigned Compute Unit and Shader Engine.
+  The Compute Unit, CU_ID returned in bits 3:0, and Shader Engine, SE_ID in bits 5:4.
+  Note: the results vary over time.
+  SZ minus 1 since SIZE is 1-based.
+*/
 __device__
 inline
 unsigned __smid(void)
 {
     unsigned cu_id = __builtin_amdgcn_s_getreg(
-            GETREG_IMMED(HW_ID_CU_ID_SIZE, HW_ID_CU_ID_OFFSET, HW_ID));
+            GETREG_IMMED(HW_ID_CU_ID_SIZE-1, HW_ID_CU_ID_OFFSET, HW_ID));
     unsigned se_id = __builtin_amdgcn_s_getreg(
-            GETREG_IMMED(HW_ID_SE_ID_SIZE, HW_ID_SE_ID_OFFSET, HW_ID));
+            GETREG_IMMED(HW_ID_SE_ID_SIZE-1, HW_ID_SE_ID_OFFSET, HW_ID));
 
     /* Each shader engine has 16 CU */
     return (se_id << HW_ID_CU_ID_SIZE) + cu_id;
