@@ -123,9 +123,17 @@ int main(int argc, char **argv) {
   CPUVectorAdd(&v);
   end_time = CurrentSeconds();
   printf("CPU vector add took %f seconds.\n", end_time - start_time);
-  start_time = CurrentSeconds();
   block_count = VECTOR_LENGTH / 256;
   if ((VECTOR_LENGTH % 256) != 0) block_count++;
+
+  // Do a warm-up iteration of the kernel before we take a time measurement.
+  hipLaunchKernelGGL(GPUVectorAdd, block_count, 256, 0, 0, v);
+  CheckHIPError(hipDeviceSynchronize());
+  // Reset the result vector.
+  CheckHIPError(hipMemset(v.device_result, 0, VECTOR_LENGTH *
+    sizeof(uint64_t)));
+
+  start_time = CurrentSeconds();
   hipLaunchKernelGGL(GPUVectorAdd, block_count, 256, 0, 0, v);
   CheckHIPError(hipDeviceSynchronize());
   end_time = CurrentSeconds();

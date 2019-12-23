@@ -205,7 +205,6 @@ CXX=hipcc cmake \
 ROCM_PATH=$ROCM_INSTALL_DIR make
 make install
 cd $ROCM_INSTALL_DIR/..
-CXX=hipcc    cmake         -DCMAKE_INSTALL_PREFIX=$ROCM_INSTALL_DIR         -DCMAKE_PREFIX_PATH="$ROCM_INSTALL_DIR"         -DTensile_LOGIC=hip_lite         -DTensile_COMPILER=hcc         -DTensile_CODE_OBJECT_VERSION=V2         -DCMAKE_BUILD_TYPE=Release         ../..
 
 echo -e "\nInstalling clang-ocl\n"
 cd sources/clang-ocl
