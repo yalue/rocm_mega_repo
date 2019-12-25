@@ -22,7 +22,6 @@
 #include "llvm/MC/MCObjectFileInfo.h"
 #include "llvm/MC/MCRegisterInfo.h"
 #include "llvm/MC/MCSubtargetInfo.h"
-#include "llvm/MC/MCTargetOptions.h"
 #include "llvm/Object/Binary.h"
 #include "llvm/Object/COFF.h"
 #include "llvm/Object/ELFObjectFile.h"
@@ -388,9 +387,7 @@ Error FileAnalysis::initialiseDisassemblyMembers() {
     return make_error<UnsupportedDisassembly>(
         "Failed to initialise RegisterInfo.");
 
-  MCTargetOptions MCOptions;
-  AsmInfo.reset(
-      ObjectTarget->createMCAsmInfo(*RegisterInfo, TripleName, MCOptions));
+  AsmInfo.reset(ObjectTarget->createMCAsmInfo(*RegisterInfo, TripleName));
   if (!AsmInfo)
     return make_error<UnsupportedDisassembly>("Failed to initialise AsmInfo.");
 

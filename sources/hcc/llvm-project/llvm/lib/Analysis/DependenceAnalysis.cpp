@@ -61,7 +61,6 @@
 #include "llvm/IR/InstIterator.h"
 #include "llvm/IR/Module.h"
 #include "llvm/IR/Operator.h"
-#include "llvm/InitializePasses.h"
 #include "llvm/Support/CommandLine.h"
 #include "llvm/Support/Debug.h"
 #include "llvm/Support/ErrorHandling.h"
@@ -141,11 +140,6 @@ INITIALIZE_PASS_END(DependenceAnalysisWrapperPass, "da", "Dependence Analysis",
                     true, true)
 
 char DependenceAnalysisWrapperPass::ID = 0;
-
-DependenceAnalysisWrapperPass::DependenceAnalysisWrapperPass()
-    : FunctionPass(ID) {
-  initializeDependenceAnalysisWrapperPassPass(*PassRegistry::getPassRegistry());
-}
 
 FunctionPass *llvm::createDependenceAnalysisWrapperPass() {
   return new DependenceAnalysisWrapperPass();

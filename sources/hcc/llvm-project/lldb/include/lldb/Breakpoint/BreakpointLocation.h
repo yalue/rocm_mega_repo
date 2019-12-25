@@ -93,7 +93,7 @@ public:
 
   /// Set the breakpoint to ignore the next \a count breakpoint hits.
   ///
-  /// \param[in] n
+  /// \param[in] count
   ///    The number of breakpoint hits to ignore.
   void SetIgnoreCount(uint32_t n);
 
@@ -223,6 +223,9 @@ public:
   ///
   /// \param[in] context
   ///    Described the breakpoint event.
+  ///
+  /// \param[in] bp_loc_id
+  ///    Which breakpoint location hit this breakpoint.
   ///
   /// \return
   ///     \b true if the target should stop at this breakpoint and \b

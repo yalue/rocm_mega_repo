@@ -6,9 +6,9 @@
 //
 //===----------------------------------------------------------------------===//
 
-#include "tests/scudo_unit_test.h"
-
 #include "vector.h"
+
+#include "gtest/gtest.h"
 
 TEST(ScudoVectorTest, Basic) {
   scudo::Vector<int> V;

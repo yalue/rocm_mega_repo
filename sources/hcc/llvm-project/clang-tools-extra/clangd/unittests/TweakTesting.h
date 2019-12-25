@@ -10,13 +10,8 @@
 #define LLVM_CLANG_TOOLS_EXTRA_UNITTESTS_CLANGD_TWEAKTESTING_H
 
 #include "TestTU.h"
-#include "index/Index.h"
-#include "llvm/ADT/StringMap.h"
-#include "llvm/ADT/StringRef.h"
-#include "gmock/gmock.h"
 #include "gtest/gtest.h"
-#include <memory>
-#include <string>
+#include "gmock/gmock.h"
 
 namespace clang {
 namespace clangd {
@@ -52,9 +47,6 @@ public:
     Expression,
   };
 
-  // Mapping from file name to contents.
-  llvm::StringMap<std::string> ExtraFiles;
-
 protected:
   TweakTest(const char *TweakID) : TweakID(TweakID) {}
 
@@ -63,32 +55,21 @@ protected:
   // testcases.
   std::string Header;
 
-  llvm::StringRef FileName = "TestTU.cpp";
-
   // Extra flags passed to the compilation in apply().
   std::vector<const char *> ExtraArgs;
 
   // Context in which snippets of code should be placed to run tweaks.
   CodeContext Context = File;
 
-  // Index to be passed into Tweak::Selection.
-  std::unique_ptr<const SymbolIndex> Index = nullptr;
-
   // Apply the current tweak to the range (or point) in MarkedCode.
   // MarkedCode will be wrapped according to the Context.
-  //  - if the tweak produces edits, returns the edited code (without markings)
-  //    for the main file.
-  //    Populates \p EditedFiles if there were changes to other files whenever
-  //    it is non-null. It is a mapping from absolute path of the edited file to
-  //    its new contents. Passing a nullptr to \p EditedFiles when there are
-  //    changes, will result in a failure.
+  //  - if the tweak produces edits, returns the edited code (without markings).
   //    The context added to MarkedCode will be stripped away before returning,
   //    unless the tweak edited it.
   //  - if the tweak produces a message, returns "message:\n<message>"
   //  - if prepare() returns false, returns "unavailable"
   //  - if apply() returns an error, returns "fail: <message>"
-  std::string apply(llvm::StringRef MarkedCode,
-                    llvm::StringMap<std::string> *EditedFiles = nullptr) const;
+  std::string apply(llvm::StringRef MarkedCode) const;
 
   // Accepts a code snippet with many ranges (or points) marked, and returns a
   // list of snippets with one range marked each.

@@ -47,6 +47,7 @@
 #include "llvm/Analysis/MemorySSA.h"
 #include "llvm/Analysis/MemorySSAUpdater.h"
 #include "llvm/Analysis/PostDominators.h"
+#include "llvm/Transforms/Utils/Local.h"
 #include "llvm/Analysis/ValueTracking.h"
 #include "llvm/IR/Argument.h"
 #include "llvm/IR/BasicBlock.h"
@@ -64,7 +65,6 @@
 #include "llvm/IR/Use.h"
 #include "llvm/IR/User.h"
 #include "llvm/IR/Value.h"
-#include "llvm/InitializePasses.h"
 #include "llvm/Pass.h"
 #include "llvm/Support/Casting.h"
 #include "llvm/Support/CommandLine.h"
@@ -72,7 +72,6 @@
 #include "llvm/Support/raw_ostream.h"
 #include "llvm/Transforms/Scalar.h"
 #include "llvm/Transforms/Scalar/GVN.h"
-#include "llvm/Transforms/Utils/Local.h"
 #include <algorithm>
 #include <cassert>
 #include <iterator>
@@ -957,8 +956,7 @@ private:
     if (MoveAccess && NewMemAcc) {
         // The definition of this ld/st will not change: ld/st hoisting is
         // legal when the ld/st is not moved past its current definition.
-        MSSAUpdater->moveToPlace(NewMemAcc, DestBB,
-                                 MemorySSA::BeforeTerminator);
+        MSSAUpdater->moveToPlace(NewMemAcc, DestBB, MemorySSA::End);
     }
 
     // Replace all other instructions with Repl with memory access NewMemAcc.
@@ -1069,9 +1067,6 @@ private:
         ++NI;
     }
 
-    if (MSSA && VerifyMemorySSA)
-      MSSA->verifyMemorySSA();
-
     NumHoisted += NL + NS + NC + NI;
     NumRemoved += NR;
     NumLoadsHoisted += NL;
@@ -1173,7 +1168,6 @@ public:
     AU.addPreserved<DominatorTreeWrapperPass>();
     AU.addPreserved<MemorySSAWrapperPass>();
     AU.addPreserved<GlobalsAAWrapperPass>();
-    AU.addPreserved<AAResultsWrapperPass>();
   }
 };
 

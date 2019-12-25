@@ -14,10 +14,9 @@
 #include "llvm/ADT/STLExtras.h"
 #include "llvm/ADT/SmallPtrSet.h"
 #include "llvm/Analysis/InstructionSimplify.h"
+#include "llvm/Transforms/Utils/Local.h"
 #include "llvm/Analysis/ValueTracking.h"
 #include "llvm/IR/PatternMatch.h"
-#include "llvm/Support/CommandLine.h"
-#include "llvm/Transforms/Utils/Local.h"
 using namespace llvm;
 using namespace llvm::PatternMatch;
 
@@ -181,14 +180,13 @@ Instruction *InstCombiner::FoldIntegerTypedPHI(PHINode &PN) {
          "Not enough available ptr typed incoming values");
   PHINode *MatchingPtrPHI = nullptr;
   unsigned NumPhis = 0;
-  for (auto II = BB->begin(); II != BB->end(); II++, NumPhis++) {
+  for (auto II = BB->begin(), EI = BasicBlock::iterator(BB->getFirstNonPHI());
+       II != EI; II++, NumPhis++) {
     // FIXME: consider handling this in AggressiveInstCombine
-    PHINode *PtrPHI = dyn_cast<PHINode>(II);
-    if (!PtrPHI)
-      break;
     if (NumPhis > MaxNumPhis)
       return nullptr;
-    if (PtrPHI == &PN || PtrPHI->getType() != IntToPtr->getType())
+    PHINode *PtrPHI = dyn_cast<PHINode>(II);
+    if (!PtrPHI || PtrPHI == &PN || PtrPHI->getType() != IntToPtr->getType())
       continue;
     MatchingPtrPHI = PtrPHI;
     for (unsigned i = 0; i != PtrPHI->getNumIncomingValues(); ++i) {
@@ -544,7 +542,7 @@ Instruction *InstCombiner::FoldPHIArgLoadIntoPHI(PHINode &PN) {
   // visitLoadInst will propagate an alignment onto the load when TD is around,
   // and if TD isn't around, we can't handle the mixed case.
   bool isVolatile = FirstLI->isVolatile();
-  MaybeAlign LoadAlignment(FirstLI->getAlignment());
+  unsigned LoadAlignment = FirstLI->getAlignment();
   unsigned LoadAddrSpace = FirstLI->getPointerAddressSpace();
 
   // We can't sink the load if the loaded value could be modified between the
@@ -576,10 +574,10 @@ Instruction *InstCombiner::FoldPHIArgLoadIntoPHI(PHINode &PN) {
 
     // If some of the loads have an alignment specified but not all of them,
     // we can't do the transformation.
-    if ((LoadAlignment.hasValue()) != (LI->getAlignment() != 0))
+    if ((LoadAlignment != 0) != (LI->getAlignment() != 0))
       return nullptr;
 
-    LoadAlignment = std::min(LoadAlignment, MaybeAlign(LI->getAlignment()));
+    LoadAlignment = std::min(LoadAlignment, LI->getAlignment());
 
     // If the PHI is of volatile loads and the load block has multiple
     // successors, sinking it would remove a load of the volatile value from

@@ -93,9 +93,6 @@ protected:
   friend class SBTarget;
   friend class SBThread;
   friend class SBThreadPlan;
-  friend class SBBreakpoint;
-  friend class SBBreakpointLocation;
-  friend class SBBreakpointName;
 
   StructuredDataImplUP m_impl_up;
 };

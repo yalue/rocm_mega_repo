@@ -16,7 +16,6 @@
 #include "llvm/Analysis/CallPrinter.h"
 #include "llvm/Analysis/CallGraph.h"
 #include "llvm/Analysis/DOTGraphTraitsPass.h"
-#include "llvm/InitializePasses.h"
 
 using namespace llvm;
 

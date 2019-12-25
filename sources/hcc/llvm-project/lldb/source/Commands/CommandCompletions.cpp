@@ -378,10 +378,8 @@ CommandCompletions::SourceFileCompleter::SearchCallback(SearchFilter &filter,
         }
       }
     } else {
-      const char *cur_file_name =
-          context.comp_unit->GetPrimaryFile().GetFilename().GetCString();
-      const char *cur_dir_name =
-          context.comp_unit->GetPrimaryFile().GetDirectory().GetCString();
+      const char *cur_file_name = context.comp_unit->GetFilename().GetCString();
+      const char *cur_dir_name = context.comp_unit->GetDirectory().GetCString();
 
       bool match = false;
       if (m_file_name && cur_file_name &&
@@ -393,7 +391,7 @@ CommandCompletions::SourceFileCompleter::SearchCallback(SearchFilter &filter,
         match = false;
 
       if (match) {
-        m_matching_files.AppendIfUnique(context.comp_unit->GetPrimaryFile());
+        m_matching_files.AppendIfUnique(context.comp_unit);
       }
     }
   }
@@ -413,7 +411,10 @@ void CommandCompletions::SourceFileCompleter::DoCompletion(
 // SymbolCompleter
 
 static bool regex_chars(const char comp) {
-  return llvm::StringRef("[](){}+.*|^$\\?").contains(comp);
+  return (comp == '[' || comp == ']' || comp == '(' || comp == ')' ||
+          comp == '{' || comp == '}' || comp == '+' || comp == '.' ||
+          comp == '*' || comp == '|' || comp == '^' || comp == '$' ||
+          comp == '\\' || comp == '?');
 }
 
 CommandCompletions::SymbolCompleter::SymbolCompleter(

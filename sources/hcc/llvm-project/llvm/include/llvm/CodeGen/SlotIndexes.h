@@ -347,9 +347,14 @@ class raw_ostream;
   public:
     static char ID;
 
-    SlotIndexes();
+    SlotIndexes() : MachineFunctionPass(ID), mf(nullptr) {
+      initializeSlotIndexesPass(*PassRegistry::getPassRegistry());
+    }
 
-    ~SlotIndexes() override;
+    ~SlotIndexes() override {
+      // The indexList's nodes are all allocated in the BumpPtrAllocator.
+      indexList.clearAndLeakNodesUnsafely();
+    }
 
     void getAnalysisUsage(AnalysisUsage &au) const override;
     void releaseMemory() override;

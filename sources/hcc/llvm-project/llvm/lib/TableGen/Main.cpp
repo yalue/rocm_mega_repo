@@ -73,7 +73,7 @@ static int createDependencyFile(const TGParser &Parser, const char *argv0) {
                                   EC.message() + "\n");
   DepOut.os() << OutputFilename << ":";
   for (const auto &Dep : Parser.getDependencies()) {
-    DepOut.os() << ' ' << Dep;
+    DepOut.os() << ' ' << Dep.first;
   }
   DepOut.os() << "\n";
   DepOut.keep();

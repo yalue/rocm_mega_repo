@@ -1,7 +1,5 @@
-; RUN: llc -march=bpfel -filetype=asm -o - %s | FileCheck -check-prefixes=CHECK,CHECK-ALU64 %s
-; RUN: llc -march=bpfeb -filetype=asm -o - %s | FileCheck -check-prefixes=CHECK,CHECK-ALU64 %s
-; RUN: llc -march=bpfel -mattr=+alu32 -filetype=asm -o - %s | FileCheck -check-prefixes=CHECK,CHECK-ALU32 %s
-; RUN: llc -march=bpfeb -mattr=+alu32 -filetype=asm -o - %s | FileCheck -check-prefixes=CHECK,CHECK-ALU32 %s
+; RUN: llc -march=bpfel -filetype=asm -o - %s | FileCheck -check-prefixes=CHECK %s
+; RUN: llc -march=bpfeb -filetype=asm -o - %s | FileCheck -check-prefixes=CHECK %s
 ; Source code:
 ;   typedef struct s1 { int a1:7; int a2:4; int a3:5; int a4:16;} __s1;
 ;   union u1 { int b1; __s1 b2; };
@@ -46,14 +44,11 @@ entry:
 
 ; CHECK:             r1 = 57
 ; CHECK:             r0 = 60
-; CHECK-ALU64:       r0 += r1
-; CHECK-ALU32:       w0 += w1
+; CHECK:             r0 += r1
 ; CHECK:             r1 = 59
-; CHECK-ALU64:       r0 += r1
-; CHECK-ALU32:       w0 += w1
+; CHECK:             r0 += r1
 ; CHECK:             r1 = 48
-; CHECK-ALU64:       r0 += r1
-; CHECK-ALU32:       w0 += w1
+; CHECK:             r0 += r1
 ; CHECK:             exit
 
 ; CHECK:             .long   1                       # BTF_KIND_UNION(id = 2)

@@ -100,10 +100,6 @@ void FormatTokenLexer::tryMergePreviousTokens() {
     static const tok::TokenKind JSExponentiation[] = {tok::star, tok::star};
     static const tok::TokenKind JSExponentiationEqual[] = {tok::star,
                                                            tok::starequal};
-    static const tok::TokenKind JSNullPropagatingOperator[] = {tok::question,
-                                                               tok::period};
-    static const tok::TokenKind JSNullishOperator[] = {tok::question,
-                                                       tok::question};
 
     // FIXME: Investigate what token type gives the correct operator priority.
     if (tryMergeTokens(JSIdentity, TT_BinaryOperator))
@@ -118,14 +114,6 @@ void FormatTokenLexer::tryMergePreviousTokens() {
       return;
     if (tryMergeTokens(JSExponentiationEqual, TT_JsExponentiationEqual)) {
       Tokens.back()->Tok.setKind(tok::starequal);
-      return;
-    }
-    if (tryMergeTokens(JSNullishOperator, TT_JsNullishCoalescingOperator))
-      return;
-    if (tryMergeTokens(JSNullPropagatingOperator,
-                       TT_JsNullPropagatingOperator)) {
-      // Treat like a regular "." access.
-      Tokens.back()->Tok.setKind(tok::period);
       return;
     }
     if (tryMergeJSPrivateIdentifier())

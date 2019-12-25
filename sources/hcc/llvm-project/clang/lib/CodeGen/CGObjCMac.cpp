@@ -16,8 +16,8 @@
 #include "CGRecordLayout.h"
 #include "CodeGenFunction.h"
 #include "CodeGenModule.h"
+#include "clang/CodeGen/ConstantInitBuilder.h"
 #include "clang/AST/ASTContext.h"
-#include "clang/AST/Attr.h"
 #include "clang/AST/Decl.h"
 #include "clang/AST/DeclObjC.h"
 #include "clang/AST/RecordLayout.h"
@@ -25,7 +25,6 @@
 #include "clang/Basic/CodeGenOptions.h"
 #include "clang/Basic/LangOptions.h"
 #include "clang/CodeGen/CGFunctionInfo.h"
-#include "clang/CodeGen/ConstantInitBuilder.h"
 #include "llvm/ADT/CachedHashString.h"
 #include "llvm/ADT/DenseSet.h"
 #include "llvm/ADT/SetVector.h"
@@ -875,10 +874,6 @@ protected:
   /// this translation unit.
   llvm::DenseMap<const ObjCMethodDecl*, llvm::Function*> MethodDefinitions;
 
-  /// DirectMethodDefinitions - map of direct methods which have been defined in
-  /// this translation unit.
-  llvm::DenseMap<const ObjCMethodDecl*, llvm::Function*> DirectMethodDefinitions;
-
   /// PropertyNames - uniqued method variable names.
   llvm::DenseMap<IdentifierInfo*, llvm::GlobalVariable*> PropertyNames;
 
@@ -1070,7 +1065,7 @@ protected:
   CodeGen::RValue EmitMessageSend(CodeGen::CodeGenFunction &CGF,
                                   ReturnValueSlot Return,
                                   QualType ResultType,
-                                  Selector Sel,
+                                  llvm::Value *Sel,
                                   llvm::Value *Arg0,
                                   QualType Arg0Ty,
                                   bool IsSuper,
@@ -1096,13 +1091,6 @@ public:
 
   llvm::Function *GenerateMethod(const ObjCMethodDecl *OMD,
                                  const ObjCContainerDecl *CD=nullptr) override;
-
-  llvm::Function *GenerateDirectMethod(const ObjCMethodDecl *OMD,
-                                       const ObjCContainerDecl *CD);
-
-  void GenerateDirectMethodPrologue(CodeGenFunction &CGF, llvm::Function *Fn,
-                                    const ObjCMethodDecl *OMD,
-                                    const ObjCContainerDecl *CD) override;
 
   void GenerateProtocol(const ObjCProtocolDecl *PD) override;
 
@@ -1585,13 +1573,9 @@ private:
     // base of the ivar access is a parameter to an Objective C method.
     // However, because the parameters are not available in the current
     // interface, we cannot perform this check.
-    //
-    // Note that for direct methods, because objc_msgSend is skipped,
-    // and that the method may be inlined, this optimization actually
-    // can't be performed.
     if (const ObjCMethodDecl *MD =
           dyn_cast_or_null<ObjCMethodDecl>(CGF.CurFuncDecl))
-      if (MD->isInstanceMethod() && !MD->isDirectMethod())
+      if (MD->isInstanceMethod())
         if (const ObjCInterfaceDecl *ID = MD->getClassInterface())
           return IV->getContainingInterface()->isSuperClassOf(ID);
     return false;
@@ -2119,9 +2103,10 @@ CGObjCMac::GenerateMessageSendSuper(CodeGen::CodeGenFunction &CGF,
     CGM.getTypes().ConvertType(CGF.getContext().getObjCClassType());
   Target = CGF.Builder.CreateBitCast(Target, ClassTy);
   CGF.Builder.CreateStore(Target, CGF.Builder.CreateStructGEP(ObjCSuper, 1));
-  return EmitMessageSend(CGF, Return, ResultType, Sel, ObjCSuper.getPointer(),
-                         ObjCTypes.SuperPtrCTy, true, CallArgs, Method, Class,
-                         ObjCTypes);
+  return EmitMessageSend(CGF, Return, ResultType,
+                         EmitSelector(CGF, Sel),
+                         ObjCSuper.getPointer(), ObjCTypes.SuperPtrCTy,
+                         true, CallArgs, Method, Class, ObjCTypes);
 }
 
 /// Generate code for a message send expression.
@@ -2133,9 +2118,10 @@ CodeGen::RValue CGObjCMac::GenerateMessageSend(CodeGen::CodeGenFunction &CGF,
                                                const CallArgList &CallArgs,
                                                const ObjCInterfaceDecl *Class,
                                                const ObjCMethodDecl *Method) {
-  return EmitMessageSend(CGF, Return, ResultType, Sel, Receiver,
-                         CGF.getContext().getObjCIdType(), false, CallArgs,
-                         Method, Class, ObjCTypes);
+  return EmitMessageSend(CGF, Return, ResultType,
+                         EmitSelector(CGF, Sel),
+                         Receiver, CGF.getContext().getObjCIdType(),
+                         false, CallArgs, Method, Class, ObjCTypes);
 }
 
 static bool isWeakLinkedClass(const ObjCInterfaceDecl *ID) {
@@ -2151,7 +2137,7 @@ CodeGen::RValue
 CGObjCCommonMac::EmitMessageSend(CodeGen::CodeGenFunction &CGF,
                                  ReturnValueSlot Return,
                                  QualType ResultType,
-                                 Selector Sel,
+                                 llvm::Value *Sel,
                                  llvm::Value *Arg0,
                                  QualType Arg0Ty,
                                  bool IsSuper,
@@ -2159,24 +2145,11 @@ CGObjCCommonMac::EmitMessageSend(CodeGen::CodeGenFunction &CGF,
                                  const ObjCMethodDecl *Method,
                                  const ObjCInterfaceDecl *ClassReceiver,
                                  const ObjCCommonTypesHelper &ObjCTypes) {
-  CodeGenTypes &Types = CGM.getTypes();
-  auto selTy = CGF.getContext().getObjCSelType();
-  llvm::Value *SelValue;
-
-  if (Method && Method->isDirectMethod()) {
-    // Direct methods will synthesize the proper `_cmd` internally,
-    // so just don't bother with setting the `_cmd` argument.
-    assert(!IsSuper);
-    SelValue = llvm::UndefValue::get(Types.ConvertType(selTy));
-  } else {
-    SelValue = GetSelector(CGF, Sel);
-  }
-
   CallArgList ActualArgs;
   if (!IsSuper)
     Arg0 = CGF.Builder.CreateBitCast(Arg0, ObjCTypes.ObjectPtrTy);
   ActualArgs.add(RValue::get(Arg0), Arg0Ty);
-  ActualArgs.add(RValue::get(SelValue), selTy);
+  ActualArgs.add(RValue::get(Sel), CGF.getContext().getObjCSelType());
   ActualArgs.addFrom(CallArgs);
 
   // If we're calling a method, use the formal signature.
@@ -2217,9 +2190,7 @@ CGObjCCommonMac::EmitMessageSend(CodeGen::CodeGenFunction &CGF,
   bool RequiresNullCheck = false;
 
   llvm::FunctionCallee Fn = nullptr;
-  if (Method && Method->isDirectMethod()) {
-    Fn = GenerateDirectMethod(Method, Method->getClassInterface());
-  } else if (CGM.ReturnSlotInterferesWithArgs(MSI.CallInfo)) {
+  if (CGM.ReturnSlotInterferesWithArgs(MSI.CallInfo)) {
     if (ReceiverCanBeNull) RequiresNullCheck = true;
     Fn = (ObjCABI == 2) ?  ObjCTypes.getSendStretFn2(IsSuper)
       : ObjCTypes.getSendStretFn(IsSuper);
@@ -3326,8 +3297,6 @@ llvm::Constant *CGObjCCommonMac::EmitPropertyList(Twine Name,
   values.addInt(ObjCTypes.IntTy, Properties.size());
   auto propertiesArray = values.beginArray(ObjCTypes.PropertyTy);
   for (auto PD : Properties) {
-    if (PD->isDirectProperty())
-      continue;
     auto property = propertiesArray.beginStruct(ObjCTypes.PropertyTy);
     property.add(GetPropertyName(PD->getIdentifier()));
     property.add(GetPropertyTypeString(PD, Container));
@@ -3403,8 +3372,7 @@ void CGObjCMac::GenerateCategory(const ObjCCategoryImplDecl *OCD) {
   };
   SmallVector<const ObjCMethodDecl *, 16> Methods[NumMethodLists];
   for (const auto *MD : OCD->methods()) {
-    if (!MD->isDirectMethod())
-      Methods[unsigned(MD->isClassMethod())].push_back(MD);
+    Methods[unsigned(MD->isClassMethod())].push_back(MD);
   }
 
   Values.add(GetClassName(OCD->getName()));
@@ -3586,18 +3554,17 @@ void CGObjCMac::GenerateClass(const ObjCImplementationDecl *ID) {
   };
   SmallVector<const ObjCMethodDecl *, 16> Methods[NumMethodLists];
   for (const auto *MD : ID->methods()) {
-    if (!MD->isDirectMethod())
-      Methods[unsigned(MD->isClassMethod())].push_back(MD);
+    Methods[unsigned(MD->isClassMethod())].push_back(MD);
   }
 
   for (const auto *PID : ID->property_impls()) {
     if (PID->getPropertyImplementation() == ObjCPropertyImplDecl::Synthesize) {
-      if (PID->getPropertyDecl()->isDirectProperty())
-        continue;
-      if (ObjCMethodDecl *MD = PID->getGetterMethodDecl())
+      ObjCPropertyDecl *PD = PID->getPropertyDecl();
+
+      if (ObjCMethodDecl *MD = PD->getGetterMethodDecl())
         if (GetMethodDefinition(MD))
           Methods[InstanceMethods].push_back(MD);
-      if (ObjCMethodDecl *MD = PID->getSetterMethodDecl())
+      if (ObjCMethodDecl *MD = PD->getSetterMethodDecl())
         if (GetMethodDefinition(MD))
           Methods[InstanceMethods].push_back(MD);
     }
@@ -3992,8 +3959,7 @@ llvm::Constant *CGObjCMac::emitMethodList(Twine name, MethodListType MLT,
   values.addInt(ObjCTypes.IntTy, methods.size());
   auto methodArray = values.beginArray(ObjCTypes.MethodTy);
   for (auto MD : methods) {
-    if (!MD->isDirectMethod())
-      emitMethodConstant(methodArray, MD);
+    emitMethodConstant(methodArray, MD);
   }
   methodArray.finishAndAddTo(values);
 
@@ -4004,34 +3970,6 @@ llvm::Constant *CGObjCMac::emitMethodList(Twine name, MethodListType MLT,
 
 llvm::Function *CGObjCCommonMac::GenerateMethod(const ObjCMethodDecl *OMD,
                                                 const ObjCContainerDecl *CD) {
-  llvm::Function *Method;
-
-  if (OMD->isDirectMethod()) {
-    Method = GenerateDirectMethod(OMD, CD);
-  } else {
-    SmallString<256> Name;
-    GetNameForMethod(OMD, CD, Name);
-
-    CodeGenTypes &Types = CGM.getTypes();
-    llvm::FunctionType *MethodTy =
-        Types.GetFunctionType(Types.arrangeObjCMethodDeclaration(OMD));
-    Method =
-        llvm::Function::Create(MethodTy, llvm::GlobalValue::InternalLinkage,
-                               Name.str(), &CGM.getModule());
-  }
-
-  MethodDefinitions.insert(std::make_pair(OMD, Method));
-
-  return Method;
-}
-
-llvm::Function *
-CGObjCCommonMac::GenerateDirectMethod(const ObjCMethodDecl *OMD,
-                                      const ObjCContainerDecl *CD) {
-  auto I = DirectMethodDefinitions.find(OMD->getCanonicalDecl());
-  if (I != DirectMethodDefinitions.end())
-    return I->second;
-
   SmallString<256> Name;
   GetNameForMethod(OMD, CD, Name);
 
@@ -4039,96 +3977,13 @@ CGObjCCommonMac::GenerateDirectMethod(const ObjCMethodDecl *OMD,
   llvm::FunctionType *MethodTy =
     Types.GetFunctionType(Types.arrangeObjCMethodDeclaration(OMD));
   llvm::Function *Method =
-      llvm::Function::Create(MethodTy, llvm::GlobalValue::ExternalLinkage,
-                             Name.str(), &CGM.getModule());
-  DirectMethodDefinitions.insert(std::make_pair(OMD->getCanonicalDecl(), Method));
+    llvm::Function::Create(MethodTy,
+                           llvm::GlobalValue::InternalLinkage,
+                           Name.str(),
+                           &CGM.getModule());
+  MethodDefinitions.insert(std::make_pair(OMD, Method));
 
   return Method;
-}
-
-void CGObjCCommonMac::GenerateDirectMethodPrologue(
-    CodeGenFunction &CGF, llvm::Function *Fn, const ObjCMethodDecl *OMD,
-    const ObjCContainerDecl *CD) {
-  auto &Builder = CGF.Builder;
-  bool ReceiverCanBeNull = true;
-  auto selfAddr = CGF.GetAddrOfLocalVar(OMD->getSelfDecl());
-  auto selfValue = Builder.CreateLoad(selfAddr);
-
-  // Generate:
-  //
-  // /* for class methods only to force class lazy initialization */
-  // self = [self self];
-  //
-  // /* unless the receiver is never NULL */
-  // if (self == nil) {
-  //     return (ReturnType){ };
-  // }
-  //
-  // _cmd = @selector(...)
-  // ...
-
-  if (OMD->isClassMethod()) {
-    const ObjCInterfaceDecl *OID = cast<ObjCInterfaceDecl>(CD);
-    assert(OID &&
-           "GenerateDirectMethod() should be called with the Class Interface");
-    Selector SelfSel = GetNullarySelector("self", CGM.getContext());
-    auto ResultType = CGF.getContext().getObjCIdType();
-    RValue result;
-    CallArgList Args;
-
-    // TODO: If this method is inlined, the caller might know that `self` is
-    // already initialized; for example, it might be an ordinary Objective-C
-    // method which always receives an initialized `self`, or it might have just
-    // forced initialization on its own.
-    //
-    // We should find a way to eliminate this unnecessary initialization in such
-    // cases in LLVM.
-    result = GeneratePossiblySpecializedMessageSend(
-        CGF, ReturnValueSlot(), ResultType, SelfSel, selfValue, Args, OID,
-        nullptr, true);
-    Builder.CreateStore(result.getScalarVal(), selfAddr);
-
-	// Nullable `Class` expressions cannot be messaged with a direct method
-	// so the only reason why the receive can be null would be because
-	// of weak linking.
-    ReceiverCanBeNull = isWeakLinkedClass(OID);
-  }
-
-  if (ReceiverCanBeNull) {
-    llvm::BasicBlock *SelfIsNilBlock =
-        CGF.createBasicBlock("objc_direct_method.self_is_nil");
-    llvm::BasicBlock *ContBlock =
-        CGF.createBasicBlock("objc_direct_method.cont");
-
-    // if (self == nil) {
-    auto selfTy = cast<llvm::PointerType>(selfValue->getType());
-    auto Zero = llvm::ConstantPointerNull::get(selfTy);
-
-    llvm::MDBuilder MDHelper(CGM.getLLVMContext());
-    Builder.CreateCondBr(Builder.CreateICmpEQ(selfValue, Zero), SelfIsNilBlock,
-                         ContBlock, MDHelper.createBranchWeights(1, 1 << 20));
-
-    CGF.EmitBlock(SelfIsNilBlock);
-
-    //   return (ReturnType){ };
-    auto retTy = OMD->getReturnType();
-    Builder.SetInsertPoint(SelfIsNilBlock);
-    if (!retTy->isVoidType()) {
-      CGF.EmitNullInitialization(CGF.ReturnValue, retTy);
-    }
-    CGF.EmitBranchThroughCleanup(CGF.ReturnBlock);
-    // }
-
-    // rest of the body
-    CGF.EmitBlock(ContBlock);
-    Builder.SetInsertPoint(ContBlock);
-  }
-
-  // only synthesize _cmd if it's referenced
-  if (OMD->getCmdDecl()->isUsed()) {
-    Builder.CreateStore(GetSelector(CGF, OMD),
-                        CGF.GetAddrOfLocalVar(OMD->getCmdDecl()));
-  }
 }
 
 llvm::GlobalVariable *CGObjCCommonMac::CreateMetadataVar(Twine Name,
@@ -6373,12 +6228,23 @@ llvm::GlobalVariable * CGObjCNonFragileABIMac::BuildClassRoTInitializer(
   SmallVector<const ObjCMethodDecl*, 16> methods;
   if (flags & NonFragileABI_Class_Meta) {
     for (const auto *MD : ID->class_methods())
-      if (!MD->isDirectMethod())
-        methods.push_back(MD);
+      methods.push_back(MD);
   } else {
     for (const auto *MD : ID->instance_methods())
-      if (!MD->isDirectMethod())
-        methods.push_back(MD);
+      methods.push_back(MD);
+
+    for (const auto *PID : ID->property_impls()) {
+      if (PID->getPropertyImplementation() == ObjCPropertyImplDecl::Synthesize){
+        ObjCPropertyDecl *PD = PID->getPropertyDecl();
+
+        if (auto MD = PD->getGetterMethodDecl())
+          if (GetMethodDefinition(MD))
+            methods.push_back(MD);
+        if (auto MD = PD->getSetterMethodDecl())
+          if (GetMethodDefinition(MD))
+            methods.push_back(MD);
+      }
+    }
   }
 
   values.add(emitMethodList(ID->getObjCRuntimeNameAsString(),
@@ -6699,8 +6565,6 @@ void CGObjCNonFragileABIMac::GenerateCategory(const ObjCCategoryImplDecl *OCD) {
   SmallVector<const ObjCMethodDecl *, 16> instanceMethods;
   SmallVector<const ObjCMethodDecl *, 8> classMethods;
   for (const auto *MD : OCD->methods()) {
-    if (MD->isDirectMethod())
-      continue;
     if (MD->isInstanceMethod()) {
       instanceMethods.push_back(MD);
     } else {
@@ -6843,8 +6707,9 @@ CGObjCNonFragileABIMac::emitMethodList(Twine name, MethodListType kind,
   // method_count
   values.addInt(ObjCTypes.IntTy, methods.size());
   auto methodArray = values.beginArray(ObjCTypes.MethodTy);
-  for (auto MD : methods)
+  for (auto MD : methods) {
     emitMethodConstant(methodArray, MD, forProtocol);
+  }
   methodArray.finishAndAddTo(values);
 
   llvm::GlobalVariable *GV = finishAndCreateGlobal(values, prefix + name, CGM);
@@ -7369,7 +7234,8 @@ CGObjCNonFragileABIMac::GenerateMessageSend(CodeGen::CodeGenFunction &CGF,
     ? EmitVTableMessageSend(CGF, Return, ResultType, Sel,
                             Receiver, CGF.getContext().getObjCIdType(),
                             false, CallArgs, Method)
-    : EmitMessageSend(CGF, Return, ResultType, Sel,
+    : EmitMessageSend(CGF, Return, ResultType,
+                      EmitSelector(CGF, Sel),
                       Receiver, CGF.getContext().getObjCIdType(),
                       false, CallArgs, Method, Class, ObjCTypes);
 }
@@ -7600,7 +7466,8 @@ CGObjCNonFragileABIMac::GenerateMessageSendSuper(CodeGen::CodeGenFunction &CGF,
     ? EmitVTableMessageSend(CGF, Return, ResultType, Sel,
                             ObjCSuper.getPointer(), ObjCTypes.SuperPtrCTy,
                             true, CallArgs, Method)
-    : EmitMessageSend(CGF, Return, ResultType, Sel,
+    : EmitMessageSend(CGF, Return, ResultType,
+                      EmitSelector(CGF, Sel),
                       ObjCSuper.getPointer(), ObjCTypes.SuperPtrCTy,
                       true, CallArgs, Method, Class, ObjCTypes);
 }

@@ -72,9 +72,6 @@ static cl::opt<bool>
 ForceFastISel("arm-force-fast-isel",
                cl::init(false), cl::Hidden);
 
-static cl::opt<bool> EnableSubRegLiveness("arm-enable-subreg-liveness",
-                                          cl::init(false), cl::Hidden);
-
 /// initializeSubtargetDependencies - Initializes using a CPU and feature string
 /// so that we can use initializer lists for subtarget initialization.
 ARMSubtarget &ARMSubtarget::initializeSubtargetDependencies(StringRef CPU,
@@ -382,23 +379,11 @@ bool ARMSubtarget::enableMachineScheduler() const {
   return useMachineScheduler();
 }
 
-bool ARMSubtarget::enableSubRegLiveness() const { return EnableSubRegLiveness; }
-
 // This overrides the PostRAScheduler bit in the SchedModel for any CPU.
 bool ARMSubtarget::enablePostRAScheduler() const {
-  if (enableMachineScheduler())
-    return false;
   if (disablePostRAScheduler())
     return false;
-  // Thumb1 cores will generally not benefit from post-ra scheduling
-  return !isThumb1Only();
-}
-
-bool ARMSubtarget::enablePostRAMachineScheduler() const {
-  if (!enableMachineScheduler())
-    return false;
-  if (disablePostRAScheduler())
-    return false;
+  // Don't reschedule potential IT blocks.
   return !isThumb1Only();
 }
 

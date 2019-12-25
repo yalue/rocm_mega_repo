@@ -65,7 +65,7 @@ public:
   /// If it is a mal-formed breakpoint name, error will be set to an appropriate
   /// error string.
   ///
-  /// \param[in] str
+  /// \param[in] input
   ///     A string containing JUST the breakpoint description.
   /// \param[out] error
   ///     If the name is a well-formed breakpoint name, set to success,

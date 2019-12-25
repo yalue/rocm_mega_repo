@@ -29,7 +29,6 @@
 #include "llvm/Support/MathExtras.h"
 #include "llvm/Support/ScaledNumber.h"
 #include "llvm/Support/StringSaver.h"
-#include "llvm/Support/raw_ostream.h"
 #include <algorithm>
 #include <array>
 #include <cassert>
@@ -173,7 +172,7 @@ struct ValueInfo {
     RefAndFlags.setInt(HaveGVs);
   }
 
-  explicit operator bool() const { return getRef(); }
+  operator bool() const { return getRef(); }
 
   GlobalValue::GUID getGUID() const { return getRef()->first; }
   const GlobalValue *getValue() const {
@@ -548,8 +547,6 @@ public:
 
     // Indicate if the global value cannot be inlined.
     unsigned NoInline : 1;
-    // Indicate if function should be always inlined.
-    unsigned AlwaysInline : 1;
   };
 
   /// Create an empty FunctionSummary (with specified call edges).
@@ -944,11 +941,6 @@ private:
   /// considered live.
   bool WithGlobalValueDeadStripping = false;
 
-  /// Indicates that summary-based attribute propagation has run and
-  /// GVarFlags::MaybeReadonly / GVarFlags::MaybeWriteonly are really
-  /// read/write only.
-  bool WithAttributePropagation = false;
-
   /// Indicates that summary-based synthetic entry count propagation has run
   bool HasSyntheticEntryCounts = false;
 
@@ -994,13 +986,6 @@ public:
   ModuleSummaryIndex(bool HaveGVs, bool EnableSplitLTOUnit = false)
       : HaveGVs(HaveGVs), EnableSplitLTOUnit(EnableSplitLTOUnit), Saver(Alloc) {
   }
-
-  // Current version for the module summary in bitcode files.
-  // The BitcodeSummaryVersion should be bumped whenever we introduce changes
-  // in the way some record are interpreted, like flags for instance.
-  // Note that incrementing this may require changes in both BitcodeReader.cpp
-  // and BitcodeWriter.cpp.
-  static constexpr uint64_t BitcodeSummaryVersion = 8;
 
   bool haveGVs() const { return HaveGVs; }
 
@@ -1078,18 +1063,6 @@ public:
   }
   void setWithGlobalValueDeadStripping() {
     WithGlobalValueDeadStripping = true;
-  }
-
-  bool withAttributePropagation() const { return WithAttributePropagation; }
-  void setWithAttributePropagation() {
-    WithAttributePropagation = true;
-  }
-
-  bool isReadOnly(const GlobalVarSummary *GVS) const {
-    return WithAttributePropagation && GVS->maybeReadOnly();
-  }
-  bool isWriteOnly(const GlobalVarSummary *GVS) const {
-    return WithAttributePropagation && GVS->maybeWriteOnly();
   }
 
   bool hasSyntheticEntryCounts() const { return HasSyntheticEntryCounts; }
@@ -1383,9 +1356,6 @@ public:
 
   /// Analyze index and detect unmodified globals
   void propagateAttributes(const DenseSet<GlobalValue::GUID> &PreservedSymbols);
-
-  /// Checks if we can import global variable from another module.
-  bool canImportGlobalVar(GlobalValueSummary *S, bool AnalyzeRefs) const;
 };
 
 /// GraphTraits definition to build SCC for the index
@@ -1457,6 +1427,15 @@ struct GraphTraits<ModuleSummaryIndex *> : public GraphTraits<ValueInfo> {
     return ValueInfo(I->haveGVs(), &P);
   }
 };
+
+static inline bool canImportGlobalVar(GlobalValueSummary *S) {
+  assert(isa<GlobalVarSummary>(S->getBaseObject()));
+
+  // We don't import GV with references, because it can result
+  // in promotion of local variables in the source module.
+  return !GlobalValue::isInterposableLinkage(S->linkage()) &&
+         !S->notEligibleToImport() && S->refs().empty();
+}
 } // end namespace llvm
 
 #endif // LLVM_IR_MODULESUMMARYINDEX_H

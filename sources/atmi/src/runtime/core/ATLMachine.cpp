@@ -110,7 +110,7 @@ int cu_mask_parser(char *gpu_workers, uint64_t *cu_masks, int count)
                 token3 = strtok_r(token2, "-", &pch3);
                 int offset = atoi(token3);
                 token3 = strtok_r(NULL, "-", &pch3);
-                int num_cus = atoi(token3)-offset+1;
+                int num_cus = token3 ? atoi(token3)-offset+1 : 1;
                 token2 = strtok_r(NULL, ",", &pch2);
 
                 //fprintf(stderr, "%d-%d ", offset, num_cus);
@@ -135,7 +135,7 @@ int cu_mask_parser(char *gpu_workers, uint64_t *cu_masks, int count)
 
 void callbackQueue(hsa_status_t status, hsa_queue_t *source, void *data) {
   if(status != HSA_STATUS_SUCCESS) {
-    fprintf (stderr, "[%s:%d] GPU error in queue %p\n", __FILE__, __LINE__, source);
+    fprintf (stderr, "[%s:%d] GPU error in queue %p %d\n", __FILE__, __LINE__, source, status);
     abort();
    }
 }

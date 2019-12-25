@@ -99,11 +99,12 @@ protected:
   MachineInstr *commuteInstructionImpl(MachineInstr &MI, bool NewMI,
                                        unsigned OpIdx1,
                                        unsigned OpIdx2) const override;
-  /// If the specific machine instruction is an instruction that moves/copies
-  /// value from one register to another register return destination and source
-  /// registers as machine operands.
-  Optional<DestSourcePair>
-  isCopyInstrImpl(const MachineInstr &MI) const override;
+
+  /// If the specific machine instruction is a instruction that moves/copies
+  /// value from one register to another register return true along with
+  /// @Source machine operand and @Destination machine operand.
+  bool isCopyInstrImpl(const MachineInstr &MI, const MachineOperand *&Source,
+                       const MachineOperand *&Destination) const override;
 
 public:
   // Return whether the target has an explicit NOP encoding.
@@ -202,7 +203,7 @@ public:
                     const ARMSubtarget &Subtarget) const;
 
   void copyPhysReg(MachineBasicBlock &MBB, MachineBasicBlock::iterator I,
-                   const DebugLoc &DL, MCRegister DestReg, MCRegister SrcReg,
+                   const DebugLoc &DL, unsigned DestReg, unsigned SrcReg,
                    bool KillSrc) const override;
 
   void storeRegToStackSlot(MachineBasicBlock &MBB,
@@ -454,9 +455,6 @@ public:
     // 3 - predicate reg
     return MI.getOperand(3).getReg();
   }
-
-  Optional<RegImmPair> isAddImmediate(const MachineInstr &MI,
-                                      Register Reg) const override;
 };
 
 /// Get the operands corresponding to the given \p Pred value. By default, the

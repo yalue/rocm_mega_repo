@@ -119,3 +119,4 @@ class GoogleBenchmark(TestFormat):
             return lit.Test.UNRESOLVED, msg
 
         return lit.Test.PASS, err + out
+

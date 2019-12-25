@@ -1581,7 +1581,6 @@ static SectionType GetSectionTypeFromName(llvm::StringRef Name) {
         .Case("pubtypes", eSectionTypeDWARFDebugPubTypes)
         .Case("ranges", eSectionTypeDWARFDebugRanges)
         .Case("rnglists", eSectionTypeDWARFDebugRngLists)
-        .Case("rnglists.dwo", eSectionTypeDWARFDebugRngListsDwo)
         .Case("str", eSectionTypeDWARFDebugStr)
         .Case("str.dwo", eSectionTypeDWARFDebugStrDwo)
         .Case("str_offsets", eSectionTypeDWARFDebugStrOffsets)

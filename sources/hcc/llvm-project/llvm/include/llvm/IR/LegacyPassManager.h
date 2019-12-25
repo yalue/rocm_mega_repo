@@ -63,7 +63,7 @@ private:
   PassManagerImpl *PM;
 };
 
-/// FunctionPassManager manages FunctionPasses.
+/// FunctionPassManager manages FunctionPasses and BasicBlockPassManagers.
 class FunctionPassManager : public PassManagerBase {
 public:
   /// FunctionPassManager ctor - This initializes the pass manager.  It needs,

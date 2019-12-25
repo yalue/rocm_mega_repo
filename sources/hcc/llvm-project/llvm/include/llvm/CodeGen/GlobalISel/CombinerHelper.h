@@ -134,7 +134,7 @@ public:
   ///
   /// For example (pre-indexed):
   ///
-  ///     $addr = G_PTR_ADD $base, $offset
+  ///     $addr = G_GEP $base, $offset
   ///     [...]
   ///     $val = G_LOAD $addr
   ///     [...]
@@ -150,7 +150,7 @@ public:
   ///
   ///     G_STORE $val, $base
   ///     [...]
-  ///     $addr = G_PTR_ADD $base, $offset
+  ///     $addr = G_GEP $base, $offset
   ///     [...]
   ///     $whatever = COPY $addr
   ///

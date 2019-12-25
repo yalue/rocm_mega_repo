@@ -34,7 +34,7 @@ JSON_DATA = {}
 # Major version - Increment when backwards-compatibility breaks
 # Minor version - Increment when adding a new feature, set to 0 when major is incremented
 # Patch version - Increment when adding a fix, set to 0 when minor is incremented
-__version__ = '1.3.0'
+__version__ = '1.3.1'
 
 def relaunchAsSudo():
     """ Relaunch the SMI as sudo
@@ -145,6 +145,7 @@ valuePaths = {
     'vram_total' : {'prefix' : drmprefix, 'filepath' : 'mem_info_vram_total', 'needsparse' : False},
     'vis_vram_used' : {'prefix' : drmprefix, 'filepath' : 'mem_info_vis_vram_used', 'needsparse' : False},
     'vis_vram_total' : {'prefix' : drmprefix, 'filepath' : 'mem_info_vis_vram_total', 'needsparse' : False},
+    'vram_vendor' : {'prefix' : drmprefix, 'filepath' : 'mem_info_vram_vendor', 'needsparse' : False},
     'gtt_used' : {'prefix' : drmprefix, 'filepath' : 'mem_info_gtt_used', 'needsparse' : False},
     'gtt_total' : {'prefix' : drmprefix, 'filepath' : 'mem_info_gtt_total', 'needsparse' : False},
     'ras_gfx' : {'prefix' : drmprefix, 'filepath' : 'ras/gfx_err_count', 'needsparse' : False},
@@ -353,6 +354,21 @@ def printLog(device, log):
         logstr = 'GPU[%s] \t\t: %s' % (devName, line)
         logging.debug(logstr)
         print(logstr)
+
+def printSysLog (log):
+    """ Print out to the SMI log for repeated features
+    Parameters:
+    log -- String to print to the log
+    """
+    global PRINT_JSON
+    global JSON_DATA
+    if PRINT_JSON is True:
+        if "system" not in JSON_DATA:
+            JSON_DATA["system"] = {}
+        formatJson("system",log)
+        return
+    print(log)
+
 
 
 def printLogSpacer():
@@ -647,9 +663,12 @@ def listDevices(showall):
     showall -- [True|False] Show all devices, not just AMD devices
     """
 
+    if not os.path.isdir(drmprefix) or not os.listdir(drmprefix):
+        printLogNoDev('Unable to get devices, /sys/class/drm is empty or missing')
+        return None
+
     devicelist = [device for device in os.listdir(drmprefix) if re.match(r'^card\d+$', device) and (isAmdDevice(device) or showall)]
-    devicelist.sort()
-    return devicelist
+    return sorted(devicelist, key=lambda x: int(x.partition('card')[2]))
 
 
 def listAmdHwMons():
@@ -1245,6 +1264,23 @@ def showMemUse(deviceList):
     printLogSpacer()
 
 
+def showMemVendor(deviceList):
+    """ Display GPU memory vendor for a list of devices.
+
+    Parameters:
+    deviceList -- List of DRM devices (can be a single-item list)
+    """
+    printLogSpacer()
+    for device in deviceList:
+        memoryVendor = getSysfsValue(device, 'vram_vendor')
+        if memoryVendor == None:
+            printErr(device, 'Unable to get GPU memory vendor.')
+            logging.debug('GPU[%s]\t: GPU memory vendor not supported (file is empty)', parseDeviceName(device))
+        else:
+            printLog(device, 'GPU memory vendor: %s' % memoryVendor)
+    printLogSpacer()
+
+
 def showPcieBw(deviceList):
     """ Display estimated PCIe bandwidth usage for a list of devices.
 
@@ -1384,7 +1420,7 @@ def showVersion(deviceList, component):
         return
     if component is 'driver':
         driver = getVersion(deviceList, component)
-        printLogNoDev('%s version: %s' % (component.capitalize(), driver))
+        printSysLog('%s version: %s' % (component.capitalize(), driver))
 
 
 def showXgmiErr(deviceList):
@@ -1428,6 +1464,22 @@ def resetXgmiErr(deviceList):
     for device in deviceList:
         # Don't care about the value. Reading xgmi_error resets it to 0
         getSysfsValue(device, 'xgmi_err')
+
+
+def showBus(deviceList):
+    """ Display PCI Bus info
+
+    Parameters:
+    deviceList -- List of DRM devices (can be a single-item list)
+    """
+    printLogSpacer()
+    for device in deviceList:
+        bus = getBus(device)
+        if not bus:
+            printErr(device, 'Unable to display PCI bus')
+            continue
+        printLog(device, 'PCI Bus: %s' % bus)
+    printLogSpacer()
 
 
 def showAllConciseHw(deviceList):
@@ -1590,6 +1642,7 @@ def showFwInfo(deviceList, fwType):
     printLogSpacer()
     for device in deviceList:
         for block in returnTypes:
+            block = block.lower()
             fwLogName = block.replace('_', ' ').upper()
             blockFile = '%s_fw_version' % block
             version = getSysfsValue(device, blockFile)
@@ -1617,6 +1670,7 @@ def showProductName(deviceList):
     deviceList -- List of DRM devices (can be a single-item list)
     """
     printLogSpacer()
+    global PRINT_JSON
     fileString = ''
     pciLines = ''
     pciFilePath = '/usr/share/misc/pci.ids'
@@ -1665,10 +1719,16 @@ def showProductName(deviceList):
                         variants = re.split(r'\n\t[a-z0-9]',\
                                             pciLines.split('\n\t%s' % device_id)[1])[0]
                         series = variants.split('\n', 1)[0].strip()
-                        printLog(device, 'Card series:\t\t%s' % series)
+                        if PRINT_JSON is True:
+                            printLog(device, 'Card series: %s' %series)
+                        else:
+                            printLog(device, 'Card series:\t\t%s' % series)
                         if variants.find('%s %s' % (sub_vendor, sub_id)) != -1:
                             model = variants.split(sub_id, 1)[1].split('\n', 1)[0].strip()
-                            printLog(device, 'Card model:\t\t%s' % model)
+                            if PRINT_JSON is True:
+                                printLog(device, 'Card model %s' % model)
+                            else:
+                                printLog(device, 'Card model:\t\t%s' % model)
                         else:
                             logging.debug('Subsystem device information not found. \
                                           Run update-pciids and try again')
@@ -1679,12 +1739,18 @@ def showProductName(deviceList):
                     if fileString.find('\n' + sub_vendor + '  ') != -1:
                         vendorName = re.split(r'\n\t[a-z0-9]', \
                                               fileString.split('\n%s' % sub_vendor)[1])[0].strip()
-                        printLog(device, 'Card vendor:\t\t%s' % vendorName)
+                        if PRINT_JSON is True:
+                            printLog(device, 'Card vendor: %s' % vendorName)
+                        else:
+                            printLog(device, 'Card vendor:\t\t%s' % vendorName)
                     else:
                         printErr(device, 'Unable to find device vendor in PCI IDs file')
                 # sku is just 6 characters after the first occurance of '-' in vbios_version
                 sku = vbios.split('-')[1][:6]
-                printLog(device, 'Card SKU:\t\t%s' % sku)
+                if PRINT_JSON is True:
+                    printLog(device, 'Card SKU: %s' % sku)
+                else:
+                    printLog(device, 'Card SKU:\t\t%s' % sku)
             else:
                 printErr(device, 'PCI device is not an AMD device (%s instead of 1002)' % vendor)
         else:
@@ -1697,6 +1763,7 @@ def showPids():
     """Show PIDs created in a KFD (Compute) context
     """
 
+    global PRINT_JSON
     pidPath = os.path.join(kfdprefix, 'proc')
     pidsStr = ''
     maxPidLen = 8
@@ -1722,6 +1789,8 @@ def showPids():
         pidsStr += '\n'
         pidsStr += ' '.join(pids[pidsPerLine * x:(pidsPerLine * x) + pidsPerLine])
     printLogNoDev('PIDs for KFD processes:%s' % pidsStr)
+    if PRINT_JSON:
+        printSysLog ('PIDs for KFD processes: %s' % (', '.join(pids)))
 
 
 def showRetiredPages(deviceList, retiredType='all'):
@@ -2158,7 +2227,7 @@ def setVoltageCurve(deviceList, point, clk, volt, autoRespond):
             logging.warning('GPU[%s]\t: Unable to get maximum voltage point', parseDeviceName(device))
             RETCODE = 1
             continue
-        if int(point) > maxPoint:
+        if int(point) > int(maxPoint):
             printErr(device, 'Unable to set voltage point')
             logging.error('GPU[%s]\t: %s is greater than maximum point %s ', parseDeviceName(device), levelList[0], maxPoint)
             RETCODE = 1
@@ -2458,54 +2527,66 @@ def checkAmdGpus(deviceList):
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='AMD ROCm System Management Interface  |  ROCM-SMI version: %s  |  Kernel version: %s' % (__version__, getVersion(None, 'driver')), formatter_class=lambda prog: argparse.HelpFormatter(prog, max_help_position=90, width=120))
     groupDev = parser.add_argument_group()
-    groupDisplay = parser.add_argument_group()
-    groupAction = parser.add_argument_group()
+    groupDisplayOpt = parser.add_argument_group('Display Options')
+    groupDisplayTop = parser.add_argument_group('Topology')
+    groupDisplayPages = parser.add_argument_group('Pages information')
+    groupDisplayHw = parser.add_argument_group('Hardware-related information')
+    groupDisplay = parser.add_argument_group('Software-related/controlled information')
+    groupAction = parser.add_argument_group('Set options')
+    groupActionReset = parser.add_argument_group('Reset options')
+    groupActionGpuReset = parser.add_mutually_exclusive_group()
     groupFile = parser.add_mutually_exclusive_group()
-    groupResponse = parser.add_argument_group()
-    groupOutput = parser.add_argument_group()
+    groupResponse = parser.add_argument_group('Auto-response options')
+    groupActionOutput = parser.add_argument_group('Output options')
 
     groupDev.add_argument('-d', '--device', help='Execute command on specified device', type=int, nargs='+')
-    groupDisplay.add_argument('-i', '--showid', help='Show GPU ID', action='store_true')
-    groupDisplay.add_argument('-v', '--showvbios', help='Show VBIOS version', action='store_true')
-    groupDisplay.add_argument('--showhw', help='Show Hardware details', action='store_true')
-    groupDisplay.add_argument('-t', '--showtemp', help='Show current temperature', action='store_true')
+    groupDisplayOpt.add_argument('--alldevices', help='Execute command on non-AMD devices as well as AMD devices', action='store_true')
+    groupDisplayOpt.add_argument('--showhw', help='Show Hardware details', action='store_true')
+    groupDisplayOpt.add_argument('-a' ,'--showallinfo', help='Show Temperature, Fan and Clock values', action='store_true')
+    groupDisplayTop.add_argument('-i', '--showid', help='Show GPU ID', action='store_true')
+    groupDisplayTop.add_argument('-v', '--showvbios', help='Show VBIOS version', action='store_true')
+    groupDisplayTop.add_argument('--showdriverversion', help='Show kernel driver version', action='store_true')
+    groupDisplayTop.add_argument('--showfwinfo', help='Show FW information', metavar='BLOCK', type=str, nargs='*')
+    groupDisplayTop.add_argument('--showmclkrange', help='Show mclk range', action='store_true')
+    groupDisplayTop.add_argument('--showmemvendor', help='Show GPU memory vendor', action='store_true')
+    groupDisplayTop.add_argument('--showsclkrange', help='Show sclk range', action='store_true')
+    groupDisplayTop.add_argument('--showproductname', help='Show SKU/Vendor name', action='store_true')
+    groupDisplayTop.add_argument('--showserial', help='Show GPU\'s Serial Number', action='store_true')
+    groupDisplayTop.add_argument('--showuniqueid', help='Show GPU\'s Unique ID', action='store_true')
+    groupDisplayTop.add_argument('--showvoltagerange', help='Show voltage range', action='store_true')
+    groupDisplayTop.add_argument('--showbus', help='Show PCI bus number', action='store_true')
+    groupDisplayPages.add_argument('--showpagesinfo', help='Show retired, pending and unreservable pages', action='store_true')
+    groupDisplayPages.add_argument('--showpendingpages', help='Show pending retired pages', action='store_true')
+    groupDisplayPages.add_argument('--showretiredpages', help='Show retired pages', action='store_true')
+    groupDisplayPages.add_argument('--showunreservablepages', help='Show unreservable pages', action='store_true')
+    groupDisplayHw.add_argument('-f', '--showfan', help='Show current fan speed', action='store_true')
+    groupDisplayHw.add_argument('-P', '--showpower', help='Show current Average Graphics Package Power Consumption', action='store_true')
+    groupDisplayHw.add_argument('-t', '--showtemp', help='Show current temperature', action='store_true')
+    groupDisplayHw.add_argument('-u', '--showuse', help='Show current GPU use', action='store_true')
+    groupDisplayHw.add_argument('--showmemuse', help='Show current GPU memory used', action='store_true')
+    groupDisplayHw.add_argument('--showvoltage', help='Show current GPU voltage', action='store_true')
+    groupDisplay.add_argument('-b', '--showbw', help='Show estimated PCIe use', action='store_true')
     groupDisplay.add_argument('-c', '--showclocks', help='Show current clock frequencies', action='store_true')
     groupDisplay.add_argument('-g', '--showgpuclocks', help='Show current GPU clock frequencies', action='store_true')
-    groupDisplay.add_argument('-f', '--showfan', help='Show current fan speed', action='store_true')
-    groupDisplay.add_argument('-p', '--showperflevel', help='Show current DPM Performance Level', action='store_true')
-    groupDisplay.add_argument('-P', '--showpower', help='Show current Average Graphics Package Power Consumption', action='store_true')
-    groupDisplay.add_argument('-o', '--showoverdrive', help='Show current GPU Clock OverDrive level', action='store_true')
-    groupDisplay.add_argument('-m', '--showmemoverdrive', help='Show current GPU Memory Clock OverDrive level', action='store_true')
-    groupDisplay.add_argument('-M', '--showmaxpower', help='Show maximum graphics package power this GPU will consume', action='store_true')
     groupDisplay.add_argument('-l', '--showprofile', help='Show Compute Profile attributes', action='store_true')
-    groupDisplay.add_argument('-s', '--showclkfrq', help='Show supported GPU and Memory Clock', action='store_true')
-    groupDisplay.add_argument('-u', '--showuse', help='Show current GPU use', action='store_true')
-    groupDisplay.add_argument('--showmemuse', help='Show current GPU memory used', action='store_true')
-    groupDisplay.add_argument('-b', '--showbw', help='Show estimated PCIe use', action='store_true')
-    groupDisplay.add_argument('--showreplaycount', help='Show PCIe Replay Count', action='store_true')
+    groupDisplay.add_argument('-M', '--showmaxpower', help='Show maximum graphics package power this GPU will consume', action='store_true')
+    groupDisplay.add_argument('-m', '--showmemoverdrive', help='Show current GPU Memory Clock OverDrive level', action='store_true')
+    groupDisplay.add_argument('-o', '--showoverdrive', help='Show current GPU Clock OverDrive level', action='store_true')
+    groupDisplay.add_argument('-p', '--showperflevel', help='Show current DPM Performance Level', action='store_true')
     groupDisplay.add_argument('-S', '--showclkvolt', help='Show supported GPU and Memory Clocks and Voltages', action='store_true')
-    groupDisplay.add_argument('--showvoltage', help='Show current GPU voltage', action='store_true')
-    groupDisplay.add_argument('--showrasinfo', help='Show RAS enablement information and error counts for the specified block(s)', metavar='BLOCK', type=str, nargs='+')
-    groupDisplay.add_argument('--showfwinfo', help='Show FW information', metavar='BLOCK', type=str, nargs='*')
-    groupDisplay.add_argument('--showproductname', help='Show SKU/Vendor name', action='store_true')
-    groupDisplay.add_argument('-a' ,'--showallinfo', help='Show Temperature, Fan and Clock values', action='store_true')
+    groupDisplay.add_argument('-s', '--showclkfrq', help='Show supported GPU and Memory Clock', action='store_true')
     groupDisplay.add_argument('--showmeminfo', help='Show Memory usage information for given block(s) TYPE', metavar='TYPE', type=str, nargs='+')
-    groupDisplay.add_argument('--showdriverversion', help='Show kernel driver version', action='store_true')
-    groupDisplay.add_argument('--showuniqueid', help='Show GPU\'s Unique ID', action='store_true')
-    groupDisplay.add_argument('--showserial', help='Show GPU\'s Serial Number', action='store_true')
     groupDisplay.add_argument('--showpids', help='Show current running KFD PIDs', action='store_true')
-    groupDisplay.add_argument('--showxgmierr', help='Show XGMI error information since last read', action='store_true')
-    groupDisplay.add_argument('--showpagesinfo', help='Show retired, pending and unreservable pages', action='store_true')
-    groupDisplay.add_argument('--showretiredpages', help='Show retired pages', action='store_true')
-    groupDisplay.add_argument('--showpendingpages', help='Show pending retired pages', action='store_true')
-    groupDisplay.add_argument('--showvoltagerange', help='Show voltage range', action='store_true')
+    groupDisplay.add_argument('--showreplaycount', help='Show PCIe Replay Count', action='store_true')
+    groupDisplay.add_argument('--showrasinfo', help='Show RAS enablement information and error counts for the specified block(s)', metavar='BLOCK', type=str, nargs='+')
     groupDisplay.add_argument('--showvc', help='Show voltage curve', action='store_true')
-    groupDisplay.add_argument('--showsclkrange', help='Show sclk range', action='store_true')
-    groupDisplay.add_argument('--showmclkrange', help='Show mclk range', action='store_true')
-    groupDisplay.add_argument('--showunreservablepages', help='Show unreservable pages', action='store_true')
-    groupDisplay.add_argument('--alldevices', help='Execute command on non-AMD devices as well as AMD devices', action='store_true')
+    groupDisplay.add_argument('--showxgmierr', help='Show XGMI error information since last read', action='store_true')
 
-    groupAction.add_argument('-r', '--resetclocks', help='Reset clocks and OverDrive to default', action='store_true')
+    groupActionReset.add_argument('-r', '--resetclocks', help='Reset clocks and OverDrive to default', action='store_true')
+    groupActionReset.add_argument('--resetfans', help='Reset fans to automatic (driver) control', action='store_true')
+    groupActionReset.add_argument('--resetprofile', help='Reset Power Profile back to default', action='store_true')
+    groupActionReset.add_argument('--resetpoweroverdrive', help='Set the maximum GPU power back to the device deafult state', action='store_true')
+    groupActionReset.add_argument('--resetxgmierr', help='Reset XGMI error count', action='store_true')
     groupAction.add_argument('--setsclk', help='Set GPU Clock Frequency Level(s) (requires manual Perf level)', type=int, metavar='LEVEL', nargs='+')
     groupAction.add_argument('--setmclk', help='Set GPU Memory Clock Frequency Level(s) (requires manual Perf level)', type=int, metavar='LEVEL', nargs='+')
     groupAction.add_argument('--setpcie', help='Set PCIE Clock Frequency Level(s) (requires manual Perf level)', type=int, metavar='LEVEL', nargs='+')
@@ -2514,28 +2595,24 @@ if __name__ == '__main__':
     groupAction.add_argument('--setvc', help='Change SCLK Voltage Curve (MHz mV) for a specific point', metavar=('POINT', 'SCLK', 'SVOLT'), nargs=3)
     groupAction.add_argument('--setsrange', help='Set min(0) or max(1) SCLK speed', metavar=('MINMAX', 'SCLK'), nargs=2)
     groupAction.add_argument('--setmrange', help='Set min(0) or max(1) MCLK speed', metavar=('MINMAX', 'SCLK'), nargs=2)
-    groupAction.add_argument('--resetfans', help='Reset fans to automatic (driver) control', action='store_true')
     groupAction.add_argument('--setfan', help='Set GPU Fan Speed (Level or %%)', metavar='LEVEL')
     groupAction.add_argument('--setperflevel', help='Set Performance Level', metavar='LEVEL')
     groupAction.add_argument('--setoverdrive', help='Set GPU OverDrive level (requires manual|high Perf level)', metavar='%')
     groupAction.add_argument('--setmemoverdrive', help='Set GPU Memory Overclock OverDrive level (requires manual|high Perf level)', metavar='%')
     groupAction.add_argument('--setpoweroverdrive', help='Set the maximum GPU power using Power OverDrive in Watts', metavar='WATTS')
-    groupAction.add_argument('--resetpoweroverdrive', help='Set the maximum GPU power back to the device deafult state', action='store_true')
     groupAction.add_argument('--setprofile', help='Specify Power Profile level (#) or a quoted string of CUSTOM Profile attributes "# # # #..." (requires manual Perf level)')
-    groupAction.add_argument('--resetprofile', help='Reset Power Profile back to default', action='store_true')
     groupAction.add_argument('--rasenable', help='Enable RAS for specified block and error type', type=str, nargs=2, metavar=('BLOCK', 'ERRTYPE'))
     groupAction.add_argument('--rasdisable', help='Disable RAS for specified block and error type', type=str, nargs=2, metavar=('BLOCK', 'ERRTYPE'))
     groupAction.add_argument('--rasinject', help='Inject RAS poison for specified block (ONLY WORKS ON UNSECURE BOARDS)', type=str, metavar='BLOCK', nargs=1)
-    groupAction.add_argument('--gpureset', help='Reset specified GPU (One GPU must be specified)', action='store_true')
-    groupDisplay.add_argument('--resetxgmierr', help='Reset XGMI error count', action='store_true')
+    groupActionGpuReset.add_argument('--gpureset', help='Reset specified GPU (One GPU must be specified)', action='store_true')
 
     groupFile.add_argument('--load', help='Load Clock, Fan, Performance and Profile settings from FILE', metavar='FILE')
     groupFile.add_argument('--save', help='Save Clock, Fan, Performance and Profile settings to FILE', metavar='FILE')
 
     groupResponse.add_argument('--autorespond', help='Response to automatically provide for all prompts (NOT RECOMMENDED)', metavar='RESPONSE')
 
-    groupOutput.add_argument('--loglevel', help='How much output will be printed for what program is doing, one of debug/info/warning/error/critical', metavar='ILEVEL')
-    groupOutput.add_argument('--json', help='Print output in JSON format', action='store_true')
+    groupActionOutput.add_argument('--loglevel', help='How much output will be printed for what program is doing, one of debug/info/warning/error/critical', metavar='LEVEL')
+    groupActionOutput.add_argument('--json', help='Print output in JSON format', action='store_true')
 
     args = parser.parse_args()
 
@@ -2561,6 +2638,10 @@ if __name__ == '__main__':
     else:
         deviceList = listDevices(args.alldevices)
 
+    if deviceList is None:
+        print('ERROR: No DRM devices available. Exiting')
+        sys.exit(1)
+
     # If we want JSON output, initialize the keys (devices)
     if args.json:
         PRINT_JSON = True
@@ -2568,28 +2649,38 @@ if __name__ == '__main__':
             JSON_DATA[device] = {}
 
     # Don't display XGMI Link errors for showallinfo, since it will reset
-    # the error counter
+    # the error counter.
+    # Ensure that these flags match the order of the flags defined above
+    # for easy comparisons
     if args.showallinfo:
-        args.showid = True
-        args.showtemp = True
-        args.showclocks = True
-        args.showfan = True
         args.list = True
+        args.showid = True
+        args.showvbios = True
+        args.showdriverversion = True
+        args.showfwinfo = 'all'
+        args.showmclkrange = True
+        args.showmemvendor = True
+        args.showsclkrange = True
+        args.showproductname = True
+        args.showserial = True
+        args.showuniqueid = True
+        args.showvoltagerange = True
+        args.showbus = True
+        args.showpagesinfo = True
+        args.showfan = True
+        args.showpower = True
+        args.showtemp = True
         args.showuse = True
         args.showmemuse = True
-        args.showperflevel = True
-        args.showoverdrive = True
-        args.showmemoverdrive = True
-        args.showmaxpower = True
-        args.showpower = True
         args.showvoltage = True
-        args.showvc = True
-        args.showdriverversion = True
-        args.showreplaycount = True
-        args.showuniqueid = True
-        args.showserial = True
+        args.showclocks = True
+        args.showmaxpower = True
+        args.showmemoverdrive = True
+        args.showoverdrive = True
+        args.showperflevel = True
         args.showpids = True
-        args.showpagesinfo = True
+        args.showreplaycount = True
+        args.showvc = True
         if not PRINT_JSON:
             args.showprofile = True
             args.showclkfrq = True
@@ -2646,6 +2737,8 @@ if __name__ == '__main__':
             print("ERROR: Cannot print JSON output for --showhw")
             sys.exit(1)
         showAllConciseHw(deviceList)
+    if args.showdriverversion:
+        showVersion(deviceList, 'driver')
     if args.showid:
         showId(deviceList)
     if args.showvbios:
@@ -2666,8 +2759,6 @@ if __name__ == '__main__':
         showOverDrive(deviceList, 'sclk')
     if args.showmemoverdrive:
         showOverDrive(deviceList, 'mclk')
-    if args.showdriverversion:
-        showVersion(deviceList, 'driver')
     if args.showmaxpower:
         showMaxPower(deviceList)
     if args.showprofile:
@@ -2688,6 +2779,8 @@ if __name__ == '__main__':
         showGpuUse(deviceList)
     if args.showmemuse:
         showMemUse(deviceList)
+    if args.showmemvendor:
+        showMemVendor(deviceList)
     if args.showbw:
         showPcieBw(deviceList)
     if args.showreplaycount:
@@ -2706,6 +2799,8 @@ if __name__ == '__main__':
         showPowerPlayTable(deviceList)
     if args.showvoltage:
         showVoltage(deviceList)
+    if args.showbus:
+        showBus(deviceList)
     if args.showmeminfo:
         showMemInfo(deviceList, args.showmeminfo)
     if args.showrasinfo:

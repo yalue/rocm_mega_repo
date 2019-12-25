@@ -150,12 +150,6 @@ static cl::opt<std::string>
     ClFallbackDebugPath("fallback-debug-path", cl::init(""),
                         cl::desc("Fallback path for debug binaries."));
 
-static cl::list<std::string>
-    ClDebugFileDirectory("debug-file-directory", cl::ZeroOrMore,
-                         cl::value_desc("dir"),
-                         cl::desc("Path to directory where to look for debug "
-                                  "files."));
-
 static cl::opt<DIPrinter::OutputStyle>
     ClOutputStyle("output-style", cl::init(DIPrinter::OutputStyle::LLVM),
                   cl::desc("Specify print style"),
@@ -305,7 +299,6 @@ int main(int argc, char **argv) {
   Opts.DefaultArch = ClDefaultArch;
   Opts.FallbackDebugPath = ClFallbackDebugPath;
   Opts.DWPName = ClDwpName;
-  Opts.DebugFileDirectory = ClDebugFileDirectory;
 
   for (const auto &hint : ClDsymHint) {
     if (sys::path::extension(hint) == ".dSYM") {

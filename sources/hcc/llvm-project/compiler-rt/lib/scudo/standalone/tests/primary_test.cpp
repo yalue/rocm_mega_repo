@@ -6,16 +6,15 @@
 //
 //===----------------------------------------------------------------------===//
 
-#include "tests/scudo_unit_test.h"
-
 #include "primary32.h"
 #include "primary64.h"
 #include "size_class_map.h"
 
+#include "gtest/gtest.h"
+
 #include <condition_variable>
 #include <mutex>
 #include <thread>
-#include <vector>
 
 // Note that with small enough regions, the SizeClassAllocator64 also works on
 // 32-bit architectures. It's not something we want to encourage, but we still
@@ -54,9 +53,7 @@ template <typename Primary> static void testPrimary() {
 
 TEST(ScudoPrimaryTest, BasicPrimary) {
   using SizeClassMap = scudo::DefaultSizeClassMap;
-#if !SCUDO_FUCHSIA
   testPrimary<scudo::SizeClassAllocator32<SizeClassMap, 18U>>();
-#endif
   testPrimary<scudo::SizeClassAllocator64<SizeClassMap, 24U>>();
 }
 
@@ -81,7 +78,7 @@ TEST(ScudoPrimaryTest, Primary64OOM) {
       AllocationFailed = true;
       break;
     }
-    for (scudo::u32 J = 0; J < B->getCount(); J++)
+    for (scudo::uptr J = 0; J < B->getCount(); J++)
       memset(B->get(J), 'B', Size);
     Batches.push_back(B);
   }
@@ -139,9 +136,7 @@ template <typename Primary> static void testIteratePrimary() {
 
 TEST(ScudoPrimaryTest, PrimaryIterate) {
   using SizeClassMap = scudo::DefaultSizeClassMap;
-#if !SCUDO_FUCHSIA
   testIteratePrimary<scudo::SizeClassAllocator32<SizeClassMap, 18U>>();
-#endif
   testIteratePrimary<scudo::SizeClassAllocator64<SizeClassMap, 24U>>();
 }
 
@@ -198,9 +193,7 @@ template <typename Primary> static void testPrimaryThreaded() {
 
 TEST(ScudoPrimaryTest, PrimaryThreaded) {
   using SizeClassMap = scudo::SvelteSizeClassMap;
-#if !SCUDO_FUCHSIA
   testPrimaryThreaded<scudo::SizeClassAllocator32<SizeClassMap, 18U>>();
-#endif
   testPrimaryThreaded<scudo::SizeClassAllocator64<SizeClassMap, 24U>>();
 }
 
@@ -228,8 +221,6 @@ template <typename Primary> static void testReleaseToOS() {
 
 TEST(ScudoPrimaryTest, ReleaseToOS) {
   using SizeClassMap = scudo::DefaultSizeClassMap;
-#if !SCUDO_FUCHSIA
   testReleaseToOS<scudo::SizeClassAllocator32<SizeClassMap, 18U>>();
-#endif
   testReleaseToOS<scudo::SizeClassAllocator64<SizeClassMap, 24U>>();
 }

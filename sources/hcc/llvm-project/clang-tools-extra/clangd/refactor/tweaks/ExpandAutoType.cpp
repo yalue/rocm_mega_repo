@@ -71,17 +71,18 @@ bool ExpandAutoType::prepare(const Selection& Inputs) {
 }
 
 Expected<Tweak::Effect> ExpandAutoType::apply(const Selection& Inputs) {
-  auto& SrcMgr = Inputs.AST.getSourceManager();
+  auto& SrcMgr = Inputs.AST.getASTContext().getSourceManager();
 
   llvm::Optional<clang::QualType> DeducedType =
-      getDeducedType(Inputs.AST.getASTContext(), CachedLocation->getBeginLoc());
+      getDeducedType(Inputs.AST, CachedLocation->getBeginLoc());
 
   // if we can't resolve the type, return an error message
-  if (DeducedType == llvm::None)
+  if (DeducedType == llvm::None || DeducedType->isNull()) {
     return createErrorMessage("Could not deduce type for 'auto' type", Inputs);
+  }
 
   // if it's a lambda expression, return an error message
-  if (isa<RecordType>(*DeducedType) &&
+  if (isa<RecordType>(*DeducedType) and
       dyn_cast<RecordType>(*DeducedType)->getDecl()->isLambda()) {
     return createErrorMessage("Could not expand type of lambda expression",
                               Inputs);
@@ -107,7 +108,7 @@ Expected<Tweak::Effect> ExpandAutoType::apply(const Selection& Inputs) {
 
 llvm::Error ExpandAutoType::createErrorMessage(const std::string& Message,
                                                const Selection& Inputs) {
-  auto& SrcMgr = Inputs.AST.getSourceManager();
+  auto& SrcMgr = Inputs.AST.getASTContext().getSourceManager();
   std::string ErrorMessage =
       Message + ": " +
           SrcMgr.getFilename(Inputs.Cursor).str() + " Line " +

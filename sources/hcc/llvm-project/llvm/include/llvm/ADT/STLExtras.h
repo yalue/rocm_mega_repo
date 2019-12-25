@@ -17,6 +17,7 @@
 #define LLVM_ADT_STLEXTRAS_H
 
 #include "llvm/ADT/Optional.h"
+#include "llvm/ADT/SmallVector.h"
 #include "llvm/ADT/iterator.h"
 #include "llvm/ADT/iterator_range.h"
 #include "llvm/Config/abi-breaking.h"
@@ -49,6 +50,10 @@ namespace detail {
 
 template <typename RangeT>
 using IterOfRange = decltype(std::begin(std::declval<RangeT &>()));
+
+template <typename RangeT>
+using ValueOfRange = typename std::remove_reference<decltype(
+    *std::begin(std::declval<RangeT &>()))>::type;
 
 } // end namespace detail
 
@@ -191,15 +196,6 @@ void adl_swap(T &&lhs, T &&rhs) noexcept(
 template <typename T>
 constexpr bool empty(const T &RangeOrContainer) {
   return adl_begin(RangeOrContainer) == adl_end(RangeOrContainer);
-}
-
-/// Return a range covering \p RangeOrContainer with the first N elements
-/// excluded.
-template <typename T>
-auto drop_begin(T &&RangeOrContainer, size_t N) ->
-    iterator_range<decltype(adl_begin(RangeOrContainer))> {
-  return make_range(std::next(adl_begin(RangeOrContainer), N),
-                    adl_end(RangeOrContainer));
 }
 
 // mapped_iterator - This is a simple iterator adapter that causes a function to
@@ -1048,23 +1044,6 @@ inline int (*get_array_pod_sort_comparator(const T &))
   return array_pod_sort_comparator<T>;
 }
 
-#ifdef EXPENSIVE_CHECKS
-namespace detail {
-
-inline unsigned presortShuffleEntropy() {
-  static unsigned Result(std::random_device{}());
-  return Result;
-}
-
-template <class IteratorTy>
-inline void presortShuffle(IteratorTy Start, IteratorTy End) {
-  std::mt19937 Generator(presortShuffleEntropy());
-  std::shuffle(Start, End, Generator);
-}
-
-} // end namespace detail
-#endif
-
 /// array_pod_sort - This sorts an array with the specified start and end
 /// extent.  This is just like std::sort, except that it calls qsort instead of
 /// using an inlined template.  qsort is slightly slower than std::sort, but
@@ -1086,7 +1065,8 @@ inline void array_pod_sort(IteratorTy Start, IteratorTy End) {
   auto NElts = End - Start;
   if (NElts <= 1) return;
 #ifdef EXPENSIVE_CHECKS
-  detail::presortShuffle<IteratorTy>(Start, End);
+  std::mt19937 Generator(std::random_device{}());
+  std::shuffle(Start, End, Generator);
 #endif
   qsort(&*Start, NElts, sizeof(*Start), get_array_pod_sort_comparator(*Start));
 }
@@ -1102,7 +1082,8 @@ inline void array_pod_sort(
   auto NElts = End - Start;
   if (NElts <= 1) return;
 #ifdef EXPENSIVE_CHECKS
-  detail::presortShuffle<IteratorTy>(Start, End);
+  std::mt19937 Generator(std::random_device{}());
+  std::shuffle(Start, End, Generator);
 #endif
   qsort(&*Start, NElts, sizeof(*Start),
         reinterpret_cast<int (*)(const void *, const void *)>(Compare));
@@ -1113,7 +1094,8 @@ inline void array_pod_sort(
 template <typename IteratorTy>
 inline void sort(IteratorTy Start, IteratorTy End) {
 #ifdef EXPENSIVE_CHECKS
-  detail::presortShuffle<IteratorTy>(Start, End);
+  std::mt19937 Generator(std::random_device{}());
+  std::shuffle(Start, End, Generator);
 #endif
   std::sort(Start, End);
 }
@@ -1125,7 +1107,8 @@ template <typename Container> inline void sort(Container &&C) {
 template <typename IteratorTy, typename Compare>
 inline void sort(IteratorTy Start, IteratorTy End, Compare Comp) {
 #ifdef EXPENSIVE_CHECKS
-  detail::presortShuffle<IteratorTy>(Start, End);
+  std::mt19937 Generator(std::random_device{}());
+  std::shuffle(Start, End, Generator);
 #endif
   std::sort(Start, End, Comp);
 }
@@ -1329,6 +1312,15 @@ bool is_splat(R &&Range) {
          std::equal(adl_begin(Range) + 1, adl_end(Range), adl_begin(Range)));
 }
 
+/// Given a range of type R, iterate the entire range and return a
+/// SmallVector with elements of the vector.  This is useful, for example,
+/// when you want to iterate a range and then sort the results.
+template <unsigned Size, typename R>
+SmallVector<typename std::remove_const<detail::ValueOfRange<R>>::type, Size>
+to_vector(R &&Range) {
+  return {adl_begin(Range), adl_end(Range)};
+}
+
 /// Provide a container algorithm similar to C++ Library Fundamentals v2's
 /// `erase_if` which is equivalent to:
 ///
@@ -1415,8 +1407,6 @@ template <typename R> struct result_pair {
   result_pair(std::size_t Index, IterOfRange<R> Iter)
       : Index(Index), Iter(Iter) {}
 
-  result_pair<R>(const result_pair<R> &Other)
-      : Index(Other.Index), Iter(Other.Iter) {}
   result_pair<R> &operator=(const result_pair<R> &Other) {
     Index = Other.Index;
     Iter = Other.Iter;
@@ -1465,7 +1455,6 @@ public:
     return Result.Iter == RHS.Result.Iter;
   }
 
-  enumerator_iter<R>(const enumerator_iter<R> &Other) : Result(Other.Result) {}
   enumerator_iter<R> &operator=(const enumerator_iter<R> &Other) {
     Result = Other.Result;
     return *this;

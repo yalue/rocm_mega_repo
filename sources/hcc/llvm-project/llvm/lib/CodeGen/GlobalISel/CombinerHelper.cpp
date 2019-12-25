@@ -74,35 +74,12 @@ bool CombinerHelper::matchCombineCopy(MachineInstr &MI) {
     return false;
   Register DstReg = MI.getOperand(0).getReg();
   Register SrcReg = MI.getOperand(1).getReg();
-
-  // Give up if either DstReg or SrcReg  is a physical register.
-  if (Register::isPhysicalRegister(DstReg) ||
-      Register::isPhysicalRegister(SrcReg))
-    return false;
-
-  // Give up the types don't match.
   LLT DstTy = MRI.getType(DstReg);
   LLT SrcTy = MRI.getType(SrcReg);
-  // Give up if one has a valid LLT, but the other doesn't.
-  if (DstTy.isValid() != SrcTy.isValid())
-    return false;
-  // Give up if the types don't match.
-  if (DstTy.isValid() && SrcTy.isValid() && DstTy != SrcTy)
-    return false;
-
-  // Get the register banks and classes.
-  const RegisterBank *DstBank = MRI.getRegBankOrNull(DstReg);
-  const RegisterBank *SrcBank = MRI.getRegBankOrNull(SrcReg);
-  const TargetRegisterClass *DstRC = MRI.getRegClassOrNull(DstReg);
-  const TargetRegisterClass *SrcRC = MRI.getRegClassOrNull(SrcReg);
-
-  // Replace if the register constraints match.
-  if ((SrcRC == DstRC) && (SrcBank == DstBank))
+  // Simple Copy Propagation.
+  // a(sx) = COPY b(sx) -> Replace all uses of a with b.
+  if (DstTy.isValid() && SrcTy.isValid() && DstTy == SrcTy)
     return true;
-  // Replace if DstReg has no constraints.
-  if (!DstBank && !DstRC)
-    return true;
-
   return false;
 }
 void CombinerHelper::applyCombineCopy(MachineInstr &MI) {
@@ -132,7 +109,10 @@ bool CombinerHelper::matchCombineConcatVectors(MachineInstr &MI, bool &IsUndef,
   // Walk over all the operands of concat vectors and check if they are
   // build_vector themselves or undef.
   // Then collect their operands in Ops.
-  for (const MachineOperand &MO : MI.uses()) {
+  for (const MachineOperand &MO : MI.operands()) {
+    // Skip the instruction definition.
+    if (MO.isDef())
+      continue;
     Register Reg = MO.getReg();
     MachineInstr *Def = MRI.getVRegDef(Reg);
     assert(Def && "Operand not defined");
@@ -141,8 +121,12 @@ bool CombinerHelper::matchCombineConcatVectors(MachineInstr &MI, bool &IsUndef,
       IsUndef = false;
       // Remember the operands of the build_vector to fold
       // them into the yet-to-build flattened concat vectors.
-      for (const MachineOperand &BuildVecMO : Def->uses())
+      for (const MachineOperand &BuildVecMO : Def->operands()) {
+        // Skip the definition.
+        if (BuildVecMO.isDef())
+          continue;
         Ops.push_back(BuildVecMO.getReg());
+      }
       break;
     case TargetOpcode::G_IMPLICIT_DEF: {
       LLT OpType = MRI.getType(Reg);
@@ -205,11 +189,8 @@ bool CombinerHelper::matchCombineShuffleVector(MachineInstr &MI,
   LLT DstType = MRI.getType(MI.getOperand(0).getReg());
   Register Src1 = MI.getOperand(1).getReg();
   LLT SrcType = MRI.getType(Src1);
-  // As bizarre as it may look, shuffle vector can actually produce
-  // scalar! This is because at the IR level a <1 x ty> shuffle
-  // vector is perfectly valid.
-  unsigned DstNumElts = DstType.isVector() ? DstType.getNumElements() : 1;
-  unsigned SrcNumElts = SrcType.isVector() ? SrcType.getNumElements() : 1;
+  unsigned DstNumElts = DstType.getNumElements();
+  unsigned SrcNumElts = SrcType.getNumElements();
 
   // If the resulting vector is smaller than the size of the source
   // vectors being concatenated, we won't be able to replace the
@@ -218,15 +199,7 @@ bool CombinerHelper::matchCombineShuffleVector(MachineInstr &MI,
   // Note: We may still be able to produce a concat_vectors fed by
   //       extract_vector_elt and so on. It is less clear that would
   //       be better though, so don't bother for now.
-  //
-  // If the destination is a scalar, the size of the sources doesn't
-  // matter. we will lower the shuffle to a plain copy. This will
-  // work only if the source and destination have the same size. But
-  // that's covered by the next condition.
-  //
-  // TODO: If the size between the source and destination don't match
-  //       we could still emit an extract vector element in that case.
-  if (DstNumElts < 2 * SrcNumElts && DstNumElts != 1)
+  if (DstNumElts < 2 * SrcNumElts)
     return false;
 
   // Check that the shuffle mask can be broken evenly between the
@@ -281,10 +254,7 @@ void CombinerHelper::applyCombineShuffleVector(MachineInstr &MI,
   Builder.setInsertPt(*MI.getParent(), MI);
   Register NewDstReg = MRI.cloneVirtualRegister(DstReg);
 
-  if (Ops.size() == 1)
-    Builder.buildCopy(NewDstReg, Ops[0]);
-  else
-    Builder.buildMerge(NewDstReg, Ops);
+  Builder.buildConcatVectors(NewDstReg, Ops);
 
   MI.eraseFromParent();
   replaceRegWith(MRI, DstReg, NewDstReg);
@@ -601,7 +571,7 @@ bool CombinerHelper::findPostIndexCandidate(MachineInstr &MI, Register &Addr,
   LLVM_DEBUG(dbgs() << "Searching for post-indexing opportunity for: " << MI);
 
   for (auto &Use : MRI.use_instructions(Base)) {
-    if (Use.getOpcode() != TargetOpcode::G_PTR_ADD)
+    if (Use.getOpcode() != TargetOpcode::G_GEP)
       continue;
 
     Offset = Use.getOperand(2).getReg();
@@ -627,8 +597,8 @@ bool CombinerHelper::findPostIndexCandidate(MachineInstr &MI, Register &Addr,
     // forming an indexed one.
 
     bool MemOpDominatesAddrUses = true;
-    for (auto &PtrAddUse : MRI.use_instructions(Use.getOperand(0).getReg())) {
-      if (!dominates(MI, PtrAddUse)) {
+    for (auto &GEPUse : MRI.use_instructions(Use.getOperand(0).getReg())) {
+      if (!dominates(MI, GEPUse)) {
         MemOpDominatesAddrUses = false;
         break;
       }
@@ -661,7 +631,7 @@ bool CombinerHelper::findPreIndexCandidate(MachineInstr &MI, Register &Addr,
 #endif
 
   Addr = MI.getOperand(1).getReg();
-  MachineInstr *AddrDef = getOpcodeDef(TargetOpcode::G_PTR_ADD, Addr, MRI);
+  MachineInstr *AddrDef = getOpcodeDef(TargetOpcode::G_GEP, Addr, MRI);
   if (!AddrDef || MRI.hasOneUse(Addr))
     return false;
 
@@ -697,8 +667,8 @@ bool CombinerHelper::findPreIndexCandidate(MachineInstr &MI, Register &Addr,
     }
   }
 
-  // FIXME: check whether all uses of the base pointer are constant PtrAdds.
-  // That might allow us to end base's liveness here by adjusting the constant.
+  // FIXME: check whether all uses of the base pointer are constant GEPs. That
+  // might allow us to end base's liveness here by adjusting the constant.
 
   for (auto &UseMI : MRI.use_instructions(Addr)) {
     if (!dominates(MI, UseMI)) {
@@ -1046,7 +1016,7 @@ bool CombinerHelper::optimizeMemset(MachineInstr &MI, Register Dst, Register Val
     if (DstOff != 0) {
       auto Offset =
           MIB.buildConstant(LLT::scalar(PtrTy.getSizeInBits()), DstOff);
-      Ptr = MIB.buildPtrAdd(PtrTy, Dst, Offset).getReg(0);
+      Ptr = MIB.buildGEP(PtrTy, Dst, Offset).getReg(0);
     }
 
     MIB.buildStore(Value, Ptr, *StoreMMO);
@@ -1151,13 +1121,13 @@ bool CombinerHelper::optimizeMemcpy(MachineInstr &MI, Register Dst,
     if (CurrOffset != 0) {
       Offset = MIB.buildConstant(LLT::scalar(PtrTy.getSizeInBits()), CurrOffset)
                    .getReg(0);
-      LoadPtr = MIB.buildPtrAdd(PtrTy, Src, Offset).getReg(0);
+      LoadPtr = MIB.buildGEP(PtrTy, Src, Offset).getReg(0);
     }
     auto LdVal = MIB.buildLoad(CopyTy, LoadPtr, *LoadMMO);
 
     // Create the store.
     Register StorePtr =
-        CurrOffset == 0 ? Dst : MIB.buildPtrAdd(PtrTy, Dst, Offset).getReg(0);
+        CurrOffset == 0 ? Dst : MIB.buildGEP(PtrTy, Dst, Offset).getReg(0);
     MIB.buildStore(LdVal, StorePtr, *StoreMMO);
     CurrOffset += CopyTy.getSizeInBytes();
     Size -= CopyTy.getSizeInBytes();
@@ -1248,7 +1218,7 @@ bool CombinerHelper::optimizeMemmove(MachineInstr &MI, Register Dst,
     if (CurrOffset != 0) {
       auto Offset =
           MIB.buildConstant(LLT::scalar(PtrTy.getSizeInBits()), CurrOffset);
-      LoadPtr = MIB.buildPtrAdd(PtrTy, Src, Offset).getReg(0);
+      LoadPtr = MIB.buildGEP(PtrTy, Src, Offset).getReg(0);
     }
     LoadVals.push_back(MIB.buildLoad(CopyTy, LoadPtr, *LoadMMO).getReg(0));
     CurrOffset += CopyTy.getSizeInBytes();
@@ -1265,7 +1235,7 @@ bool CombinerHelper::optimizeMemmove(MachineInstr &MI, Register Dst,
     if (CurrOffset != 0) {
       auto Offset =
           MIB.buildConstant(LLT::scalar(PtrTy.getSizeInBits()), CurrOffset);
-      StorePtr = MIB.buildPtrAdd(PtrTy, Dst, Offset).getReg(0);
+      StorePtr = MIB.buildGEP(PtrTy, Dst, Offset).getReg(0);
     }
     MIB.buildStore(LoadVals[I], StorePtr, *StoreMMO);
     CurrOffset += CopyTy.getSizeInBytes();

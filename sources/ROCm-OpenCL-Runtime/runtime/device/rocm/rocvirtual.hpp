@@ -131,6 +131,9 @@ class VirtualGPU : public device::VirtualDevice {
     //! Clear memory dependency
     void clear(bool all = true);
 
+    //! Max number of mem objects in the queue
+    size_t maxMemObjectsInQueue() const { return maxMemObjectsInQueue_; }
+
    private:
     struct MemoryState {
       uint64_t start_;  //! Busy memory start address
@@ -168,7 +171,7 @@ class VirtualGPU : public device::VirtualDevice {
                             const_address parameters,            //!< Parameters for the kernel
                             void* event_handle,  //!< Handle to OCL event for debugging
                             uint32_t sharedMemBytes = 0, //!< Shared memory size
-                            bool cooperativeGroups = false //!< TRUE if cooperative groups mode is required
+                            amd::NDRangeKernelCommand* vcmd = nullptr //!< Original launch command
                             );
   void submitNativeFn(amd::NativeFnCommand& cmd);
   void submitMarker(amd::Marker& cmd);
@@ -330,6 +333,8 @@ class VirtualGPU : public device::VirtualDevice {
     SLOT_PM4_SIZE_AQLP = HSA_VEN_AMD_AQLPROFILE_LEGACY_PM4_PACKET_SIZE/ 64
   };
 
+  uint16_t dispatchPacketHeaderNoSync_;
+  uint16_t dispatchPacketHeader_;
 };
 
 template <typename T>

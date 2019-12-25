@@ -134,8 +134,7 @@ static void printCXXConstructorDestructorName(QualType ClassType,
   ClassType.print(OS, Policy);
 }
 
-void DeclarationName::print(raw_ostream &OS,
-                            const PrintingPolicy &Policy) const {
+void DeclarationName::print(raw_ostream &OS, const PrintingPolicy &Policy) {
   switch (getNameKind()) {
   case DeclarationName::Identifier:
     if (const IdentifierInfo *II = getAsIdentifierInfo())
@@ -448,17 +447,11 @@ bool DeclarationNameInfo::isInstantiationDependent() const {
 std::string DeclarationNameInfo::getAsString() const {
   std::string Result;
   llvm::raw_string_ostream OS(Result);
-  OS << *this;
+  printName(OS);
   return OS.str();
 }
 
-raw_ostream &clang::operator<<(raw_ostream &OS, DeclarationNameInfo DNInfo) {
-  LangOptions LO;
-  DNInfo.printName(OS, PrintingPolicy(LangOptions()));
-  return OS;
-}
-
-void DeclarationNameInfo::printName(raw_ostream &OS, PrintingPolicy Policy) const {
+void DeclarationNameInfo::printName(raw_ostream &OS) const {
   switch (Name.getNameKind()) {
   case DeclarationName::Identifier:
   case DeclarationName::ObjCZeroArgSelector:
@@ -468,7 +461,7 @@ void DeclarationNameInfo::printName(raw_ostream &OS, PrintingPolicy Policy) cons
   case DeclarationName::CXXLiteralOperatorName:
   case DeclarationName::CXXUsingDirective:
   case DeclarationName::CXXDeductionGuideName:
-    Name.print(OS, Policy);
+    OS << Name;
     return;
 
   case DeclarationName::CXXConstructorName:
@@ -480,11 +473,13 @@ void DeclarationNameInfo::printName(raw_ostream &OS, PrintingPolicy Policy) cons
       else if (Name.getNameKind() == DeclarationName::CXXConversionFunctionName)
         OS << "operator ";
       LangOptions LO;
-      Policy.adjustForCPlusPlus();
-      Policy.SuppressScope = true;
-      OS << TInfo->getType().getAsString(Policy);
+      LO.CPlusPlus = true;
+      LO.Bool = true;
+      PrintingPolicy PP(LO);
+      PP.SuppressScope = true;
+      OS << TInfo->getType().getAsString(PP);
     } else
-      Name.print(OS, Policy);
+      OS << Name;
     return;
   }
   llvm_unreachable("Unexpected declaration name kind");

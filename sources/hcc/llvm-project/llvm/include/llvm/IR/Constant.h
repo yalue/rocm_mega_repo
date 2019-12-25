@@ -53,10 +53,6 @@ public:
   /// Returns true if the value is one.
   bool isOneValue() const;
 
-  /// Return true if the value is not the one value, or,
-  /// for vectors, does not contain one value elements.
-  bool isNotOneValue() const;
-
   /// Return true if this is the value that would be returned by
   /// getAllOnesValue.
   bool isAllOnesValue() const;
@@ -68,8 +64,7 @@ public:
   /// Return true if the value is negative zero or null value.
   bool isZeroValue() const;
 
-  /// Return true if the value is not the smallest signed value, or,
-  /// for vectors, does not contain smallest signed value elements.
+  /// Return true if the value is not the smallest signed value.
   bool isNotMinSignedValue() const;
 
   /// Return true if the value is the smallest signed value.
@@ -193,10 +188,6 @@ public:
     return const_cast<Constant*>(
                       static_cast<const Constant *>(this)->stripPointerCasts());
   }
-
-  /// Try to replace undefined constant C or undefined elements in C with
-  /// Replacement. If no changes are made, the constant C is returned.
-  static Constant *replaceUndefsWith(Constant *C, Constant *Replacement);
 };
 
 } // end namespace llvm

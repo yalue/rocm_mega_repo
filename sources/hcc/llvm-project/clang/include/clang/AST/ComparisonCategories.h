@@ -221,6 +221,7 @@ public:
     return const_cast<ComparisonCategoryInfo *>(This.lookupInfo(Kind));
   }
 
+private:
   const ComparisonCategoryInfo *lookupInfoForType(QualType Ty) const;
 
 private:

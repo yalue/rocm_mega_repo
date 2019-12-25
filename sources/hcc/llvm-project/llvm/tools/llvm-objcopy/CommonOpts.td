@@ -40,8 +40,7 @@ def p : Flag<["-"], "p">,
 
 def strip_all : Flag<["--"], "strip-all">,
                 HelpText<"Remove non-allocated sections outside segments. "
-                         ".gnu.warning* and .ARM.attribute sections are not "
-                         "removed">;
+                         ".gnu.warning* sections are not removed">;
 
 def strip_all_gnu
     : Flag<["--"], "strip-all-gnu">,
@@ -86,9 +85,8 @@ def keep_file_symbols : Flag<["--"], "keep-file-symbols">,
 
 def only_keep_debug
     : Flag<["--"], "only-keep-debug">,
-      HelpText<
-          "Produce a debug file as the output that only preserves contents of "
-          "sections useful for debugging purposes">;
+      HelpText<"Clear sections that would not be stripped by --strip-debug. "
+               "Currently only implemented for COFF.">;
 
 def discard_locals : Flag<["--"], "discard-locals">,
                      HelpText<"Remove compiler-generated local symbols, (e.g. "

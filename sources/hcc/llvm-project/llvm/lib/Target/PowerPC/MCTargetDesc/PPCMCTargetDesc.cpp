@@ -30,7 +30,6 @@
 #include "llvm/MC/MCSubtargetInfo.h"
 #include "llvm/MC/MCSymbol.h"
 #include "llvm/MC/MCSymbolELF.h"
-#include "llvm/MC/MCSymbolXCOFF.h"
 #include "llvm/Support/Casting.h"
 #include "llvm/Support/CodeGen.h"
 #include "llvm/Support/ErrorHandling.h"
@@ -77,8 +76,7 @@ static MCSubtargetInfo *createPPCMCSubtargetInfo(const Triple &TT,
 }
 
 static MCAsmInfo *createPPCMCAsmInfo(const MCRegisterInfo &MRI,
-                                     const Triple &TheTriple,
-                                     const MCTargetOptions &Options) {
+                                     const Triple &TheTriple) {
   bool isPPC64 = (TheTriple.getArch() == Triple::ppc64 ||
                   TheTriple.getArch() == Triple::ppc64le);
 
@@ -109,11 +107,8 @@ public:
       : PPCTargetStreamer(S), OS(OS) {}
 
   void emitTCEntry(const MCSymbol &S) override {
-    const MCAsmInfo *MAI = Streamer.getContext().getAsmInfo();
     OS << "\t.tc ";
-    OS << (MAI->getSymbolsHaveSMC()
-               ? cast<MCSymbolXCOFF>(S).getUnqualifiedName()
-               : S.getName());
+    OS << S.getName();
     OS << "[TC],";
     OS << S.getName();
     OS << '\n';
@@ -247,10 +242,7 @@ public:
   PPCTargetXCOFFStreamer(MCStreamer &S) : PPCTargetStreamer(S) {}
 
   void emitTCEntry(const MCSymbol &S) override {
-    const MCAsmInfo *MAI = Streamer.getContext().getAsmInfo();
-    const unsigned PointerSize = MAI->getCodePointerSize();
-    Streamer.EmitValueToAlignment(PointerSize);
-    Streamer.EmitSymbolValue(&S, PointerSize);
+    report_fatal_error("TOC entries not supported yet.");
   }
 
   void emitMachine(StringRef CPU) override {

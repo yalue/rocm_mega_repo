@@ -16,7 +16,6 @@
 #include "llvm/DebugInfo/Symbolize/SymbolizableModule.h"
 #include "llvm/Object/Binary.h"
 #include "llvm/Object/ObjectFile.h"
-#include "llvm/Object/ELFObjectFile.h"
 #include "llvm/Support/Error.h"
 #include <algorithm>
 #include <cstdint>
@@ -45,7 +44,6 @@ public:
     std::vector<std::string> DsymHints;
     std::string FallbackDebugPath;
     std::string DWPName;
-    std::vector<std::string> DebugFileDirectory;
   };
 
   LLVMSymbolizer() = default;
@@ -100,9 +98,6 @@ private:
   ObjectFile *lookUpDebuglinkObject(const std::string &Path,
                                     const ObjectFile *Obj,
                                     const std::string &ArchName);
-  ObjectFile *lookUpBuildIDObject(const std::string &Path,
-                                  const ELFObjectFileBase *Obj,
-                                  const std::string &ArchName);
 
   /// Returns pair of pointers to object and debug object.
   Expected<ObjectPair> getOrCreateObjectPair(const std::string &Path,

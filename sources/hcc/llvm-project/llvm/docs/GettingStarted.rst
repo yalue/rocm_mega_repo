@@ -8,30 +8,35 @@ Getting Started with the LLVM System
 Overview
 ========
 
-Welcome to the LLVM project!
+Welcome to the LLVM project! In order to get started, you first need to know
+some basic information.
 
-The LLVM project has multiple components. The core of the project is
+First, the LLVM project has multiple components. The core of the project is
 itself called "LLVM". This contains all of the tools, libraries, and header
-files needed to process intermediate representations and converts it into
-object files.  Tools include an assembler, disassembler, bitcode analyzer, and
+files needed to process an intermediate representation and convert it into
+object files.  It contains an assembler, disassembler, bitcode analyzer and
 bitcode optimizer.  It also contains basic regression tests.
 
-C-like languages use the `Clang <http://clang.llvm.org/>`_ front end.  This
+Another piece is the `Clang <http://clang.llvm.org/>`_ front end.  This
 component compiles C, C++, Objective C, and Objective C++ code into LLVM bitcode
 -- and from there into object files, using LLVM.
 
-Other components include:
+There are other components as well:
 the `libc++ C++ standard library <https://libcxx.llvm.org>`_,
 the `LLD linker <https://lld.llvm.org>`_, and more.
 
-Getting the Source Code and Building LLVM
-=========================================
+Getting Started Quickly (A Summary)
+===================================
 
-The LLVM Getting Started documentation may be out of date.  The `Clang
-Getting Started <http://clang.llvm.org/get_started.html>`_ page might have more
-accurate information.
+The LLVM Getting Started documentation may be out of date.  So, the `Clang
+Getting Started <http://clang.llvm.org/get_started.html>`_ page might also be a
+good place to start.
 
-This is an example workflow and configuration to get and build the LLVM source:
+Here's the short story for getting up and running quickly with LLVM:
+
+#. Read the documentation.
+#. Read the documentation.
+#. Remember that you were warned twice about reading the documentation.
 
 #. Checkout LLVM (including related subprojects like Clang):
 
@@ -85,10 +90,10 @@ This is an example workflow and configuration to get and build the LLVM source:
      * CMake will generate build targets for each tool and library, and most
        LLVM sub-projects generate their own ``check-<project>`` target.
 
-     * Running a serial build will be *slow*.  To improve speed, try running a
-       parallel build. That's done by default in Ninja; for ``make``, use
-       ``make -j NNN`` (NNN is the number of parallel jobs, use e.g. number of
-       CPUs you have.)
+     * Running a serial build will be *slow*.  Make sure you run a parallel
+       build. That's already done by default in Ninja; for ``make``, use
+       ``make -j NNN`` (with an appropriate value of NNN, e.g. number of CPUs
+       you have.)
 
    * For more information see `CMake <CMake.html>`__
 
@@ -117,7 +122,6 @@ OS                 Arch                  Compilers
 Linux              x86\ :sup:`1`         GCC, Clang
 Linux              amd64                 GCC, Clang
 Linux              ARM                   GCC, Clang
-Linux              Mips                  GCC, Clang
 Linux              PowerPC               GCC, Clang
 Solaris            V9 (Ultrasparc)       GCC
 FreeBSD            x86\ :sup:`1`         GCC, Clang
@@ -622,8 +626,7 @@ used by people developing LLVM.
 |                         | default set of LLVM components that can be         |
 |                         | overridden with ``LLVM_DYLIB_COMPONENTS``. The     |
 |                         | default contains most of LLVM and is defined in    |
-|                         | ``tools/llvm-shlib/CMakelists.txt``. This option is|
-|                         | not avialable on Windows.                          |
+|                         | ``tools/llvm-shlib/CMakelists.txt``.               |
 +-------------------------+----------------------------------------------------+
 | LLVM_OPTIMIZED_TABLEGEN | Builds a release tablegen that gets used during    |
 |                         | the LLVM build. This can dramatically speed up     |

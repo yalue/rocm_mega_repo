@@ -192,7 +192,7 @@ public:
                                int64_t Offset1, unsigned NumLoads) const override;
 
   void copyPhysReg(MachineBasicBlock &MBB, MachineBasicBlock::iterator MI,
-                   const DebugLoc &DL, MCRegister DestReg, MCRegister SrcReg,
+                   const DebugLoc &DL, unsigned DestReg, unsigned SrcReg,
                    bool KillSrc) const override;
 
   unsigned calculateLDSSpillAddress(MachineBasicBlock &MBB, MachineInstr &MI,
@@ -1017,10 +1017,6 @@ public:
   /// not exist. If Opcode is not a pseudo instruction, this is identity.
   int pseudoToMCOpcode(int Opcode) const;
 
-  /// \brief Check if this instruction should only be used by assembler.
-  /// Return true if this opcode should not be used by codegen.
-  bool isAsmOnlyOpcode(int MCOp) const;
-
   const TargetRegisterClass *getRegClass(const MCInstrDesc &TID, unsigned OpNum,
                                          const TargetRegisterInfo *TRI,
                                          const MachineFunction &MF)
@@ -1031,13 +1027,6 @@ public:
   }
 
   void fixImplicitOperands(MachineInstr &MI) const;
-
-  MachineInstr *foldMemoryOperandImpl(MachineFunction &MF, MachineInstr &MI,
-                                      ArrayRef<unsigned> Ops,
-                                      MachineBasicBlock::iterator InsertPt,
-                                      int FrameIndex,
-                                      LiveIntervals *LIS = nullptr,
-                                      VirtRegMap *VRM = nullptr) const override;
 };
 
 /// \brief Returns true if a reg:subreg pair P has a TRC class

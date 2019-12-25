@@ -449,10 +449,12 @@ Status PlatformRemoteDarwinDevice::GetSymbolFile(const FileSpec &platform_file,
   Status error;
   char platform_file_path[PATH_MAX];
   if (platform_file.GetPath(platform_file_path, sizeof(platform_file_path))) {
+    char resolved_path[PATH_MAX];
+
     const char *os_version_dir = GetDeviceSupportDirectoryForOSVersion();
     if (os_version_dir) {
-      std::string resolved_path =
-          (llvm::Twine(os_version_dir) + "/" + platform_file_path).str();
+      ::snprintf(resolved_path, sizeof(resolved_path), "%s/%s", os_version_dir,
+                 platform_file_path);
 
       local_file.SetFile(resolved_path, FileSpec::Style::native);
       FileSystem::Instance().Resolve(local_file);
@@ -464,28 +466,31 @@ Status PlatformRemoteDarwinDevice::GetSymbolFile(const FileSpec &platform_file,
         return error;
       }
 
-      resolved_path = (llvm::Twine(os_version_dir) + "/Symbols.Internal/" +
-                       platform_file_path)
-                          .str();
+      ::snprintf(resolved_path, sizeof(resolved_path), "%s/Symbols.Internal/%s",
+                 os_version_dir, platform_file_path);
 
       local_file.SetFile(resolved_path, FileSpec::Style::native);
       FileSystem::Instance().Resolve(local_file);
       if (FileSystem::Instance().Exists(local_file)) {
-        LLDB_LOGF(
-            log,
-            "Found a copy of %s in the DeviceSupport dir %s/Symbols.Internal",
-            platform_file_path, os_version_dir);
+        if (log) {
+          LLDB_LOGF(
+              log,
+              "Found a copy of %s in the DeviceSupport dir %s/Symbols.Internal",
+              platform_file_path, os_version_dir);
+        }
         return error;
       }
-      resolved_path =
-          (llvm::Twine(os_version_dir) + "/Symbols/" + platform_file_path)
-              .str();
+      ::snprintf(resolved_path, sizeof(resolved_path), "%s/Symbols/%s",
+                 os_version_dir, platform_file_path);
 
       local_file.SetFile(resolved_path, FileSpec::Style::native);
       FileSystem::Instance().Resolve(local_file);
       if (FileSystem::Instance().Exists(local_file)) {
-        LLDB_LOGF(log, "Found a copy of %s in the DeviceSupport dir %s/Symbols",
-                  platform_file_path, os_version_dir);
+        if (log) {
+          LLDB_LOGF(log,
+                    "Found a copy of %s in the DeviceSupport dir %s/Symbols",
+                    platform_file_path, os_version_dir);
+        }
         return error;
       }
     }

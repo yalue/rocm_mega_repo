@@ -706,10 +706,6 @@ def X86GF2P8affineinvqb : SDNode<"X86ISD::GF2P8AFFINEINVQB", SDTBlend>;
 def X86GF2P8affineqb    : SDNode<"X86ISD::GF2P8AFFINEQB", SDTBlend>;
 def X86GF2P8mulb        : SDNode<"X86ISD::GF2P8MULB", SDTIntBinOp>;
 
-def SDTX86MaskedStore: SDTypeProfile<0, 3, [       // masked store
-  SDTCisVec<0>, SDTCisPtrTy<1>, SDTCisVec<2>, SDTCisSameNumEltsAs<0, 2>
-]>;
-
 //===----------------------------------------------------------------------===//
 // SSE Complex Patterns
 //===----------------------------------------------------------------------===//
@@ -1044,10 +1040,9 @@ def vinsert256_insert : PatFrag<(ops node:$bigvec, node:$smallvec,
                                 INSERT_get_vinsert256_imm>;
 
 def masked_load : PatFrag<(ops node:$src1, node:$src2, node:$src3),
-                          (masked_ld node:$src1, undef, node:$src2, node:$src3), [{
+                          (masked_ld node:$src1, node:$src2, node:$src3), [{
   return !cast<MaskedLoadSDNode>(N)->isExpandingLoad() &&
-    cast<MaskedLoadSDNode>(N)->getExtensionType() == ISD::NON_EXTLOAD &&
-    cast<MaskedLoadSDNode>(N)->isUnindexed();
+    cast<MaskedLoadSDNode>(N)->getExtensionType() == ISD::NON_EXTLOAD;
 }]>;
 
 def masked_load_aligned : PatFrag<(ops node:$src1, node:$src2, node:$src3),
@@ -1060,19 +1055,17 @@ def masked_load_aligned : PatFrag<(ops node:$src1, node:$src2, node:$src3),
 }]>;
 
 def X86mExpandingLoad : PatFrag<(ops node:$src1, node:$src2, node:$src3),
-                         (masked_ld node:$src1, undef, node:$src2, node:$src3), [{
-  return cast<MaskedLoadSDNode>(N)->isExpandingLoad() &&
-         cast<MaskedLoadSDNode>(N)->isUnindexed();
+                         (masked_ld node:$src1, node:$src2, node:$src3), [{
+  return cast<MaskedLoadSDNode>(N)->isExpandingLoad();
 }]>;
 
 // Masked store fragments.
 // X86mstore can't be implemented in core DAG files because some targets
 // do not support vector types (llvm-tblgen will fail).
 def masked_store : PatFrag<(ops node:$src1, node:$src2, node:$src3),
-                        (masked_st node:$src1, node:$src2, undef, node:$src3), [{
-  return !cast<MaskedStoreSDNode>(N)->isTruncatingStore() &&
-         !cast<MaskedStoreSDNode>(N)->isCompressingStore() &&
-         cast<MaskedStoreSDNode>(N)->isUnindexed();
+                        (masked_st node:$src1, node:$src2, node:$src3), [{
+  return (!cast<MaskedStoreSDNode>(N)->isTruncatingStore()) &&
+         (!cast<MaskedStoreSDNode>(N)->isCompressingStore());
 }]>;
 
 def masked_store_aligned : PatFrag<(ops node:$src1, node:$src2, node:$src3),
@@ -1085,18 +1078,16 @@ def masked_store_aligned : PatFrag<(ops node:$src1, node:$src2, node:$src3),
 }]>;
 
 def X86mCompressingStore : PatFrag<(ops node:$src1, node:$src2, node:$src3),
-                             (masked_st node:$src1, node:$src2, undef, node:$src3), [{
-    return cast<MaskedStoreSDNode>(N)->isCompressingStore() &&
-           cast<MaskedStoreSDNode>(N)->isUnindexed();
+                             (masked_st node:$src1, node:$src2, node:$src3), [{
+    return cast<MaskedStoreSDNode>(N)->isCompressingStore();
 }]>;
 
 // masked truncstore fragments
 // X86mtruncstore can't be implemented in core DAG files because some targets
 // doesn't support vector type ( llvm-tblgen will fail)
 def X86mtruncstore : PatFrag<(ops node:$src1, node:$src2, node:$src3),
-                             (masked_st node:$src1, node:$src2, undef, node:$src3), [{
-    return cast<MaskedStoreSDNode>(N)->isTruncatingStore() &&
-           cast<MaskedStoreSDNode>(N)->isUnindexed();
+                             (masked_st node:$src1, node:$src2, node:$src3), [{
+    return cast<MaskedStoreSDNode>(N)->isTruncatingStore();
 }]>;
 def masked_truncstorevi8 :
   PatFrag<(ops node:$src1, node:$src2, node:$src3),
@@ -1120,10 +1111,10 @@ def X86TruncSStore : SDNode<"X86ISD::VTRUNCSTORES",  SDTStore,
 def X86TruncUSStore : SDNode<"X86ISD::VTRUNCSTOREUS",  SDTStore,
                        [SDNPHasChain, SDNPMayStore, SDNPMemOperand]>;
 
-def X86MTruncSStore : SDNode<"X86ISD::VMTRUNCSTORES",  SDTX86MaskedStore,
+def X86MTruncSStore : SDNode<"X86ISD::VMTRUNCSTORES",  SDTMaskedStore,
                        [SDNPHasChain, SDNPMayStore, SDNPMemOperand]>;
 
-def X86MTruncUSStore : SDNode<"X86ISD::VMTRUNCSTOREUS",  SDTX86MaskedStore,
+def X86MTruncUSStore : SDNode<"X86ISD::VMTRUNCSTOREUS",  SDTMaskedStore,
                        [SDNPHasChain, SDNPMayStore, SDNPMemOperand]>;
 
 def truncstore_s_vi8 : PatFrag<(ops node:$val, node:$ptr),

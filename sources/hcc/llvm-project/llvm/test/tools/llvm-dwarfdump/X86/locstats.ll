@@ -5,7 +5,7 @@
 ; CHECK: "formal params scope bytes total":20
 ; CHECK: "formal params scope bytes covered":20
 ; CHECK: "formal params entry value scope bytes covered":5
-; CHECK: "vars scope bytes total":90
+; CHECK: "vars scope bytes total":78
 ; CHECK: "vars scope bytes covered":60
 ; CHECK: "vars entry value scope bytes covered":0
 ; CHECK: "total variables procesed by location statistics":6
@@ -191,8 +191,8 @@ declare void @llvm.dbg.value(metadata, metadata, metadata)
 !17 = !DISubroutineType(types: !18)
 !18 = !{null, !7, !7}
 !19 = !{!20, !21, !22, !23}
-!20 = !DILocalVariable(name: "x", arg: 1, scope: !16, file: !1, line: 6, type: !7)
-!21 = !DILocalVariable(name: "y", arg: 2, scope: !16, file: !1, line: 6, type: !7)
+!20 = !DILocalVariable(name: "x", arg: 1, scope: !16, file: !1, line: 6, type: !7, flags: DIFlagArgumentNotModified)
+!21 = !DILocalVariable(name: "y", arg: 2, scope: !16, file: !1, line: 6, type: !7, flags: DIFlagArgumentNotModified)
 !22 = !DILocalVariable(name: "u", scope: !16, file: !1, line: 8, type: !7)
 !23 = !DILocalVariable(name: "a", scope: !16, file: !1, line: 18, type: !7)
 !24 = !DILocation(line: 0, scope: !16)

@@ -84,7 +84,7 @@ public:
 
 private:
   /// Machine instruction info used throughout the class.
-  const X86InstrInfo *TII = nullptr;
+  const X86InstrInfo *TII;
 };
 
 } // end anonymous namespace

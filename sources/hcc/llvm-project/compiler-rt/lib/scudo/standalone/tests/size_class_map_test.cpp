@@ -6,9 +6,8 @@
 //
 //===----------------------------------------------------------------------===//
 
-#include "tests/scudo_unit_test.h"
-
-#include "size_class_map.h"
+#include "scudo/standalone/size_class_map.h"
+#include "gtest/gtest.h"
 
 template <class SizeClassMap> void testSizeClassMap() {
   typedef SizeClassMap SCMap;

@@ -55,7 +55,6 @@
 #include "llvm/ADT/StringSet.h"
 #include "llvm/Support/Regex.h"
 #include "llvm/Support/TrigramIndex.h"
-#include "llvm/Support/VirtualFileSystem.h"
 #include <string>
 #include <vector>
 
@@ -69,8 +68,7 @@ public:
   /// Parses the special case list entries from files. On failure, returns
   /// 0 and writes an error message to string.
   static std::unique_ptr<SpecialCaseList>
-  create(const std::vector<std::string> &Paths, llvm::vfs::FileSystem &FS,
-         std::string &Error);
+  create(const std::vector<std::string> &Paths, std::string &Error);
   /// Parses the special case list from a memory buffer. On failure, returns
   /// 0 and writes an error message to string.
   static std::unique_ptr<SpecialCaseList> create(const MemoryBuffer *MB,
@@ -78,7 +76,7 @@ public:
   /// Parses the special case list entries from files. On failure, reports a
   /// fatal error.
   static std::unique_ptr<SpecialCaseList>
-  createOrDie(const std::vector<std::string> &Paths, llvm::vfs::FileSystem &FS);
+  createOrDie(const std::vector<std::string> &Paths);
 
   ~SpecialCaseList();
 
@@ -105,7 +103,7 @@ protected:
   // Implementations of the create*() functions that can also be used by derived
   // classes.
   bool createInternal(const std::vector<std::string> &Paths,
-                      vfs::FileSystem &VFS, std::string &Error);
+                      std::string &Error);
   bool createInternal(const MemoryBuffer *MB, std::string &Error);
 
   SpecialCaseList() = default;

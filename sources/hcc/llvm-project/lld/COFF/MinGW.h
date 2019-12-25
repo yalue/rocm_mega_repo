@@ -12,7 +12,6 @@
 #include "Config.h"
 #include "Symbols.h"
 #include "lld/Common/LLVM.h"
-#include "llvm/ADT/StringSet.h"
 
 namespace lld {
 namespace coff {

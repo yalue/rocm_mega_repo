@@ -16,13 +16,12 @@
 #define LLVM_CLANG_AST_JSONNODEDUMPER_H
 
 #include "clang/AST/ASTContext.h"
-#include "clang/AST/ASTDumperUtils.h"
 #include "clang/AST/ASTNodeTraverser.h"
+#include "clang/AST/ASTDumperUtils.h"
 #include "clang/AST/AttrVisitor.h"
 #include "clang/AST/CommentCommandTraits.h"
 #include "clang/AST/CommentVisitor.h"
 #include "clang/AST/ExprCXX.h"
-#include "clang/AST/Mangle.h"
 #include "llvm/Support/JSON.h"
 
 namespace clang {
@@ -123,10 +122,9 @@ class JSONNodeDumper
 
   const SourceManager &SM;
   ASTContext& Ctx;
-  ASTNameGenerator ASTNameGen;
   PrintingPolicy PrintPolicy;
   const comments::CommandTraits *Traits;
-  StringRef LastLocFilename, LastLocPresumedFilename;
+  StringRef LastLocFilename;
   unsigned LastLocLine, LastLocPresumedLine;
 
   using InnerAttrVisitor = ConstAttrVisitor<JSONNodeDumper>;
@@ -184,9 +182,8 @@ public:
   JSONNodeDumper(raw_ostream &OS, const SourceManager &SrcMgr, ASTContext &Ctx,
                  const PrintingPolicy &PrintPolicy,
                  const comments::CommandTraits *Traits)
-      : NodeStreamer(OS), SM(SrcMgr), Ctx(Ctx), ASTNameGen(Ctx),
-        PrintPolicy(PrintPolicy), Traits(Traits), LastLocLine(0),
-        LastLocPresumedLine(0) {}
+      : NodeStreamer(OS), SM(SrcMgr), Ctx(Ctx), PrintPolicy(PrintPolicy),
+        Traits(Traits), LastLocLine(0), LastLocPresumedLine(0) {}
 
   void Visit(const Attr *A);
   void Visit(const Stmt *Node);

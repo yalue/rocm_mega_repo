@@ -55,6 +55,8 @@
 #include <iostream>
 #include <sstream>
 #include <vector>
+#include <memory>
+#include <algorithm>
 
 #include "rocm_smi/rocm_smi_main.h"
 #include "rocm_smi/rocm_smi_device.h"
@@ -70,7 +72,7 @@ extern "C" {
 namespace amd {
 namespace smi {
 
-// Sysfs file names
+// Device sysfs file names
 static const char *kDevPerfLevelFName = "power_dpm_force_performance_level";
 static const char *kDevDevIDFName = "device";
 static const char *kDevVendorIDFName = "vendor";
@@ -82,7 +84,7 @@ static const char *kDevGPUMClkFName = "pp_dpm_mclk";
 static const char *kDevDCEFClkFName = "pp_dpm_dcefclk";
 static const char *kDevFClkFName = "pp_dpm_fclk";
 static const char *kDevSOCClkFName = "pp_dpm_socclk";
-static const char *kDevGPUPCIEClkFname = "pp_dpm_pcie";
+static const char *kDevPCIEClkFName = "pp_dpm_pcie";
 static const char *kDevPowerProfileModeFName = "pp_power_profile_mode";
 static const char *kDevPowerODVoltageFName = "pp_od_clk_voltage";
 static const char *kDevUsageFName = "gpu_busy_percent";
@@ -99,23 +101,13 @@ static const char *kDevMemTotVRAMFName = "mem_info_vram_total";
 static const char *kDevMemUsedGTTFName = "mem_info_gtt_used";
 static const char *kDevMemUsedVisVRAMFName = "mem_info_vis_vram_used";
 static const char *kDevMemUsedVRAMFName = "mem_info_vram_used";
+static const char *kDevVramVendorFName = "mem_info_vram_vendor";
 static const char *kDevPCIEReplayCountFName = "pcie_replay_count";
 static const char *kDevUniqueIdFName = "unique_id";
 static const char *kDevDFCountersAvailableFName = "df_cntr_avail";
 static const char *kDevMemBusyPercentFName = "mem_busy_percent";
 static const char *kDevXGMIErrorFName = "xgmi_error";
 static const char *kDevSerialNumberFName = "serial_number";
-
-// Strings that are found within sysfs files
-static const char *kDevPerfLevelAutoStr = "auto";
-static const char *kDevPerfLevelLowStr = "low";
-static const char *kDevPerfLevelHighStr = "high";
-static const char *kDevPerfLevelManualStr = "manual";
-static const char *kDevPerfLevelStandardStr = "profile_standard";
-static const char *kDevPerfLevelMinMClkStr = "profile_min_mclk";
-static const char *kDevPerfLevelMinSClkStr = "profile_min_sclk";
-static const char *kDevPerfLevelPeakStr = "profile_peak";
-static const char *kDevPerfLevelUnknownStr = "unknown";
 
 // Firmware version files
 static const char *kDevFwVersionAsdFName = "fw_version/asd_fw_version";
@@ -205,6 +197,18 @@ static const std::map<DevKFDNodePropTypes, const char *> kDevKFDPropNameMap = {
     {kDevKFDNodePropMaxEngClkCComp, kDevKFDNodePropMaxEngClkCCompSName},
     {kDevKFDNodePropDomain, kDevKFDNodePropDomainSName},
 };
+
+// Strings that are found within sysfs files
+static const char *kDevPerfLevelAutoStr = "auto";
+static const char *kDevPerfLevelLowStr = "low";
+static const char *kDevPerfLevelHighStr = "high";
+static const char *kDevPerfLevelManualStr = "manual";
+static const char *kDevPerfLevelStandardStr = "profile_standard";
+static const char *kDevPerfLevelMinMClkStr = "profile_min_mclk";
+static const char *kDevPerfLevelMinSClkStr = "profile_min_sclk";
+static const char *kDevPerfLevelPeakStr = "profile_peak";
+static const char *kDevPerfLevelUnknownStr = "unknown";
+
 static const std::map<DevInfoTypes, const char *> kDevAttribNameMap = {
     {kDevPerfLevel, kDevPerfLevelFName},
     {kDevOverDriveLevel, kDevOverDriveLevelFName},
@@ -217,7 +221,7 @@ static const std::map<DevInfoTypes, const char *> kDevAttribNameMap = {
     {kDevDCEFClk, kDevDCEFClkFName},
     {kDevFClk, kDevFClkFName},
     {kDevSOCClk, kDevSOCClkFName},
-    {kDevPCIEClk, kDevGPUPCIEClkFname},
+    {kDevPCIEClk, kDevPCIEClkFName},
     {kDevPowerProfileMode, kDevPowerProfileModeFName},
     {kDevUsage, kDevUsageFName},
     {kDevPowerODVoltage, kDevPowerODVoltageFName},
@@ -234,6 +238,7 @@ static const std::map<DevInfoTypes, const char *> kDevAttribNameMap = {
     {kDevMemUsedGTT, kDevMemUsedGTTFName},
     {kDevMemUsedVisVRAM, kDevMemUsedVisVRAMFName},
     {kDevMemUsedVRAM, kDevMemUsedVRAMFName},
+    {kDevVramVendor, kDevVramVendorFName},
     {kDevPCIEReplayCount, kDevPCIEReplayCountFName},
     {kDevUniqueId, kDevUniqueIdFName},
     {kDevDFCountersAvailable, kDevDFCountersAvailableFName},
@@ -274,6 +279,179 @@ static const std::map<rsmi_dev_perf_level, const char *> kDevPerfLvlMap = {
     {RSMI_DEV_PERF_LEVEL_STABLE_PEAK, kDevPerfLevelPeakStr},
 
     {RSMI_DEV_PERF_LEVEL_UNKNOWN, kDevPerfLevelUnknownStr},
+};
+
+static  std::map<DevInfoTypes, uint8_t> kDevInfoVarTypeToRSMIVariant = {
+    // rsmi_memory_type_t
+    {kDevMemTotGTT, RSMI_MEM_TYPE_GTT},
+    {kDevMemTotVisVRAM, RSMI_MEM_TYPE_VIS_VRAM},
+    {kDevMemTotVRAM, RSMI_MEM_TYPE_VRAM},
+    {kDevMemUsedGTT, RSMI_MEM_TYPE_GTT},
+    {kDevMemUsedVisVRAM, RSMI_MEM_TYPE_VIS_VRAM},
+    {kDevMemUsedVRAM, RSMI_MEM_TYPE_VRAM},
+
+    // rsmi_clk_type_t
+    {kDevGPUSClk, RSMI_CLK_TYPE_SYS},
+    {kDevGPUMClk, RSMI_CLK_TYPE_MEM},
+    {kDevFClk, RSMI_CLK_TYPE_DF},
+    {kDevDCEFClk, RSMI_CLK_TYPE_DCEF},
+    {kDevSOCClk, RSMI_CLK_TYPE_SOC},
+
+    // rsmi_fw_block_t
+    {kDevFwVersionAsd, RSMI_FW_BLOCK_ASD},
+    {kDevFwVersionCe, RSMI_FW_BLOCK_CE},
+    {kDevFwVersionDmcu, RSMI_FW_BLOCK_DMCU},
+    {kDevFwVersionMc, RSMI_FW_BLOCK_MC},
+    {kDevFwVersionMe, RSMI_FW_BLOCK_ME},
+    {kDevFwVersionMec, RSMI_FW_BLOCK_MEC},
+    {kDevFwVersionMec2, RSMI_FW_BLOCK_MEC2},
+    {kDevFwVersionPfp, RSMI_FW_BLOCK_PFP},
+    {kDevFwVersionRlc, RSMI_FW_BLOCK_RLC},
+    {kDevFwVersionRlcSrlc, RSMI_FW_BLOCK_RLC_SRLC},
+    {kDevFwVersionRlcSrlg, RSMI_FW_BLOCK_RLC_SRLG},
+    {kDevFwVersionRlcSrls, RSMI_FW_BLOCK_RLC_SRLS},
+    {kDevFwVersionSdma, RSMI_FW_BLOCK_SDMA},
+    {kDevFwVersionSdma2, RSMI_FW_BLOCK_SDMA2},
+    {kDevFwVersionSmc, RSMI_FW_BLOCK_SMC},
+    {kDevFwVersionSos, RSMI_FW_BLOCK_SOS},
+    {kDevFwVersionTaRas, RSMI_FW_BLOCK_TA_RAS},
+    {kDevFwVersionTaXgmi, RSMI_FW_BLOCK_TA_XGMI},
+    {kDevFwVersionUvd, RSMI_FW_BLOCK_UVD},
+    {kDevFwVersionVce, RSMI_FW_BLOCK_VCE},
+    {kDevFwVersionVcn, RSMI_FW_BLOCK_VCN},
+
+    // rsmi_gpu_block_t
+    {kDevErrCntUMC, RSMI_GPU_BLOCK_UMC},
+    {kDevErrCntSDMA, RSMI_GPU_BLOCK_SDMA},
+    {kDevErrCntGFX, RSMI_GPU_BLOCK_GFX},
+
+    // rsmi_event_group_t
+    {kDevDFCountersAvailable, RSMI_EVNT_GRP_XGMI}
+};
+
+static const std::map<const char *, dev_depends_t> kDevFuncDependsMap = {
+    // Functions with only mandatory dependencies
+  {"rsmi_dev_vram_vendor_get",           {{kDevVramVendorFName}, {}}},
+  {"rsmi_dev_id_get",                    {{kDevDevIDFName}, {}}},
+  {"rsmi_dev_vendor_id_get",             {{kDevVendorIDFName}, {}}},
+
+  {"rsmi_dev_name_get",                  {{kDevVendorIDFName,
+                                                        kDevDevIDFName}, {}}},
+  {"rsmi_dev_brand_get",                 {{kDevVendorIDFName}, {}}},
+  {"rsmi_dev_vendor_name_get",           {{kDevVendorIDFName}, {}}},
+  {"rsmi_dev_serial_number_get",         {{kDevSerialNumberFName}, {}}},
+  {"rsmi_dev_subsystem_id_get",          {{kDevSubSysDevIDFName}, {}}},
+  {"rsmi_dev_subsystem_name_get",        {{kDevSubSysVendorIDFName,
+                                           kDevVendorIDFName,
+                                           kDevDevIDFName}, {}}},
+  {"rsmi_dev_drm_render_minor_get",      {{}, {}}},
+  {"rsmi_dev_subsystem_vendor_id_get",   {{kDevSubSysVendorIDFName}, {}}},
+  {"rsmi_dev_unique_id_get",             {{kDevUniqueIdFName}, {}}},
+  {"rsmi_dev_pci_bandwidth_get",         {{kDevPCIEClkFName}, {}}},
+  {"rsmi_dev_pci_id_get",                {{}, {}}},
+  {"rsmi_dev_pci_throughput_get",        {{kDevPCIEThruPutFName}, {}}},
+  {"rsmi_dev_pci_replay_counter_get",    {{kDevPCIEReplayCountFName}, {}}},
+  {"rsmi_dev_pci_bandwidth_set",         {{kDevPerfLevelFName,
+                                           kDevPCIEClkFName}, {}}},
+  {"rsmi_dev_power_profile_set",         {{kDevPerfLevelFName,
+                                           kDevPowerProfileModeFName}, {}}},
+  {"rsmi_dev_memory_busy_percent_get",   {{kDevMemBusyPercentFName}, {}}},
+  {"rsmi_dev_busy_percent_get",          {{kDevUsageFName}, {}}},
+  {"rsmi_dev_memory_reserved_pages_get", {{kDevMemPageBadFName}, {}}},
+  {"rsmi_dev_overdrive_level_get",       {{kDevOverDriveLevelFName}, {}}},
+  {"rsmi_dev_power_profile_presets_get", {{kDevPowerProfileModeFName}, {}}},
+  {"rsmi_dev_perf_level_set",            {{kDevPerfLevelFName}, {}}},
+  {"rsmi_dev_perf_level_get",            {{kDevPerfLevelFName}, {}}},
+  {"rsmi_dev_overdrive_level_set",       {{kDevOverDriveLevelFName}, {}}},
+  {"rsmi_dev_vbios_version_get",         {{kDevVBiosVerFName}, {}}},
+  {"rsmi_dev_od_volt_info_get",          {{kDevPowerODVoltageFName}, {}}},
+  {"rsmi_dev_od_volt_curve_regions_get", {{kDevPowerODVoltageFName}, {}}},
+  {"rsmi_dev_ecc_enabled_get",           {{kDevErrCntFeaturesFName}, {}}},
+  {"rsmi_dev_ecc_status_get",            {{kDevErrCntFeaturesFName}, {}}},
+  {"rsmi_dev_counter_group_supported",   {{}, {}}},
+  {"rsmi_dev_counter_create",            {{}, {}}},
+  {"rsmi_dev_xgmi_error_status",         {{kDevXGMIErrorFName}, {}}},
+  {"rsmi_dev_xgmi_error_reset",          {{kDevXGMIErrorFName}, {}}},
+  {"rsmi_dev_memory_reserved_pages_get", {{kDevMemPageBadFName}, {}}},
+
+  // These functions with variants, but no sensors/units. (May or may not
+  // have mandatory dependencies.)
+  {"rsmi_dev_memory_total_get",     { .mandatory_depends = {},
+                                      .variants = {
+                                        kDevMemTotGTT, kDevMemTotVisVRAM,
+                                        kDevMemTotVRAM,
+                                       }
+                                    }
+  },
+  {"rsmi_dev_memory_usage_get",     { .mandatory_depends = {},
+                                      .variants = {
+                                        kDevMemUsedGTT,
+                                        kDevMemUsedVisVRAM,
+                                        kDevMemUsedVRAM,
+                                      }
+                                    }
+  },
+  {"rsmi_dev_gpu_clk_freq_get",     { .mandatory_depends = {},
+                                      .variants = {
+                                        kDevGPUSClk,
+                                        kDevGPUMClk,
+                                        kDevFClk,
+                                        kDevDCEFClk,
+                                        kDevSOCClk,
+                                       }
+                                    }
+  },
+  {"rsmi_dev_gpu_clk_freq_set",     { .mandatory_depends =
+                                        {kDevPerfLevelFName},
+                                      .variants = {
+                                        kDevGPUSClk,
+                                        kDevGPUMClk,
+                                        kDevFClk,
+                                        kDevDCEFClk,
+                                        kDevSOCClk,
+                                      }
+                                    }
+  },
+  {"rsmi_dev_firmware_version_get", { .mandatory_depends = {},
+                                      .variants = {
+                                        kDevFwVersionAsd,
+                                        kDevFwVersionCe,
+                                        kDevFwVersionDmcu,
+                                        kDevFwVersionMc,
+                                        kDevFwVersionMe,
+                                        kDevFwVersionMec,
+                                        kDevFwVersionMec2,
+                                        kDevFwVersionPfp,
+                                        kDevFwVersionRlc,
+                                        kDevFwVersionRlcSrlc,
+                                        kDevFwVersionRlcSrlg,
+                                        kDevFwVersionRlcSrls,
+                                        kDevFwVersionSdma,
+                                        kDevFwVersionSdma2,
+                                        kDevFwVersionSmc,
+                                        kDevFwVersionSos,
+                                        kDevFwVersionTaRas,
+                                        kDevFwVersionTaXgmi,
+                                        kDevFwVersionUvd,
+                                        kDevFwVersionVce,
+                                        kDevFwVersionVcn,
+                                      }
+                                    }
+  },
+  {"rsmi_dev_ecc_count_get",        { .mandatory_depends = {},
+                                      .variants = {
+                                        kDevErrCntUMC,
+                                        kDevErrCntSDMA,
+                                        kDevErrCntGFX,
+                                      }
+                                    }
+  },
+  {"rsmi_counter_available_counters_get", { .mandatory_depends = {},
+                                            .variants = {
+                                              kDevDFCountersAvailable,
+                                            }
+                                          }
+  },
 };
 
 #define RET_IF_NONZERO(X) { \
@@ -573,6 +751,7 @@ int Device::readDevInfo(DevInfoTypes type, std::string *val) {
     case kDevSubSysDevID:
     case kDevSubSysVendorID:
     case kDevVendorID:
+    case kDevVramVendor:
     case kDevVBiosVer:
     case kDevPCIEThruPut:
     case kDevSerialNumber:
@@ -630,6 +809,168 @@ int Device::getKFDNodeProperty(DevKFDNodePropTypes prop, uint64_t *val) {
 
   *val = kfdNodePropMap_.at(prop_name);
   return 0;
+}
+
+void Device::DumpSupportedFunctions(void) {
+  SupportedFuncMapIt func_iter = supported_funcs_.begin();
+
+  std::cout << "*** Supported Functions ***" << std::endl;
+
+  while (func_iter != supported_funcs_.end()) {
+    std::cout << func_iter->first << std::endl;
+
+    std::cout << "\tSupported Variants(Monitors): ";
+    if (func_iter->second) {
+      VariantMapIt var_iter = func_iter->second->begin();
+
+      // We should have at least 1 supported variant or the function should
+      // not be listed as supported.
+      assert(var_iter != func_iter->second->end());
+
+      while (var_iter != func_iter->second->end()) {
+        std::cout << static_cast<uint32_t>(var_iter->first);
+
+        if (var_iter->second) {
+          std::cout << "(";
+
+          SubVariantIt mon_iter = var_iter->second->begin();
+
+          // We should have at least 1 supported monitor or the function should
+          // not be listed as supported.
+          assert(mon_iter != var_iter->second->end());
+          while (mon_iter != var_iter->second->end()) {
+            std::cout << static_cast<uint32_t>(*mon_iter) << ", ";
+            mon_iter++;
+          }
+          std::cout << ")";
+        }
+        std::cout << ", ";
+        var_iter++;
+      }
+      std::cout << std::endl;
+    } else {
+      std::cout << "Not Applicable" << std::endl;
+    }
+    func_iter++;
+  }
+}
+
+void Device::fillSupportedFuncs(void) {
+  if (supported_funcs_.size() != 0) {
+    return;
+  }
+
+  std::map<const char *, dev_depends_t>::const_iterator it =
+                                                   kDevFuncDependsMap.begin();
+  std::string dev_rt = path_ + "/device";
+  bool mand_depends_met;
+  std::shared_ptr<VariantMap> supported_variants;
+
+  while (it != kDevFuncDependsMap.end()) {
+    // First, see if all the mandatory dependencies are there
+    std::vector<const char *>::const_iterator dep =
+                                         it->second.mandatory_depends.begin();
+
+    mand_depends_met = true;
+    for (; dep != it->second.mandatory_depends.end(); dep++) {
+      std::string dep_path = dev_rt + "/" + *dep;
+      if (!FileExists(dep_path.c_str())) {
+        mand_depends_met = false;
+        break;
+      }
+    }
+
+    if (!mand_depends_met) {
+      it++;
+      continue;
+    }
+    // Then, see if the variants are supported.
+    std::vector<DevInfoTypes>::const_iterator var =
+                                                  it->second.variants.begin();
+
+    if (it->second.variants.size() == 0) {
+      supported_funcs_[it->first] = nullptr;
+      it++;
+      continue;
+    }
+    supported_variants = std::make_shared<VariantMap>();
+
+    for (; var != it->second.variants.end(); var++) {
+      std::string variant_path = dev_rt + "/" + kDevAttribNameMap.at(*var);
+      if (!FileExists(variant_path.c_str())) {
+        continue;
+      }
+      // At this point we assume no monitors, so map to nullptr
+      (*supported_variants)[kDevInfoVarTypeToRSMIVariant.at(*var)] = nullptr;
+    }
+
+    if ((*supported_variants).size() > 0) {
+      supported_funcs_[it->first] = supported_variants;
+    }
+
+    it++;
+  }
+  monitor()->fillSupportedFuncs(&supported_funcs_);
+  // DumpSupportedFunctions();
+}
+
+bool Device::DeviceAPISupported(std::string name, uint64_t variant,
+                                                       uint64_t sub_variant) {
+  SupportedFuncMapIt func_it;
+  VariantMapIt var_it;
+  SubVariantIt sub_var_it;
+
+  fillSupportedFuncs();
+  func_it = supported_funcs_.find(name);
+
+  if (func_it == supported_funcs_.end()) {
+    return false;
+  }
+
+  if (variant != RSMI_DEFAULT_VARIANT) {
+    // if variant is != RSMI_DEFAULT_VARIANT, we should not have a nullptr
+    assert(func_it->second != nullptr);
+    var_it = func_it->second->find(variant);
+
+    if (var_it == func_it->second->end()) {
+      return false;
+    }
+
+    if (sub_variant == RSMI_DEFAULT_VARIANT) {
+      return true;
+    } else {  // sub_variant != RSMI_DEFAULT_VARIANT
+      // if variant is != RSMI_DEFAULT_VARIANT, we should not have a nullptr
+      assert(var_it->second != nullptr);
+
+      sub_var_it = std::find(var_it->second->begin(),
+                                          var_it->second->end(), sub_variant);
+      if (sub_var_it == var_it->second->end()) {
+        return false;
+      } else {
+        return true;
+      }
+    }
+  } else {  // variant == RSMI_DEFAULT_VARIANT
+    if (func_it->second != nullptr) {
+      var_it = func_it->second->find(variant);
+    }
+    if (sub_variant == RSMI_DEFAULT_VARIANT) {
+      return true;
+    } else {  // sub_variant != RSMI_DEFAULT_VARIANT
+      if (func_it->second == nullptr) {
+        return false;
+      }
+      sub_var_it = std::find(var_it->second->begin(),
+                                          var_it->second->end(), sub_variant);
+      if (sub_var_it == var_it->second->end()) {
+        return false;
+      } else {
+        return true;
+      }
+    }
+  }
+  assert(!"We should not reach here");
+  return false;
 }
 
 #undef RET_IF_NONZERO

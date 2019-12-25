@@ -48,9 +48,6 @@ public:
         static_cast<const DGEdge<NodeType, EdgeType> &>(*this).getTargetNode());
   }
 
-  /// Set the target node this edge connects to.
-  void setTargetNode(const NodeType &N) { TargetNode = N; }
-
 protected:
   // As the default implementation use address comparison for equality.
   bool isEqualTo(const EdgeType &E) const { return this == &E; }

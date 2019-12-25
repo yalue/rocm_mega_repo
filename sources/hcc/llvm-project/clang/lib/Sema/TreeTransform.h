@@ -37,8 +37,6 @@
 #include "llvm/Support/ErrorHandling.h"
 #include <algorithm>
 
-using namespace llvm::omp;
-
 namespace clang {
 using namespace sema;
 
@@ -1986,21 +1984,6 @@ public:
     return getSema().ActOnOpenMPIsDevicePtrClause(VarList, Locs);
   }
 
-  /// Build a new OpenMP 'defaultmap' clause.
-  ///
-  /// By default, performs semantic analysis to build the new OpenMP clause.
-  /// Subclasses may override this routine to provide different behavior.
-  OMPClause *RebuildOMPDefaultmapClause(OpenMPDefaultmapClauseModifier M,
-                                        OpenMPDefaultmapClauseKind Kind,
-                                        SourceLocation StartLoc,
-                                        SourceLocation LParenLoc,
-                                        SourceLocation MLoc,
-                                        SourceLocation KindLoc,
-                                        SourceLocation EndLoc) {
-    return getSema().ActOnOpenMPDefaultmapClause(M, Kind, StartLoc, LParenLoc,
-                                                 MLoc, KindLoc, EndLoc);
-  }
-
   /// Rebuild the operand to an Objective-C \@synchronized statement.
   ///
   /// By default, performs semantic analysis to build the new statement.
@@ -3472,7 +3455,7 @@ ExprResult TreeTransform<Derived>::TransformInitializer(Expr *Init,
     Init = AIL->getCommonExpr();
 
   if (MaterializeTemporaryExpr *MTE = dyn_cast<MaterializeTemporaryExpr>(Init))
-    Init = MTE->getSubExpr();
+    Init = MTE->GetTemporaryExpr();
 
   while (CXXBindTemporaryExpr *Binder = dyn_cast<CXXBindTemporaryExpr>(Init))
     Init = Binder->getSubExpr();
@@ -4581,6 +4564,14 @@ QualType TreeTransform<Derived>::TransformDecayedType(TypeLocBuilder &TLB,
   return Result;
 }
 
+/// Helper to deduce addr space of a pointee type in OpenCL mode.
+/// If the type is updated it will be overwritten in PointeeType param.
+static void deduceOpenCLPointeeAddrSpace(Sema &SemaRef, QualType &PointeeType) {
+  if (PointeeType.getAddressSpace() == LangAS::Default)
+    PointeeType = SemaRef.Context.getAddrSpaceQualType(PointeeType,
+                                                       LangAS::opencl_generic);
+}
+
 template<typename Derived>
 QualType TreeTransform<Derived>::TransformPointerType(TypeLocBuilder &TLB,
                                                       PointerTypeLoc TL) {
@@ -4588,6 +4579,9 @@ QualType TreeTransform<Derived>::TransformPointerType(TypeLocBuilder &TLB,
     = getDerived().TransformType(TLB, TL.getPointeeLoc());
   if (PointeeType.isNull())
     return QualType();
+
+  if (SemaRef.getLangOpts().OpenCL)
+    deduceOpenCLPointeeAddrSpace(SemaRef, PointeeType);
 
   QualType Result = TL.getType();
   if (PointeeType->getAs<ObjCObjectType>()) {
@@ -4627,6 +4621,9 @@ TreeTransform<Derived>::TransformBlockPointerType(TypeLocBuilder &TLB,
   if (PointeeType.isNull())
     return QualType();
 
+  if (SemaRef.getLangOpts().OpenCL)
+    deduceOpenCLPointeeAddrSpace(SemaRef, PointeeType);
+
   QualType Result = TL.getType();
   if (getDerived().AlwaysRebuild() ||
       PointeeType != TL.getPointeeLoc().getType()) {
@@ -4655,6 +4652,9 @@ TreeTransform<Derived>::TransformReferenceType(TypeLocBuilder &TLB,
   QualType PointeeType = getDerived().TransformType(TLB, TL.getPointeeLoc());
   if (PointeeType.isNull())
     return QualType();
+
+  if (SemaRef.getLangOpts().OpenCL)
+    deduceOpenCLPointeeAddrSpace(SemaRef, PointeeType);
 
   QualType Result = TL.getType();
   if (getDerived().AlwaysRebuild() ||
@@ -8046,17 +8046,6 @@ StmtResult TreeTransform<Derived>::TransformOMPParallelForSimdDirective(
 }
 
 template <typename Derived>
-StmtResult TreeTransform<Derived>::TransformOMPParallelMasterDirective(
-    OMPParallelMasterDirective *D) {
-  DeclarationNameInfo DirName;
-  getDerived().getSema().StartOpenMPDSABlock(OMPD_parallel_master, DirName,
-                                             nullptr, D->getBeginLoc());
-  StmtResult Res = getDerived().TransformOMPExecutableDirective(D);
-  getDerived().getSema().EndOpenMPDSABlock(Res.get());
-  return Res;
-}
-
-template <typename Derived>
 StmtResult TreeTransform<Derived>::TransformOMPParallelSectionsDirective(
     OMPParallelSectionsDirective *D) {
   DeclarationNameInfo DirName;
@@ -8315,18 +8304,6 @@ StmtResult TreeTransform<Derived>::TransformOMPParallelMasterTaskLoopDirective(
   DeclarationNameInfo DirName;
   getDerived().getSema().StartOpenMPDSABlock(
       OMPD_parallel_master_taskloop, DirName, nullptr, D->getBeginLoc());
-  StmtResult Res = getDerived().TransformOMPExecutableDirective(D);
-  getDerived().getSema().EndOpenMPDSABlock(Res.get());
-  return Res;
-}
-
-template <typename Derived>
-StmtResult
-TreeTransform<Derived>::TransformOMPParallelMasterTaskLoopSimdDirective(
-    OMPParallelMasterTaskLoopSimdDirective *D) {
-  DeclarationNameInfo DirName;
-  getDerived().getSema().StartOpenMPDSABlock(
-      OMPD_parallel_master_taskloop_simd, DirName, nullptr, D->getBeginLoc());
   StmtResult Res = getDerived().TransformOMPExecutableDirective(D);
   getDerived().getSema().EndOpenMPDSABlock(Res.get());
   return Res;
@@ -9196,15 +9173,7 @@ OMPClause *TreeTransform<Derived>::TransformOMPDistScheduleClause(
 template <typename Derived>
 OMPClause *
 TreeTransform<Derived>::TransformOMPDefaultmapClause(OMPDefaultmapClause *C) {
-  // Rebuild Defaultmap Clause since we need to invoke the checking of
-  // defaultmap(none:variable-category) after template initialization.
-  return getDerived().RebuildOMPDefaultmapClause(C->getDefaultmapModifier(),
-                                                 C->getDefaultmapKind(),
-                                                 C->getBeginLoc(),
-                                                 C->getLParenLoc(),
-                                                 C->getDefaultmapModifierLoc(),
-                                                 C->getDefaultmapKindLoc(),
-                                                 C->getEndLoc());
+  return C;
 }
 
 template <typename Derived>
@@ -9399,7 +9368,7 @@ TreeTransform<Derived>::TransformGenericSelectionExpr(GenericSelectionExpr *E) {
 
   SmallVector<Expr *, 4> AssocExprs;
   SmallVector<TypeSourceInfo *, 4> AssocTypes;
-  for (const GenericSelectionExpr::Association Assoc : E->associations()) {
+  for (const GenericSelectionExpr::Association &Assoc : E->associations()) {
     TypeSourceInfo *TSI = Assoc.getTypeSourceInfo();
     if (TSI) {
       TypeSourceInfo *AssocType = getDerived().TransformType(TSI);
@@ -12176,7 +12145,7 @@ template<typename Derived>
 ExprResult
 TreeTransform<Derived>::TransformMaterializeTemporaryExpr(
                                                   MaterializeTemporaryExpr *E) {
-  return getDerived().TransformExpr(E->getSubExpr());
+  return getDerived().TransformExpr(E->GetTemporaryExpr());
 }
 
 template<typename Derived>

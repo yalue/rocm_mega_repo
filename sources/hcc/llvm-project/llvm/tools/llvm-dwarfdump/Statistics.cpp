@@ -60,26 +60,28 @@ struct PerFunctionStats {
 struct GlobalStats {
   /// Total number of PC range bytes covered by DW_AT_locations.
   unsigned ScopeBytesCovered = 0;
-  /// Total number of PC range bytes in each variable's enclosing scope.
-  unsigned ScopeBytes = 0;
+  /// Total number of PC range bytes in each variable's enclosing scope,
+  /// starting from the first definition of the variable.
+  unsigned ScopeBytesFromFirstDefinition = 0;
   /// Total number of PC range bytes covered by DW_AT_locations with
   /// the debug entry values (DW_OP_entry_value).
   unsigned ScopeEntryValueBytesCovered = 0;
   /// Total number of PC range bytes covered by DW_AT_locations of
   /// formal parameters.
   unsigned ParamScopeBytesCovered = 0;
-  /// Total number of PC range bytes in each variable's enclosing scope
-  /// (only for parameters).
-  unsigned ParamScopeBytes = 0;
+  /// Total number of PC range bytes in each variable's enclosing scope,
+  /// starting from the first definition of the variable (only for parameters).
+  unsigned ParamScopeBytesFromFirstDefinition = 0;
   /// Total number of PC range bytes covered by DW_AT_locations with
   /// the debug entry values (DW_OP_entry_value) (only for parameters).
   unsigned ParamScopeEntryValueBytesCovered = 0;
   /// Total number of PC range bytes covered by DW_AT_locations (only for local
   /// variables).
   unsigned VarScopeBytesCovered = 0;
-  /// Total number of PC range bytes in each variable's enclosing scope
-  /// (only for local variables).
-  unsigned VarScopeBytes = 0;
+  /// Total number of PC range bytes in each variable's enclosing scope,
+  /// starting from the first definition of the variable (only for local
+  /// variables).
+  unsigned VarScopeBytesFromFirstDefinition = 0;
   /// Total number of PC range bytes covered by DW_AT_locations with
   /// the debug entry values (DW_OP_entry_value) (only for local variables).
   unsigned VarScopeEntryValueBytesCovered = 0;
@@ -131,6 +133,19 @@ struct LocationStats {
   unsigned NumVar = 0;
 };
 
+/// Extract the low pc from a Die.
+static uint64_t getLowPC(DWARFDie Die) {
+  auto RangesOrError = Die.getAddressRanges();
+  DWARFAddressRangesVector Ranges;
+  if (RangesOrError)
+    Ranges = RangesOrError.get();
+  else
+    llvm::consumeError(RangesOrError.takeError());
+  if (Ranges.size())
+    return Ranges[0].LowPC;
+  return dwarf::toAddress(Die.find(dwarf::DW_AT_low_pc), 0);
+}
+
 /// Collect debug location statistics for one DIE.
 static void collectLocStats(uint64_t BytesCovered, uint64_t BytesInScope,
                             std::vector<unsigned> &VarParamLocStats,
@@ -161,9 +176,9 @@ static void collectLocStats(uint64_t BytesCovered, uint64_t BytesInScope,
 }
 
 /// Collect debug info quality metrics for one DIE.
-static void collectStatsForDie(DWARFDie Die, std::string FnPrefix,
-                               std::string VarPrefix, uint64_t BytesInScope,
-                               uint32_t InlineDepth,
+static void collectStatsForDie(DWARFDie Die, uint64_t UnitLowPC, std::string FnPrefix,
+                               std::string VarPrefix, uint64_t ScopeLowPC,
+                               uint64_t BytesInScope, uint32_t InlineDepth,
                                StringMap<PerFunctionStats> &FnStatMap,
                                GlobalStats &GlobalStats,
                                LocationStats &LocStats) {
@@ -173,6 +188,7 @@ static void collectStatsForDie(DWARFDie Die, std::string FnPrefix,
   bool IsArtificial = false;
   uint64_t BytesCovered = 0;
   uint64_t BytesEntryValuesCovered = 0;
+  uint64_t OffsetToFirstDefinition = 0;
   auto &FnStats = FnStatMap[FnPrefix];
   bool IsParam = Die.getTag() == dwarf::DW_TAG_formal_parameter;
   bool IsLocalVar = Die.getTag() == dwarf::DW_TAG_variable;
@@ -227,25 +243,34 @@ static void collectStatsForDie(DWARFDie Die, std::string FnPrefix,
       return;
     }
     // Handle variables and function arguments.
-    Expected<std::vector<DWARFLocationExpression>> Loc =
-        Die.getLocations(dwarf::DW_AT_location);
-    if (!Loc) {
-      consumeError(Loc.takeError());
-    } else {
-      HasLoc = true;
+    auto FormValue = Die.find(dwarf::DW_AT_location);
+    HasLoc = FormValue.hasValue();
+    if (HasLoc) {
       // Get PC coverage.
-      auto Default = find_if(
-          *Loc, [](const DWARFLocationExpression &L) { return !L.Range; });
-      if (Default != Loc->end()) {
+      if (auto DebugLocOffset = FormValue->getAsSectionOffset()) {
+        auto *DebugLoc = Die.getDwarfUnit()->getContext().getDebugLoc();
+        if (auto List = DebugLoc->getLocationListAtOffset(*DebugLocOffset)) {
+          for (auto Entry : List->Entries) {
+            uint64_t BytesEntryCovered = Entry.End - Entry.Begin;
+            BytesCovered += BytesEntryCovered;
+            if (IsEntryValue(Entry.Loc))
+              BytesEntryValuesCovered += BytesEntryCovered;
+          }
+          if (List->Entries.size()) {
+            uint64_t FirstDef = List->Entries[0].Begin;
+            uint64_t UnitOfs = UnitLowPC; 
+            // Ranges sometimes start before the lexical scope.
+            if (UnitOfs + FirstDef >= ScopeLowPC)
+              OffsetToFirstDefinition = UnitOfs + FirstDef - ScopeLowPC;
+            // Or even after it. Count that as a failure.
+            if (OffsetToFirstDefinition > BytesInScope)
+              OffsetToFirstDefinition = 0;
+          }
+        }
+        assert(BytesInScope);
+      } else {
         // Assume the entire range is covered by a single location.
         BytesCovered = BytesInScope;
-      } else {
-        for (auto Entry : *Loc) {
-          uint64_t BytesEntryCovered = Entry.Range->HighPC - Entry.Range->LowPC;
-          BytesCovered += BytesEntryCovered;
-          if (IsEntryValue(Entry.Expr))
-            BytesEntryValuesCovered += BytesEntryCovered;
-        }
       }
     }
   }
@@ -278,21 +303,25 @@ static void collectStatsForDie(DWARFDie Die, std::string FnPrefix,
   FnStats.VarsInFunction.insert(VarPrefix + VarName);
   if (BytesInScope) {
     FnStats.TotalVarWithLoc += (unsigned)HasLoc;
+    // Adjust for the fact the variables often start their lifetime in the
+    // middle of the scope.
+    BytesInScope -= OffsetToFirstDefinition;
     // Turns out we have a lot of ranges that extend past the lexical scope.
     GlobalStats.ScopeBytesCovered += std::min(BytesInScope, BytesCovered);
-    GlobalStats.ScopeBytes += BytesInScope;
+    GlobalStats.ScopeBytesFromFirstDefinition += BytesInScope;
     GlobalStats.ScopeEntryValueBytesCovered += BytesEntryValuesCovered;
     if (IsParam) {
       GlobalStats.ParamScopeBytesCovered +=
           std::min(BytesInScope, BytesCovered);
-      GlobalStats.ParamScopeBytes += BytesInScope;
+      GlobalStats.ParamScopeBytesFromFirstDefinition += BytesInScope;
       GlobalStats.ParamScopeEntryValueBytesCovered += BytesEntryValuesCovered;
     } else if (IsLocalVar) {
       GlobalStats.VarScopeBytesCovered += std::min(BytesInScope, BytesCovered);
-      GlobalStats.VarScopeBytes += BytesInScope;
+      GlobalStats.VarScopeBytesFromFirstDefinition += BytesInScope;
       GlobalStats.VarScopeEntryValueBytesCovered += BytesEntryValuesCovered;
     }
-    assert(GlobalStats.ScopeBytesCovered <= GlobalStats.ScopeBytes);
+    assert(GlobalStats.ScopeBytesCovered <=
+           GlobalStats.ScopeBytesFromFirstDefinition);
   } else if (Die.getTag() == dwarf::DW_TAG_member) {
     FnStats.ConstantMembers++;
   } else {
@@ -320,9 +349,9 @@ static void collectStatsForDie(DWARFDie Die, std::string FnPrefix,
 }
 
 /// Recursively collect debug info quality metrics.
-static void collectStatsRecursive(DWARFDie Die, std::string FnPrefix,
-                                  std::string VarPrefix, uint64_t BytesInScope,
-                                  uint32_t InlineDepth,
+static void collectStatsRecursive(DWARFDie Die, uint64_t UnitLowPC, std::string FnPrefix,
+                                  std::string VarPrefix, uint64_t ScopeLowPC,
+                                  uint64_t BytesInScope, uint32_t InlineDepth,
                                   StringMap<PerFunctionStats> &FnStatMap,
                                   GlobalStats &GlobalStats,
                                   LocationStats &LocStats) {
@@ -357,6 +386,7 @@ static void collectStatsRecursive(DWARFDie Die, std::string FnPrefix,
     uint64_t BytesInThisScope = 0;
     for (auto Range : Ranges)
       BytesInThisScope += Range.HighPC - Range.LowPC;
+    ScopeLowPC = getLowPC(Die);
 
     // Count the function.
     if (!IsBlock) {
@@ -392,8 +422,8 @@ static void collectStatsRecursive(DWARFDie Die, std::string FnPrefix,
     }
   } else {
     // Not a scope, visit the Die itself. It could be a variable.
-    collectStatsForDie(Die, FnPrefix, VarPrefix, BytesInScope, InlineDepth,
-                       FnStatMap, GlobalStats, LocStats);
+    collectStatsForDie(Die, UnitLowPC, FnPrefix, VarPrefix, ScopeLowPC, BytesInScope,
+                       InlineDepth, FnStatMap, GlobalStats, LocStats);
   }
 
   // Set InlineDepth correctly for child recursion
@@ -410,8 +440,9 @@ static void collectStatsRecursive(DWARFDie Die, std::string FnPrefix,
     if (Child.getTag() == dwarf::DW_TAG_lexical_block)
       ChildVarPrefix += toHex(LexicalBlockIndex++) + '.';
 
-    collectStatsRecursive(Child, FnPrefix, ChildVarPrefix, BytesInScope,
-                          InlineDepth, FnStatMap, GlobalStats, LocStats);
+    collectStatsRecursive(Child, UnitLowPC, FnPrefix, ChildVarPrefix, ScopeLowPC,
+                          BytesInScope, InlineDepth, FnStatMap, GlobalStats,
+                          LocStats);
     Child = Child.getSibling();
   }
 }
@@ -464,13 +495,13 @@ bool collectStatsForObjectFile(ObjectFile &Obj, DWARFContext &DICtx,
   StringMap<PerFunctionStats> Statistics;
   for (const auto &CU : static_cast<DWARFContext *>(&DICtx)->compile_units())
     if (DWARFDie CUDie = CU->getNonSkeletonUnitDIE(false))
-      collectStatsRecursive(CUDie, "/", "g", 0, 0, Statistics, GlobalStats,
-                            LocStats);
+      collectStatsRecursive(CUDie, getLowPC(CUDie), "/", "g", 0, 0, 0,
+                            Statistics, GlobalStats, LocStats);
 
   /// The version number should be increased every time the algorithm is changed
   /// (including bug fixes). New metrics may be added without increasing the
   /// version.
-  unsigned Version = 4;
+  unsigned Version = 3;
   unsigned VarParamTotal = 0;
   unsigned VarParamUnique = 0;
   unsigned VarParamWithLoc = 0;
@@ -530,17 +561,19 @@ bool collectStatsForObjectFile(ObjectFile &Obj, DWARFContext &DICtx,
   printDatum(OS, "call site entries", GlobalStats.CallSiteEntries);
   printDatum(OS, "call site DIEs", GlobalStats.CallSiteDIEs);
   printDatum(OS, "call site parameter DIEs", GlobalStats.CallSiteParamDIEs);
-  printDatum(OS, "scope bytes total", GlobalStats.ScopeBytes);
+  printDatum(OS, "scope bytes total",
+             GlobalStats.ScopeBytesFromFirstDefinition);
   printDatum(OS, "scope bytes covered", GlobalStats.ScopeBytesCovered);
   printDatum(OS, "entry value scope bytes covered",
              GlobalStats.ScopeEntryValueBytesCovered);
   printDatum(OS, "formal params scope bytes total",
-             GlobalStats.ParamScopeBytes);
+             GlobalStats.ParamScopeBytesFromFirstDefinition);
   printDatum(OS, "formal params scope bytes covered",
              GlobalStats.ParamScopeBytesCovered);
   printDatum(OS, "formal params entry value scope bytes covered",
              GlobalStats.ParamScopeEntryValueBytesCovered);
-  printDatum(OS, "vars scope bytes total", GlobalStats.VarScopeBytes);
+  printDatum(OS, "vars scope bytes total",
+             GlobalStats.VarScopeBytesFromFirstDefinition);
   printDatum(OS, "vars scope bytes covered", GlobalStats.VarScopeBytesCovered);
   printDatum(OS, "vars entry value scope bytes covered",
              GlobalStats.VarScopeEntryValueBytesCovered);
@@ -575,7 +608,7 @@ bool collectStatsForObjectFile(ObjectFile &Obj, DWARFContext &DICtx,
                    << "%\n";
       llvm::dbgs() << "PC Ranges covered: "
                    << (int)std::round((GlobalStats.ScopeBytesCovered * 100.0) /
-                                      GlobalStats.ScopeBytes)
+                                      GlobalStats.ScopeBytesFromFirstDefinition)
                    << "%\n");
   return true;
 }

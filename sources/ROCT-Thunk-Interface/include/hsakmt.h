@@ -735,9 +735,6 @@ hsaKmtQueueResume(
     - X, Y, Z grid and work-group position of the wave within the
       dispatch.
 
-    - The value of TrapData registers. hsaKmtEnableDebugTrap() sets
-      these to 0 and they can be changed by hsaKmtSetDebugTrapData2().
-
     - The scratch backing memory address.
 
   - Enable wave launch trap override. hsaKmtEnableDebugTrap() sets the
@@ -827,33 +824,24 @@ hsaKmtQueryDebugEvent(
     );
 
 /**
-  Set the value to use to initialize the TrapData used when
-  initializing trap temp registers for NodeId when debug trap is enabled.
+  Newly created queue snapshot per ptraced process.
 
-  An error is returned if debug trap is not currently enabled for
-  NodeId. Debug trap is enabled by hsaKmtEnableDebugTrap() which
-  initializes TrapData to 0.
+  Returns queue snapshot including queue id, gpuid, context save base address,
+  queue status word, queue address and size, and queue read and write pointer.
+
+  ClearEvents set will clear new queue bit and queue status word bits.
 
   Returns:
-    - HSAKMT_STATUS_SUCCESS if successful.
-
-    - HSAKMT_STATUS_NOT_SUPPORTED if debug trap data is not supported
-      by NodeId.
-
-    - HSAKMT_STATUS_INVALID_HANDLE if NodeId is invalid.
-
-    - HSAKMT_STATUS_INVALID_PARAMETER if TrapDataIndex is larger than
-      trap-data-count - 1.
-
-    - HSAKMT_STATUS_ERROR if debug trap is not currently enabled by
-      hsaKmtEnableDebugTrap() for NodeId.
-*/
+    - HSAKMT_STATUS_SUCCESS if successful
+ */
 HSAKMT_STATUS
 HSAKMTAPI
-hsaKmtSetDebugTrapData2(
-    HSAuint32 NodeId,        //IN
-    HSAuint32 TrapData0,     //IN
-    HSAuint32 TrapData1      //IN
+hsaKmtGetQueueSnapshot(
+    HSAuint32			NodeId, // IN
+    HSAuint32			Pid, // IN
+    bool			ClearEvents, // IN
+    void			*SnapshotBuf, // IN
+    HSAuint32			*QssEntries // IN/OUT
     );
 
 /**
@@ -916,6 +904,36 @@ hsaKmtSetWaveLaunchMode(
     HSAuint32                NodeId,        //IN
     HSA_DBG_WAVE_LAUNCH_MODE WaveLaunchMode //IN
     );
+
+/**
+  * Get the major and minor version of the kernel debugger support.
+  *
+  * Returns:
+  *  - HSAKMT_STATUS_SUCCESS if successful.
+  *
+  *  - HSAKMT_STATUS_INVALID_HANDLE if NodeId is invalid.
+  *
+  *  - HSAKMT_STATUS_NOT_SUPPORTED if debug trap not supported for NodeId.
+*/
+HSAKMT_STATUS
+HSAKMTAPI
+hsaKmtGetKernelDebugTrapVersionInfo(
+    HSAuint32 *Major,  //Out
+    HSAuint32 *Minor   //Out
+    );
+
+/**
+  * Get the major and minor version of the thunk debugger support.
+*/
+void
+HSAKMTAPI
+hsaKmtGetThunkDebugTrapVersionInfo(
+    HSAuint32 *Major,  //Out
+    HSAuint32 *Minor   //Out
+    );
+
+
+
 
 /**
   Set a debug memory access watch point. A memory access of the kind

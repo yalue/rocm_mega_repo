@@ -1382,11 +1382,6 @@ non-AMD key names should be prefixed by "*vendor-name*.".
                                                   to the runtime printf buffer
                                                   is passed in kernarg.
 
-                                                "HiddenHostcallBuffer"
-                                                  A global address space pointer
-                                                  to the runtime hostcall buffer
-                                                  is passed in kernarg.
-
                                                 "HiddenDefaultQueue"
                                                   A global address space pointer
                                                   to the OpenCL device enqueue
@@ -1881,11 +1876,6 @@ same *vendor-name*.
                                                        to the runtime printf buffer
                                                        is passed in kernarg.
 
-                                                     "hidden_hostcall_buffer"
-                                                       A global address space pointer
-                                                       to the runtime hostcall buffer
-                                                       is passed in kernarg.
-
                                                      "hidden_default_queue"
                                                        A global address space pointer
                                                        to the OpenCL device enqueue
@@ -2134,23 +2124,23 @@ supported except by flat and scratch instructions in GFX9-GFX10.
 
 The generic address space uses the hardware flat address support available in
 GFX7-GFX10. This uses two fixed ranges of virtual addresses (the private and
-local apertures), that are outside the range of addressible global memory, to
+local appertures), that are outside the range of addressible global memory, to
 map from a flat address to a private or local address.
 
 FLAT instructions can take a flat address and access global, private (scratch)
 and group (LDS) memory depending in if the address is within one of the
-aperture ranges. Flat access to scratch requires hardware aperture setup and
+apperture ranges. Flat access to scratch requires hardware aperture setup and
 setup in the kernel prologue (see :ref:`amdgpu-amdhsa-flat-scratch`). Flat
 access to LDS requires hardware aperture setup and M0 (GFX7-GFX8) register setup
 (see :ref:`amdgpu-amdhsa-m0`).
 
 To convert between a segment address and a flat address the base address of the
-apertures address can be used. For GFX7-GFX8 these are available in the
+appertures address can be used. For GFX7-GFX8 these are available in the
 :ref:`amdgpu-amdhsa-hsa-aql-queue` the address of which can be obtained with
 Queue Ptr SGPR (see :ref:`amdgpu-amdhsa-initial-kernel-execution-state`). For
-GFX9-GFX10 the aperture base addresses are directly available as inline constant
+GFX9-GFX10 the appature base addresses are directly available as inline constant
 registers ``SRC_SHARED_BASE/LIMIT`` and ``SRC_PRIVATE_BASE/LIMIT``. In 64 bit
-address mode the aperture sizes are 2^32 bytes and the base is aligned to 2^32
+address mode the apperture sizes are 2^32 bytes and the base is aligned to 2^32
 which makes it easier to convert from flat to segment or segment to flat.
 
 Image and Samplers
@@ -2884,7 +2874,7 @@ SGPR register initial state is defined in
                                                     FLAT SCRATCH BASE in flat
                                                     memory instructions that
                                                     access the scratch
-                                                    aperture.
+                                                    apperture.
 
                                                     The second SGPR is 32 bit
                                                     byte size of a single

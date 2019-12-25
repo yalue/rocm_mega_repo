@@ -43,10 +43,8 @@ class LLVM_LIBRARY_VISIBILITY PPCTargetInfo : public TargetInfo {
     ArchDefinePwr7 = 1 << 11,
     ArchDefinePwr8 = 1 << 12,
     ArchDefinePwr9 = 1 << 13,
-    ArchDefineFuture = 1 << 14,
-    ArchDefineA2 = 1 << 15,
-    ArchDefineA2q = 1 << 16,
-    ArchDefineE500 = 1 << 17
+    ArchDefineA2 = 1 << 14,
+    ArchDefineA2q = 1 << 15
   } ArchDefineTypes;
 
 
@@ -147,12 +145,6 @@ public:
                      ArchDefinePwr9 | ArchDefinePwr8 | ArchDefinePwr7 |
                          ArchDefinePwr6 | ArchDefinePwr5x | ArchDefinePwr5 |
                          ArchDefinePwr4 | ArchDefinePpcgr | ArchDefinePpcsq)
-              .Case("future",
-                    ArchDefineFuture | ArchDefinePwr9 | ArchDefinePwr8 |
-                        ArchDefinePwr7 | ArchDefinePwr6 | ArchDefinePwr5x |
-                        ArchDefinePwr5 | ArchDefinePwr4 | ArchDefinePpcgr |
-                        ArchDefinePpcsq)
-              .Cases("8548", "e500", ArchDefineE500)
               .Default(ArchDefineNone);
     }
     return CPUKnown;
@@ -171,8 +163,6 @@ public:
   initFeatureMap(llvm::StringMap<bool> &Features, DiagnosticsEngine &Diags,
                  StringRef CPU,
                  const std::vector<std::string> &FeaturesVec) const override;
-
-  void addFutureSpecificFeatures(llvm::StringMap<bool> &Features) const;
 
   bool handleTargetFeatures(std::vector<std::string> &Features,
                             DiagnosticsEngine &Diags) override;

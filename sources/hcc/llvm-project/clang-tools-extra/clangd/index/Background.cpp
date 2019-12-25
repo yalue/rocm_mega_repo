@@ -205,7 +205,11 @@ BackgroundIndex::indexFileTask(tooling::CompileCommand Cmd) {
 }
 
 void BackgroundIndex::boostRelated(llvm::StringRef Path) {
-  if (isHeaderFile(Path))
+  namespace types = clang::driver::types;
+  auto Type =
+      types::lookupTypeForExtension(llvm::sys::path::extension(Path).substr(1));
+  // is this a header?
+  if (Type != types::TY_INVALID && types::onlyPrecompileType(Type))
     Queue.boost(filenameWithoutExtension(Path), IndexBoostedFile);
 }
 

@@ -12,7 +12,6 @@
 #include "llvm/MC/MCContext.h"
 #include "llvm/MC/MCDwarf.h"
 #include "llvm/MC/MCRegisterInfo.h"
-#include "llvm/MC/MCTargetOptions.h"
 #include "llvm/Support/TargetRegistry.h"
 #include "llvm/Support/TargetSelect.h"
 #include "gtest/gtest.h"
@@ -38,8 +37,7 @@ struct Context {
       return;
 
     MRI.reset(TheTarget->createMCRegInfo(Triple));
-    MCTargetOptions MCOptions;
-    MAI.reset(TheTarget->createMCAsmInfo(*MRI, Triple, MCOptions));
+    MAI.reset(TheTarget->createMCAsmInfo(*MRI, Triple));
     Ctx = std::make_unique<MCContext>(MAI.get(), MRI.get(), nullptr);
   }
 

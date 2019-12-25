@@ -7,7 +7,6 @@ group("default") {
     "//clang-tools-extra/clangd/test",
     "//clang-tools-extra/test",
     "//clang/test",
-    "//compiler-rt/lib/scudo",
     "//lld/test",
     "//llvm/test",
   ]

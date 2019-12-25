@@ -218,7 +218,6 @@ void X86AsmPrinter::PrintOperand(const MachineInstr *MI, unsigned OpNo,
     O << MO.getImm();
     return;
 
-  case MachineOperand::MO_ConstantPoolIndex:
   case MachineOperand::MO_GlobalAddress: {
     if (IsATT)
       O << '$';
@@ -615,7 +614,7 @@ void X86AsmPrinter::EmitStartOfAsmFile(Module &M) {
       Feat00Flags |= 1;
     }
 
-    if (M.getModuleFlag("cfguard"))
+    if (M.getModuleFlag("cfguardtable"))
       Feat00Flags |= 0x800; // Object is CFG-aware.
 
     OutStreamer->EmitSymbolAttribute(S, MCSA_Global);

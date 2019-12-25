@@ -663,26 +663,6 @@ void tools::gnutools::Linker::ConstructJob(Compilation &C,
       CmdArgs.emplace_back("--hcc-cov3");
     }
 
-    if (Arg *A = C.getArgs().getLastArg(options::OPT_O_Group)) {
-      StringRef OOpt = "3";
-      if (A->getOption().matches(options::OPT_O4) ||
-          A->getOption().matches(options::OPT_Ofast))
-        OOpt = "3";
-      else if (A->getOption().matches(options::OPT_O0))
-        OOpt = "0";
-      else if (A->getOption().matches(options::OPT_O)) {
-        // -Os, -Oz, and -O(anything else) map to -O2
-        OOpt = llvm::StringSwitch<const char *>(A->getValue())
-                   .Case("1", "1")
-                   .Case("2", "2")
-                   .Case("3", "3")
-                   .Case("s", "2")
-                   .Case("z", "2")
-                   .Default("2");
-      }
-      CmdArgs.emplace_back(C.getArgs().MakeArgString("-O" + OOpt));
-    }
-
     HCLinker->ConstructLinkerJob(C, JA, Output, Inputs, Args, LinkingOutput, CmdArgs);
     this->ConstructLinkerJob(C, JA, Output, Inputs, Args, LinkingOutput, CmdArgs);
 
@@ -776,9 +756,11 @@ void tools::gnutools::Assembler::ConstructJob(Compilation &C,
     StringRef ABIName = riscv::getRISCVABI(Args, getToolChain().getTriple());
     CmdArgs.push_back("-mabi");
     CmdArgs.push_back(ABIName.data());
-    StringRef MArchName = riscv::getRISCVArch(Args, getToolChain().getTriple());
-    CmdArgs.push_back("-march");
-    CmdArgs.push_back(MArchName.data());
+    if (const Arg *A = Args.getLastArg(options::OPT_march_EQ)) {
+      StringRef MArch = A->getValue();
+      CmdArgs.push_back("-march");
+      CmdArgs.push_back(MArch.data());
+    }
     break;
   }
   case llvm::Triple::sparc:
@@ -933,19 +915,6 @@ void tools::gnutools::Assembler::ConstructJob(Compilation &C,
     CmdArgs.push_back(Args.MakeArgString("-march=" + CPUName));
     break;
   }
-  }
-
-  for (const Arg *A : Args.filtered(options::OPT_ffile_prefix_map_EQ,
-                                    options::OPT_fdebug_prefix_map_EQ)) {
-    StringRef Map = A->getValue();
-    if (Map.find('=') == StringRef::npos)
-      D.Diag(diag::err_drv_invalid_argument_to_option)
-          << Map << A->getOption().getName();
-    else {
-      CmdArgs.push_back(Args.MakeArgString("--debug-prefix-map"));
-      CmdArgs.push_back(Args.MakeArgString(Map));
-    }
-    A->claim();
   }
 
   Args.AddAllArgs(CmdArgs, options::OPT_I);
@@ -1471,8 +1440,7 @@ bool clang::driver::findMIPSMultilibs(const Driver &D,
   addMultilibFlag(CPUName == "mips32r6", "march=mips32r6", Flags);
   addMultilibFlag(CPUName == "mips64", "march=mips64", Flags);
   addMultilibFlag(CPUName == "mips64r2" || CPUName == "mips64r3" ||
-                      CPUName == "mips64r5" || CPUName == "octeon" ||
-                      CPUName == "octeon+",
+                      CPUName == "mips64r5" || CPUName == "octeon",
                   "march=mips64r2", Flags);
   addMultilibFlag(CPUName == "mips64r6", "march=mips64r6", Flags);
   addMultilibFlag(isMicroMips(Args), "mmicromips", Flags);
@@ -1583,65 +1551,9 @@ static bool findMSP430Multilibs(const Driver &D,
   return false;
 }
 
-static void findRISCVBareMetalMultilibs(const Driver &D,
-                                        const llvm::Triple &TargetTriple,
-                                        StringRef Path, const ArgList &Args,
-                                        DetectedMultilibs &Result) {
-  FilterNonExistent NonExistent(Path, "/crtbegin.o", D.getVFS());
-  struct RiscvMultilib {
-    StringRef march;
-    StringRef mabi;
-  };
-  // currently only support the set of multilibs like riscv-gnu-toolchain does.
-  // TODO: support MULTILIB_REUSE
-  SmallVector<RiscvMultilib, 8> RISCVMultilibSet = {
-      {"rv32i", "ilp32"},     {"rv32im", "ilp32"},     {"rv32iac", "ilp32"},
-      {"rv32imac", "ilp32"},  {"rv32imafc", "ilp32f"}, {"rv64imac", "lp64"},
-      {"rv64imafdc", "lp64d"}};
-
-  std::vector<Multilib> Ms;
-  for (auto Element : RISCVMultilibSet) {
-    // multilib path rule is ${march}/${mabi}
-    Ms.emplace_back(
-        makeMultilib((Twine(Element.march) + "/" + Twine(Element.mabi)).str())
-            .flag(Twine("+march=", Element.march).str())
-            .flag(Twine("+mabi=", Element.mabi).str()));
-  }
-  MultilibSet RISCVMultilibs =
-      MultilibSet()
-          .Either(ArrayRef<Multilib>(Ms))
-          .FilterOut(NonExistent)
-          .setFilePathsCallback([](const Multilib &M) {
-            return std::vector<std::string>(
-                {M.gccSuffix(),
-                 "/../../../../riscv64-unknown-elf/lib" + M.gccSuffix(),
-                 "/../../../../riscv32-unknown-elf/lib" + M.gccSuffix()});
-          });
-
-
-  Multilib::flags_list Flags;
-  llvm::StringSet<> Added_ABIs;
-  StringRef ABIName = tools::riscv::getRISCVABI(Args, TargetTriple);
-  StringRef MArch = tools::riscv::getRISCVArch(Args, TargetTriple);
-  for (auto Element : RISCVMultilibSet) {
-    addMultilibFlag(MArch == Element.march,
-                    Twine("march=", Element.march).str().c_str(), Flags);
-    if (!Added_ABIs.count(Element.mabi)) {
-      Added_ABIs.insert(Element.mabi);
-      addMultilibFlag(ABIName == Element.mabi,
-                      Twine("mabi=", Element.mabi).str().c_str(), Flags);
-    }
-  }
-
-  if (RISCVMultilibs.select(Flags, Result.SelectedMultilib))
-    Result.Multilibs = RISCVMultilibs;
-}
-
 static void findRISCVMultilibs(const Driver &D,
                                const llvm::Triple &TargetTriple, StringRef Path,
                                const ArgList &Args, DetectedMultilibs &Result) {
-  if (TargetTriple.getOS() == llvm::Triple::UnknownOS)
-    return findRISCVBareMetalMultilibs(D, TargetTriple, Path, Args, Result);
 
   FilterNonExistent NonExistent(Path, "/crtbegin.o", D.getVFS());
   Multilib Ilp32 = makeMultilib("lib32/ilp32").flag("+m32").flag("+mabi=ilp32");
@@ -2137,9 +2049,7 @@ void Generic_GCC::GCCInstallationDetector::AddDefaultGCCPrefixes(
   static const char *const PPCLibDirs[] = {"/lib32", "/lib"};
   static const char *const PPCTriples[] = {
       "powerpc-linux-gnu", "powerpc-unknown-linux-gnu", "powerpc-linux-gnuspe",
-      // On 32-bit PowerPC systems running SUSE Linux, gcc is configured as a
-      // 64-bit compiler which defaults to "-m32", hence "powerpc64-suse-linux".
-      "powerpc64-suse-linux", "powerpc-montavista-linuxspe"};
+      "powerpc-suse-linux", "powerpc-montavista-linuxspe"};
   static const char *const PPC64LibDirs[] = {"/lib64", "/lib"};
   static const char *const PPC64Triples[] = {
       "powerpc64-linux-gnu", "powerpc64-unknown-linux-gnu",

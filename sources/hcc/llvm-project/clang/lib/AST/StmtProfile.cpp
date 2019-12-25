@@ -833,11 +833,6 @@ void StmtProfiler::VisitOMPParallelForSimdDirective(
   VisitOMPLoopDirective(S);
 }
 
-void StmtProfiler::VisitOMPParallelMasterDirective(
-    const OMPParallelMasterDirective *S) {
-  VisitOMPExecutableDirective(S);
-}
-
 void StmtProfiler::VisitOMPParallelSectionsDirective(
     const OMPParallelSectionsDirective *S) {
   VisitOMPExecutableDirective(S);
@@ -939,11 +934,6 @@ void StmtProfiler::VisitOMPMasterTaskLoopSimdDirective(
 
 void StmtProfiler::VisitOMPParallelMasterTaskLoopDirective(
     const OMPParallelMasterTaskLoopDirective *S) {
-  VisitOMPLoopDirective(S);
-}
-
-void StmtProfiler::VisitOMPParallelMasterTaskLoopSimdDirective(
-    const OMPParallelMasterTaskLoopSimdDirective *S) {
   VisitOMPLoopDirective(S);
 }
 
@@ -1301,7 +1291,7 @@ void StmtProfiler::VisitBlockExpr(const BlockExpr *S) {
 
 void StmtProfiler::VisitGenericSelectionExpr(const GenericSelectionExpr *S) {
   VisitExpr(S);
-  for (const GenericSelectionExpr::ConstAssociation Assoc :
+  for (const GenericSelectionExpr::ConstAssociation &Assoc :
        S->associations()) {
     QualType T = Assoc.getType();
     if (T.isNull())

@@ -175,8 +175,7 @@ define <4 x i32> @inselt_shuf_no_demand_multiuse(i32 %a0, i32 %a1, <4 x i32> %b)
 ; CHECK-NEXT:    [[OUT0:%.*]] = insertelement <4 x i32> undef, i32 [[A0:%.*]], i32 0
 ; CHECK-NEXT:    [[OUT01:%.*]] = insertelement <4 x i32> [[OUT0]], i32 [[A1:%.*]], i32 1
 ; CHECK-NEXT:    [[FOO:%.*]] = add <4 x i32> [[OUT01]], [[B:%.*]]
-; CHECK-NEXT:    [[SHUFFLE:%.*]] = shufflevector <4 x i32> [[FOO]], <4 x i32> undef, <4 x i32> <i32 0, i32 1, i32 undef, i32 undef>
-; CHECK-NEXT:    ret <4 x i32> [[SHUFFLE]]
+; CHECK-NEXT:    ret <4 x i32> [[FOO]]
 ;
   %out0 = insertelement <4 x i32> undef, i32 %a0, i32 0
   %out01 = insertelement <4 x i32> %out0, i32 %a1, i32 1
@@ -190,8 +189,7 @@ define <4 x i32> @inselt_shuf_no_demand_multiuse(i32 %a0, i32 %a1, <4 x i32> %b)
 define <4 x float> @inselt_shuf_no_demand_bogus_insert_index_in_chain(float %a1, float %a2, float %a3, i32 %variable_index) {
 ; CHECK-LABEL: @inselt_shuf_no_demand_bogus_insert_index_in_chain(
 ; CHECK-NEXT:    [[OUT12:%.*]] = insertelement <4 x float> undef, float [[A2:%.*]], i32 [[VARIABLE_INDEX:%.*]]
-; CHECK-NEXT:    [[SHUFFLE:%.*]] = shufflevector <4 x float> [[OUT12]], <4 x float> undef, <4 x i32> <i32 0, i32 undef, i32 undef, i32 undef>
-; CHECK-NEXT:    ret <4 x float> [[SHUFFLE]]
+; CHECK-NEXT:    ret <4 x float> [[OUT12]]
 ;
   %out1 = insertelement <4 x float> undef, float %a1, i32 1
   %out12 = insertelement <4 x float> %out1, float %a2, i32 %variable_index ; something unexpected
@@ -216,8 +214,7 @@ define <3 x i8> @shuf_add(<3 x i8> %x) {
 define <3 x i8> @shuf_sub(<3 x i8> %x) {
 ; CHECK-LABEL: @shuf_sub(
 ; CHECK-NEXT:    [[BO:%.*]] = sub <3 x i8> <i8 1, i8 undef, i8 3>, [[X:%.*]]
-; CHECK-NEXT:    [[R:%.*]] = shufflevector <3 x i8> [[BO]], <3 x i8> undef, <3 x i32> <i32 0, i32 undef, i32 2>
-; CHECK-NEXT:    ret <3 x i8> [[R]]
+; CHECK-NEXT:    ret <3 x i8> [[BO]]
 ;
   %bo = sub nuw <3 x i8> <i8 1, i8 2, i8 3>, %x
   %r = shufflevector <3 x i8> %bo, <3 x i8> undef, <3 x i32> <i32 0, i32 undef, i32 2>
@@ -572,7 +569,7 @@ define i32* @gep_cvbase_w_s_idx(<2 x i32*> %base, i64 %raw_addr) {
 
 define i32* @gep_cvbase_w_cv_idx(<2 x i32*> %base, i64 %raw_addr) {
 ; CHECK-LABEL: @gep_cvbase_w_cv_idx(
-; CHECK-NEXT:    ret i32* getelementptr inbounds (i32, i32* @GLOBAL, i64 1)
+; CHECK-NEXT:    ret i32* extractelement (<2 x i32*> getelementptr (i32, <2 x i32*> <i32* @GLOBAL, i32* @GLOBAL>, <2 x i64> <i64 0, i64 1>), i32 1)
 ;
   %gep = getelementptr i32, <2 x i32*> <i32* @GLOBAL, i32* @GLOBAL>, <2 x i64> <i64 0, i64 1>
   %ee = extractelement <2 x i32*> %gep, i32 1
@@ -647,10 +644,9 @@ define i32* @gep_demanded_lane_undef(i32* %base, i64 %idx) {
 ;; indices.
 define i32* @PR41624(<2 x { i32, i32 }*> %a) {
 ; CHECK-LABEL: @PR41624(
-; CHECK-NEXT:    [[W:%.*]] = getelementptr { i32, i32 }, <2 x { i32, i32 }*> [[A:%.*]], <2 x i64> <i64 5, i64 5>, <2 x i32> zeroinitializer
-; CHECK-NEXT:    [[R:%.*]] = extractelement <2 x i32*> [[W]], i32 0
-; CHECK-NEXT:    ret i32* [[R]]
-;
+; CHECK-NEXT:   %w = getelementptr { i32, i32 }, <2 x { i32, i32 }*> %a, <2 x i64> <i64 5, i64 5>, <2 x i32> zeroinitializer
+; CHECK-NEXT:   %r = extractelement <2 x i32*> %w, i32 0
+; CHECK-NEXT:   ret i32* %r
   %w = getelementptr { i32, i32 }, <2 x { i32, i32 }*> %a, <2 x i64> <i64 5, i64 5>, <2 x i32> zeroinitializer
   %r = extractelement <2 x i32*> %w, i32 0
   ret i32* %r

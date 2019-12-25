@@ -46,21 +46,6 @@ static StringRef generateXCOFFFixedNameStringRef(const char *Name) {
                     : StringRef(Name, XCOFF::NameSize);
 }
 
-template <typename T> StringRef XCOFFSectionHeader<T>::getName() const {
-  const T &DerivedXCOFFSectionHeader = static_cast<const T &>(*this);
-  return generateXCOFFFixedNameStringRef(DerivedXCOFFSectionHeader.Name);
-}
-
-template <typename T> uint16_t XCOFFSectionHeader<T>::getSectionType() const {
-  const T &DerivedXCOFFSectionHeader = static_cast<const T &>(*this);
-  return DerivedXCOFFSectionHeader.Flags & SectionFlagsTypeMask;
-}
-
-template <typename T>
-bool XCOFFSectionHeader<T>::isReservedSectionType() const {
-  return getSectionType() & SectionFlagsReservedMask;
-}
-
 bool XCOFFRelocation32::isRelocationSigned() const {
   return Info & XR_SIGN_INDICATOR_MASK;
 }
@@ -191,8 +176,9 @@ Expected<StringRef> XCOFFObjectFile::getSymbolName(DataRefImpl Symb) const {
 }
 
 Expected<uint64_t> XCOFFObjectFile::getSymbolAddress(DataRefImpl Symb) const {
-  assert(!is64Bit() && "Symbol table support not implemented for 64-bit.");
-  return toSymbolEntry(Symb)->Value;
+  uint64_t Result = 0;
+  llvm_unreachable("Not yet implemented!");
+  return Result;
 }
 
 uint64_t XCOFFObjectFile::getSymbolValueImpl(DataRefImpl Symb) const {
@@ -265,21 +251,7 @@ uint64_t XCOFFObjectFile::getSectionSize(DataRefImpl Sec) const {
 
 Expected<ArrayRef<uint8_t>>
 XCOFFObjectFile::getSectionContents(DataRefImpl Sec) const {
-  if (isSectionVirtual(Sec))
-    return ArrayRef<uint8_t>();
-
-  uint64_t OffsetToRaw;
-  if (is64Bit())
-    OffsetToRaw = toSection64(Sec)->FileOffsetToRawData;
-  else
-    OffsetToRaw = toSection32(Sec)->FileOffsetToRawData;
-
-  const uint8_t * ContentStart = base() + OffsetToRaw;
-  uint64_t SectionSize = getSectionSize(Sec);
-  if (checkOffset(Data, uintptr_t(ContentStart), SectionSize))
-    return make_error<BinaryError>();
-
-  return makeArrayRef(ContentStart,SectionSize);
+  llvm_unreachable("Not yet implemented!");
 }
 
 uint64_t XCOFFObjectFile::getSectionAlignment(DataRefImpl Sec) const {
@@ -309,8 +281,9 @@ bool XCOFFObjectFile::isSectionBSS(DataRefImpl Sec) const {
 }
 
 bool XCOFFObjectFile::isSectionVirtual(DataRefImpl Sec) const {
-  return is64Bit() ? toSection64(Sec)->FileOffsetToRawData == 0
-                   : toSection32(Sec)->FileOffsetToRawData == 0;
+  bool Result = false;
+  llvm_unreachable("Not yet implemented!");
+  return Result;
 }
 
 relocation_iterator XCOFFObjectFile::section_rel_begin(DataRefImpl Sec) const {
@@ -396,6 +369,7 @@ Triple::ArchType XCOFFObjectFile::getArch() const {
 }
 
 SubtargetFeatures XCOFFObjectFile::getFeatures() const {
+  llvm_unreachable("Not yet implemented!");
   return SubtargetFeatures();
 }
 
@@ -714,6 +688,14 @@ ObjectFile::createXCOFFObjectFile(MemoryBufferRef MemBufRef,
   return XCOFFObjectFile::create(FileType, MemBufRef);
 }
 
+StringRef XCOFFSectionHeader32::getName() const {
+  return generateXCOFFFixedNameStringRef(Name);
+}
+
+StringRef XCOFFSectionHeader64::getName() const {
+  return generateXCOFFFixedNameStringRef(Name);
+}
+
 XCOFF::StorageClass XCOFFSymbolRef::getStorageClass() const {
   return OwningObjectPtr->toSymbolEntry(SymEntDataRef)->StorageClass;
 }
@@ -779,10 +761,6 @@ bool XCOFFSymbolRef::isFunction() const {
 
   return (OwningObjectPtr->getSectionFlags(SI.get()) & XCOFF::STYP_TEXT);
 }
-
-// Explictly instantiate template classes.
-template struct XCOFFSectionHeader<XCOFFSectionHeader32>;
-template struct XCOFFSectionHeader<XCOFFSectionHeader64>;
 
 } // namespace object
 } // namespace llvm

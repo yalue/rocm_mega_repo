@@ -65,7 +65,7 @@
 #include "clang/Sema/Weak.h"
 #include "clang/Serialization/ASTReader.h"
 #include "clang/Serialization/InMemoryModuleCache.h"
-#include "clang/Serialization/ModuleFile.h"
+#include "clang/Serialization/Module.h"
 #include "clang/Serialization/ModuleFileExtension.h"
 #include "clang/Serialization/SerializationDiagnostic.h"
 #include "llvm/ADT/APFloat.h"
@@ -6622,7 +6622,7 @@ void OMPClauseWriter::writeClause(OMPClause *C) {
 }
 
 void OMPClauseWriter::VisitOMPClauseWithPreInit(OMPClauseWithPreInit *C) {
-  Record.push_back(uint64_t(C->getCaptureRegion()));
+  Record.push_back(C->getCaptureRegion());
   Record.AddStmt(C->getPreInitStmt());
 }
 
@@ -6633,7 +6633,7 @@ void OMPClauseWriter::VisitOMPClauseWithPostUpdate(OMPClauseWithPostUpdate *C) {
 
 void OMPClauseWriter::VisitOMPIfClause(OMPIfClause *C) {
   VisitOMPClauseWithPreInit(C);
-  Record.push_back(uint64_t(C->getNameModifier()));
+  Record.push_back(C->getNameModifier());
   Record.AddSourceLocation(C->getNameModifierLoc());
   Record.AddSourceLocation(C->getColonLoc());
   Record.AddStmt(C->getCondition());

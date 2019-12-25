@@ -26,8 +26,7 @@ public:
                     uint64_t Size = 0, unsigned ByteAlignment = 0,
                     SMLoc Loc = SMLoc()) override;
   void EmitInstToData(const MCInst &Inst, const MCSubtargetInfo &) override;
-  void EmitXCOFFLocalCommonSymbol(MCSymbol *LabelSym, uint64_t Size,
-                                  MCSymbol *CsectSym,
+  void EmitXCOFFLocalCommonSymbol(MCSymbol *Symbol, uint64_t Size,
                                   unsigned ByteAlign) override;
 };
 

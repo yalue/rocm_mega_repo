@@ -26,11 +26,10 @@ MCAsmInfoXCOFF::MCAsmInfoXCOFF() {
   SupportsQuotedNames = false;
 }
 
-bool MCAsmInfoXCOFF::isAcceptableChar(char C) const {
-  // QualName is allowed for a MCSymbolXCOFF, and
-  // QualName contains '[' and ']'.
-  if (C == '[' || C == ']')
+bool MCAsmInfoXCOFF::isValidUnquotedName(StringRef Name) const {
+  // FIXME: Remove this function when we stop using "TOC[TC0]" as a symbol name.
+  if (Name.equals("TOC[TC0]"))
     return true;
 
-  return MCAsmInfo::isAcceptableChar(C);
+  return MCAsmInfo::isValidUnquotedName(Name);
 }

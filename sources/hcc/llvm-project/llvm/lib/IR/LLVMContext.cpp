@@ -62,11 +62,6 @@ LLVMContext::LLVMContext() : pImpl(new LLVMContextImpl(*this)) {
          "gc-transition operand bundle id drifted!");
   (void)GCTransitionEntry;
 
-  auto *CFGuardTargetEntry = pImpl->getOrInsertBundleTag("cfguardtarget");
-  assert(CFGuardTargetEntry->second == LLVMContext::OB_cfguardtarget &&
-         "cfguardtarget operand bundle id drifted!");
-  (void)CFGuardTargetEntry;
-
   SyncScope::ID SingleThreadSSID =
       pImpl->getOrInsertSyncScopeID("singlethread");
   assert(SingleThreadSSID == SyncScope::SingleThread &&

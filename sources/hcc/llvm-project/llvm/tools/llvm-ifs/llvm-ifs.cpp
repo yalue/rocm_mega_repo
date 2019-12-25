@@ -385,7 +385,6 @@ int writeIfso(const IFSStub &Stub, bool IsWriteIfs, raw_ostream &Out) {
   return -1;
 }
 
-// TODO: Drop ObjectFileFormat, it can be subsumed from the triple.
 // New Interface Stubs Yaml Format:
 // --- !experimental-ifs-v1
 // IfsVersion:      1.0
@@ -422,10 +421,6 @@ int main(int argc, char *argv[]) {
       Stub.SOName = TargetStub->SOName;
       Stub.NeededLibs = TargetStub->NeededLibs;
     } else {
-      Stub.ObjectFileFormat = !Stub.ObjectFileFormat.empty()
-                                  ? Stub.ObjectFileFormat
-                                  : TargetStub->ObjectFileFormat;
-
       if (Stub.IfsVersion != TargetStub->IfsVersion) {
         if (Stub.IfsVersion.getMajor() != IFSVersionCurrent.getMajor()) {
           WithColor::error()
@@ -438,8 +433,7 @@ int main(int argc, char *argv[]) {
         if (TargetStub->IfsVersion > Stub.IfsVersion)
           Stub.IfsVersion = TargetStub->IfsVersion;
       }
-      if (Stub.ObjectFileFormat != TargetStub->ObjectFileFormat &&
-          !TargetStub->ObjectFileFormat.empty()) {
+      if (Stub.ObjectFileFormat != TargetStub->ObjectFileFormat) {
         WithColor::error() << "Interface Stub: ObjectFileFormat Mismatch."
                            << "\nFilenames: " << PreviousInputFilePath << " "
                            << InputFilePath << "\nObjectFileFormat Values: "
@@ -447,7 +441,7 @@ int main(int argc, char *argv[]) {
                            << TargetStub->ObjectFileFormat << "\n";
         return -1;
       }
-      if (Stub.Triple != TargetStub->Triple && !TargetStub->Triple.empty()) {
+      if (Stub.Triple != TargetStub->Triple) {
         WithColor::error() << "Interface Stub: Triple Mismatch."
                            << "\nFilenames: " << PreviousInputFilePath << " "
                            << InputFilePath
@@ -499,8 +493,13 @@ int main(int argc, char *argv[]) {
         return -1;
       }
       if (Symbol.Weak != SI->second.Weak) {
-        Symbol.Weak = false;
-        continue;
+        // TODO: Add conflict resolution for Weak vs non-Weak.
+        WithColor::error() << "Interface Stub: Weak Mismatch for "
+                           << Symbol.Name << ".\nFilename: " << InputFilePath
+                           << "\nWeak Values: " << SI->second.Weak << " "
+                           << Symbol.Weak << "\n";
+
+        return -1;
       }
       // TODO: Not checking Warning. Will be dropped.
     }

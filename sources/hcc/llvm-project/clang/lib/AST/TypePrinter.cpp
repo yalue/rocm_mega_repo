@@ -1189,8 +1189,8 @@ void TypePrinter::printTag(TagDecl *D, raw_ostream &OS) {
       if (PLoc.isValid()) {
         OS << " at ";
         StringRef File = PLoc.getFilename();
-        if (auto *Callbacks = Policy.Callbacks)
-          OS << Callbacks->remapPath(File);
+        if (Policy.RemapFilePaths)
+          OS << Policy.remapPath(File);
         else
           OS << File;
         OS << ':' << PLoc.getLine() << ':' << PLoc.getColumn();

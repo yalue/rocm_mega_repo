@@ -206,10 +206,6 @@ public:
   /// which is the preferred way to influence this.
   virtual bool enablePostRAScheduler() const;
 
-  /// True if the subtarget should run a machine scheduler after register
-  /// allocation.
-  virtual bool enablePostRAMachineScheduler() const;
-
   /// True if the subtarget should run the atomic expansion pass.
   virtual bool enableAtomicExpand() const;
 

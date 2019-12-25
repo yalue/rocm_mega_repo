@@ -65,7 +65,6 @@ int main() {
 // CHECK-NEXT:   }
 // CHECK-NEXT:  },
 // CHECK-NEXT:  "name": "Test1",
-// CHECK-NEXT:  "mangledName": "_ZN1S5Test1Ev",
 // CHECK-NEXT:  "type": {
 // CHECK-NEXT:   "qualType": "void ()"
 // CHECK-NEXT:  }
@@ -93,7 +92,6 @@ int main() {
 // CHECK-NEXT:   }
 // CHECK-NEXT:  },
 // CHECK-NEXT:  "name": "Test2",
-// CHECK-NEXT:  "mangledName": "_ZNK1S5Test2Ev",
 // CHECK-NEXT:  "type": {
 // CHECK-NEXT:   "qualType": "void () const"
 // CHECK-NEXT:  }
@@ -121,7 +119,6 @@ int main() {
 // CHECK-NEXT:   }
 // CHECK-NEXT:  },
 // CHECK-NEXT:  "name": "Test3",
-// CHECK-NEXT:  "mangledName": "_ZNV1S5Test3Ev",
 // CHECK-NEXT:  "type": {
 // CHECK-NEXT:   "qualType": "void () volatile"
 // CHECK-NEXT:  }
@@ -149,7 +146,6 @@ int main() {
 // CHECK-NEXT:   }
 // CHECK-NEXT:  },
 // CHECK-NEXT:  "name": "Test4",
-// CHECK-NEXT:  "mangledName": "_ZNR1S5Test4Ev",
 // CHECK-NEXT:  "type": {
 // CHECK-NEXT:   "qualType": "void () &"
 // CHECK-NEXT:  }
@@ -177,7 +173,6 @@ int main() {
 // CHECK-NEXT:   }
 // CHECK-NEXT:  },
 // CHECK-NEXT:  "name": "Test5",
-// CHECK-NEXT:  "mangledName": "_ZNO1S5Test5Ev",
 // CHECK-NEXT:  "type": {
 // CHECK-NEXT:   "qualType": "void () &&"
 // CHECK-NEXT:  }
@@ -205,7 +200,6 @@ int main() {
 // CHECK-NEXT:   }
 // CHECK-NEXT:  },
 // CHECK-NEXT:  "name": "Test6",
-// CHECK-NEXT:  "mangledName": "_ZN1S5Test6Efi",
 // CHECK-NEXT:  "type": {
 // CHECK-NEXT:   "qualType": "void (float, int)"
 // CHECK-NEXT:  },
@@ -308,7 +302,6 @@ int main() {
 // CHECK-NEXT:   }
 // CHECK-NEXT:  },
 // CHECK-NEXT:  "name": "Test7",
-// CHECK-NEXT:  "mangledName": "_ZN1S5Test7Ev",
 // CHECK-NEXT:  "type": {
 // CHECK-NEXT:   "qualType": "void ()"
 // CHECK-NEXT:  },
@@ -338,7 +331,6 @@ int main() {
 // CHECK-NEXT:   }
 // CHECK-NEXT:  },
 // CHECK-NEXT:  "name": "Test6",
-// CHECK-NEXT:  "mangledName": "_ZN1T5Test6Efi",
 // CHECK-NEXT:  "type": {
 // CHECK-NEXT:   "qualType": "void (float, int)"
 // CHECK-NEXT:  },
@@ -456,7 +448,6 @@ int main() {
 // CHECK-NEXT:   }
 // CHECK-NEXT:  },
 // CHECK-NEXT:  "name": "Test1",
-// CHECK-NEXT:  "mangledName": "_ZN1U5Test1Ev",
 // CHECK-NEXT:  "type": {
 // CHECK-NEXT:   "qualType": "void ()"
 // CHECK-NEXT:  }
@@ -486,7 +477,6 @@ int main() {
 // CHECK-NEXT:  "parentDeclContextId": "0x{{.*}}",
 // CHECK-NEXT:  "previousDecl": "0x{{.*}}",
 // CHECK-NEXT:  "name": "Test1",
-// CHECK-NEXT:  "mangledName": "_ZN1U5Test1Ev",
 // CHECK-NEXT:  "type": {
 // CHECK-NEXT:   "qualType": "void ()"
 // CHECK-NEXT:  },
@@ -533,7 +523,6 @@ int main() {
 // CHECK-NEXT:  },
 // CHECK-NEXT:  "isUsed": true,
 // CHECK-NEXT:  "name": "Test1",
-// CHECK-NEXT:  "mangledName": "_Z5Test1v",
 // CHECK-NEXT:  "type": {
 // CHECK-NEXT:   "qualType": "void ()"
 // CHECK-NEXT:  }
@@ -561,7 +550,6 @@ int main() {
 // CHECK-NEXT:   }
 // CHECK-NEXT:  },
 // CHECK-NEXT:  "name": "Test2",
-// CHECK-NEXT:  "mangledName": "_Z5Test2v",
 // CHECK-NEXT:  "type": {
 // CHECK-NEXT:   "qualType": "void ()"
 // CHECK-NEXT:  }
@@ -589,7 +577,6 @@ int main() {
 // CHECK-NEXT:   }
 // CHECK-NEXT:  },
 // CHECK-NEXT:  "name": "Test3",
-// CHECK-NEXT:  "mangledName": "_Z5Test3ii",
 // CHECK-NEXT:  "type": {
 // CHECK-NEXT:   "qualType": "void (int, int)"
 // CHECK-NEXT:  },
@@ -615,7 +602,6 @@ int main() {
 // CHECK-NEXT:     }
 // CHECK-NEXT:    },
 // CHECK-NEXT:    "name": "a",
-// CHECK-NEXT:    "mangledName": "_ZZ5Test3iiE1a",
 // CHECK-NEXT:    "type": {
 // CHECK-NEXT:     "qualType": "int"
 // CHECK-NEXT:    }
@@ -641,7 +627,6 @@ int main() {
 // CHECK-NEXT:     }
 // CHECK-NEXT:    },
 // CHECK-NEXT:    "name": "b",
-// CHECK-NEXT:    "mangledName": "_ZZ5Test3iiE1b",
 // CHECK-NEXT:    "type": {
 // CHECK-NEXT:     "qualType": "int"
 // CHECK-NEXT:    }
@@ -671,7 +656,6 @@ int main() {
 // CHECK-NEXT:   }
 // CHECK-NEXT:  },
 // CHECK-NEXT:  "name": "Test4",
-// CHECK-NEXT:  "mangledName": "_Z5Test4ii",
 // CHECK-NEXT:  "type": {
 // CHECK-NEXT:   "qualType": "void (int, int)"
 // CHECK-NEXT:  },
@@ -697,7 +681,6 @@ int main() {
 // CHECK-NEXT:     }
 // CHECK-NEXT:    },
 // CHECK-NEXT:    "name": "a",
-// CHECK-NEXT:    "mangledName": "_ZZ5Test4iiE1a",
 // CHECK-NEXT:    "type": {
 // CHECK-NEXT:     "qualType": "int"
 // CHECK-NEXT:    }
@@ -723,7 +706,6 @@ int main() {
 // CHECK-NEXT:     }
 // CHECK-NEXT:    },
 // CHECK-NEXT:    "name": "b",
-// CHECK-NEXT:    "mangledName": "_ZZ5Test4iiE1b",
 // CHECK-NEXT:    "type": {
 // CHECK-NEXT:     "qualType": "int"
 // CHECK-NEXT:    },
@@ -777,7 +759,6 @@ int main() {
 // CHECK-NEXT:   }
 // CHECK-NEXT:  },
 // CHECK-NEXT:  "name": "Test5",
-// CHECK-NEXT:  "mangledName": "_Z5Test5v",
 // CHECK-NEXT:  "type": {
 // CHECK-NEXT:   "qualType": "void ()"
 // CHECK-NEXT:  },
@@ -806,7 +787,6 @@ int main() {
 // CHECK-NEXT:   }
 // CHECK-NEXT:  },
 // CHECK-NEXT:  "name": "Test6",
-// CHECK-NEXT:  "mangledName": "_ZL5Test6v",
 // CHECK-NEXT:  "type": {
 // CHECK-NEXT:   "qualType": "void ()"
 // CHECK-NEXT:  },
@@ -835,7 +815,6 @@ int main() {
 // CHECK-NEXT:   }
 // CHECK-NEXT:  },
 // CHECK-NEXT:  "name": "Test7",
-// CHECK-NEXT:  "mangledName": "_Z5Test7v",
 // CHECK-NEXT:  "type": {
 // CHECK-NEXT:   "qualType": "void ()"
 // CHECK-NEXT:  },
@@ -864,7 +843,6 @@ int main() {
 // CHECK-NEXT:   }
 // CHECK-NEXT:  },
 // CHECK-NEXT:  "name": "Test8",
-// CHECK-NEXT:  "mangledName": "_Z5Test8v",
 // CHECK-NEXT:  "type": {
 // CHECK-NEXT:   "qualType": "void ()"
 // CHECK-NEXT:  },
@@ -893,7 +871,6 @@ int main() {
 // CHECK-NEXT:   }
 // CHECK-NEXT:  },
 // CHECK-NEXT:  "name": "Test9",
-// CHECK-NEXT:  "mangledName": "_Z5Test9v",
 // CHECK-NEXT:  "type": {
 // CHECK-NEXT:   "qualType": "void () noexcept"
 // CHECK-NEXT:  }
@@ -921,7 +898,6 @@ int main() {
 // CHECK-NEXT:   }
 // CHECK-NEXT:  },
 // CHECK-NEXT:  "name": "Test10",
-// CHECK-NEXT:  "mangledName": "_Z6Test10v",
 // CHECK-NEXT:  "type": {
 // CHECK-NEXT:   "qualType": "void () noexcept(false)"
 // CHECK-NEXT:  }
@@ -949,7 +925,6 @@ int main() {
 // CHECK-NEXT:   }
 // CHECK-NEXT:  },
 // CHECK-NEXT:  "name": "Test11",
-// CHECK-NEXT:  "mangledName": "_Z6Test11v",
 // CHECK-NEXT:  "type": {
 // CHECK-NEXT:   "qualType": "void () noexcept(1)"
 // CHECK-NEXT:  }
@@ -1084,7 +1059,6 @@ int main() {
 // CHECK-NEXT:   }
 // CHECK-NEXT:  },
 // CHECK-NEXT:  "name": "Test13",
-// CHECK-NEXT:  "mangledName": "_Z6Test13i",
 // CHECK-NEXT:  "type": {
 // CHECK-NEXT:   "qualType": "void (int)"
 // CHECK-NEXT:  },
@@ -1154,7 +1128,6 @@ int main() {
 // CHECK-NEXT:   }
 // CHECK-NEXT:  },
 // CHECK-NEXT:  "name": "Test14",
-// CHECK-NEXT:  "mangledName": "_Z6Test14iz",
 // CHECK-NEXT:  "type": {
 // CHECK-NEXT:   "qualType": "void (int, ...)"
 // CHECK-NEXT:  },

@@ -78,18 +78,18 @@ class Timer {
   TimeRecord StartTime;     ///< The time startTimer() was last called.
   std::string Name;         ///< The name of this time variable.
   std::string Description;  ///< Description of this time variable.
-  bool Running = false;     ///< Is the timer currently running?
-  bool Triggered = false;   ///< Has the timer ever been triggered?
+  bool Running;             ///< Is the timer currently running?
+  bool Triggered;           ///< Has the timer ever been triggered?
   TimerGroup *TG = nullptr; ///< The TimerGroup this Timer is in.
 
-  Timer **Prev = nullptr;   ///< Pointer to \p Next of previous timer in group.
-  Timer *Next = nullptr;    ///< Next timer in the group.
+  Timer **Prev;             ///< Pointer to \p Next of previous timer in group.
+  Timer *Next;              ///< Next timer in the group.
 public:
-  explicit Timer(StringRef TimerName, StringRef TimerDescription) {
-    init(TimerName, TimerDescription);
+  explicit Timer(StringRef Name, StringRef Description) {
+    init(Name, Description);
   }
-  Timer(StringRef TimerName, StringRef TimerDescription, TimerGroup &tg) {
-    init(TimerName, TimerDescription, tg);
+  Timer(StringRef Name, StringRef Description, TimerGroup &tg) {
+    init(Name, Description, tg);
   }
   Timer(const Timer &RHS) {
     assert(!RHS.TG && "Can only copy uninitialized timers");
@@ -102,8 +102,8 @@ public:
 
   /// Create an uninitialized timer, client must use 'init'.
   explicit Timer() {}
-  void init(StringRef TimerName, StringRef TimerDescription);
-  void init(StringRef TimerName, StringRef TimerDescription, TimerGroup &tg);
+  void init(StringRef Name, StringRef Description);
+  void init(StringRef Name, StringRef Description, TimerGroup &tg);
 
   const std::string &getName() const { return Name; }
   const std::string &getDescription() const { return Description; }
@@ -174,7 +174,6 @@ class TimerGroup {
     std::string Description;
 
     PrintRecord(const PrintRecord &Other) = default;
-    PrintRecord &operator=(const PrintRecord &Other) = default;
     PrintRecord(const TimeRecord &Time, const std::string &Name,
                 const std::string &Description)
       : Time(Time), Name(Name), Description(Description) {}

@@ -607,12 +607,48 @@ public:
   }
 };
 
-class ArrayType final : public Node {
-  const Node *Base;
-  Node *Dimension;
+class NodeOrString {
+  const void *First;
+  const void *Second;
 
 public:
-  ArrayType(const Node *Base_, Node *Dimension_)
+  /* implicit */ NodeOrString(StringView Str) {
+    const char *FirstChar = Str.begin();
+    const char *SecondChar = Str.end();
+    if (SecondChar == nullptr) {
+      assert(FirstChar == SecondChar);
+      ++FirstChar, ++SecondChar;
+    }
+    First = static_cast<const void *>(FirstChar);
+    Second = static_cast<const void *>(SecondChar);
+  }
+
+  /* implicit */ NodeOrString(Node *N)
+      : First(static_cast<const void *>(N)), Second(nullptr) {}
+  NodeOrString() : First(nullptr), Second(nullptr) {}
+
+  bool isString() const { return Second && First; }
+  bool isNode() const { return First && !Second; }
+  bool isEmpty() const { return !First && !Second; }
+
+  StringView asString() const {
+    assert(isString());
+    return StringView(static_cast<const char *>(First),
+                      static_cast<const char *>(Second));
+  }
+
+  const Node *asNode() const {
+    assert(isNode());
+    return static_cast<const Node *>(First);
+  }
+};
+
+class ArrayType final : public Node {
+  const Node *Base;
+  NodeOrString Dimension;
+
+public:
+  ArrayType(const Node *Base_, NodeOrString Dimension_)
       : Node(KArrayType,
              /*RHSComponentCache=*/Cache::Yes,
              /*ArrayCache=*/Cache::Yes),
@@ -629,8 +665,10 @@ public:
     if (S.back() != ']')
       S += " ";
     S += "[";
-    if (Dimension)
-      Dimension->print(S);
+    if (Dimension.isString())
+      S += Dimension.asString();
+    else if (Dimension.isNode())
+      Dimension.asNode()->print(S);
     S += "]";
     Base->printRight(S);
   }
@@ -896,10 +934,10 @@ public:
 
 class VectorType final : public Node {
   const Node *BaseType;
-  const Node *Dimension;
+  const NodeOrString Dimension;
 
 public:
-  VectorType(const Node *BaseType_, Node *Dimension_)
+  VectorType(const Node *BaseType_, NodeOrString Dimension_)
       : Node(KVectorType), BaseType(BaseType_),
         Dimension(Dimension_) {}
 
@@ -908,17 +946,19 @@ public:
   void printLeft(OutputStream &S) const override {
     BaseType->print(S);
     S += " vector[";
-    if (Dimension)
-      Dimension->print(S);
+    if (Dimension.isNode())
+      Dimension.asNode()->print(S);
+    else if (Dimension.isString())
+      S += Dimension.asString();
     S += "]";
   }
 };
 
 class PixelVectorType final : public Node {
-  const Node *Dimension;
+  const NodeOrString Dimension;
 
 public:
-  PixelVectorType(const Node *Dimension_)
+  PixelVectorType(NodeOrString Dimension_)
       : Node(KPixelVectorType), Dimension(Dimension_) {}
 
   template<typename Fn> void match(Fn F) const { F(Dimension); }
@@ -926,7 +966,7 @@ public:
   void printLeft(OutputStream &S) const override {
     // FIXME: This should demangle as "vector pixel".
     S += "pixel vector[";
-    Dimension->print(S);
+    S += Dimension.asString();
     S += "]";
   }
 };
@@ -3508,9 +3548,7 @@ Node *AbstractManglingParser<Derived, Alloc>::parseVectorType() {
   if (!consumeIf("Dv"))
     return nullptr;
   if (look() >= '1' && look() <= '9') {
-    Node *DimensionNumber = make<NameType>(parseNumber());
-    if (!DimensionNumber)
-      return nullptr;
+    StringView DimensionNumber = parseNumber();
     if (!consumeIf('_'))
       return nullptr;
     if (consumeIf('p'))
@@ -3535,7 +3573,7 @@ Node *AbstractManglingParser<Derived, Alloc>::parseVectorType() {
   Node *ElemType = getDerived().parseType();
   if (!ElemType)
     return nullptr;
-  return make<VectorType>(ElemType, /*Dimension=*/nullptr);
+  return make<VectorType>(ElemType, StringView());
 }
 
 // <decltype>  ::= Dt <expression> E  # decltype of an id-expression or class member access (C++0x)
@@ -3561,12 +3599,10 @@ Node *AbstractManglingParser<Derived, Alloc>::parseArrayType() {
   if (!consumeIf('A'))
     return nullptr;
 
-  Node *Dimension = nullptr;
+  NodeOrString Dimension;
 
   if (std::isdigit(look())) {
-    Dimension = make<NameType>(parseNumber());
-    if (!Dimension)
-      return nullptr;
+    Dimension = parseNumber();
     if (!consumeIf('_'))
       return nullptr;
   } else if (!consumeIf('_')) {

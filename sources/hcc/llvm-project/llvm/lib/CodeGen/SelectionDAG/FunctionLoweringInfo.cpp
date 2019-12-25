@@ -144,8 +144,7 @@ void FunctionLoweringInfo::set(const Function &fn, MachineFunction &mf,
         if (AI->isStaticAlloca() &&
             (TFI->isStackRealignable() || (Align <= StackAlign))) {
           const ConstantInt *CUI = cast<ConstantInt>(AI->getArraySize());
-          uint64_t TySize =
-              MF->getDataLayout().getTypeAllocSize(Ty).getKnownMinSize();
+          uint64_t TySize = MF->getDataLayout().getTypeAllocSize(Ty);
 
           TySize *= CUI->getZExtValue();   // Get total allocated size.
           if (TySize == 0) TySize = 1; // Don't create zero-sized stack objects.
@@ -159,12 +158,6 @@ void FunctionLoweringInfo::set(const Function &fn, MachineFunction &mf,
             FrameIndex =
                 MF->getFrameInfo().CreateStackObject(TySize, Align, false, AI);
           }
-
-          // Scalable vectors may need a special StackID to distinguish
-          // them from other (fixed size) stack objects.
-          if (Ty->isVectorTy() && Ty->getVectorIsScalable())
-            MF->getFrameInfo().setStackID(FrameIndex,
-                                          TFI->getStackIDForScalableVectors());
 
           StaticAllocaMap[AI] = FrameIndex;
           // Update the catch handler information.

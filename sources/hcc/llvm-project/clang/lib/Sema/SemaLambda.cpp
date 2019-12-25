@@ -920,10 +920,6 @@ void Sema::ActOnStartOfLambdaDefinition(LambdaIntroducer &Intro,
         /*IsVariadic=*/false, /*IsCXXMethod=*/true));
     EPI.HasTrailingReturn = true;
     EPI.TypeQuals.addConst();
-    LangAS AS = getDefaultCXXMethodAddrSpace();
-    if (AS != LangAS::Default)
-      EPI.TypeQuals.addAddressSpace(AS);
-
     // C++1y [expr.prim.lambda]:
     //   The lambda return type is 'auto', which is replaced by the
     //   trailing-return type if provided and/or deduced from 'return'
@@ -1255,7 +1251,7 @@ void Sema::ActOnLambdaError(SourceLocation StartLoc, Scope *CurScope,
   SmallVector<Decl*, 4> Fields(Class->fields());
   ActOnFields(nullptr, Class->getLocation(), Class, Fields, SourceLocation(),
               SourceLocation(), ParsedAttributesView());
-  CheckCompletedCXXClass(nullptr, Class);
+  CheckCompletedCXXClass(Class);
 
   PopFunctionScopeInfo();
 }
@@ -1880,7 +1876,7 @@ ExprResult Sema::BuildLambdaExpr(SourceLocation StartLoc, SourceLocation EndLoc,
     SmallVector<Decl*, 4> Fields(Class->fields());
     ActOnFields(nullptr, Class->getLocation(), Class, Fields, SourceLocation(),
                 SourceLocation(), ParsedAttributesView());
-    CheckCompletedCXXClass(nullptr, Class);
+    CheckCompletedCXXClass(Class);
   }
 
   Cleanup.mergeFrom(LambdaCleanup);

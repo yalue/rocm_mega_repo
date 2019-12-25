@@ -6,9 +6,9 @@
 //
 //===----------------------------------------------------------------------===//
 
-#include "tests/scudo_unit_test.h"
-
 #include "checksum.h"
+
+#include "gtest/gtest.h"
 
 #include <string.h>
 

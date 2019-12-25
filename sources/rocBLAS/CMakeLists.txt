@@ -1,5 +1,5 @@
 # ########################################################################
-# Copyright 2016 Advanced Micro Devices, Inc.
+# Copyright 2016-2019 Advanced Micro Devices, Inc.
 # ########################################################################
 
 # The ROCm platform requires Ubuntu 16.04 or Fedora 24, which has cmake 3.5
@@ -7,6 +7,8 @@ cmake_minimum_required( VERSION 3.5 )
 
 # We use C++14 features, this will add compile option: -std=c++14
 set( CMAKE_CXX_STANDARD 14 )
+# Without this line, it will add -std=gnu++14 instead, which has some issues.
+set( CMAKE_CXX_EXTENSIONS OFF )
 
 # Consider removing this in the future
 # This should appear before the project command, because it does not use FORCE
@@ -31,7 +33,12 @@ if ( NOT DEFINED CMAKE_Fortran_COMPILER AND NOT DEFINED ENV{FC} )
   set( CMAKE_Fortran_COMPILER  "gfortran" )
 endif()
 
+
+
 project( rocblas LANGUAGES CXX )
+
+set(THREADS_PREFER_PTHREAD_FLAG ON)
+find_package(Threads REQUIRED)
 
 # ########################################################################
 # NOTE:  CUDA compiling path
@@ -134,8 +141,12 @@ include( ROCMInstallTargets )
 include( ROCMPackageConfigHelpers )
 include( ROCMInstallSymlinks )
 
+include (cmake/os-detection.cmake)
+get_os_id(OS_ID)
+message (STATUS "OS detected is ${OS_ID}")
+
 # Versioning via rocm-cmake
-set ( VERSION_STRING "2.6.3" )
+set ( VERSION_STRING "2.12.1" )
 rocm_setup_version( VERSION ${VERSION_STRING} )
 
 # Append our library helper cmake path and the cmake path for hip (for convenience)
@@ -150,10 +161,14 @@ option( BUILD_VERBOSE "Output additional build information" OFF )
 # BUILD_SHARED_LIBS is a cmake built-in; we make it an explicit option such that it shows in cmake-gui
 option( BUILD_SHARED_LIBS "Build rocBLAS as a shared library" ON )
 
+option( BUILD_TESTING "Build tests for rocBLAS" ON )
+
 include( clients/cmake/build-options.cmake )
 
 # force library install path to lib (CentOS 7 defaults to lib64)
 set(CMAKE_INSTALL_LIBDIR "lib" CACHE INTERNAL "Installation directory for libraries" FORCE)
+
+option( BUILD_WITH_TENSILE_HOST "Use the new tensile client for gemm?" OFF )
 
 if( BUILD_WITH_TENSILE )
   set( Tensile_LOGIC "asm_full" CACHE STRING "Tensile to use which logic?")
@@ -171,21 +186,19 @@ if( BUILD_WITH_TENSILE )
   set_property( CACHE Tensile_COMPILER PROPERTY STRINGS hcc hipcc)
 
   include(virtualenv)
-
   if (Tensile_TEST_LOCAL_PATH)
     virtualenv_install(${Tensile_TEST_LOCAL_PATH})
     message (STATUS "using local Tensile from ${Tensile_TEST_LOCAL_PATH}, copied to ${Tensile_ROOT}")
   else()
     # Use the virtual-env setup and download package from specified repot:
     set( tensile_fork "ROCmSoftwarePlatform" CACHE STRING "Tensile fork to use" )
-    set( tensile_tag 4a6e2631cdc3beadba6ce0e6f42f3d08076290c7 CACHE STRING "Tensile tag to download" )
+    file (STRINGS "tensile_tag.txt" read_tensile_tag)
+    set( tensile_tag ${read_tensile_tag} CACHE STRING "Tensile tag to download" )
     virtualenv_install("git+https://github.com/${tensile_fork}/Tensile.git@${tensile_tag}")
     message (STATUS "using GIT Tensile fork=${tensile_fork} from branch=${tensile_tag}")
   endif()
   list(APPEND CMAKE_PREFIX_PATH ${VIRTUALENV_HOME_DIR})
-  set( Tensile_ROOT "${VIRTUALENV_HOME_DIR}/bin" CACHE STRING "Local path of Tensile" )
-  set( Tensile_TensileConfig ${VIRTUALENV_HOME_DIR}/cmake/TensileConfig.cmake)
-
+  find_package(Tensile 4.14.0 EXACT REQUIRED HIP LLVM OpenMP PATHS "${INSTALLED_TENSILE_PATH}")
 endif()
 
 # Find HCC/HIP dependencies

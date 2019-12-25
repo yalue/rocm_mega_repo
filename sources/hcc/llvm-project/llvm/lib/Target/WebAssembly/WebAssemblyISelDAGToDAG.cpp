@@ -35,10 +35,12 @@ class WebAssemblyDAGToDAGISel final : public SelectionDAGISel {
   /// right decision when generating code for different targets.
   const WebAssemblySubtarget *Subtarget;
 
+  bool ForCodeSize;
+
 public:
   WebAssemblyDAGToDAGISel(WebAssemblyTargetMachine &TM,
                           CodeGenOpt::Level OptLevel)
-      : SelectionDAGISel(TM, OptLevel), Subtarget(nullptr) {
+      : SelectionDAGISel(TM, OptLevel), Subtarget(nullptr), ForCodeSize(false) {
   }
 
   StringRef getPassName() const override {
@@ -50,6 +52,7 @@ public:
                          "********** Function: "
                       << MF.getName() << '\n');
 
+    ForCodeSize = MF.getFunction().hasOptSize();
     Subtarget = &MF.getSubtarget<WebAssemblySubtarget>();
 
     // Wasm64 is not fully supported right now (and is not specified)

@@ -1126,11 +1126,6 @@ public:
   /// point for skipping past a simple-declaration.
   void SkipMalformedDecl();
 
-  /// The location of the first statement inside an else that might
-  /// have a missleading indentation. If there is no
-  /// MisleadingIndentationChecker on an else active, this location is invalid.
-  SourceLocation MisleadingIndentationElseLoc;
-
 private:
   //===--------------------------------------------------------------------===//
   // Lexing and parsing of C++ inline methods.
@@ -1770,13 +1765,13 @@ private:
                                   bool EnteringContext, IdentifierInfo &II,
                                   CXXScopeSpec &SS);
 
-  bool ParseOptionalCXXScopeSpecifier(CXXScopeSpec &SS, ParsedType ObjectType,
+  bool ParseOptionalCXXScopeSpecifier(CXXScopeSpec &SS,
+                                      ParsedType ObjectType,
                                       bool EnteringContext,
                                       bool *MayBePseudoDestructor = nullptr,
                                       bool IsTypename = false,
                                       IdentifierInfo **LastII = nullptr,
-                                      bool OnlyNamespace = false,
-                                      bool InUsingDeclaration = false);
+                                      bool OnlyNamespace = false);
 
   //===--------------------------------------------------------------------===//
   // C++11 5.1.2: Lambda expressions
@@ -2872,9 +2867,11 @@ private:
                                             SourceLocation Loc);
   /// Parses OpenMP context selectors and calls \p Callback for each
   /// successfully parsed context selector.
-  bool
-  parseOpenMPContextSelectors(SourceLocation Loc,
-                              SmallVectorImpl<Sema::OMPCtxSelectorData> &Data);
+  bool parseOpenMPContextSelectors(
+      SourceLocation Loc,
+      llvm::function_ref<
+          void(SourceRange, const Sema::OpenMPDeclareVariantCtsSelectorData &)>
+          Callback);
 
   /// Parse clauses for '#pragma omp declare variant'.
   void ParseOMPDeclareVariantClauses(DeclGroupPtrTy Ptr, CachedTokens &Toks,

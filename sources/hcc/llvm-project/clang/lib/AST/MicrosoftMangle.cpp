@@ -592,7 +592,7 @@ void MicrosoftCXXNameMangler::mangleMemberDataPointer(const CXXRecordDecl *RD,
 
   int64_t FieldOffset;
   int64_t VBTableOffset;
-  MSInheritanceModel IM = RD->getMSInheritanceModel();
+  MSInheritanceAttr::Spelling IM = RD->getMSInheritanceModel();
   if (VD) {
     FieldOffset = getASTContext().getFieldOffset(VD);
     assert(FieldOffset % getASTContext().getCharWidth() == 0 &&
@@ -601,7 +601,7 @@ void MicrosoftCXXNameMangler::mangleMemberDataPointer(const CXXRecordDecl *RD,
 
     VBTableOffset = 0;
 
-    if (IM == MSInheritanceModel::Virtual)
+    if (IM == MSInheritanceAttr::Keyword_virtual_inheritance)
       FieldOffset -= getASTContext().getOffsetOfBaseWithVBPtr(RD).getQuantity();
   } else {
     FieldOffset = RD->nullFieldOffsetIsZero() ? 0 : -1;
@@ -611,10 +611,12 @@ void MicrosoftCXXNameMangler::mangleMemberDataPointer(const CXXRecordDecl *RD,
 
   char Code = '\0';
   switch (IM) {
-  case MSInheritanceModel::Single:      Code = '0'; break;
-  case MSInheritanceModel::Multiple:    Code = '0'; break;
-  case MSInheritanceModel::Virtual:     Code = 'F'; break;
-  case MSInheritanceModel::Unspecified: Code = 'G'; break;
+  case MSInheritanceAttr::Keyword_single_inheritance:      Code = '0'; break;
+  case MSInheritanceAttr::Keyword_multiple_inheritance:    Code = '0'; break;
+  case MSInheritanceAttr::Keyword_virtual_inheritance:     Code = 'F'; break;
+  case MSInheritanceAttr::Keyword_unspecified_inheritance: Code = 'G'; break;
+  case MSInheritanceAttr::SpellingNotCalculated:
+    llvm_unreachable("not reachable");
   }
 
   Out << '$' << Code;
@@ -624,9 +626,9 @@ void MicrosoftCXXNameMangler::mangleMemberDataPointer(const CXXRecordDecl *RD,
   // The C++ standard doesn't allow base-to-derived member pointer conversions
   // in template parameter contexts, so the vbptr offset of data member pointers
   // is always zero.
-  if (inheritanceModelHasVBPtrOffsetField(IM))
+  if (MSInheritanceAttr::hasVBPtrOffsetField(IM))
     mangleNumber(0);
-  if (inheritanceModelHasVBTableOffsetField(IM))
+  if (MSInheritanceAttr::hasVBTableOffsetField(IM))
     mangleNumber(VBTableOffset);
 }
 
@@ -638,14 +640,16 @@ MicrosoftCXXNameMangler::mangleMemberFunctionPointer(const CXXRecordDecl *RD,
   //                           ::= $I? <name> <number> <number>
   //                           ::= $J? <name> <number> <number> <number>
 
-  MSInheritanceModel IM = RD->getMSInheritanceModel();
+  MSInheritanceAttr::Spelling IM = RD->getMSInheritanceModel();
 
   char Code = '\0';
   switch (IM) {
-  case MSInheritanceModel::Single:      Code = '1'; break;
-  case MSInheritanceModel::Multiple:    Code = 'H'; break;
-  case MSInheritanceModel::Virtual:     Code = 'I'; break;
-  case MSInheritanceModel::Unspecified: Code = 'J'; break;
+  case MSInheritanceAttr::Keyword_single_inheritance:      Code = '1'; break;
+  case MSInheritanceAttr::Keyword_multiple_inheritance:    Code = 'H'; break;
+  case MSInheritanceAttr::Keyword_virtual_inheritance:     Code = 'I'; break;
+  case MSInheritanceAttr::Keyword_unspecified_inheritance: Code = 'J'; break;
+  case MSInheritanceAttr::SpellingNotCalculated:
+    llvm_unreachable("not reachable");
   }
 
   // If non-virtual, mangle the name.  If virtual, mangle as a virtual memptr
@@ -672,24 +676,25 @@ MicrosoftCXXNameMangler::mangleMemberFunctionPointer(const CXXRecordDecl *RD,
       mangleFunctionEncoding(MD, /*ShouldMangle=*/true);
     }
 
-    if (VBTableOffset == 0 && IM == MSInheritanceModel::Virtual)
+    if (VBTableOffset == 0 &&
+        IM == MSInheritanceAttr::Keyword_virtual_inheritance)
       NVOffset -= getASTContext().getOffsetOfBaseWithVBPtr(RD).getQuantity();
   } else {
     // Null single inheritance member functions are encoded as a simple nullptr.
-    if (IM == MSInheritanceModel::Single) {
+    if (IM == MSInheritanceAttr::Keyword_single_inheritance) {
       Out << "$0A@";
       return;
     }
-    if (IM == MSInheritanceModel::Unspecified)
+    if (IM == MSInheritanceAttr::Keyword_unspecified_inheritance)
       VBTableOffset = -1;
     Out << '$' << Code;
   }
 
-  if (inheritanceModelHasNVOffsetField(/*IsMemberFunction=*/true, IM))
+  if (MSInheritanceAttr::hasNVOffsetField(/*IsMemberFunction=*/true, IM))
     mangleNumber(static_cast<uint32_t>(NVOffset));
-  if (inheritanceModelHasVBPtrOffsetField(IM))
+  if (MSInheritanceAttr::hasVBPtrOffsetField(IM))
     mangleNumber(VBPtrOffset);
-  if (inheritanceModelHasVBTableOffsetField(IM))
+  if (MSInheritanceAttr::hasVBTableOffsetField(IM))
     mangleNumber(VBTableOffset);
 }
 

@@ -1200,8 +1200,9 @@ void llvm::DisassemHelper::DisassembleObject(const ObjectFile *Obj,
                  "no register info for target " + TripleName);
 
   // Set up disassembler.
+  llvm::MCTargetOptions MCOptions;
   std::unique_ptr<const MCAsmInfo> AsmInfo(
-      TheTarget->createMCAsmInfo(*MRI, TripleName));
+      TheTarget->createMCAsmInfo(*MRI, TripleName, MCOptions));
   if (!AsmInfo)
     report_error(Obj->getFileName(),
                  "no assembly info for target " + TripleName);
@@ -1246,8 +1247,16 @@ void llvm::DisassemHelper::DisassembleObject(const ObjectFile *Obj,
   // in RelocSecs contain the relocations for section S.
   std::error_code EC;
   std::map<SectionRef, SmallVector<SectionRef, 1>> SectionRelocMap;
+  uint64_t I = (uint64_t)-1;
   for (const SectionRef &Section : ToolSectionFilter(*Obj)) {
-    section_iterator Sec2 = Section.getRelocatedSection();
+    ++I;
+    Expected<section_iterator> Sec2OrErr = Section.getRelocatedSection();
+    if (!Sec2OrErr)
+      report_error(Obj->getFileName(),
+                   "section (" + Twine(I) +
+                       "): failed to get a relocated section: " +
+                       toString(Sec2OrErr.takeError()));
+    section_iterator Sec2 = *Sec2OrErr;
     if (Sec2 != Obj->section_end())
       SectionRelocMap[*Sec2].push_back(Section);
   }

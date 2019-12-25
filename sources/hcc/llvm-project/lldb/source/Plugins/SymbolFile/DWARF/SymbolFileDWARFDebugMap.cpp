@@ -39,8 +39,6 @@
 using namespace lldb;
 using namespace lldb_private;
 
-char SymbolFileDWARFDebugMap::ID;
-
 // Subclass lldb_private::Module so we can intercept the
 // "Module::GetObjectFile()" (so we can fixup the object file sections) and
 // also for "Module::GetSymbolFile()" (so we can fixup the symbol file id.
@@ -604,7 +602,7 @@ SymbolFileDWARFDebugMap::CompileUnitInfo *
 SymbolFileDWARFDebugMap::GetCompUnitInfo(const CompileUnit &comp_unit) {
   const uint32_t cu_count = GetNumCompileUnits();
   for (uint32_t i = 0; i < cu_count; ++i) {
-    if (&comp_unit == m_compile_unit_infos[i].compile_unit_sp.get())
+    if (comp_unit == m_compile_unit_infos[i].compile_unit_sp.get())
       return &m_compile_unit_infos[i];
   }
   return nullptr;
@@ -654,15 +652,12 @@ bool SymbolFileDWARFDebugMap::ParseDebugMacros(CompileUnit &comp_unit) {
   return false;
 }
 
-bool SymbolFileDWARFDebugMap::ForEachExternalModule(
-    CompileUnit &comp_unit,
-    llvm::DenseSet<lldb_private::SymbolFile *> &visited_symbol_files,
-    llvm::function_ref<bool(Module &)> f) {
+void SymbolFileDWARFDebugMap::ForEachExternalModule(
+    CompileUnit &comp_unit, llvm::function_ref<void(ModuleSP)> f) {
   std::lock_guard<std::recursive_mutex> guard(GetModuleMutex());
   SymbolFileDWARF *oso_dwarf = GetSymbolFile(comp_unit);
   if (oso_dwarf)
-    return oso_dwarf->ForEachExternalModule(comp_unit, visited_symbol_files, f);
-  return false;
+    oso_dwarf->ForEachExternalModule(comp_unit, f);
 }
 
 bool SymbolFileDWARFDebugMap::ParseSupportFiles(CompileUnit &comp_unit,
@@ -812,8 +807,12 @@ uint32_t SymbolFileDWARFDebugMap::ResolveSymbolContext(
 
     if (!resolve) {
       FileSpec so_file_spec;
-      if (GetFileSpecForSO(i, so_file_spec))
-        resolve = FileSpec::Match(file_spec, so_file_spec);
+      if (GetFileSpecForSO(i, so_file_spec)) {
+        // Match the full path if the incoming file_spec has a directory (not
+        // just a basename)
+        const bool full_match = (bool)file_spec.GetDirectory();
+        resolve = FileSpec::Equal(file_spec, so_file_spec, full_match);
+      }
     }
     if (resolve) {
       SymbolFileDWARF *oso_dwarf = GetSymbolFileByOSOIndex(i);
@@ -1072,7 +1071,7 @@ void SymbolFileDWARFDebugMap::GetTypes(SymbolContextScope *sc_scope,
   }
 }
 
-std::vector<std::unique_ptr<lldb_private::CallEdge>>
+std::vector<lldb_private::CallEdge>
 SymbolFileDWARFDebugMap::ParseCallEdgesInFunction(UserID func_id) {
   uint32_t oso_idx = GetOSOIndexFromUserID(func_id.GetID());
   SymbolFileDWARF *oso_dwarf = GetSymbolFileByOSOIndex(oso_idx);
@@ -1181,16 +1180,6 @@ void SymbolFileDWARFDebugMap::FindTypes(
     oso_dwarf->FindTypes(name, parent_decl_ctx, max_matches,
                          searched_symbol_files, types);
     return types.GetSize() >= max_matches;
-  });
-}
-
-void SymbolFileDWARFDebugMap::FindTypes(
-    llvm::ArrayRef<CompilerContext> context, LanguageSet languages,
-    llvm::DenseSet<lldb_private::SymbolFile *> &searched_symbol_files,
-    TypeMap &types) {
-  ForEachSymbolFile([&](SymbolFileDWARF *oso_dwarf) -> bool {
-    oso_dwarf->FindTypes(context, languages, searched_symbol_files, types);
-    return false;
   });
 }
 

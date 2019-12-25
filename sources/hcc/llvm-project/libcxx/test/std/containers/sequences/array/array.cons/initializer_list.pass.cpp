@@ -8,7 +8,7 @@
 
 // <array>
 
-// Construct with initializer list
+// Construct with initizializer list
 
 #include <array>
 #include <cassert>

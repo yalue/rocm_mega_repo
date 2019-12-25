@@ -60,7 +60,7 @@
 cmake_minimum_required(VERSION 3.5.0)
 
 # Specify name of project to build, install and package
-set(PROJECT_NAME "rocr_debug_agent_test")
+set(PROJECT_NAME "rocm-debug-agent-test")
 set(TARGET_NAME "${PROJECT_NAME}" )
 project(${PROJECT_NAME})
 
@@ -115,6 +115,8 @@ elseif("${CMAKE_SYSTEM_PROCESSOR}" STREQUAL "x86")
 endif()
 
 # Set project requirements
+set(ROC_THUNK_NAME "hsakmt")
+set(ROC_THUNK_LIBRARY "lib${ROC_THUNK_NAME}")
 set(CORE_RUNTIME_NAME "hsa-runtime")
 set(CORE_RUNTIME_TARGET "${CORE_RUNTIME_NAME}64")
 set(CORE_RUNTIME_LIBRARY "lib${CORE_RUNTIME_TARGET}")
@@ -123,6 +125,9 @@ find_path(ROCR_INC hsa.h
   HINTS /opt/rocm/include/hsa)
 
 find_library(ROCR_LIB ${CORE_RUNTIME_LIBRARY}.so
+  HINTS /opt/rocm/lib)
+
+find_library(HSAKMT_LIB ${ROC_THUNK_LIBRARY}.so
   HINTS /opt/rocm/lib)
 
 find_path(LC_BIN clang
@@ -155,6 +160,10 @@ if(NOT CL_INCP)
   message(FATAL_ERROR "OpenCL header can't be found")
 endif()
 
+if(NOT HSAKMT_LIB)
+  message(FATAL_ERROR "ROC Thunk libraries can't be found")
+endif()
+
 # Blit kernel options
 set(LC_BITL_FLAGS -Xclang -mlink-bitcode-file -Xclang ${CL_BITL}/opencl.amdgcn.bc -Xclang -mlink-bitcode-file -Xclang ${CL_BITL}/ockl.amdgcn.bc)
 
@@ -162,11 +171,6 @@ set(LC_BITL_FLAGS -Xclang -mlink-bitcode-file -Xclang ${CL_BITL}/opencl.amdgcn.b
 list ( APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/cmake_modules" )
 include(utils)
 
-#
-# Set the package version for the rocr_debug_agent. It is critical that this
-# value track what is used in the rocr_debug_agent source. The code from utils
-# module will parse the string into major, minor and patch sub-fields
-#
 get_version("1.0.0")
 message ( "-- LIB-VERSION: ${VERSION_MAJOR}.${VERSION_MINOR}.${VERSION_PATCH}" )
 
@@ -182,6 +186,7 @@ message("------------Compiler: ${CMAKE_CXX_COMPILER}")
 message("----Compiler-Version: ${CMAKE_CXX_COMPILER_VERSION}")
 message("-----HSA-Runtime-Inc: ${ROCR_INC}")
 message("-----HSA-Runtime-Lib: ${ROCR_LIB}")
+message("-----------HSA-Thunk: ${HSAKMT_LIB}")
 message("--Lightning-Compiler: ${LC_BIN}")
 message("-----CMAKE_CXX_FLAGS: ${CMAKE_CXX_FLAGS}")
 message("------------LC_FLAGS: ${LC_FLAGS}")
@@ -239,18 +244,28 @@ add_custom_target(LC_OBJ DEPENDS ${OBJ_PATHS})
 add_executable(${TARGET_NAME} ${Src} ${LC_SRCS})
 add_dependencies(${TARGET_NAME} LC_OBJ)
 target_link_libraries(${TARGET_NAME} PRIVATE ${ROCR_LIB} c stdc++ dl pthread rt)
+# Horrible bodge to get to find a needed library.
+#    The libhsa-runtime.so library has a DT_RUNPATH of
+#    $ORIGIN:$ORIGIN/../../lib so the runtime linker can find
+#    libhsakmt.so.1 However the compile time linker tries to open the
+#    literal directories $ORIGIN and $ORIGIN/../../lib rather than
+#    replacing $ORIGIN with the location of the libhsa-runtime.so
+#    This is bug 20535
+#    https://sourceware.org/bugzilla/show_bug.cgi?format=multiple&id=20535
+#    bug 20535 is fixed in version 2.28 of binutils but Ubuntu 16.04 uses 2.26.1
+target_link_libraries(${TARGET_NAME} PRIVATE ${HSAKMT_LIB})
 
-# Add install directives for rocr_debug_agent
+# Add install directives for rocr-debug-agent-test
 install(TARGETS ${TARGET_NAME} DESTINATION ${PROJECT_NAME} COMPONENT ${TARGET_NAME})
 
-# Add packaging directives for rocr_debug_agent_test
+# Add packaging directives for rocm-debug-agent-test
 set(CPACK_PACKAGE_NAME ${TARGET_NAME})
 set(CPACK_PACKAGE_VENDOR "AMD")
 set(CPACK_PACKAGE_VERSION_MAJOR ${BUILD_VERSION_MAJOR})
 set(CPACK_PACKAGE_VERSION_MINOR ${BUILD_VERSION_MINOR})
 set(CPACK_PACKAGE_VERSION_PATCH ${BUILD_VERSION_PATCH})
 set(CPACK_PACKAGE_CONTACT "Advanced Micro Devices Inc.")
-set(CPACK_PACKAGE_DESCRIPTION_SUMMARY "Tests for rocr_debug_agent standalone functions")
+set(CPACK_PACKAGE_DESCRIPTION_SUMMARY "Tests for rocm-debug-agent functions")
 set(CPACK_RESOURCE_FILE_LICENSE "${CMAKE_CURRENT_SOURCE_DIR}/LICENSE.txt" )
 
 # RPM package specific variables

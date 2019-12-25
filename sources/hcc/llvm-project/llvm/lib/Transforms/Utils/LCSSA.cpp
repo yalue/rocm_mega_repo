@@ -43,9 +43,7 @@
 #include "llvm/IR/Instructions.h"
 #include "llvm/IR/IntrinsicInst.h"
 #include "llvm/IR/PredIteratorCache.h"
-#include "llvm/InitializePasses.h"
 #include "llvm/Pass.h"
-#include "llvm/Support/CommandLine.h"
 #include "llvm/Transforms/Utils.h"
 #include "llvm/Transforms/Utils/Local.h"
 #include "llvm/Transforms/Utils/LoopUtils.h"
@@ -76,8 +74,7 @@ static bool isExitBlock(BasicBlock *BB,
 /// that are outside the current loop.  If so, insert LCSSA PHI nodes and
 /// rewrite the uses.
 bool llvm::formLCSSAForInstructions(SmallVectorImpl<Instruction *> &Worklist,
-                                    DominatorTree &DT, LoopInfo &LI,
-                                    ScalarEvolution *SE) {
+                                    DominatorTree &DT, LoopInfo &LI) {
   SmallVector<Use *, 16> UsesToRewrite;
   SmallSetVector<PHINode *, 16> PHIsToRemove;
   PredIteratorCache PredCache;
@@ -137,11 +134,6 @@ bool llvm::formLCSSAForInstructions(SmallVectorImpl<Instruction *> &Worklist,
     SSAUpdater SSAUpdate(&InsertedPHIs);
     SSAUpdate.Initialize(I->getType(), I->getName());
 
-    // Force re-computation of I, as some users now need to use the new PHI
-    // node.
-    if (SE)
-      SE->forgetValue(I);
-
     // Insert the LCSSA phi's into all of the exit blocks dominated by the
     // value, and add them to the Phi's map.
     for (BasicBlock *ExitBB : ExitBlocks) {
@@ -200,6 +192,9 @@ bool llvm::formLCSSAForInstructions(SmallVectorImpl<Instruction *> &Worklist,
         UserBB = PN->getIncomingBlock(*UseToRewrite);
 
       if (isa<PHINode>(UserBB->begin()) && isExitBlock(UserBB, ExitBlocks)) {
+        // Tell the VHs that the uses changed. This updates SCEV's caches.
+        if (UseToRewrite->get()->hasValueHandle())
+          ValueHandleBase::ValueIsRAUWd(*UseToRewrite, &UserBB->front());
         UseToRewrite->set(&UserBB->front());
         continue;
       }
@@ -207,6 +202,10 @@ bool llvm::formLCSSAForInstructions(SmallVectorImpl<Instruction *> &Worklist,
       // If we added a single PHI, it must dominate all uses and we can directly
       // rename it.
       if (AddedPHIs.size() == 1) {
+        // Tell the VHs that the uses changed. This updates SCEV's caches.
+        // We might call ValueIsRAUWd multiple times for the same value.
+        if (UseToRewrite->get()->hasValueHandle())
+          ValueHandleBase::ValueIsRAUWd(*UseToRewrite, AddedPHIs[0]);
         UseToRewrite->set(AddedPHIs[0]);
         continue;
       }
@@ -369,7 +368,7 @@ bool llvm::formLCSSA(Loop &L, DominatorTree &DT, LoopInfo *LI,
       Worklist.push_back(&I);
     }
   }
-  Changed = formLCSSAForInstructions(Worklist, DT, *LI, SE);
+  Changed = formLCSSAForInstructions(Worklist, DT, *LI);
 
   // If we modified the code, remove any caches about the loop from SCEV to
   // avoid dangling entries.

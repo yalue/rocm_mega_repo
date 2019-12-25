@@ -11,7 +11,6 @@
 //===----------------------------------------------------------------------===//
 
 #include "TableGenBackends.h"
-#include "ClangASTEmitters.h"
 
 #include "llvm/ADT/ArrayRef.h"
 #include "llvm/ADT/DenseMap.h"
@@ -1809,7 +1808,7 @@ struct PragmaClangAttributeSupport {
 } // end anonymous namespace
 
 static bool doesDeclDeriveFrom(const Record *D, const Record *Base) {
-  const Record *CurrentBase = D->getValueAsOptionalDef(BaseFieldName);
+  const Record *CurrentBase = D->getValueAsDef("Base");
   if (!CurrentBase)
     return false;
   if (CurrentBase == Base)
@@ -1850,8 +1849,7 @@ PragmaClangAttributeSupport::PragmaClangAttributeSupport(
 
   std::vector<Record *> Aggregates =
       Records.getAllDerivedDefinitions("AttrSubjectMatcherAggregateRule");
-  std::vector<Record *> DeclNodes =
-    Records.getAllDerivedDefinitions(DeclNodeClassName);
+  std::vector<Record *> DeclNodes = Records.getAllDerivedDefinitions("DDecl");
   for (const auto *Aggregate : Aggregates) {
     Record *SubjectDecl = Aggregate->getValueAsDef("Subject");
 
@@ -3305,8 +3303,9 @@ static std::string GetDiagnosticSpelling(const Record &R) {
   // If we couldn't find the DiagSpelling in this object, we can check to see
   // if the object is one that has a base, and if it is, loop up to the Base
   // member recursively.
-  if (auto Base = R.getValueAsOptionalDef(BaseFieldName))
-    return GetDiagnosticSpelling(*Base);
+  std::string Super = R.getSuperClasses().back().first->getName();
+  if (Super == "DDecl" || Super == "DStmt")
+    return GetDiagnosticSpelling(*R.getValueAsDef("Base"));
 
   return "";
 }
@@ -3386,8 +3385,7 @@ static std::string GenerateCustomAppertainsTo(const Record &Subject,
   if (I != CustomSubjectSet.end())
     return *I;
 
-  // This only works with non-root Decls.
-  Record *Base = Subject.getValueAsDef(BaseFieldName);
+  Record *Base = Subject.getValueAsDef("Base");
 
   // Not currently support custom subjects within custom subjects.
   if (Base->isSubClassOf("SubsetSubject")) {

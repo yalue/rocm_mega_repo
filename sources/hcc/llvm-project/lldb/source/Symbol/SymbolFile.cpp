@@ -24,8 +24,6 @@
 using namespace lldb_private;
 using namespace lldb;
 
-char SymbolFile::ID;
-
 void SymbolFile::PreloadSymbols() {
   // No-op for most implementations.
 }
@@ -136,9 +134,7 @@ void SymbolFile::FindTypes(
     TypeMap &types) {}
 
 void SymbolFile::FindTypes(llvm::ArrayRef<CompilerContext> pattern,
-                           LanguageSet languages,
-                           llvm::DenseSet<SymbolFile *> &searched_symbol_files,
-                           TypeMap &types) {}
+                           LanguageSet languages, TypeMap &types) {}
 
 void SymbolFile::AssertModuleLock() {
   // The code below is too expensive to leave enabled in release builds. It's

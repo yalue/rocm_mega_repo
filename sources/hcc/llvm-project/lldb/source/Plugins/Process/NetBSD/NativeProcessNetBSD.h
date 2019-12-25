@@ -47,8 +47,6 @@ public:
 
   Status Signal(int signo) override;
 
-  Status Interrupt() override;
-
   Status Kill() override;
 
   Status GetMemoryRegionInfo(lldb::addr_t load_addr,
@@ -100,7 +98,6 @@ private:
   bool HasThreadNoLock(lldb::tid_t thread_id);
 
   NativeThreadNetBSD &AddThread(lldb::tid_t thread_id);
-  void RemoveThread(lldb::tid_t thread_id);
 
   void MonitorCallback(lldb::pid_t pid, int signal);
   void MonitorExited(lldb::pid_t pid, WaitStatus status);

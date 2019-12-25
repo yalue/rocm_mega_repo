@@ -53,7 +53,6 @@
 #include "lld/Common/Memory.h"
 #include "lld/Common/Strings.h"
 #include "llvm/ADT/SmallSet.h"
-#include "llvm/Demangle/Demangle.h"
 #include "llvm/Support/Endian.h"
 #include "llvm/Support/raw_ostream.h"
 #include <algorithm>
@@ -509,6 +508,7 @@ static void replaceWithDefined(Symbol &sym, SectionBase *sec, uint64_t value,
   sym.pltIndex = old.pltIndex;
   sym.gotIndex = old.gotIndex;
   sym.verdefIndex = old.verdefIndex;
+  sym.ppc64BranchltIndex = old.ppc64BranchltIndex;
   sym.exportDynamic = true;
   sym.isUsedInRegularObj = true;
 }
@@ -538,7 +538,7 @@ static void replaceWithDefined(Symbol &sym, SectionBase *sec, uint64_t value,
 //
 // As you can see in this function, we create a copy relocation for the
 // dynamic linker, and the relocation contains not only symbol name but
-// various other information about the symbol. So, such attributes become a
+// various other informtion about the symbol. So, such attributes become a
 // part of the ABI.
 //
 // Note for application developers: I can give you a piece of advice if
@@ -553,7 +553,7 @@ static void replaceWithDefined(Symbol &sym, SectionBase *sec, uint64_t value,
 // reserved in .bss unless you recompile the main program. That means they
 // are likely to overlap with other data that happens to be laid out next
 // to the variable in .bss. This kind of issue is sometimes very hard to
-// debug. What's a solution? Instead of exporting a variable V from a DSO,
+// debug. What's a solution? Instead of exporting a varaible V from a DSO,
 // define an accessor getV().
 template <class ELFT> static void addCopyRelSymbol(SharedSymbol &ss) {
   // Copy relocation against zero-sized symbol doesn't make sense.
@@ -696,27 +696,10 @@ struct UndefinedDiag {
 
 static std::vector<UndefinedDiag> undefs;
 
-// Check whether the definition name def is a mangled function name that matches
-// the reference name ref.
-static bool canSuggestExternCForCXX(StringRef ref, StringRef def) {
-  llvm::ItaniumPartialDemangler d;
-  std::string name = def.str();
-  if (d.partialDemangle(name.c_str()))
-    return false;
-  char *buf = d.getFunctionName(nullptr, nullptr);
-  if (!buf)
-    return false;
-  bool ret = ref == buf;
-  free(buf);
-  return ret;
-}
-
 // Suggest an alternative spelling of an "undefined symbol" diagnostic. Returns
 // the suggested symbol, which is either in the symbol table, or in the same
 // file of sym.
-static const Symbol *getAlternativeSpelling(const Undefined &sym,
-                                            std::string &pre_hint,
-                                            std::string &post_hint) {
+static const Symbol *getAlternativeSpelling(const Undefined &sym) {
   // Build a map of local defined symbols.
   DenseMap<StringRef, const Symbol *> map;
   if (sym.file && !isa<SharedFile>(sym.file)) {
@@ -776,48 +759,6 @@ static const Symbol *getAlternativeSpelling(const Undefined &sym,
       return s;
   }
 
-  // Case mismatch, e.g. Foo vs FOO.
-  for (auto &it : map)
-    if (name.equals_lower(it.first))
-      return it.second;
-  for (Symbol *sym : symtab->symbols())
-    if (!sym->isUndefined() && name.equals_lower(sym->getName()))
-      return sym;
-
-  // The reference may be a mangled name while the definition is not. Suggest a
-  // missing extern "C".
-  if (name.startswith("_Z")) {
-    std::string buf = name.str();
-    llvm::ItaniumPartialDemangler d;
-    if (!d.partialDemangle(buf.c_str()))
-      if (char *buf = d.getFunctionName(nullptr, nullptr)) {
-        const Symbol *s = suggest(buf);
-        free(buf);
-        if (s) {
-          pre_hint = ": extern \"C\" ";
-          return s;
-        }
-      }
-  } else {
-    const Symbol *s = nullptr;
-    for (auto &it : map)
-      if (canSuggestExternCForCXX(name, it.first)) {
-        s = it.second;
-        break;
-      }
-    if (!s)
-      for (Symbol *sym : symtab->symbols())
-        if (canSuggestExternCForCXX(name, sym->getName())) {
-          s = sym;
-          break;
-        }
-    if (s) {
-      pre_hint = " to declare ";
-      post_hint = " as extern \"C\"?";
-      return s;
-    }
-  }
-
   return nullptr;
 }
 
@@ -863,15 +804,13 @@ static void reportUndefinedSymbol(const UndefinedDiag &undef,
     msg += ("\n>>> referenced " + Twine(undef.locs.size() - i) + " more times")
                .str();
 
-  if (correctSpelling) {
-    std::string pre_hint = ": ", post_hint;
+  if (correctSpelling)
     if (const Symbol *corrected =
-            getAlternativeSpelling(cast<Undefined>(sym), pre_hint, post_hint)) {
-      msg += "\n>>> did you mean" + pre_hint + toString(*corrected) + post_hint;
+            getAlternativeSpelling(cast<Undefined>(sym))) {
+      msg += "\n>>> did you mean: " + toString(*corrected);
       if (corrected->file)
         msg += "\n>>> defined in: " + toString(corrected->file);
     }
-  }
 
   if (sym.getName().startswith("_ZTV"))
     msg += "\nthe vtable symbol may be undefined because the class is missing "
@@ -1283,9 +1222,9 @@ static void scanReloc(InputSectionBase &sec, OffsetGetter &getOffset, RelTy *&i,
   //
   // If we know that a PLT entry will be resolved within the same ELF module, we
   // can skip PLT access and directly jump to the destination function. For
-  // example, if we are linking a main executable, all dynamic symbols that can
+  // example, if we are linking a main exectuable, all dynamic symbols that can
   // be resolved within the executable will actually be resolved that way at
-  // runtime, because the main executable is always at the beginning of a search
+  // runtime, because the main exectuable is always at the beginning of a search
   // list. We can leverage that fact.
   if (!sym.isPreemptible && (!sym.isGnuIFunc() || config->zIfuncNoplt)) {
     if (expr == R_GOT_PC && !isAbsoluteValue(sym)) {
@@ -1762,43 +1701,23 @@ static bool isThunkSectionCompatible(InputSection *source,
   return true;
 }
 
-static int64_t getPCBias(RelType type) {
-  if (config->emachine != EM_ARM)
-    return 0;
-  switch (type) {
-  case R_ARM_THM_JUMP19:
-  case R_ARM_THM_JUMP24:
-  case R_ARM_THM_CALL:
-    return 4;
-  default:
-    return 8;
-  }
-}
-
 std::pair<Thunk *, bool> ThunkCreator::getThunk(InputSection *isec,
                                                 Relocation &rel, uint64_t src) {
   std::vector<Thunk *> *thunkVec = nullptr;
-  int64_t addend = rel.addend + getPCBias(rel.type);
 
-  // We use a ((section, offset), addend) pair to find the thunk position if
-  // possible so that we create only one thunk for aliased symbols or ICFed
-  // sections. There may be multiple relocations sharing the same (section,
-  // offset + addend) pair. We may revert the relocation back to its original
-  // non-Thunk target, so we cannot fold offset + addend.
+  // We use (section, offset) pair to find the thunk position if possible so
+  // that we create only one thunk for aliased symbols or ICFed sections.
   if (auto *d = dyn_cast<Defined>(rel.sym))
     if (!d->isInPlt() && d->section)
-      thunkVec = &thunkedSymbolsBySectionAndAddend[{
-          {d->section->repl, d->value}, addend}];
+      thunkVec = &thunkedSymbolsBySection[{d->section->repl, d->value}];
   if (!thunkVec)
-    thunkVec = &thunkedSymbols[{rel.sym, addend}];
+    thunkVec = &thunkedSymbols[rel.sym];
 
   // Check existing Thunks for Sym to see if they can be reused
   for (Thunk *t : *thunkVec)
     if (isThunkSectionCompatible(isec, t->getThunkTargetSym()->section) &&
         t->isCompatibleWith(*isec, rel) &&
-        target->inBranchRange(rel.type, src,
-                              t->getThunkTargetSym()->getVA(rel.addend) +
-                                  getPCBias(rel.type)))
+        target->inBranchRange(rel.type, src, t->getThunkTargetSym()->getVA()))
       return std::make_pair(t, false);
 
   // No existing compatible Thunk in range, create a new one
@@ -1813,13 +1732,9 @@ std::pair<Thunk *, bool> ThunkCreator::getThunk(InputSection *isec,
 // relocation back to its original non-Thunk target.
 bool ThunkCreator::normalizeExistingThunk(Relocation &rel, uint64_t src) {
   if (Thunk *t = thunks.lookup(rel.sym)) {
-    if (target->inBranchRange(rel.type, src,
-                              rel.sym->getVA(rel.addend) + getPCBias(rel.type)))
+    if (target->inBranchRange(rel.type, src, rel.sym->getVA()))
       return true;
     rel.sym = &t->destination;
-    // TODO Restore addend on all targets.
-    if (config->emachine == EM_AARCH64 || config->emachine == EM_PPC64)
-      rel.addend = t->addend;
     if (rel.sym->isInPlt())
       rel.expr = toPlt(rel.expr);
   }
@@ -1875,7 +1790,7 @@ bool ThunkCreator::createThunks(ArrayRef<OutputSection *> outputSections) {
               continue;
 
             if (!target->needsThunk(rel.expr, rel.type, isec->file, src,
-                                    *rel.sym, rel.addend))
+                                    *rel.sym))
               continue;
 
             Thunk *t;
@@ -1897,15 +1812,9 @@ bool ThunkCreator::createThunks(ArrayRef<OutputSection *> outputSections) {
             rel.sym = t->getThunkTargetSym();
             rel.expr = fromPlt(rel.expr);
 
-            // On AArch64 and PPC64, a jump/call relocation may be encoded as
-            // STT_SECTION + non-zero addend, clear the addend after
-            // redirection.
-            //
             // The addend of R_PPC_PLTREL24 should be ignored after changing to
             // R_PC.
-            if (config->emachine == EM_AARCH64 ||
-                config->emachine == EM_PPC64 ||
-                (config->emachine == EM_PPC && rel.type == R_PPC_PLTREL24))
+            if (config->emachine == EM_PPC && rel.type == R_PPC_PLTREL24)
               rel.addend = 0;
           }
 

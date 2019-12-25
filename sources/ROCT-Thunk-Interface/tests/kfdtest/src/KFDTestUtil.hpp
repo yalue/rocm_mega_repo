@@ -35,6 +35,7 @@ class BaseQueue;
 #define ALIGN_UP(x, align) (((uint64_t)(x) + (align) - 1) & ~(uint64_t)((align)-1))
 #define CounterToNanoSec(x) ((x) * 1000 / (is_dgpu() ? 27 : 100))
 
+void WaitUntilInput();
 uint64_t RoundToPowerOf2(uint64_t val);
 
 // @brief: waits until the value is written to the buffer or until time out if received through args
@@ -50,10 +51,13 @@ bool is_dgpu();
 bool isTonga(const HsaNodeProperties *props);
 unsigned int FamilyIdFromNode(const HsaNodeProperties *props);
 
-void GetSdmaInfo(const HsaNodeProperties *props,
+void GetHwQueueInfo(const HsaNodeProperties *props,
+                 unsigned int *p_num_cp_queues,
                  unsigned int *p_num_sdma_engines,
                  unsigned int *p_num_sdma_xgmi_engines,
                  unsigned int *p_num_sdma_queues_per_engine);
+
+HSAuint64 GetSystemTickCountInMicroSec();
 
 class HsaMemoryBuffer {
  public:
@@ -188,6 +192,9 @@ class HsaNodeInfo {
     // @brief Find the first available Large-BAR GPU node
     // @return: Node ID if successful or -1
     const int FindLargeBarGPUNode() const;
+    const bool AreGPUNodesXGMI(int node0, int node1) const;
+    int FindAccessiblePeers(std::vector<HSAuint32> *peers, HSAuint32 dstNode,
+            bool bidirectional) const;
 };
 
 #endif  // __KFD__TEST__UTIL__H__

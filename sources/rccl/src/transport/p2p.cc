@@ -58,8 +58,6 @@ struct p2pRecvResources {
 NCCL_PARAM(P2pLevel, "P2P_LEVEL", -2);
 NCCL_PARAM(P2pDisable, "P2P_DISABLE", -2);
 
-extern bool useFineGrainVramPcie;
-
 /* Convert a PCI busId string into a local cudaDev device index (cf. CUDA_VISIBLE_DEVICES) */
 static int busIdToCudaDev(const char* busId) {
   int ndev;
@@ -80,11 +78,15 @@ static int busIdToCudaDev(const char* busId) {
 /* Determine if we can communicate with the peer through p2p */
 ncclResult_t p2pCanConnect(ncclTvalue_t* ret, struct ncclPeerInfo* myInfo, struct ncclPeerInfo* peerInfo) {
   // Do not use P2P across root complexes by default (provided CUDA permits it)
-  int p2pLevel = PATH_NODE;
+  int p2pLevel = PATH_SYS;
   if (ncclParamP2pDisable() == 1) p2pLevel = 0;
   if (ncclParamP2pLevel() != -2) p2pLevel = ncclParamP2pLevel();
 
   *ret = 0;
+
+#if defined(__HIP_PLATFORM_HCC__) || defined(__HCC__) || defined(__HIPCC__)
+  if (!hasFineGrainVramPcie()) return ncclSuccess;
+#endif
 
   if (p2pLevel == 0) return ncclSuccess;
 
@@ -142,9 +144,6 @@ ncclResult_t p2pCanConnect(ncclTvalue_t* ret, struct ncclPeerInfo* myInfo, struc
   if (link_type == HSA_AMD_LINK_INFO_TYPE_XGMI) {
     if (hops == 1)
       nvlinkp2p = CONNECT_NVLINK;
-  } else {
-    if (!useFineGrainVramPcie)
-      return ncclSuccess;
   }
 #else
 // Check for NVLink/NVswitch

@@ -18,13 +18,11 @@ class Global {
 class DefaultTrue {
   int DefaultUnsignedValue = 1;
   bit HasDefaultUnsignedValue = 1;
-  bit HasDefaultBooleanValue = 1;
 }
 
 class DefaultFalse {
   int DefaultUnsignedValue = 0;
   bit HasDefaultUnsignedValue = 1;
-  bit HasDefaultBooleanValue = 1;
 }
 
 // Gives the property a default string value.

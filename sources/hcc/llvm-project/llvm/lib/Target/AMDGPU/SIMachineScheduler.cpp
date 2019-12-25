@@ -609,8 +609,13 @@ void SIScheduleBlock::printDebug(bool full) {
   }
 
   dbgs() << "\nInstructions:\n";
-  for (const SUnit* SU : SUnits)
+  if (!Scheduled) {
+    for (const SUnit* SU : SUnits)
       DAG->dumpNode(*SU);
+  } else {
+    for (const SUnit* SU : SUnits)
+      DAG->dumpNode(*SU);
+  }
 
   dbgs() << "///////////////////////\n";
 }
@@ -618,8 +623,11 @@ void SIScheduleBlock::printDebug(bool full) {
 
 // SIScheduleBlockCreator //
 
-SIScheduleBlockCreator::SIScheduleBlockCreator(SIScheduleDAGMI *DAG)
-    : DAG(DAG) {}
+SIScheduleBlockCreator::SIScheduleBlockCreator(SIScheduleDAGMI *DAG) :
+DAG(DAG) {
+}
+
+SIScheduleBlockCreator::~SIScheduleBlockCreator() = default;
 
 SIScheduleBlocks
 SIScheduleBlockCreator::getBlocks(SISchedulerBlockCreatorVariant BlockVariant) {

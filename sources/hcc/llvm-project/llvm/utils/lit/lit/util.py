@@ -116,8 +116,6 @@ def to_unicode(s):
     return s
 
 
-# TODO(yln): multiprocessing.cpu_count()
-# TODO(python3): len(os.sched_getaffinity(0)) and os.cpu_count()
 def detectCPUs():
     """Detects the number of CPUs on a system.
 

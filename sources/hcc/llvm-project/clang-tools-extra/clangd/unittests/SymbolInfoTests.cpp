@@ -24,7 +24,7 @@ namespace clang {
 namespace clangd {
 namespace {
 
-using ::testing::UnorderedElementsAreArray;
+using ::testing::ElementsAreArray;
 
 auto CreateExpectedSymbolDetails = [](const std::string &name,
                                       const std::string &container,
@@ -329,7 +329,7 @@ TEST(SymbolInfoTests, All) {
     auto AST = TestTU::withCode(TestInput.code()).build();
 
     EXPECT_THAT(getSymbolInfo(AST, TestInput.point()),
-                UnorderedElementsAreArray(T.second))
+                ElementsAreArray(T.second))
         << T.first;
   }
 }

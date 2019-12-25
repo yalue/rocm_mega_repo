@@ -162,7 +162,9 @@ private:
 // pass manager calls lcssa verification for the current loop.
 struct LCSSAVerificationPass : public FunctionPass {
   static char ID;
-  LCSSAVerificationPass();
+  LCSSAVerificationPass() : FunctionPass(ID) {
+    initializeLCSSAVerificationPassPass(*PassRegistry::getPassRegistry());
+  }
 
   bool runOnFunction(Function &F) override { return false; }
 

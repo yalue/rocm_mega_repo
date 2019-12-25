@@ -20,7 +20,7 @@ namespace scudo {
 
 extern Checksum HashAlgorithm;
 
-inline u16 computeChecksum(u32 Seed, uptr Value, uptr *Array, uptr ArraySize) {
+INLINE u16 computeChecksum(u32 Seed, uptr Value, uptr *Array, uptr ArraySize) {
   // If the hardware CRC32 feature is defined here, it was enabled everywhere,
   // as opposed to only for crc32_hw.cpp. This means that other hardware
   // specific instructions were likely emitted at other places, and as a result
@@ -71,7 +71,7 @@ struct UnpackedHeader {
   uptr Checksum : 16;
 };
 typedef atomic_u64 AtomicPackedHeader;
-static_assert(sizeof(UnpackedHeader) == sizeof(PackedHeader), "");
+COMPILER_CHECK(sizeof(UnpackedHeader) == sizeof(PackedHeader));
 
 // Those constants are required to silence some -Werror=conversion errors when
 // assigning values to the related bitfield variables.
@@ -86,12 +86,13 @@ constexpr uptr getHeaderSize() {
   return roundUpTo(sizeof(PackedHeader), 1U << SCUDO_MIN_ALIGNMENT_LOG);
 }
 
-inline AtomicPackedHeader *getAtomicHeader(void *Ptr) {
+INLINE AtomicPackedHeader *getAtomicHeader(void *Ptr) {
   return reinterpret_cast<AtomicPackedHeader *>(reinterpret_cast<uptr>(Ptr) -
                                                 getHeaderSize());
 }
 
-inline const AtomicPackedHeader *getConstAtomicHeader(const void *Ptr) {
+INLINE
+const AtomicPackedHeader *getConstAtomicHeader(const void *Ptr) {
   return reinterpret_cast<const AtomicPackedHeader *>(
       reinterpret_cast<uptr>(Ptr) - getHeaderSize());
 }
@@ -99,7 +100,7 @@ inline const AtomicPackedHeader *getConstAtomicHeader(const void *Ptr) {
 // We do not need a cryptographically strong hash for the checksum, but a CRC
 // type function that can alert us in the event a header is invalid or
 // corrupted. Ideally slightly better than a simple xor of all fields.
-static inline u16 computeHeaderChecksum(u32 Cookie, const void *Ptr,
+static INLINE u16 computeHeaderChecksum(u32 Cookie, const void *Ptr,
                                         UnpackedHeader *Header) {
   UnpackedHeader ZeroChecksumHeader = *Header;
   ZeroChecksumHeader.Checksum = 0;
@@ -109,7 +110,7 @@ static inline u16 computeHeaderChecksum(u32 Cookie, const void *Ptr,
                          ARRAY_SIZE(HeaderHolder));
 }
 
-inline void storeHeader(u32 Cookie, void *Ptr,
+INLINE void storeHeader(u32 Cookie, void *Ptr,
                         UnpackedHeader *NewUnpackedHeader) {
   NewUnpackedHeader->Checksum =
       computeHeaderChecksum(Cookie, Ptr, NewUnpackedHeader);
@@ -117,8 +118,9 @@ inline void storeHeader(u32 Cookie, void *Ptr,
   atomic_store_relaxed(getAtomicHeader(Ptr), NewPackedHeader);
 }
 
-inline void loadHeader(u32 Cookie, const void *Ptr,
-                       UnpackedHeader *NewUnpackedHeader) {
+INLINE
+void loadHeader(u32 Cookie, const void *Ptr,
+                UnpackedHeader *NewUnpackedHeader) {
   PackedHeader NewPackedHeader = atomic_load_relaxed(getConstAtomicHeader(Ptr));
   *NewUnpackedHeader = bit_cast<UnpackedHeader>(NewPackedHeader);
   if (UNLIKELY(NewUnpackedHeader->Checksum !=
@@ -126,7 +128,7 @@ inline void loadHeader(u32 Cookie, const void *Ptr,
     reportHeaderCorruption(const_cast<void *>(Ptr));
 }
 
-inline void compareExchangeHeader(u32 Cookie, void *Ptr,
+INLINE void compareExchangeHeader(u32 Cookie, void *Ptr,
                                   UnpackedHeader *NewUnpackedHeader,
                                   UnpackedHeader *OldUnpackedHeader) {
   NewUnpackedHeader->Checksum =
@@ -139,8 +141,8 @@ inline void compareExchangeHeader(u32 Cookie, void *Ptr,
     reportHeaderRace(Ptr);
 }
 
-inline bool isValid(u32 Cookie, const void *Ptr,
-                    UnpackedHeader *NewUnpackedHeader) {
+INLINE
+bool isValid(u32 Cookie, const void *Ptr, UnpackedHeader *NewUnpackedHeader) {
   PackedHeader NewPackedHeader = atomic_load_relaxed(getConstAtomicHeader(Ptr));
   *NewUnpackedHeader = bit_cast<UnpackedHeader>(NewPackedHeader);
   return NewUnpackedHeader->Checksum ==

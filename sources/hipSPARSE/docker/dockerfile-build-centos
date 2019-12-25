@@ -14,13 +14,13 @@ RUN yum install -y \
     devtoolset-7 \
     ca-certificates \
     git \
-    cmake3 \
     make \
+    cmake3 \
     clang \
     clang-devel \
     gcc-c++ \
-    gtest-devel \
     gtest \
+    gtest-devel \
     pkgconfig \
     rocprim \
     libcxx-devel \

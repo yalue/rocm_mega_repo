@@ -85,8 +85,9 @@ SSS<int> d;
 // CHECK-NEXT: ret void
 // CHECK-NEXT: }
 
-template <typename T>
-void init(T &lhs, T &rhs) {}
+// CHECK: define {{.*}}void [[INIT:@[^(]+]]([[SSS_INT]]*
+// CHECK-LOAD: define {{.*}}void [[INIT:@[^(]+]]([[SSS_INT]]*
+void init(SSS<int> &lhs, SSS<int> &rhs) {}
 
 #pragma omp declare reduction(fun : SSS < int > : omp_out = omp_in) initializer(init(omp_priv, omp_orig))
 // CHECK: define internal {{.*}}void @{{[^(]+}}([[SSS_INT]]* noalias %0, [[SSS_INT]]* noalias %1)
@@ -94,7 +95,7 @@ void init(T &lhs, T &rhs) {}
 // CHECK-NEXT: ret void
 // CHECK-NEXT: }
 // CHECK: define internal {{.*}}void @{{[^(]+}}([[SSS_INT]]* noalias %0, [[SSS_INT]]* noalias %1)
-// CHECK: call {{.*}}void @_Z4initI3SSSIiEEvRT_S3_(
+// CHECK: call {{.*}}void [[INIT]](
 // CHECK-NEXT: ret void
 // CHECK-NEXT: }
 
@@ -103,12 +104,9 @@ void init(T &lhs, T &rhs) {}
 // CHECK-LOAD-NEXT: ret void
 // CHECK-LOAD-NEXT: }
 // CHECK-LOAD: define internal {{.*}}void @{{[^(]+}}([[SSS_INT]]* noalias %0, [[SSS_INT]]* noalias %1)
-// CHECK-LOAD: call {{.*}}void @_Z4initI3SSSIiEEvRT_S3_(
+// CHECK-LOAD: call {{.*}}void [[INIT]](
 // CHECK-LOAD-NEXT: ret void
 // CHECK-LOAD-NEXT: }
-
-// CHECK: define {{.*}}void @_Z4initI3SSSIiEEvRT_S3_(%struct.SSS* {{.+}}, %struct.SSS* {{.+}})
-// CHECK-LOAD: define {{.*}}void @_Z4initI3SSSIiEEvRT_S3_(%struct.SSS* {{.+}}, %struct.SSS* {{.+}})
 
 template <typename T>
 T foo(T a) {

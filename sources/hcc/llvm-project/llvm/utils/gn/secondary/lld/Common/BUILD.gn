@@ -25,8 +25,6 @@ static_library("Common") {
     "TargetOptionsCommandFlags.cpp",
     "Threads.cpp",
     "Timer.cpp",
-
-    # FIXME: This should be in its own target that passes -DHAVE_VCS_VERSION_INC
     "Version.cpp",
   ]
 }

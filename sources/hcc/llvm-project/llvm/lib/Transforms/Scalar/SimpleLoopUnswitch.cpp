@@ -38,10 +38,8 @@
 #include "llvm/IR/IntrinsicInst.h"
 #include "llvm/IR/Use.h"
 #include "llvm/IR/Value.h"
-#include "llvm/InitializePasses.h"
 #include "llvm/Pass.h"
 #include "llvm/Support/Casting.h"
-#include "llvm/Support/CommandLine.h"
 #include "llvm/Support/Debug.h"
 #include "llvm/Support/ErrorHandling.h"
 #include "llvm/Support/GenericDomTree.h"
@@ -265,7 +263,7 @@ static void rewritePHINodesForExitAndUnswitchedBlocks(BasicBlock &ExitBB,
 /// to an entirely separate nest.
 static void hoistLoopToNewParent(Loop &L, BasicBlock &Preheader,
                                  DominatorTree &DT, LoopInfo &LI,
-                                 MemorySSAUpdater *MSSAU, ScalarEvolution *SE) {
+                                 MemorySSAUpdater *MSSAU) {
   // If the loop is already at the top level, we can't hoist it anywhere.
   Loop *OldParentL = L.getParentLoop();
   if (!OldParentL)
@@ -319,7 +317,7 @@ static void hoistLoopToNewParent(Loop &L, BasicBlock &Preheader,
     // Because we just hoisted a loop out of this one, we have essentially
     // created new exit paths from it. That means we need to form LCSSA PHI
     // nodes for values used in the no-longer-nested loop.
-    formLCSSA(*OldContainingL, DT, &LI, SE);
+    formLCSSA(*OldContainingL, DT, &LI, nullptr);
 
     // We shouldn't need to form dedicated exits because the exit introduced
     // here is the (just split by unswitching) preheader. However, after trivial
@@ -329,20 +327,6 @@ static void hoistLoopToNewParent(Loop &L, BasicBlock &Preheader,
     formDedicatedExitBlocks(OldContainingL, &DT, &LI, MSSAU,
                             /*PreserveLCSSA*/ true);
   }
-}
-
-// Return the top-most loop containing ExitBB and having ExitBB as exiting block
-// or the loop containing ExitBB, if there is no parent loop containing ExitBB
-// as exiting block.
-static Loop *getTopMostExitingLoop(BasicBlock *ExitBB, LoopInfo &LI) {
-  Loop *TopMost = LI.getLoopFor(ExitBB);
-  Loop *Current = TopMost;
-  while (Current) {
-    if (Current->isLoopExiting(ExitBB))
-      TopMost = Current;
-    Current = Current->getParentLoop();
-  }
-  return TopMost;
 }
 
 /// Unswitch a trivial branch if the condition is loop invariant.
@@ -429,10 +413,9 @@ static bool unswitchTrivialBranch(Loop &L, BranchInst &BI, DominatorTree &DT,
   });
 
   // If we have scalar evolutions, we need to invalidate them including this
-  // loop, the loop containing the exit block and the topmost parent loop
-  // exiting via LoopExitBB.
+  // loop and the loop containing the exit block.
   if (SE) {
-    if (Loop *ExitL = getTopMostExitingLoop(LoopExitBB, LI))
+    if (Loop *ExitL = LI.getLoopFor(LoopExitBB))
       SE->forgetLoop(ExitL);
     else
       // Forget the entire nest as this exits the entire nest.
@@ -549,7 +532,7 @@ static bool unswitchTrivialBranch(Loop &L, BranchInst &BI, DominatorTree &DT,
   // If this was full unswitching, we may have changed the nesting relationship
   // for this loop so hoist it to its correct parent if needed.
   if (FullUnswitch)
-    hoistLoopToNewParent(L, *NewPH, DT, LI, MSSAU, SE);
+    hoistLoopToNewParent(L, *NewPH, DT, LI, MSSAU);
 
   if (MSSAU && VerifyMemorySSA)
     MSSAU->getMemorySSA()->verifyMemorySSA();
@@ -842,7 +825,7 @@ static bool unswitchTrivialSwitch(Loop &L, SwitchInst &SI, DominatorTree &DT,
 
   // We may have changed the nesting relationship for this loop so hoist it to
   // its correct parent if needed.
-  hoistLoopToNewParent(L, *NewPH, DT, LI, MSSAU, SE);
+  hoistLoopToNewParent(L, *NewPH, DT, LI, MSSAU);
 
   if (MSSAU && VerifyMemorySSA)
     MSSAU->getMemorySSA()->verifyMemorySSA();
@@ -2277,7 +2260,7 @@ static void unswitchNontrivialInvariants(
     // First build LCSSA for this loop so that we can preserve it when
     // forming dedicated exits. We don't want to perturb some other loop's
     // LCSSA while doing that CFG edit.
-    formLCSSA(UpdateL, DT, &LI, SE);
+    formLCSSA(UpdateL, DT, &LI, nullptr);
 
     // For loops reached by this loop's original exit blocks we may
     // introduced new, non-dedicated exits. At least try to re-form dedicated
@@ -2443,7 +2426,7 @@ turnGuardIntoBranch(IntrinsicInst *GI, Loop &L,
 
   if (MSSAU) {
     MemoryDef *MD = cast<MemoryDef>(MSSAU->getMemorySSA()->getMemoryAccess(GI));
-    MSSAU->moveToPlace(MD, DeoptBlock, MemorySSA::BeforeTerminator);
+    MSSAU->moveToPlace(MD, DeoptBlock, MemorySSA::End);
     if (VerifyMemorySSA)
       MSSAU->getMemorySSA()->verifyMemorySSA();
   }

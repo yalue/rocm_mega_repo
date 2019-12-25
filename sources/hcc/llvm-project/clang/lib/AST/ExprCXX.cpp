@@ -107,7 +107,7 @@ CXXRewrittenBinaryOperator::getDecomposedForm() const {
     return Result;
 
   // Otherwise, we expect a <=> to now be on the LHS.
-  E = Result.LHS->IgnoreImplicitAsWritten();
+  E = Result.LHS->IgnoreImplicit();
   if (auto *BO = dyn_cast<BinaryOperator>(E)) {
     assert(BO->getOpcode() == BO_Cmp);
     Result.LHS = BO->getLHS();
@@ -1653,23 +1653,7 @@ FunctionParmPackExpr::CreateEmpty(const ASTContext &Context,
       FunctionParmPackExpr(QualType(), nullptr, SourceLocation(), 0, nullptr);
 }
 
-MaterializeTemporaryExpr::MaterializeTemporaryExpr(
-    QualType T, Expr *Temporary, bool BoundToLvalueReference,
-    LifetimeExtendedTemporaryDecl *MTD)
-    : Expr(MaterializeTemporaryExprClass, T,
-           BoundToLvalueReference ? VK_LValue : VK_XValue, OK_Ordinary,
-           Temporary->isTypeDependent(), Temporary->isValueDependent(),
-           Temporary->isInstantiationDependent(),
-           Temporary->containsUnexpandedParameterPack()) {
-  if (MTD) {
-    State = MTD;
-    MTD->ExprWithTemporary = Temporary;
-    return;
-  }
-  State = Temporary;
-}
-
-void MaterializeTemporaryExpr::setExtendingDecl(ValueDecl *ExtendedBy,
+void MaterializeTemporaryExpr::setExtendingDecl(const ValueDecl *ExtendedBy,
                                                 unsigned ManglingNumber) {
   // We only need extra state if we have to remember more than just the Stmt.
   if (!ExtendedBy)
@@ -1677,11 +1661,13 @@ void MaterializeTemporaryExpr::setExtendingDecl(ValueDecl *ExtendedBy,
 
   // We may need to allocate extra storage for the mangling number and the
   // extended-by ValueDecl.
-  if (!State.is<LifetimeExtendedTemporaryDecl *>())
-    State = LifetimeExtendedTemporaryDecl::Create(
-        cast<Expr>(State.get<Stmt *>()), ExtendedBy, ManglingNumber);
+  if (!State.is<ExtraState *>()) {
+    auto *ES = new (ExtendedBy->getASTContext()) ExtraState;
+    ES->Temporary = State.get<Stmt *>();
+    State = ES;
+  }
 
-  auto ES = State.get<LifetimeExtendedTemporaryDecl *>();
+  auto ES = State.get<ExtraState *>();
   ES->ExtendingDecl = ExtendedBy;
   ES->ManglingNumber = ManglingNumber;
 }
@@ -1769,19 +1755,18 @@ ConceptSpecializationExpr::ConceptSpecializationExpr(ASTContext &C,
     NestedNameSpecifierLoc NNS, SourceLocation TemplateKWLoc,
     SourceLocation ConceptNameLoc, NamedDecl *FoundDecl,
     ConceptDecl *NamedConcept, const ASTTemplateArgumentListInfo *ArgsAsWritten,
-    ArrayRef<TemplateArgument> ConvertedArgs,
-    const ConstraintSatisfaction *Satisfaction)
+    ArrayRef<TemplateArgument> ConvertedArgs, Optional<bool> IsSatisfied)
     : Expr(ConceptSpecializationExprClass, C.BoolTy, VK_RValue, OK_Ordinary,
            /*TypeDependent=*/false,
            // All the flags below are set in setTemplateArguments.
-           /*ValueDependent=*/!Satisfaction, /*InstantiationDependent=*/false,
+           /*ValueDependent=*/!IsSatisfied.hasValue(),
+           /*InstantiationDependent=*/false,
            /*ContainsUnexpandedParameterPacks=*/false),
       NestedNameSpec(NNS), TemplateKWLoc(TemplateKWLoc),
       ConceptNameLoc(ConceptNameLoc), FoundDecl(FoundDecl),
-      NamedConcept(NamedConcept), NumTemplateArgs(ConvertedArgs.size()),
-      Satisfaction(Satisfaction ?
-                   ASTConstraintSatisfaction::Create(C, *Satisfaction) :
-                   nullptr) {
+      NamedConcept(NamedConcept, IsSatisfied ? *IsSatisfied : true),
+      NumTemplateArgs(ConvertedArgs.size()) {
+
   setTemplateArguments(ArgsAsWritten, ConvertedArgs);
 }
 
@@ -1828,13 +1813,13 @@ ConceptSpecializationExpr::Create(ASTContext &C, NestedNameSpecifierLoc NNS,
                                   ConceptDecl *NamedConcept,
                                const ASTTemplateArgumentListInfo *ArgsAsWritten,
                                   ArrayRef<TemplateArgument> ConvertedArgs,
-                                  const ConstraintSatisfaction *Satisfaction) {
+                                  Optional<bool> IsSatisfied) {
   void *Buffer = C.Allocate(totalSizeToAlloc<TemplateArgument>(
                                 ConvertedArgs.size()));
   return new (Buffer) ConceptSpecializationExpr(C, NNS, TemplateKWLoc,
                                                 ConceptNameLoc, FoundDecl,
                                                 NamedConcept, ArgsAsWritten,
-                                                ConvertedArgs, Satisfaction);
+                                                ConvertedArgs, IsSatisfied);
 }
 
 ConceptSpecializationExpr *

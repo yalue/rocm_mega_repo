@@ -496,50 +496,27 @@ void replace_extension(SmallVectorImpl<char> &path, const Twine &extension,
   path.append(ext.begin(), ext.end());
 }
 
-bool replace_path_prefix(SmallVectorImpl<char> &Path,
+void replace_path_prefix(SmallVectorImpl<char> &Path,
                          const StringRef &OldPrefix, const StringRef &NewPrefix,
-                         Style style, bool strict) {
+                         Style style) {
   if (OldPrefix.empty() && NewPrefix.empty())
-    return false;
+    return;
 
   StringRef OrigPath(Path.begin(), Path.size());
-  StringRef OldPrefixDir;
-
-  if (!strict && OldPrefix.size() > OrigPath.size())
-    return false;
-
-  // Ensure OldPrefixDir does not have a trailing separator.
-  if (!OldPrefix.empty() && is_separator(OldPrefix.back()))
-    OldPrefixDir = parent_path(OldPrefix, style);
-  else
-    OldPrefixDir = OldPrefix;
-
-  if (!OrigPath.startswith(OldPrefixDir))
-    return false;
-
-  if (OrigPath.size() > OldPrefixDir.size())
-    if (!is_separator(OrigPath[OldPrefixDir.size()], style) && strict)
-      return false;
+  if (!OrigPath.startswith(OldPrefix))
+    return;
 
   // If prefixes have the same size we can simply copy the new one over.
-  if (OldPrefixDir.size() == NewPrefix.size() && !strict) {
+  if (OldPrefix.size() == NewPrefix.size()) {
     llvm::copy(NewPrefix, Path.begin());
-    return true;
+    return;
   }
 
-  StringRef RelPath = OrigPath.substr(OldPrefixDir.size());
+  StringRef RelPath = OrigPath.substr(OldPrefix.size());
   SmallString<256> NewPath;
   path::append(NewPath, style, NewPrefix);
-  if (!RelPath.empty()) {
-    if (!is_separator(RelPath[0], style) || !strict)
-      path::append(NewPath, style, RelPath);
-    else
-      path::append(NewPath, style, relative_path(RelPath, style));
-  }
-
+  path::append(NewPath, style, RelPath);
   Path.swap(NewPath);
-
-  return true;
 }
 
 void native(const Twine &path, SmallVectorImpl<char> &result, Style style) {

@@ -32,12 +32,12 @@ macro(rocm_create_package)
     rocm_read_os_release(_version_id "VERSION_ID")
 
     #only set CPACK_SYSTEM_NAME for AMD supported OSes
-    if (_os_id_centos OR _os_is_rhel)
+    if (_os_id_centos OR _os_id_rhel)
         STRING(CONCAT _SYSTEM_NAME "el" ${_version_id} ".x86_64")
     #Debs use underscrore between OS and architecture
     elseif(_os_id_ubuntu)
         STRING(CONCAT _SYSTEM_NAME ${_os_id} "-" ${_version_id} "_amd64")
-    elseif(_os_is_sles)
+    elseif(_os_id_sles)
         STRING(CONCAT _SYSTEM_NAME ${_os_id} "-" ${_version_id} ".amd64")
     else()
         set(_SYSTEM_NAME ${CPACK_SYSTEM_NAME})

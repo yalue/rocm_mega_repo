@@ -290,9 +290,12 @@ void X86_MC::initLLVMToSEHAndCVRegMapping(MCRegisterInfo *MRI) {
 MCSubtargetInfo *X86_MC::createX86MCSubtargetInfo(const Triple &TT,
                                                   StringRef CPU, StringRef FS) {
   std::string ArchFS = X86_MC::ParseX86Triple(TT);
-  assert(!ArchFS.empty() && "Failed to parse X86 triple");
-  if (!FS.empty())
-    ArchFS = (Twine(ArchFS) + "," + FS).str();
+  if (!FS.empty()) {
+    if (!ArchFS.empty())
+      ArchFS = (Twine(ArchFS) + "," + FS).str();
+    else
+      ArchFS = FS;
+  }
 
   std::string CPUName = CPU;
   if (CPUName.empty())
@@ -320,8 +323,7 @@ static MCRegisterInfo *createX86MCRegisterInfo(const Triple &TT) {
 }
 
 static MCAsmInfo *createX86MCAsmInfo(const MCRegisterInfo &MRI,
-                                     const Triple &TheTriple,
-                                     const MCTargetOptions &Options) {
+                                     const Triple &TheTriple) {
   bool is64Bit = TheTriple.getArch() == Triple::x86_64;
 
   MCAsmInfo *MAI;

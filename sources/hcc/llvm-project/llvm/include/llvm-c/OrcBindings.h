@@ -23,11 +23,12 @@
 #define LLVM_C_ORCBINDINGS_H
 
 #include "llvm-c/Error.h"
-#include "llvm-c/ExternC.h"
 #include "llvm-c/Object.h"
 #include "llvm-c/TargetMachine.h"
 
-LLVM_C_EXTERN_C_BEGIN
+#ifdef __cplusplus
+extern "C" {
+#endif
 
 typedef struct LLVMOrcOpaqueJITStack *LLVMOrcJITStackRef;
 typedef uint64_t LLVMOrcModuleHandle;
@@ -164,6 +165,8 @@ void LLVMOrcRegisterJITEventListener(LLVMOrcJITStackRef JITStack, LLVMJITEventLi
  */
 void LLVMOrcUnregisterJITEventListener(LLVMOrcJITStackRef JITStack, LLVMJITEventListenerRef L);
 
-LLVM_C_EXTERN_C_END
+#ifdef __cplusplus
+}
+#endif /* extern "C" */
 
 #endif /* LLVM_C_ORCBINDINGS_H */

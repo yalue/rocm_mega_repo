@@ -303,10 +303,9 @@ findTestSelectionRanges(StringRef Filename) {
 
   // See the doc comment for this function for the explanation of this
   // syntax.
-  static const Regex RangeRegex(
-      "range[[:blank:]]*([[:alpha:]_]*)?[[:blank:]]*=[[:"
-      "blank:]]*(\\+[[:digit:]]+)?[[:blank:]]*(->[[:blank:]"
-      "]*[\\+\\:[:digit:]]+)?");
+  static Regex RangeRegex("range[[:blank:]]*([[:alpha:]_]*)?[[:blank:]]*=[[:"
+                          "blank:]]*(\\+[[:digit:]]+)?[[:blank:]]*(->[[:blank:]"
+                          "]*[\\+\\:[:digit:]]+)?");
 
   std::map<std::string, SmallVector<TestSelectionRange, 8>> GroupedRanges;
 
@@ -353,7 +352,7 @@ findTestSelectionRanges(StringRef Filename) {
     unsigned EndOffset;
 
     if (!Matches[3].empty()) {
-      static const Regex EndLocRegex(
+      static Regex EndLocRegex(
           "->[[:blank:]]*(\\+[[:digit:]]+):([[:digit:]]+)");
       SmallVector<StringRef, 4> EndLocMatches;
       if (!EndLocRegex.match(Matches[3], &EndLocMatches)) {

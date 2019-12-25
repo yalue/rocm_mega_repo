@@ -9,7 +9,6 @@
 #ifndef LLVM_CLANG_DRIVER_DISTRO_H
 #define LLVM_CLANG_DRIVER_DISTRO_H
 
-#include "llvm/ADT/Triple.h"
 #include "llvm/Support/VirtualFileSystem.h"
 
 namespace clang {
@@ -66,7 +65,6 @@ public:
     UbuntuCosmic,
     UbuntuDisco,
     UbuntuEoan,
-    UbuntuFocal,
     UnknownDistro
   };
 
@@ -85,7 +83,7 @@ public:
   Distro(DistroType D) : DistroVal(D) {}
 
   /// Detects the distribution using specified VFS.
-  explicit Distro(llvm::vfs::FileSystem &VFS, const llvm::Triple &TargetOrHost);
+  explicit Distro(llvm::vfs::FileSystem &VFS);
 
   bool operator==(const Distro &Other) const {
     return DistroVal == Other.DistroVal;
@@ -120,7 +118,7 @@ public:
   }
 
   bool IsUbuntu() const {
-    return DistroVal >= UbuntuHardy && DistroVal <= UbuntuFocal;
+    return DistroVal >= UbuntuHardy && DistroVal <= UbuntuEoan;
   }
 
   bool IsAlpineLinux() const {

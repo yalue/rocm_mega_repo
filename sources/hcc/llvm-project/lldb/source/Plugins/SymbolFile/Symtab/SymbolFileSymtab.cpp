@@ -25,8 +25,6 @@
 using namespace lldb;
 using namespace lldb_private;
 
-char SymbolFileSymtab::ID;
-
 void SymbolFileSymtab::Initialize() {
   PluginManager::RegisterPlugin(GetPluginNameStatic(),
                                 GetPluginDescriptionStatic(), CreateInstance);

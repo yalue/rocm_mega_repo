@@ -136,8 +136,8 @@ add_subdirectory( src )
 # endif( )
 
 # Package specific CPACK vars
-set( CPACK_DEBIAN_PACKAGE_DEPENDS "hip_hcc (>= 1.3)" )
-set( CPACK_RPM_PACKAGE_REQUIRES "hip_hcc >= 1.3" )
+set( CPACK_DEBIAN_PACKAGE_DEPENDS "rocm-dev (>= 2.5.27)" )
+set( CPACK_RPM_PACKAGE_REQUIRES "rocm-dev >= 2.5.27" )
 set( CPACK_RESOURCE_FILE_LICENSE "${CMAKE_CURRENT_SOURCE_DIR}/../LICENSE.md" )
 
 if( NOT CPACK_PACKAGING_INSTALL_PREFIX )
@@ -158,7 +158,7 @@ set( ROCFFT_CONFIG_DIR "\${CPACK_PACKAGING_INSTALL_PREFIX}/${CMAKE_INSTALL_LIBDI
 rocm_create_package(
     NAME ${package_name}
     DESCRIPTION "Radeon Open Compute FFT library"
-    MAINTAINER "Kent Knox <kent.knox@amd.com>"
+    MAINTAINER "rocfft-maintainer@amd.com"
     LDCONFIG
     LDCONFIG_DIR ${ROCFFT_CONFIG_DIR}
 )

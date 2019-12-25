@@ -145,8 +145,8 @@ bool ThreadPlanStepInRange::ShouldStop(Event *event_ptr) {
 
   if (log) {
     StreamString s;
-    DumpAddress(
-        s.AsRawOstream(), m_thread.GetRegisterContext()->GetPC(),
+    s.Address(
+        m_thread.GetRegisterContext()->GetPC(),
         m_thread.CalculateTarget()->GetArchitecture().GetAddressByteSize());
     LLDB_LOGF(log, "ThreadPlanStepInRange reached %s.", s.GetData());
   }
@@ -339,7 +339,7 @@ bool ThreadPlanStepInRange::FrameMatchesAvoidCriteria() {
     if (frame_library) {
       for (size_t i = 0; i < num_libraries; i++) {
         const FileSpec &file_spec(libraries_to_avoid.GetFileSpecAtIndex(i));
-        if (FileSpec::Match(file_spec, frame_library)) {
+        if (FileSpec::Equal(file_spec, frame_library, false)) {
           libraries_say_avoid = true;
           break;
         }
@@ -392,7 +392,7 @@ bool ThreadPlanStepInRange::DefaultShouldStopHereCallback(
   should_stop_here = ThreadPlanShouldStopHere::DefaultShouldStopHereCallback(
       current_plan, flags, operation, status, baton);
   if (!should_stop_here)
-    return false;
+    return should_stop_here;
 
   if (should_stop_here && current_plan->GetKind() == eKindStepInRange &&
       operation == eFrameCompareYounger) {

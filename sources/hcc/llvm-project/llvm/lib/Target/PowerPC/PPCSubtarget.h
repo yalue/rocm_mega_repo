@@ -57,7 +57,6 @@ namespace PPC {
     DIR_PWR7,
     DIR_PWR8,
     DIR_PWR9,
-    DIR_PWR_FUTURE,
     DIR_64
   };
 }
@@ -85,7 +84,7 @@ protected:
   InstrItineraryData InstrItins;
 
   /// Which cpu directive was used.
-  unsigned CPUDirective;
+  unsigned DarwinDirective;
 
   /// Used by the ISel to turn in optimizations for POWER4-derived architectures
   bool HasMFOCRF;
@@ -170,11 +169,8 @@ public:
   Align getStackAlignment() const { return StackAlignment; }
 
   /// getDarwinDirective - Returns the -m directive specified for the cpu.
-  unsigned getDarwinDirective() const { return CPUDirective; }
-
-  /// getCPUDirective - Returns the -m directive specified for the cpu.
   ///
-  unsigned getCPUDirective() const { return CPUDirective; }
+  unsigned getDarwinDirective() const { return DarwinDirective; }
 
   /// getInstrItins - Return the instruction itineraries based on subtarget
   /// selection.
@@ -350,13 +346,6 @@ public:
 
   /// True if the GV will be accessed via an indirect symbol.
   bool isGVIndirectSymbol(const GlobalValue *GV) const;
-
-  /// True if the ABI is descriptor based.
-  bool usesFunctionDescriptors() const {
-    // Both 32-bit and 64-bit AIX are descriptor based. For ELF only the 64-bit
-    // v1 ABI uses descriptors.
-    return isAIXABI() || (is64BitELFABI() && !isELFv2ABI());
-  }
 
   bool isXRaySupported() const override { return IsPPC64 && IsLittleEndian; }
 };

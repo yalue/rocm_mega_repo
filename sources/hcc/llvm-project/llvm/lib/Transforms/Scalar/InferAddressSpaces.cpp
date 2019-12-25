@@ -141,11 +141,11 @@ using ValueToAddrSpaceMapTy = DenseMap<const Value *, unsigned>;
 
 /// InferAddressSpaces
 class InferAddressSpaces : public FunctionPass {
-  const TargetTransformInfo *TTI = nullptr;
+  const TargetTransformInfo *TTI;
 
   /// Target specific address space which uses of should be replaced if
   /// possible.
-  unsigned FlatAddrSpace = 0;
+  unsigned FlatAddrSpace;
 
 public:
   static char ID;

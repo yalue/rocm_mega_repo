@@ -286,7 +286,7 @@ static inline HsaSharedMemoryHandle *to_hsa_shared_memory_handle(
 }
 
 extern int debug_get_reg_status(uint32_t node_id, bool *is_debugged);
-static void __fmm_release(vm_object_t *object, manageable_aperture_t *aperture);
+static int __fmm_release(vm_object_t *object, manageable_aperture_t *aperture);
 static int _fmm_unmap_from_gpu_scratch(uint32_t gpu_id,
 				       manageable_aperture_t *aperture,
 				       void *address);
@@ -1397,7 +1397,7 @@ void *fmm_allocate_doorbell(uint32_t gpu_id, uint64_t MemorySizeInBytes,
 		flags.Value = 0;
 		flags.ui32.NonPaged = 1;
 		flags.ui32.HostAccess = 1;
-		flags.ui32.Reserved = 0xBe11;
+		flags.ui32.Reserved = 0xBe1;
 
 		pthread_mutex_lock(&aperture->fmm_mutex);
 		vm_obj->flags = flags.Value;
@@ -1455,16 +1455,23 @@ static void *fmm_allocate_host_cpu(void *address, uint64_t MemorySizeInBytes,
 }
 
 static int bind_mem_to_numa(uint32_t node_id, void *mem,
-			    uint64_t MemorySizeInBytes, HsaMemFlags flags)
+			    uint64_t SizeInBytes, HsaMemFlags flags)
 {
 	int mode = MPOL_F_STATIC_NODES;
 	struct bitmask *node_mask;
 	int num_node;
+	long r;
+
+	pr_debug("%s mem %p flags 0x%x size 0x%lx node_id %d\n", __func__,
+		mem, flags.Value, SizeInBytes, node_id);
+
+	if (flags.ui32.NoNUMABind)
+		return 0;
 
 	if (numa_available() == -1)
 		return 0;
 
-	num_node = numa_num_task_nodes();
+	num_node = numa_max_node() + 1;
 
 	/* Ignore binding requests to invalid nodes IDs */
 	if (node_id >= (unsigned)num_node) {
@@ -1472,22 +1479,33 @@ static int bind_mem_to_numa(uint32_t node_id, void *mem,
 		return 0;
 	}
 
-	if (num_node > 1) {
-		node_mask = numa_bitmask_alloc(num_node);
-		if (!node_mask)
-			return -ENOMEM;
+	if (num_node <= 1)
+		return 0;
 
-		numa_bitmask_setbit(node_mask, node_id);
-		mode |= flags.ui32.NoSubstitute ? MPOL_BIND : MPOL_PREFERRED;
-		if (mbind(mem, MemorySizeInBytes, mode, node_mask->maskp,
-			  num_node + 1, 0)) {
-			pr_warn("Failed to set NUMA policy for %p\n", mem);
+	node_mask = numa_bitmask_alloc(num_node);
+	if (!node_mask)
+		return -ENOMEM;
 
-			numa_bitmask_free(node_mask);
-			return -EFAULT;
+	numa_bitmask_setbit(node_mask, node_id);
+	mode |= flags.ui32.NoSubstitute ? MPOL_BIND : MPOL_PREFERRED;
+	r = mbind(mem, SizeInBytes, mode, node_mask->maskp, num_node + 1, 0);
+	numa_bitmask_free(node_mask);
+
+	if (r) {
+		pr_warn_once("Failed to set NUMA policy for %p: %s\n", mem,
+			     strerror(errno));
+
+		/* If applcation is running inside docker, still return
+		 * ok because docker seccomp blocks mbind by default,
+		 * otherwise application cannot allocate system memory.
+		 */
+		if (errno == EPERM) {
+			pr_err_once("mbind is blocked by seccomp\n");
+
+			return 0;
 		}
 
-		numa_bitmask_free(node_mask);
+		return -EFAULT;
 	}
 
 	return 0;
@@ -1613,12 +1631,12 @@ void *fmm_allocate_host(uint32_t node_id, void *address,
 	return fmm_allocate_host_cpu(address, MemorySizeInBytes, flags);
 }
 
-static void __fmm_release(vm_object_t *object, manageable_aperture_t *aperture)
+static int __fmm_release(vm_object_t *object, manageable_aperture_t *aperture)
 {
 	struct kfd_ioctl_free_memory_of_gpu_args args = {0};
 
 	if (!object)
-		return;
+		return -EINVAL;
 
 	pthread_mutex_lock(&aperture->fmm_mutex);
 
@@ -1628,12 +1646,16 @@ static void __fmm_release(vm_object_t *object, manageable_aperture_t *aperture)
 	 * free the BO before unmapping the pages.
 	 */
 	args.handle = object->handle;
-	kmtIoctl(kfd_fd, AMDKFD_IOC_FREE_MEMORY_OF_GPU, &args);
+	if (kmtIoctl(kfd_fd, AMDKFD_IOC_FREE_MEMORY_OF_GPU, &args)) {
+		pthread_mutex_unlock(&aperture->fmm_mutex);
+		return -errno;
+	}
 
 	aperture_release_area(aperture, object->start, object->size);
 	vm_remove_object(aperture, object);
 
 	pthread_mutex_unlock(&aperture->fmm_mutex);
+	return 0;
 }
 
 HSAKMT_STATUS fmm_release(void *address)
@@ -1667,7 +1689,9 @@ HSAKMT_STATUS fmm_release(void *address)
 	} else {
 		pthread_mutex_unlock(&aperture->fmm_mutex);
 
-		__fmm_release(object, aperture);
+		if (__fmm_release(object, aperture))
+			return HSAKMT_STATUS_ERROR;
+
 		if (!aperture->is_cpu_accessible)
 			fmm_print(gpu_mem[i].gpu_id);
 	}
@@ -2333,6 +2357,9 @@ HSAKMT_STATUS fmm_init_process_apertures(unsigned int NumNodes)
 			gpu_mem[gpu_mem_id].mmio_aperture.limit = (void *)
 			((char *)gpu_mem[gpu_mem_id].mmio_aperture.base +
 			 PAGE_SIZE - 1);
+		else
+			pr_err("Failed to map remapped mmio page on gpu_mem %d\n",
+					gpu_mem_id);
 	}
 
 	free(process_apertures);
@@ -2825,9 +2852,7 @@ static int _fmm_unmap_from_gpu_scratch(uint32_t gpu_id,
 	pthread_mutex_unlock(&aperture->fmm_mutex);
 
 	/* free object in scratch backing aperture */
-	__fmm_release(object, aperture);
-
-	return 0;
+	return __fmm_release(object, aperture);
 
 err:
 	pthread_mutex_unlock(&aperture->fmm_mutex);

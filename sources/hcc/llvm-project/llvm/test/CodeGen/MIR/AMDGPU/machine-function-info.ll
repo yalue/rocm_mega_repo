@@ -28,8 +28,6 @@
 ; CHECK-NEXT: mode:
 ; CHECK-NEXT: ieee: true
 ; CHECK-NEXT: dx10-clamp: true
-; CHECK-NEXT: fp32-denormals: false
-; CHECK-NEXT: fp64-fp16-denormals: true
 ; CHECK-NEXT: highBitsOf32BitAddress: 0
 ; CHECK-NEXT: body:
 define amdgpu_kernel void @kernel(i32 %arg0, i64 %arg1, <16 x i32> %arg2) {
@@ -57,8 +55,6 @@ define amdgpu_kernel void @kernel(i32 %arg0, i64 %arg1, <16 x i32> %arg2) {
 ; CHECK-NEXT: mode:
 ; CHECK-NEXT: ieee: false
 ; CHECK-NEXT: dx10-clamp: true
-; CHECK-NEXT: fp32-denormals: false
-; CHECK-NEXT: fp64-fp16-denormals: true
 ; CHECK-NEXT: highBitsOf32BitAddress: 0
 ; CHECK-NEXT: body:
 define amdgpu_ps void @ps_shader(i32 %arg0, i32 inreg %arg1) {
@@ -84,8 +80,6 @@ define amdgpu_ps void @ps_shader(i32 %arg0, i32 inreg %arg1) {
 ; CHECK-NEXT: mode:
 ; CHECK-NEXT: ieee: true
 ; CHECK-NEXT: dx10-clamp: true
-; CHECK-NEXT: fp32-denormals: false
-; CHECK-NEXT: fp64-fp16-denormals: true
 ; CHECK-NEXT: highBitsOf32BitAddress: 0
 ; CHECK-NEXT: body:
 define void @function() {
@@ -111,8 +105,6 @@ define void @function() {
 ; CHECK-NEXT: mode:
 ; CHECK-NEXT: ieee: true
 ; CHECK-NEXT: dx10-clamp: true
-; CHECK-NEXT: fp32-denormals: false
-; CHECK-NEXT: fp64-fp16-denormals: true
 ; CHECK-NEXT: highBitsOf32BitAddress: 0
 ; CHECK-NEXT: body:
 define void @function_nsz() #0 {
@@ -123,8 +115,6 @@ define void @function_nsz() #0 {
 ; CHECK: mode:
 ; CHECK-NEXT: ieee: true
 ; CHECK-NEXT: dx10-clamp: false
-; CHECK-NEXT: fp32-denormals: false
-; CHECK-NEXT: fp64-fp16-denormals: true
 define void @function_dx10_clamp_off() #1 {
   ret void
 }
@@ -133,8 +123,6 @@ define void @function_dx10_clamp_off() #1 {
 ; CHECK: mode:
 ; CHECK-NEXT: ieee: false
 ; CHECK-NEXT: dx10-clamp: true
-; CHECK-NEXT: fp32-denormals: false
-; CHECK-NEXT: fp64-fp16-denormals: true
 define void @function_ieee_off() #2 {
   ret void
 }
@@ -143,8 +131,6 @@ define void @function_ieee_off() #2 {
 ; CHECK: mode:
 ; CHECK-NEXT: ieee: false
 ; CHECK-NEXT: dx10-clamp: false
-; CHECK-NEXT: fp32-denormals: false
-; CHECK-NEXT: fp64-fp16-denormals: true
 define void @function_ieee_off_dx10_clamp_off() #3 {
   ret void
 }

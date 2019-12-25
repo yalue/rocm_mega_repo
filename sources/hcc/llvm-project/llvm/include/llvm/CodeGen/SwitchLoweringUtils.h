@@ -19,7 +19,6 @@ namespace llvm {
 
 class FunctionLoweringInfo;
 class MachineBasicBlock;
-class BlockFrequencyInfo;
 
 namespace SwitchCG {
 
@@ -265,8 +264,7 @@ public:
   std::vector<BitTestBlock> BitTestCases;
 
   void findJumpTables(CaseClusterVector &Clusters, const SwitchInst *SI,
-                      MachineBasicBlock *DefaultMBB,
-                      ProfileSummaryInfo *PSI, BlockFrequencyInfo *BFI);
+                      MachineBasicBlock *DefaultMBB);
 
   bool buildJumpTable(const CaseClusterVector &Clusters, unsigned First,
                       unsigned Last, const SwitchInst *SI,
@@ -297,3 +295,4 @@ private:
 } // namespace llvm
 
 #endif // LLVM_CODEGEN_SWITCHLOWERINGUTILS_H
+

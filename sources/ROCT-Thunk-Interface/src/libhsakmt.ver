@@ -61,12 +61,14 @@ hsaKmtEnableDebugTrap;
 hsaKmtEnableDebugTrapWithPollFd;
 hsaKmtDisableDebugTrap;
 hsaKmtQueryDebugEvent;
-hsaKmtSetDebugTrapData2;
+hsaKmtGetQueueSnapshot;
 hsaKmtSetWaveLaunchTrapOverride;
 hsaKmtSetWaveLaunchMode;
 hsaKmtQueueSuspend;
 hsaKmtQueueResume;
 hsaKmtAllocQueueGWS;
+hsaKmtGetKernelDebugTrapVersionInfo;
+hsaKmtGetThunkDebugTrapVersionInfo;
 
 local: *;
 };

@@ -152,6 +152,12 @@ Options:
         <parameters api="hsa_queue_create, hsa_amd_memory_pool_allocate">
         </parameters>
       </trace>
+ 
+  --roctx-trace - to enable rocTX applicatin code annotation trace; should be use in addition to the trace options above.
+    Will show the application code annotation with rocTX events: roctxMark, roctxRangePush, roctxRangePop in JSON trace
+    "Markers and Ranges" section.
+    Application code needs to be explicitely instrumented using rocTX events APIs.
+    See roctracer documentation on rocTX API details.
 
 Configuration file:
   You can set your parameters defaults preferences in the configuration file 'rpl_rc.xml'. The search path sequence: .:/home/evgeny:<package path>

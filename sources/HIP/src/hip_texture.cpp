@@ -222,7 +222,7 @@ hipError_t hipCreateTextureObject(hipTextureObject_t* pTexObject, const hipResou
         hsa_ext_image_channel_order_t channelOrder;
         hsa_ext_image_channel_type_t channelType;
         void* devPtr = nullptr;
-
+        size_t pitch = 0;
         switch (pResDesc->resType) {
             case hipResourceTypeArray:
                 devPtr = pResDesc->res.array.array->data;
@@ -279,6 +279,7 @@ hipError_t hipCreateTextureObject(hipTextureObject_t* pTexObject, const hipResou
                 imageDescriptor.depth = 0;
                 imageDescriptor.array_size = 0;
                 imageDescriptor.geometry = HSA_EXT_IMAGE_GEOMETRY_2D;
+                pitch = pResDesc->res.pitch2D.pitchInBytes;
                 getChannelOrderAndType(pResDesc->res.pitch2D.desc, pTexDesc->readMode,
                                        &channelOrder, &channelType);
                 break;
@@ -296,7 +297,7 @@ hipError_t hipCreateTextureObject(hipTextureObject_t* pTexObject, const hipResou
         hsa_access_permission_t permission = HSA_ACCESS_PERMISSION_RW;
         if (HSA_STATUS_SUCCESS != hsa_ext_image_create_with_layout(
                                       *agent, &imageDescriptor, devPtr, permission,
-                                      HSA_EXT_IMAGE_DATA_LAYOUT_LINEAR, 0, 0, &(pTexture->image)) ||
+                                      HSA_EXT_IMAGE_DATA_LAYOUT_LINEAR, pitch, 0, &(pTexture->image)) ||
             HSA_STATUS_SUCCESS !=
                 hsa_ext_sampler_create(*agent, &samplerDescriptor, &(pTexture->sampler))) {
             return ihipLogStatus(hipErrorRuntimeOther);
@@ -437,6 +438,7 @@ hipError_t ihipBindTextureImpl(TlsData *tls_, int dim, enum hipTextureReadMode r
             return hipErrorRuntimeOther;
         }
         getHipTextureObject(&textureObject, pTexture->image, pTexture->sampler);
+        pTexture->devPtr = (void*) devPtr;
         textureHash[textureObject] = pTexture;
     }
 
@@ -455,7 +457,7 @@ hipError_t hipBindTexture(size_t* offset, textureReference* tex, const void* dev
 
 hipError_t ihipBindTexture2DImpl(TlsData *tls, int dim, enum hipTextureReadMode readMode, size_t* offset,
                                  const void* devPtr, const struct hipChannelFormatDesc* desc,
-                                 size_t width, size_t height, textureReference* tex) {
+                                 size_t width, size_t height, textureReference* tex, size_t pitch) {
     hipError_t hip_status = hipSuccess;
     enum hipTextureAddressMode addressMode = tex->addressMode[0];
     enum hipTextureFilterMode filterMode = tex->filterMode;
@@ -503,12 +505,13 @@ hipError_t ihipBindTexture2DImpl(TlsData *tls, int dim, enum hipTextureReadMode 
 
         if (HSA_STATUS_SUCCESS != hsa_ext_image_create_with_layout(
                                       *agent, &imageDescriptor, devPtr, permission,
-                                      HSA_EXT_IMAGE_DATA_LAYOUT_LINEAR, 0, 0, &(pTexture->image)) ||
+                                      HSA_EXT_IMAGE_DATA_LAYOUT_LINEAR, pitch, 0, &(pTexture->image)) ||
             HSA_STATUS_SUCCESS !=
                 hsa_ext_sampler_create(*agent, &samplerDescriptor, &(pTexture->sampler))) {
             return hipErrorRuntimeOther;
         }
         getHipTextureObject(&textureObject, pTexture->image, pTexture->sampler);
+        pTexture->devPtr = (void*) devPtr;
         textureHash[textureObject] = pTexture;
     }
 
@@ -520,8 +523,12 @@ hipError_t hipBindTexture2D(size_t* offset, textureReference* tex, const void* d
                             size_t pitch) {
     HIP_INIT_API(hipBindTexture2D, offset, tex, devPtr, desc, width, height, pitch);
     hipError_t hip_status = hipSuccess;
+ 
+    //TODO: Fix when HSA accepts user defined pitch
+    if(pitch % 64) pitch =0;
+
     hip_status = ihipBindTexture2DImpl(tls, hipTextureType2D, hipReadModeElementType, offset, devPtr,
-                                       desc, width, height, tex);
+                                       desc, width, height, tex, pitch);
     return ihipLogStatus(hip_status);
 }
 
@@ -607,6 +614,7 @@ hipError_t ihipBindTextureToArrayImpl(TlsData *tls_, int dim, enum hipTextureRea
             return hipErrorRuntimeOther;
         }
         getHipTextureObject(&textureObject, pTexture->image, pTexture->sampler);
+        pTexture->devPtr = (void*) array;
         textureHash[textureObject] = pTexture;
     }
 
@@ -631,16 +639,15 @@ hipError_t hipBindTextureToMipmappedArray(textureReference* tex,
     return ihipLogStatus(hip_status);
 }
 
-hipError_t ihipUnbindTextureImpl(TlsData *tls, const hipTextureObject_t& textureObject) {
+hipError_t ihipUnbindTextureImpl(const hipTextureObject_t& textureObject) {
     hipError_t hip_status = hipSuccess;
-
+    TlsData* tls=tls_get_ptr();
     auto ctx = ihipGetTlsDefaultCtx();
     if (ctx) {
         hc::accelerator acc = ctx->getDevice()->_acc;
         auto device = ctx->getWriteableDevice();
 
         hsa_agent_t* agent = static_cast<hsa_agent_t*>(acc.get_hsa_agent());
-
         hipTexture* pTexture = textureHash[textureObject];
         if (pTexture != nullptr) {
             hsa_ext_image_destroy(*agent, pTexture->image);
@@ -656,7 +663,7 @@ hipError_t ihipUnbindTextureImpl(TlsData *tls, const hipTextureObject_t& texture
 hipError_t hipUnbindTexture(const textureReference* tex) {
     HIP_INIT_API(hipUnbindTexture, tex);
     hipError_t hip_status = hipSuccess;
-    hip_status = ihipUnbindTextureImpl(tls, tex->textureObject);
+    hip_status = ihipUnbindTextureImpl(tex->textureObject);
     return ihipLogStatus(hip_status);
 }
 
@@ -724,6 +731,17 @@ hipError_t hipTexRefSetAddressMode(textureReference* tex, int dim, hipTextureAdd
     return ihipLogStatus(hip_status);
 }
 
+hipError_t hipTexRefGetAddressMode(hipTextureAddressMode* am, textureReference tex, int dim) {
+    HIP_INIT_API(hipTexRefGetAddressMode,am, &tex, dim);
+
+    if ((am == nullptr) || (dim >= 3))
+        return ihipLogStatus(hipErrorInvalidValue);
+
+    *am = tex.addressMode[dim];
+
+    return ihipLogStatus(hipSuccess);
+}
+
 hipError_t hipTexRefSetArray(textureReference* tex, hipArray_const_t array, unsigned int flags) {
     HIP_INIT_API(hipTexRefSetArray, tex, array, flags);
     hipError_t hip_status = hipSuccess;
@@ -733,6 +751,23 @@ hipError_t hipTexRefSetArray(textureReference* tex, hipArray_const_t array, unsi
     return ihipLogStatus(hip_status);
 }
 
+hipError_t hipTexRefGetArray(hipArray_t* array, textureReference tex) {
+    HIP_INIT_API(hipTexRefGetArray, array, &tex);
+
+    if (array == nullptr)
+        return ihipLogStatus(hipErrorInvalidValue);
+
+    hipTexture* pTexture = textureHash[tex.textureObject];
+    if((pTexture == nullptr) || (hipResourceTypeArray != pTexture->resDesc.resType))
+        return ihipLogStatus(hipErrorInvalidImage);
+
+    if (pTexture->devPtr == nullptr)
+        return ihipLogStatus(hipErrorUnknown);
+
+    *array = reinterpret_cast<hipArray_t>(pTexture->devPtr);
+
+    return ihipLogStatus(hipSuccess);
+}
 
 hipError_t hipTexRefSetAddress(size_t* offset, textureReference* tex, hipDeviceptr_t devPtr,
                                size_t size) {
@@ -744,13 +779,33 @@ hipError_t hipTexRefSetAddress(size_t* offset, textureReference* tex, hipDevicep
     return ihipLogStatus(hip_status);
 }
 
+hipError_t hipTexRefGetAddress(hipDeviceptr_t* dev_ptr, textureReference tex) {
+    HIP_INIT_API(hipTexRefGetAddress,dev_ptr, &tex);
+
+    if (dev_ptr == nullptr)
+        return ihipLogStatus(hipErrorInvalidValue);
+
+    hipTexture* pTexture = textureHash[tex.textureObject];
+    if (pTexture == nullptr)
+        return ihipLogStatus(hipErrorInvalidImage);
+
+    if (pTexture->devPtr == nullptr)
+        return ihipLogStatus(hipErrorUnknown);
+
+    *dev_ptr = reinterpret_cast<hipDeviceptr_t>(pTexture->devPtr);
+    return ihipLogStatus(hipSuccess);
+}
+
 hipError_t hipTexRefSetAddress2D(textureReference* tex, const HIP_ARRAY_DESCRIPTOR* desc,
                                  hipDeviceptr_t devPtr, size_t pitch) {
     HIP_INIT_API(hipTexRefSetAddress2D, tex, desc, devPtr, pitch);
     size_t offset;
     hipError_t hip_status = hipSuccess;
     // TODO: hipReadModeElementType is default.
+    //TODO: Fix when HSA accepts user defined pitch
+    if(pitch % 64) pitch =0;
+
     hip_status = ihipBindTexture2DImpl(tls, hipTextureType2D, hipReadModeElementType, &offset, devPtr,
-                                       NULL, desc->Width, desc->Height, tex);
+                                       NULL, desc->Width, desc->Height, tex, pitch);
     return ihipLogStatus(hip_status);
 }

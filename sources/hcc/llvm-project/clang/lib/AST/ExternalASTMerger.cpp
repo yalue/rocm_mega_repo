@@ -510,7 +510,9 @@ bool ExternalASTMerger::FindExternalVisibleDeclsByName(const DeclContext *DC,
     Decl *LookupRes = C.first.get();
     ASTImporter *Importer = C.second;
     auto NDOrErr = Importer->Import(LookupRes);
-    NamedDecl *ND = cast<NamedDecl>(llvm::cantFail(std::move(NDOrErr)));
+    assert(NDOrErr);
+    (void)static_cast<bool>(NDOrErr);
+    NamedDecl *ND = cast_or_null<NamedDecl>(*NDOrErr);
     assert(ND);
     // If we don't import specialization, they are not available via lookup
     // because the lookup result is imported TemplateDecl and it does not

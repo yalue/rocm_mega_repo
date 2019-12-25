@@ -543,16 +543,10 @@ static Value *ThreadCmpOverPHI(CmpInst::Predicate Pred, Value *LHS, Value *RHS,
 
   // Evaluate the BinOp on the incoming phi values.
   Value *CommonValue = nullptr;
-  for (unsigned u = 0, e = PI->getNumIncomingValues(); u < e; ++u) {
-    Value *Incoming = PI->getIncomingValue(u);
-    Instruction *InTI = PI->getIncomingBlock(u)->getTerminator();
+  for (Value *Incoming : PI->incoming_values()) {
     // If the incoming value is the phi node itself, it can safely be skipped.
     if (Incoming == PI) continue;
-    // Change the context instruction to the "edge" that flows into the phi.
-    // This is important because that is where incoming is actually "evaluated"
-    // even though it is used later somewhere else.
-    Value *V = SimplifyCmpInst(Pred, Incoming, RHS, Q.getWithInstruction(InTI),
-                               MaxRecurse);
+    Value *V = SimplifyCmpInst(Pred, Incoming, RHS, Q, MaxRecurse);
     // If the operation failed to simplify, or simplified to a different value
     // to previously, then give up.
     if (!V || (CommonValue && V != CommonValue))
@@ -3909,21 +3903,18 @@ static Value *simplifySelectWithICmpCond(Value *CondVal, Value *TrueVal,
 
 /// Try to simplify a select instruction when its condition operand is a
 /// floating-point comparison.
-static Value *simplifySelectWithFCmp(Value *Cond, Value *T, Value *F,
-                                     const SimplifyQuery &Q) {
+static Value *simplifySelectWithFCmp(Value *Cond, Value *T, Value *F) {
   FCmpInst::Predicate Pred;
   if (!match(Cond, m_FCmp(Pred, m_Specific(T), m_Specific(F))) &&
       !match(Cond, m_FCmp(Pred, m_Specific(F), m_Specific(T))))
     return nullptr;
 
-  // This transform is safe if we do not have (do not care about) -0.0 or if
-  // at least one operand is known to not be -0.0. Otherwise, the select can
-  // change the sign of a zero operand.
-  bool HasNoSignedZeros = Q.CxtI && isa<FPMathOperator>(Q.CxtI) &&
-                          Q.CxtI->hasNoSignedZeros();
+  // TODO: The transform may not be valid with -0.0. An incomplete way of
+  // testing for that possibility is to check if at least one operand is a
+  // non-zero constant.
   const APFloat *C;
-  if (HasNoSignedZeros || (match(T, m_APFloat(C)) && C->isNonZero()) ||
-                          (match(F, m_APFloat(C)) && C->isNonZero())) {
+  if ((match(T, m_APFloat(C)) && C->isNonZero()) ||
+      (match(F, m_APFloat(C)) && C->isNonZero())) {
     // (T == F) ? T : F --> F
     // (F == T) ? T : F --> F
     if (Pred == FCmpInst::FCMP_OEQ)
@@ -3974,7 +3965,7 @@ static Value *SimplifySelectInst(Value *Cond, Value *TrueVal, Value *FalseVal,
           simplifySelectWithICmpCond(Cond, TrueVal, FalseVal, Q, MaxRecurse))
     return V;
 
-  if (Value *V = simplifySelectWithFCmp(Cond, TrueVal, FalseVal, Q))
+  if (Value *V = simplifySelectWithFCmp(Cond, TrueVal, FalseVal))
     return V;
 
   if (Value *V = foldSelectWithBinaryOp(Cond, TrueVal, FalseVal))
@@ -5092,16 +5083,6 @@ static Value *simplifyBinaryIntrinsic(Function *F, Value *Op0, Value *Op1,
         return Op0;
     }
     break;
-  case Intrinsic::copysign:
-    // copysign X, X --> X
-    if (Op0 == Op1)
-      return Op0;
-    // copysign -X, X --> X
-    // copysign X, -X --> -X
-    if (match(Op0, m_FNeg(m_Specific(Op1))) ||
-        match(Op1, m_FNeg(m_Specific(Op0))))
-      return Op1;
-    break;
   case Intrinsic::maxnum:
   case Intrinsic::minnum:
   case Intrinsic::maximum:
@@ -5251,19 +5232,6 @@ Value *llvm::SimplifyCall(CallBase *Call, const SimplifyQuery &Q) {
   return ConstantFoldCall(Call, F, ConstantArgs, Q.TLI);
 }
 
-/// Given operands for a Freeze, see if we can fold the result.
-static Value *SimplifyFreezeInst(Value *Op0) {
-  // Use a utility function defined in ValueTracking.
-  if (llvm::isGuaranteedNotToBeUndefOrPoison(Op0))
-    return Op0;
-  // We have room for improvement.
-  return nullptr;
-}
-
-Value *llvm::SimplifyFreezeInst(Value *Op0, const SimplifyQuery &Q) {
-  return ::SimplifyFreezeInst(Op0);
-}
-
 /// See if we can compute a simplified version of this instruction.
 /// If not, this returns null.
 
@@ -5406,9 +5374,6 @@ Value *llvm::SimplifyInstruction(Instruction *I, const SimplifyQuery &SQ,
     Result = SimplifyCall(cast<CallInst>(I), Q);
     break;
   }
-  case Instruction::Freeze:
-    Result = SimplifyFreezeInst(I->getOperand(0), Q);
-    break;
 #define HANDLE_CAST_INST(num, opc, clas) case Instruction::opc:
 #include "llvm/IR/Instruction.def"
 #undef HANDLE_CAST_INST

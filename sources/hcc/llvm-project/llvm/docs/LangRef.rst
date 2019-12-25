@@ -444,17 +444,6 @@ added in the future:
     the GHC or the HiPE convention is used. <CodeGenerator.html#id80>`_ This
     calling convention does not support varargs and requires the prototype of
     all callees to exactly match the prototype of the function definition.
-"``cfguard_checkcc``" - Windows Control Flow Guard (Check mechanism)
-    This calling convention is used for the Control Flow Guard check function,
-    calls to which can be inserted before indirect calls to check that the call
-    target is a valid function address. The check function has no return value,
-    but it will trigger an OS-level error if the address is not a valid target.
-    The set of registers preserved by the check function, and the register
-    containing the target address are architecture-specific.
-
-    - On X86 the target address is passed in ECX.
-    - On ARM the target address is passed in R0.
-    - On AArch64 the target address is passed in X15.
 "``cc <n>``" - Numbered convention
     Any calling convention may be specified by number, allowing
     target-specific calling conventions to be used. Target specific
@@ -1133,10 +1122,6 @@ Currently, only the following parameter attributes are defined:
     attribute for return values.  Addresses used in volatile operations
     are considered to be captured.
 
-``nofree``
-    This indicates that callee does not free the pointer argument. This is not
-    a valid attribute for return values.
-
 .. _nest:
 
 ``nest``
@@ -1456,13 +1441,6 @@ example:
 ``naked``
     This attribute disables prologue / epilogue emission for the
     function. This can have very system-specific consequences.
-``"no-inline-line-tables"``
-    When this attribute is set to true, the inliner discards source locations
-    when inlining code and instead uses the source location of the call site.
-    Breakpoints set on code that was inlined into the current function will
-    not fire during the execution of the inlined call sites. If the debugger
-    stops inside an inlined call site, it will appear to be stopped at the
-    outermost inlined call site.
 ``no-jump-tables``
     When this attribute is set to true, the jump tables and lookup tables that
     can be generated from a switch case lowering are disabled.
@@ -3242,9 +3220,6 @@ the value is not necessarily consistent over time. In fact, ``%A`` and
 ``%C`` need to have the same semantics or the core LLVM "replace all
 uses with" concept would not hold.
 
-To ensure all uses of a given register observe the same value (even if
-'``undef``'), the :ref:`freeze instruction <i_freeze>` can be used.
-
 .. code-block:: llvm
 
       %A = sdiv undef, %X
@@ -3334,15 +3309,10 @@ Poison value behavior is defined in terms of value *dependence*:
    be different if the terminator had transferred control to a different
    successor.
 -  Dependence is transitive.
--  Vector elements may be independently poisoned. Therefore, transforms
-   on instructions such as shufflevector must be careful to propagate
-   poison across values or elements only as allowed by the original code.
 
 An instruction that *depends* on a poison value, produces a poison value
 itself. A poison value may be relaxed into an
 :ref:`undef value <undefvalues>`, which takes an arbitrary bit-pattern.
-Propagation of poison can be stopped with the
-:ref:`freeze instruction <i_freeze>`.
 
 This means that immediate undefined behavior occurs if a poison value is
 used as an instruction operand that has any values that trigger undefined
@@ -3353,9 +3323,9 @@ behavior. Notably this includes (but is not limited to):
    space).
 -  The divisor operand of a ``udiv``, ``sdiv``, ``urem`` or ``srem``
    instruction.
--  The condition operand of a :ref:`br <i_br>` instruction.
--  The callee operand of a :ref:`call <i_call>` or :ref:`invoke <i_invoke>`
-   instruction.
+
+Additionally, undefined behavior occurs if a side effect *depends* on poison.
+This includes side effects that are control dependent on a poisoned branch.
 
 Here are some examples:
 
@@ -3374,12 +3344,40 @@ Here are some examples:
       %narrowaddr = bitcast i32* @g to i16*
       %wideaddr = bitcast i32* @g to i64*
       %poison3 = load i16, i16* %narrowaddr ; Returns a poison value.
-      %poison4 = load i64, i64* %wideaddr   ; Returns a poison value.
+      %poison4 = load i64, i64* %wideaddr  ; Returns a poison value.
 
       %cmp = icmp slt i32 %poison, 0       ; Returns a poison value.
-      br i1 %cmp, label %end, label %end   ; undefined behavior
+      br i1 %cmp, label %true, label %end  ; Branch to either destination.
+
+    true:
+      store volatile i32 0, i32* @g        ; This is control-dependent on %cmp, so
+                                           ; it has undefined behavior.
+      br label %end
 
     end:
+      %p = phi i32 [ 0, %entry ], [ 1, %true ]
+                                           ; Both edges into this PHI are
+                                           ; control-dependent on %cmp, so this
+                                           ; always results in a poison value.
+
+      store volatile i32 0, i32* @g        ; This would depend on the store in %true
+                                           ; if %cmp is true, or the store in %entry
+                                           ; otherwise, so this is undefined behavior.
+
+      br i1 %cmp, label %second_true, label %second_end
+                                           ; The same branch again, but this time the
+                                           ; true block doesn't have side effects.
+
+    second_true:
+      ; No side effects!
+      ret void
+
+    second_end:
+      store volatile i32 0, i32* @g        ; This time, the instruction always depends
+                                           ; on the store in %end. Also, it is
+                                           ; control-equivalent to %end, so this is
+                                           ; well-defined (ignoring earlier undefined
+                                           ; behavior in this example).
 
 .. _blockaddress:
 
@@ -4859,6 +4857,13 @@ DIFlags
 """""""""""""""
 
 These flags encode various properties of DINodes.
+
+The `ArgumentNotModified` flag marks a function argument whose value
+is not modified throughout of a function. This flag is used to decide
+whether a DW_OP_LLVM_entry_value can be used in a location description
+after the function prologue. The language frontend is expected to compute
+this property for each DILocalVariable. The flag should be used
+only in optimized code.
 
 The `ExportSymbols` flag marks a class, struct or union whose members
 may be referenced as if they were defined in the containing class or
@@ -6851,7 +6856,6 @@ Upon execution of a conditional '``br``' instruction, the '``i1``'
 argument is evaluated. If the value is ``true``, control flows to the
 '``iftrue``' ``label`` argument. If "cond" is ``false``, control flows
 to the '``iffalse``' ``label`` argument.
-If '``cond``' is ``poison``, this instruction has undefined behavior.
 
 Example:
 """"""""
@@ -6902,7 +6906,6 @@ When the '``switch``' instruction is executed, this table is searched
 for the given value. If the value is found, control flow is transferred
 to the corresponding destination; otherwise, control flow is transferred
 to the default destination.
-If '``value``' is ``poison``, this instruction has undefined behavior.
 
 Implementation:
 """""""""""""""
@@ -6967,7 +6970,6 @@ Control transfers to the block specified in the address argument. All
 possible destination blocks must be listed in the label list, otherwise
 this instruction has undefined behavior. This implies that jumps to
 labels defined in other functions have undefined behavior as well.
-If '``address``' is ``poison``, this instruction has undefined behavior.
 
 Implementation:
 """""""""""""""
@@ -8451,13 +8453,10 @@ Semantics:
 The elements of the two input vectors are numbered from left to right
 across both of the vectors. The shuffle mask operand specifies, for each
 element of the result vector, which element of the two input vectors the
-result element gets.
-
-If the shuffle mask is undef, the result vector is undef. If any element
-of the mask operand is undef, that element of the result is undef. If the
-shuffle mask selects an undef element from one of the input vectors, the
-resulting element is undef. An undef mask element prevents a poisoned
-vector element from propagating.
+result element gets. If the shuffle mask is undef, the result vector is
+undef. If any element of the mask operand is undef, that element of the
+result is undef. If the shuffle mask selects an undef element from one
+of the input vectors, the resulting element is undef.
 
 For scalable vectors, the only valid mask values at present are
 ``zeroinitializer`` and ``undef``, since we cannot write all indices as
@@ -10124,8 +10123,7 @@ The optional ``fast-math-flags`` marker indicates that the phi has one
 or more :ref:`fast-math-flags <fastmath>`. These are optimization hints
 to enable otherwise unsafe floating-point optimizations. Fast-math-flags
 are only valid for phis that return a floating-point scalar or vector
-type, or an array (nested to any depth) of floating-point scalar or vector
-types.
+type.
 
 Semantics:
 """"""""""
@@ -10174,8 +10172,7 @@ class <t_firstclass>` type.
 #. The optional ``fast-math flags`` marker indicates that the select has one or more
    :ref:`fast-math flags <fastmath>`. These are optimization hints to enable
    otherwise unsafe floating-point optimizations. Fast-math flags are only valid
-   for selects that return a floating-point scalar or vector type, or an array
-   (nested to any depth) of floating-point scalar or vector types.
+   for selects that return a floating-point scalar or vector type.
 
 Semantics:
 """"""""""
@@ -10196,74 +10193,6 @@ Example:
 .. code-block:: llvm
 
       %X = select i1 true, i8 17, i8 42          ; yields i8:17
-
-
-.. _i_freeze:
-
-'``freeze``' Instruction
-^^^^^^^^^^^^^^^^^^^^^^^^
-
-Syntax:
-"""""""
-
-::
-
-      <result> = freeze ty <val>    ; yields ty:result
-
-Overview:
-"""""""""
-
-The '``freeze``' instruction is used to stop propagation of
-:ref:`undef <undefvalues>` and :ref:`poison <poisonvalues>` values.
-
-Arguments:
-""""""""""
-
-The '``freeze``' instruction takes a single argument.
-
-Semantics:
-""""""""""
-
-If the argument is ``undef`` or ``poison``, '``freeze``' returns an
-arbitrary, but fixed, value of type '``ty``'.
-Otherwise, this instruction is a no-op and returns the input argument.
-All uses of a value returned by the same '``freeze``' instruction are
-guaranteed to always observe the same value, while different '``freeze``'
-instructions may yield different values.
-
-While ``undef`` and ``poison`` pointers can be frozen, the result is a
-non-dereferenceable pointer. See the
-:ref:`Pointer Aliasing Rules <pointeraliasing>` section for more information.
-
-
-Example:
-""""""""
-
-.. code-block:: text
-
-      %w = i32 undef
-      %x = freeze i32 %w
-      %y = add i32 %w, %w         ; undef
-      %z = add i32 %x, %x         ; even number because all uses of %x observe
-                                  ; the same value
-      %x2 = freeze i32 %w
-      %cmp = icmp eq i32 %x, %x2  ; can be true or false
-
-      ; example with vectors
-      %v = <2 x i32> <i32 undef, i32 poison>
-      %a = extractelement <2 x i32> %v, i32 0    ; undef
-      %b = extractelement <2 x i32> %v, i32 1    ; poison
-      %add = add i32 %a, %a                      ; undef
-
-      %v.fr = freeze <2 x i32> %v                ; element-wise freeze
-      %d = extractelement <2 x i32> %v.fr, i32 0 ; not undef
-      %add.f = add i32 %d, %d                    ; even number
-
-      ; branching on frozen value
-      %poison = add nsw i1 %k, undef   ; poison
-      %c = freeze i1 %poison
-      br i1 %c, label %foo, label %bar ; non-deterministic branch to %foo or %bar
-
 
 .. _i_call:
 
@@ -10342,8 +10271,7 @@ This instruction requires several arguments:
 #. The optional ``fast-math flags`` marker indicates that the call has one or more
    :ref:`fast-math flags <fastmath>`, which are optimization hints to enable
    otherwise unsafe floating-point optimizations. Fast-math flags are only valid
-   for calls that return a floating-point scalar or vector type, or an array
-   (nested to any depth) of floating-point scalar or vector types.
+   for calls that return a floating-point scalar or vector type.
 
 #. The optional "cconv" marker indicates which :ref:`calling
    convention <callingconv>` the call should use. If none is
@@ -12707,15 +12635,13 @@ floating-point type. Not all targets support all types however.
 Overview:
 """""""""
 
-The '``llvm.lround.*``' intrinsics return the operand rounded to the nearest
-integer with ties away from zero.
-
+The '``llvm.lround.*``' intrinsics returns the operand rounded to the
+nearest integer.
 
 Arguments:
 """"""""""
 
-The argument is a floating-point number and the return value is an integer
-type.
+The argument is a floating-point number and return is an integer type.
 
 Semantics:
 """"""""""
@@ -12743,14 +12669,13 @@ floating-point type. Not all targets support all types however.
 Overview:
 """""""""
 
-The '``llvm.llround.*``' intrinsics return the operand rounded to the nearest
-integer with ties away from zero.
+The '``llvm.llround.*``' intrinsics returns the operand rounded to the
+nearest integer.
 
 Arguments:
 """"""""""
 
-The argument is a floating-point number and the return value is an integer
-type.
+The argument is a floating-point number and return is an integer type.
 
 Semantics:
 """"""""""
@@ -12784,15 +12709,13 @@ floating-point type. Not all targets support all types however.
 Overview:
 """""""""
 
-The '``llvm.lrint.*``' intrinsics return the operand rounded to the nearest
-integer.
-
+The '``llvm.lrint.*``' intrinsics returns the operand rounded to the
+nearest integer.
 
 Arguments:
 """"""""""
 
-The argument is a floating-point number and the return value is an integer
-type.
+The argument is a floating-point number and return is an integer type.
 
 Semantics:
 """"""""""
@@ -12820,14 +12743,13 @@ floating-point type. Not all targets support all types however.
 Overview:
 """""""""
 
-The '``llvm.llrint.*``' intrinsics return the operand rounded to the nearest
-integer.
+The '``llvm.llrint.*``' intrinsics returns the operand rounded to the
+nearest integer.
 
 Arguments:
 """"""""""
 
-The argument is a floating-point number and the return value is an integer
-type.
+The argument is a floating-point number and return is an integer type.
 
 Semantics:
 """"""""""
@@ -13958,8 +13880,6 @@ Examples
 
 Specialised Arithmetic Intrinsics
 ---------------------------------
-
-.. _i_intr_llvm_canonicalize:
 
 '``llvm.canonicalize.*``' Intrinsic
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
@@ -15629,113 +15549,6 @@ The result produced is a floating point value extended to be larger in size
 than the operand. All restrictions that apply to the fpext instruction also
 apply to this intrinsic.
 
-'``llvm.experimental.constrained.fcmp``' and '``llvm.experimental.constrained.fcmps``' Intrinsics
-^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-
-Syntax:
-"""""""
-
-::
-
-      declare <ty2>
-      @llvm.experimental.constrained.fcmp(<type> <op1>, <type> <op2>,
-                                          metadata <condition code>,
-                                          metadata <exception behavior>)
-      declare <ty2>
-      @llvm.experimental.constrained.fcmps(<type> <op1>, <type> <op2>,
-                                           metadata <condition code>,
-                                           metadata <exception behavior>)
-
-Overview:
-"""""""""
-
-The '``llvm.experimental.constrained.fcmp``' and
-'``llvm.experimental.constrained.fcmps``' intrinsics return a boolean
-value or vector of boolean values based on comparison of its operands.
-
-If the operands are floating-point scalars, then the result type is a
-boolean (:ref:`i1 <t_integer>`).
-
-If the operands are floating-point vectors, then the result type is a
-vector of boolean with the same number of elements as the operands being
-compared.
-
-The '``llvm.experimental.constrained.fcmp``' intrinsic performs a quiet
-comparison operation while the '``llvm.experimental.constrained.fcmps``'
-intrinsic performs a signaling comparison operation.
-
-Arguments:
-""""""""""
-
-The first two arguments to the '``llvm.experimental.constrained.fcmp``'
-and '``llvm.experimental.constrained.fcmps``' intrinsics must be
-:ref:`floating-point <t_floating>` or :ref:`vector <t_vector>`
-of floating-point values. Both arguments must have identical types.
-
-The third argument is the condition code indicating the kind of comparison
-to perform. It must be a metadata string with one of the following values:
-
-- "``oeq``": ordered and equal
-- "``ogt``": ordered and greater than
-- "``oge``": ordered and greater than or equal
-- "``olt``": ordered and less than
-- "``ole``": ordered and less than or equal
-- "``one``": ordered and not equal
-- "``ord``": ordered (no nans)
-- "``ueq``": unordered or equal
-- "``ugt``": unordered or greater than
-- "``uge``": unordered or greater than or equal
-- "``ult``": unordered or less than
-- "``ule``": unordered or less than or equal
-- "``une``": unordered or not equal
-- "``uno``": unordered (either nans)
-
-*Ordered* means that neither operand is a NAN while *unordered* means
-that either operand may be a NAN.
-
-The fourth argument specifies the exception behavior as described above.
-
-Semantics:
-""""""""""
-
-``op1`` and ``op2`` are compared according to the condition code given
-as the third argument. If the operands are vectors, then the
-vectors are compared element by element. Each comparison performed
-always yields an :ref:`i1 <t_integer>` result, as follows:
-
-- "``oeq``": yields ``true`` if both operands are not a NAN and ``op1``
-  is equal to ``op2``.
-- "``ogt``": yields ``true`` if both operands are not a NAN and ``op1``
-  is greater than ``op2``.
-- "``oge``": yields ``true`` if both operands are not a NAN and ``op1``
-  is greater than or equal to ``op2``.
-- "``olt``": yields ``true`` if both operands are not a NAN and ``op1``
-  is less than ``op2``.
-- "``ole``": yields ``true`` if both operands are not a NAN and ``op1``
-  is less than or equal to ``op2``.
-- "``one``": yields ``true`` if both operands are not a NAN and ``op1``
-  is not equal to ``op2``.
-- "``ord``": yields ``true`` if both operands are not a NAN.
-- "``ueq``": yields ``true`` if either operand is a NAN or ``op1`` is
-  equal to ``op2``.
-- "``ugt``": yields ``true`` if either operand is a NAN or ``op1`` is
-  greater than ``op2``.
-- "``uge``": yields ``true`` if either operand is a NAN or ``op1`` is
-  greater than or equal to ``op2``.
-- "``ult``": yields ``true`` if either operand is a NAN or ``op1`` is
-  less than ``op2``.
-- "``ule``": yields ``true`` if either operand is a NAN or ``op1`` is
-  less than or equal to ``op2``.
-- "``une``": yields ``true`` if either operand is a NAN or ``op1`` is
-  not equal to ``op2``.
-- "``uno``": yields ``true`` if either operand is a NAN.
-
-The quiet comparison operation performed by
-'``llvm.experimental.constrained.fcmp``' will only raise an exception
-if either operand is a SNAN.  The signaling comparison operation
-performed by '``llvm.experimental.constrained.fcmps``' will raise an
-exception if either operand is a NAN (QNAN or SNAN).
-
 Constrained libm-equivalent Intrinsics
 --------------------------------------
 
@@ -17219,10 +17032,6 @@ if"); and this allows for "check widening" type optimizations.
 
 ``@llvm.experimental.guard`` cannot be invoked.
 
-After ``@llvm.experimental.guard`` was first added, a more general
-formulation was found in ``@llvm.experimental.widenable.condition``.
-Support for ``@llvm.experimental.guard`` is slowly being rephrased in
-terms of this alternate.
 
 '``llvm.experimental.widenable.condition``' Intrinsic
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^

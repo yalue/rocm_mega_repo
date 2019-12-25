@@ -360,7 +360,7 @@ __device__ void csrsv_device(rocsparse_int m,
                 // This is not required for unit diagonal for obvious reasons
                 if(diag_type == rocsparse_diag_type_non_unit)
                 {
-                    diagonal[wid] = rocsparse_rcp(local_val);
+                    diagonal[wid] = static_cast<T>(1) / local_val;
                 }
 
                 continue;
@@ -383,7 +383,7 @@ __device__ void csrsv_device(rocsparse_int m,
                 // This is not required for unit diagonal for obvious reasons
                 if(diag_type == rocsparse_diag_type_non_unit)
                 {
-                    diagonal[wid] = rocsparse_rcp(local_val);
+                    diagonal[wid] = static_cast<T>(1) / local_val;
                 }
 
                 break;
@@ -395,7 +395,7 @@ __device__ void csrsv_device(rocsparse_int m,
             ;
 
         // Local sum computation for each lane
-        local_sum = rocsparse_fma(-local_val, y[local_col], local_sum);
+        local_sum = fma(-local_val, y[local_col], local_sum);
     }
 
     // Gather all local sums for each lane
@@ -405,7 +405,7 @@ __device__ void csrsv_device(rocsparse_int m,
     // For unit diagonal, this would be multiplication with one
     if(diag_type == rocsparse_diag_type_non_unit)
     {
-        local_sum *= diagonal[wid];
+        local_sum = local_sum * diagonal[wid];
     }
 
     if(lid == WF_SIZE - 1)

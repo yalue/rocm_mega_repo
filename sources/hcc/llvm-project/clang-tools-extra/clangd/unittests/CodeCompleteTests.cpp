@@ -97,7 +97,7 @@ std::unique_ptr<SymbolIndex> memIndex(std::vector<Symbol> Symbols) {
 }
 
 CodeCompleteResult completions(ClangdServer &Server, llvm::StringRef TestCode,
-                               Position Point,
+                               Position point,
                                std::vector<Symbol> IndexSymbols = {},
                                clangd::CodeCompleteOptions Opts = {}) {
   std::unique_ptr<SymbolIndex> OverrideIndex;
@@ -110,7 +110,7 @@ CodeCompleteResult completions(ClangdServer &Server, llvm::StringRef TestCode,
   auto File = testPath("foo.cpp");
   runAddDocument(Server, File, TestCode);
   auto CompletionList =
-      llvm::cantFail(runCodeComplete(Server, File, Point, Opts));
+      llvm::cantFail(runCodeComplete(Server, File, point, Opts));
   return CompletionList;
 }
 
@@ -141,8 +141,6 @@ CodeCompleteResult completions(llvm::StringRef Text,
                                PathRef FilePath = "foo.cpp") {
   MockFSProvider FS;
   MockCompilationDatabase CDB;
-  // To make sure our tests for completiopns inside templates work on Windows.
-  CDB.ExtraClangFlags = {"-fno-delayed-template-parsing"};
   IgnoreDiagnostics DiagConsumer;
   ClangdServer Server(CDB, FS, DiagConsumer, ClangdServer::optsForTest());
   return completions(Server, Text, std::move(IndexSymbols), std::move(Opts),
@@ -211,7 +209,7 @@ TEST(CompletionTest, Filter) {
               AllOf(Has("Car"), Not(Has("MotorCar"))));
 }
 
-void testAfterDotCompletion(clangd::CodeCompleteOptions Opts) {
+void TestAfterDotCompletion(clangd::CodeCompleteOptions Opts) {
   auto Results = completions(
       R"cpp(
       int global_var;
@@ -266,7 +264,7 @@ void testAfterDotCompletion(clangd::CodeCompleteOptions Opts) {
              Contains(IsDocumented()));
 }
 
-void testGlobalScopeCompletion(clangd::CodeCompleteOptions Opts) {
+void TestGlobalScopeCompletion(clangd::CodeCompleteOptions Opts) {
   auto Results = completions(
       R"cpp(
       int global_var;
@@ -315,8 +313,8 @@ void testGlobalScopeCompletion(clangd::CodeCompleteOptions Opts) {
 
 TEST(CompletionTest, CompletionOptions) {
   auto Test = [&](const clangd::CodeCompleteOptions &Opts) {
-    testAfterDotCompletion(Opts);
-    testGlobalScopeCompletion(Opts);
+    TestAfterDotCompletion(Opts);
+    TestGlobalScopeCompletion(Opts);
   };
   // We used to test every combination of options, but that got too slow (2^N).
   auto Flags = {
@@ -428,48 +426,6 @@ TEST(CompletionTest, Snippets) {
       Results.Completions,
       HasSubsequence(Named("a"),
                      SnippetSuffix("(${1:int i}, ${2:const float f})")));
-}
-
-TEST(CompletionTest, NoSnippetsInUsings) {
-  clangd::CodeCompleteOptions Opts;
-  Opts.EnableSnippets = true;
-  auto Results = completions(
-      R"cpp(
-      namespace ns {
-        int func(int a, int b);
-      }
-
-      using ns::^;
-      )cpp",
-      /*IndexSymbols=*/{}, Opts);
-  EXPECT_THAT(Results.Completions,
-              ElementsAre(AllOf(Named("func"), Labeled("func(int a, int b)"),
-                                SnippetSuffix(""))));
-
-  // Check index completions too.
-  auto Func = func("ns::func");
-  Func.CompletionSnippetSuffix = "(${1:int a}, ${2: int b})";
-  Func.Signature = "(int a, int b)";
-  Func.ReturnType = "void";
-
-  Results = completions(R"cpp(
-      namespace ns {}
-      using ns::^;
-  )cpp",
-                        /*IndexSymbols=*/{Func}, Opts);
-  EXPECT_THAT(Results.Completions,
-              ElementsAre(AllOf(Named("func"), Labeled("func(int a, int b)"),
-                                SnippetSuffix(""))));
-
-  // Check all-scopes completions too.
-  Opts.AllScopes = true;
-  Results = completions(R"cpp(
-      using ^;
-  )cpp",
-                        /*IndexSymbols=*/{Func}, Opts);
-  EXPECT_THAT(Results.Completions,
-              Contains(AllOf(Named("func"), Labeled("ns::func(int a, int b)"),
-                             SnippetSuffix(""))));
 }
 
 TEST(CompletionTest, Kinds) {
@@ -874,33 +830,6 @@ TEST(CompletionTest, Documentation) {
               Contains(AllOf(Named("baz"), Doc("Multi-line\nblock comment"))));
 }
 
-TEST(CompletionTest, CommentsFromSystemHeaders) {
-  MockFSProvider FS;
-  MockCompilationDatabase CDB;
-  IgnoreDiagnostics DiagConsumer;
-
-  auto Opts = ClangdServer::optsForTest();
-  Opts.BuildDynamicSymbolIndex = true;
-
-  ClangdServer Server(CDB, FS, DiagConsumer, Opts);
-
-  FS.Files[testPath("foo.h")] = R"cpp(
-    #pragma GCC system_header
-
-    // This comment should be retained!
-    int foo();
-  )cpp";
-
-  auto Results = completions(Server,
-                             R"cpp(
-#include "foo.h"
-int x = foo^
-     )cpp");
-  EXPECT_THAT(
-      Results.Completions,
-      Contains(AllOf(Named("foo"), Doc("This comment should be retained!"))));
-}
-
 TEST(CompletionTest, GlobalCompletionFiltering) {
 
   Symbol Class = cls("XYZ");
@@ -1030,16 +959,6 @@ TEST(CompletionTest, DefaultArgs) {
               UnorderedElementsAre(
                   AllOf(Labeled("Z(int A, int B = 0, int C = 0, int D = 0)"),
                         SnippetSuffix("(${1:int A})"))));
-}
-
-TEST(CompletionTest, NoCrashWithTemplateParamsAndPreferredTypes) {
-  auto Completions = completions(R"cpp(
-template <template <class> class TT> int foo() {
-  int a = ^
-}
-)cpp")
-                         .Completions;
-  EXPECT_THAT(Completions, Contains(Named("TT")));
 }
 
 SignatureHelp signatures(llvm::StringRef Text, Position Point,
@@ -1205,10 +1124,8 @@ public:
   void lookup(const LookupRequest &,
               llvm::function_ref<void(const Symbol &)>) const override {}
 
-  bool refs(const RefsRequest &,
-            llvm::function_ref<void(const Ref &)>) const override {
-    return false;
-  }
+  void refs(const RefsRequest &,
+            llvm::function_ref<void(const Ref &)>) const override {}
 
   void relations(const RelationsRequest &,
                  llvm::function_ref<void(const SymbolID &, const Symbol &)>)
@@ -1874,10 +1791,7 @@ TEST(CompletionTest, CompletionTokenRange) {
     Annotations TestCode(Text);
     auto Results = completions(Server, TestCode.code(), TestCode.point());
 
-    if (Results.Completions.size() != 1) {
-      ADD_FAILURE() << "Results.Completions.size() != 1";
-      continue;
-    }
+    EXPECT_EQ(Results.Completions.size(), 1u);
     EXPECT_THAT(Results.Completions.front().CompletionTokenRange,
                 TestCode.range());
   }
@@ -2217,12 +2131,12 @@ TEST(CompletionTest, EnableSpeculativeIndexRequest) {
 
 TEST(CompletionTest, InsertTheMostPopularHeader) {
   std::string DeclFile = URI::create(testPath("foo")).toString();
-  Symbol Sym = func("Func");
-  Sym.CanonicalDeclaration.FileURI = DeclFile.c_str();
-  Sym.IncludeHeaders.emplace_back("\"foo.h\"", 2);
-  Sym.IncludeHeaders.emplace_back("\"bar.h\"", 1000);
+  Symbol sym = func("Func");
+  sym.CanonicalDeclaration.FileURI = DeclFile.c_str();
+  sym.IncludeHeaders.emplace_back("\"foo.h\"", 2);
+  sym.IncludeHeaders.emplace_back("\"bar.h\"", 1000);
 
-  auto Results = completions("Fun^", {Sym}).Completions;
+  auto Results = completions("Fun^", {sym}).Completions;
   assert(!Results.empty());
   EXPECT_THAT(Results[0], AllOf(Named("Func"), InsertInclude("\"bar.h\"")));
   EXPECT_EQ(Results[0].Includes.size(), 2u);
@@ -2239,13 +2153,13 @@ TEST(CompletionTest, NoInsertIncludeIfOnePresent) {
   ClangdServer Server(CDB, FS, DiagConsumer, ClangdServer::optsForTest());
 
   std::string DeclFile = URI::create(testPath("foo")).toString();
-  Symbol Sym = func("Func");
-  Sym.CanonicalDeclaration.FileURI = DeclFile.c_str();
-  Sym.IncludeHeaders.emplace_back("\"foo.h\"", 2);
-  Sym.IncludeHeaders.emplace_back("\"bar.h\"", 1000);
+  Symbol sym = func("Func");
+  sym.CanonicalDeclaration.FileURI = DeclFile.c_str();
+  sym.IncludeHeaders.emplace_back("\"foo.h\"", 2);
+  sym.IncludeHeaders.emplace_back("\"bar.h\"", 1000);
 
   EXPECT_THAT(
-      completions(Server, "#include \"foo.h\"\nFun^", {Sym}).Completions,
+      completions(Server, "#include \"foo.h\"\nFun^", {sym}).Completions,
       UnorderedElementsAre(
           AllOf(Named("Func"), HasInclude("\"foo.h\""), Not(InsertInclude()))));
 }
@@ -2466,26 +2380,6 @@ TEST(CompletionTest, NoCompletionsForNewNames) {
     )cpp",
                              {cls("naber"), cls("nx::naber")}, Opts);
   EXPECT_THAT(Results.Completions, UnorderedElementsAre());
-}
-
-TEST(CompletionTest, Lambda) {
-  clangd::CodeCompleteOptions Opts = {};
-
-  auto Results = completions(R"cpp(
-    void function() {
-      auto Lambda = [](int a, const double &b) {return 1.f;};
-      Lam^
-    }
-  )cpp",
-                             {}, Opts);
-
-  ASSERT_EQ(Results.Completions.size(), 1u);
-  const auto &A = Results.Completions.front();
-  EXPECT_EQ(A.Name, "Lambda");
-  EXPECT_EQ(A.Signature, "(int a, const double &b) const");
-  EXPECT_EQ(A.Kind, CompletionItemKind::Variable);
-  EXPECT_EQ(A.ReturnType, "float");
-  EXPECT_EQ(A.SnippetSuffix, "(${1:int a}, ${2:const double &b})");
 }
 
 TEST(CompletionTest, ObjectiveCMethodNoArguments) {

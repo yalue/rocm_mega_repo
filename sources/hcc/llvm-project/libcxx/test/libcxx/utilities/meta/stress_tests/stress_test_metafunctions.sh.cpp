@@ -63,3 +63,5 @@ sink(&Foo4);
 sink(&Foo5);
 sink(&Foo6);
 }
+
+

@@ -46,31 +46,30 @@ public:
   uint64_t getCodeByteSize() const override { return Entry.FileSize; }
 
   std::string getFileName() const override {
-    StringRef Ret = cantFail(Strings.getStringForID(Entry.FileNI),
-                             "InjectedSourceStream should have rejected this");
-    return Ret;
+    auto Name = Strings.getStringForID(Entry.FileNI);
+    assert(Name && "InjectedSourceStream should have rejected this");
+    return *Name;
   }
 
   std::string getObjectFileName() const override {
-    StringRef Ret = cantFail(Strings.getStringForID(Entry.ObjNI),
-                             "InjectedSourceStream should have rejected this");
-    return Ret;
+    auto ObjName = Strings.getStringForID(Entry.ObjNI);
+    assert(ObjName && "InjectedSourceStream should have rejected this");
+    return *ObjName;
   }
 
   std::string getVirtualFileName() const override {
-    StringRef Ret = cantFail(Strings.getStringForID(Entry.VFileNI),
-                             "InjectedSourceStream should have rejected this");
-    return Ret;
+    auto VName = Strings.getStringForID(Entry.VFileNI);
+    assert(VName && "InjectedSourceStream should have rejected this");
+    return *VName;
   }
 
   uint32_t getCompression() const override { return Entry.Compression; }
 
   std::string getCode() const override {
     // Get name of stream storing the data.
-    StringRef VName =
-        cantFail(Strings.getStringForID(Entry.VFileNI),
-                 "InjectedSourceStream should have rejected this");
-    std::string StreamName = ("/src/files/" + VName).str();
+    auto VName = Strings.getStringForID(Entry.VFileNI);
+    assert(VName && "InjectedSourceStream should have rejected this");
+    std::string StreamName = ("/src/files/" + *VName).str();
 
     // Find stream with that name and read its data.
     // FIXME: Consider validating (or even loading) all this in

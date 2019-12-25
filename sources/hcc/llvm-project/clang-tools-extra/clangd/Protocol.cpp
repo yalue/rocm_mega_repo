@@ -257,7 +257,7 @@ SymbolKind indexSymbolKindToSymbolKind(index::SymbolKind Kind) {
     return SymbolKind::Property;
   case index::SymbolKind::Constructor:
   case index::SymbolKind::Destructor:
-    return SymbolKind::Constructor;
+    return SymbolKind::Method;
   case index::SymbolKind::ConversionFunction:
     return SymbolKind::Function;
   case index::SymbolKind::Parameter:
@@ -1063,8 +1063,7 @@ bool operator==(const SemanticHighlightingInformation &Lhs,
 
 llvm::json::Value toJSON(const SemanticHighlightingInformation &Highlighting) {
   return llvm::json::Object{{"line", Highlighting.Line},
-                            {"tokens", Highlighting.Tokens},
-                            {"isInactive", Highlighting.IsInactive}};
+                            {"tokens", Highlighting.Tokens}};
 }
 
 llvm::json::Value toJSON(const SemanticHighlightingParams &Highlighting) {

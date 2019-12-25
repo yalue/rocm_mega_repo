@@ -114,7 +114,6 @@ int Valid(int X, int Y) {
 
 #define COND_OP_MACRO 9
 #define COND_OP_OTHER_MACRO 9
-#define COND_OP_THIRD_MACRO COND_OP_MACRO
 int TestConditional(int x, int y) {
   int k = 0;
   k += (y < 0) ? x : x;
@@ -123,27 +122,11 @@ int TestConditional(int x, int y) {
   // CHECK-MESSAGES: :[[@LINE-1]]:24: warning: 'true' and 'false' expressions are equivalent
   k += (y < 0) ? COND_OP_MACRO : COND_OP_MACRO;
   // CHECK-MESSAGES: :[[@LINE-1]]:32: warning: 'true' and 'false' expressions are equivalent
-  k += (y < 0) ? COND_OP_MACRO + COND_OP_OTHER_MACRO : COND_OP_MACRO + COND_OP_OTHER_MACRO;
-  // CHECK-MESSAGES: :[[@LINE-1]]:54: warning: 'true' and 'false' expressions are equivalent
 
   // Do not match for conditional operators with a macro and a const.
   k += (y < 0) ? COND_OP_MACRO : 9;
   // Do not match for conditional operators with expressions from different macros.
   k += (y < 0) ? COND_OP_MACRO : COND_OP_OTHER_MACRO;
-  // Do not match for conditional operators when a macro is defined to another macro
-  k += (y < 0) ? COND_OP_MACRO : COND_OP_THIRD_MACRO;
-#undef COND_OP_THIRD_MACRO
-#define   COND_OP_THIRD_MACRO 8
-  k += (y < 0) ? COND_OP_MACRO : COND_OP_THIRD_MACRO;
-#undef COND_OP_THIRD_MACRO
-
-  k += (y < 0) ? sizeof(I64) : sizeof(I64);
-  // CHECK-MESSAGES: :[[@LINE-1]]:30: warning: 'true' and 'false' expressions are equivalent
-  k += (y < 0) ? sizeof(TestConditional(k,y)) : sizeof(TestConditional(k,y));
-  // CHECK-MESSAGES: :[[@LINE-1]]:47: warning: 'true' and 'false' expressions are equivalent
-  // No warning if the expression arguments are different.
-  k += (y < 0) ? sizeof(TestConditional(k,y)) : sizeof(Valid(k,y));
-
   return k;
 }
 #undef COND_OP_MACRO
@@ -151,7 +134,7 @@ int TestConditional(int x, int y) {
 
 // Overloaded operators that compare two instances of a struct.
 struct MyStruct {
-  int x;
+  int x;  
   bool operator==(const MyStruct& rhs) const {return this->x == rhs.x; } // not modifing
   bool operator>=(const MyStruct& rhs) const { return this->x >= rhs.x; } // not modifing
   bool operator<=(MyStruct& rhs) const { return this->x <= rhs.x; }

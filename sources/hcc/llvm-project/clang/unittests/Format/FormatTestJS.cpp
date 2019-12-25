@@ -2222,16 +2222,6 @@ TEST_F(FormatTestJS, NonNullAssertionOperator) {
   verifyFormat("return !!x;\n");
 }
 
-TEST_F(FormatTestJS, NullPropagatingOperator) {
-  verifyFormat("let x = foo?.bar?.baz();\n");
-  verifyFormat("let x = foo?.(foo);\n");
-  verifyFormat("let x = foo?.['arr'];\n");
-}
-
-TEST_F(FormatTestJS, NullishCoalescingOperator) {
-  verifyFormat("const val = something ?? 'some other default';\n");
-}
-
 TEST_F(FormatTestJS, Conditional) {
   verifyFormat("y = x ? 1 : 2;");
   verifyFormat("x ? 1 : 2;");
@@ -2367,13 +2357,6 @@ TEST_F(FormatTestJS, SupportPrivateFieldsAndMethods) {
                "    this.#privateMethod();  // infinite loop\n"
                "  }\n"
                "  static #staticPrivateMethod() {}\n");
-}
-
-TEST_F(FormatTestJS, DeclaredFields) {
-  verifyFormat("class Example {\n"
-               "  declare pub: string;\n"
-               "  declare private priv: string;\n"
-               "}\n");
 }
 
 } // namespace format

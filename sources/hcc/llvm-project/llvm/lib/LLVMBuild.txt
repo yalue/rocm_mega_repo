@@ -24,7 +24,6 @@ subdirectories =
  DebugInfo
  Demangle
  ExecutionEngine
- Frontend
  FuzzMutate
  LineEditor
  Linker

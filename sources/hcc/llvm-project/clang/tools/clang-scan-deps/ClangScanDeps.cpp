@@ -12,9 +12,8 @@
 #include "clang/Tooling/DependencyScanning/DependencyScanningTool.h"
 #include "clang/Tooling/DependencyScanning/DependencyScanningWorker.h"
 #include "clang/Tooling/JSONCompilationDatabase.h"
-#include "llvm/Support/CommandLine.h"
-#include "llvm/Support/FileUtilities.h"
 #include "llvm/Support/InitLLVM.h"
+#include "llvm/Support/Options.h"
 #include "llvm/Support/Program.h"
 #include "llvm/Support/Signals.h"
 #include "llvm/Support/Threading.h"
@@ -40,64 +39,6 @@ private:
   raw_ostream &OS;
 };
 
-class ResourceDirectoryCache {
-public:
-  /// findResourceDir finds the resource directory relative to the clang
-  /// compiler being used in Args, by running it with "-print-resource-dir"
-  /// option and cache the results for reuse. \returns resource directory path
-  /// associated with the given invocation command or empty string if the
-  /// compiler path is NOT an absolute path.
-  StringRef findResourceDir(const tooling::CommandLineArguments &Args) {
-    if (Args.size() < 1)
-      return "";
-
-    const std::string &ClangBinaryPath = Args[0];
-    if (!llvm::sys::path::is_absolute(ClangBinaryPath))
-      return "";
-
-    const std::string &ClangBinaryName =
-        llvm::sys::path::filename(ClangBinaryPath);
-
-    std::unique_lock<std::mutex> LockGuard(CacheLock);
-    const auto &CachedResourceDir = Cache.find(ClangBinaryPath);
-    if (CachedResourceDir != Cache.end())
-      return CachedResourceDir->second;
-
-    std::vector<StringRef> PrintResourceDirArgs{ClangBinaryName,
-                                                "-print-resource-dir"};
-    llvm::SmallString<64> OutputFile, ErrorFile;
-    llvm::sys::fs::createTemporaryFile("print-resource-dir-output",
-                                       "" /*no-suffix*/, OutputFile);
-    llvm::sys::fs::createTemporaryFile("print-resource-dir-error",
-                                       "" /*no-suffix*/, ErrorFile);
-    llvm::FileRemover OutputRemover(OutputFile.c_str());
-    llvm::FileRemover ErrorRemover(ErrorFile.c_str());
-    llvm::Optional<StringRef> Redirects[] = {
-        {""}, // Stdin
-        StringRef(OutputFile),
-        StringRef(ErrorFile),
-    };
-    if (const int RC = llvm::sys::ExecuteAndWait(
-            ClangBinaryPath, PrintResourceDirArgs, {}, Redirects)) {
-      auto ErrorBuf = llvm::MemoryBuffer::getFile(ErrorFile.c_str());
-      llvm::errs() << ErrorBuf.get()->getBuffer();
-      return "";
-    }
-
-    auto OutputBuf = llvm::MemoryBuffer::getFile(OutputFile.c_str());
-    if (!OutputBuf)
-      return "";
-    StringRef Output = OutputBuf.get()->getBuffer().rtrim('\n');
-
-    Cache[ClangBinaryPath] = Output.str();
-    return Cache[ClangBinaryPath];
-  }
-
-private:
-  std::map<std::string, std::string> Cache;
-  std::mutex CacheLock;
-};
-
 llvm::cl::opt<bool> Help("h", llvm::cl::desc("Alias for -help"),
                          llvm::cl::Hidden);
 
@@ -116,17 +57,6 @@ static llvm::cl::opt<ScanningMode> ScanMode(
                    "The set of dependencies is computed by preprocessing the "
                    "unmodified source files")),
     llvm::cl::init(ScanningMode::MinimizedSourcePreprocessing),
-    llvm::cl::cat(DependencyScannerCategory));
-
-static llvm::cl::opt<ScanningOutputFormat> Format(
-    "format", llvm::cl::desc("The output format for the dependencies"),
-    llvm::cl::values(clEnumValN(ScanningOutputFormat::Make, "make",
-                                "Makefile compatible dep file"),
-                     clEnumValN(ScanningOutputFormat::Full, "experimental-full",
-                                "Full dependency graph suitable"
-                                " for explicitly building modules. This format "
-                                "is experimental and will change.")),
-    llvm::cl::init(ScanningOutputFormat::Make),
     llvm::cl::cat(DependencyScannerCategory));
 
 llvm::cl::opt<unsigned>
@@ -167,24 +97,6 @@ static std::string getObjFilePath(StringRef SrcFile) {
   return ObjFileName.str();
 }
 
-class SingleCommandCompilationDatabase : public tooling::CompilationDatabase {
-public:
-  SingleCommandCompilationDatabase(tooling::CompileCommand Cmd)
-      : Command(std::move(Cmd)) {}
-
-  virtual std::vector<tooling::CompileCommand>
-  getCompileCommands(StringRef FilePath) const {
-    return {Command};
-  }
-
-  virtual std::vector<tooling::CompileCommand> getAllCompileCommands() const {
-    return {Command};
-  }
-
-private:
-  tooling::CompileCommand Command;
-};
-
 /// Takes the result of a dependency scan and prints error / dependency files
 /// based on the result.
 ///
@@ -224,19 +136,21 @@ int main(int argc, const char **argv) {
 
   llvm::cl::PrintOptionValues();
 
+  // By default the tool runs on all inputs in the CDB.
+  std::vector<std::pair<std::string, std::string>> Inputs;
+  for (const auto &Command : Compilations->getAllCompileCommands())
+    Inputs.emplace_back(Command.Filename, Command.Directory);
+
   // The command options are rewritten to run Clang in preprocessor only mode.
   auto AdjustingCompilations =
       std::make_unique<tooling::ArgumentsAdjustingCompilations>(
           std::move(Compilations));
-  ResourceDirectoryCache ResourceDirCache;
   AdjustingCompilations->appendArgumentsAdjuster(
-      [&ResourceDirCache](const tooling::CommandLineArguments &Args,
-                          StringRef FileName) {
+      [](const tooling::CommandLineArguments &Args, StringRef FileName) {
         std::string LastO = "";
         bool HasMT = false;
         bool HasMQ = false;
         bool HasMD = false;
-        bool HasResourceDir = false;
         // We need to find the last -o value.
         if (!Args.empty()) {
           std::size_t Idx = Args.size() - 1;
@@ -250,8 +164,6 @@ int main(int argc, const char **argv) {
                 HasMQ = true;
               if (Args[Idx] == "-MD")
                 HasMD = true;
-              if (Args[Idx] == "-resource-dir")
-                HasResourceDir = true;
             }
             --Idx;
           }
@@ -279,15 +191,6 @@ int main(int argc, const char **argv) {
         AdjustedArgs.push_back("-Xclang");
         AdjustedArgs.push_back("-sys-header-deps");
         AdjustedArgs.push_back("-Wno-error");
-
-        if (!HasResourceDir) {
-          StringRef ResourceDir =
-              ResourceDirCache.findResourceDir(Args);
-          if (!ResourceDir.empty()) {
-            AdjustedArgs.push_back("-resource-dir");
-            AdjustedArgs.push_back(ResourceDir);
-          }
-        }
         return AdjustedArgs;
       });
   AdjustingCompilations->appendArgumentsAdjuster(
@@ -297,7 +200,7 @@ int main(int argc, const char **argv) {
   // Print out the dependency results to STDOUT by default.
   SharedStream DependencyOS(llvm::outs());
 
-  DependencyScanningService Service(ScanMode, Format, ReuseFileManager,
+  DependencyScanningService Service(ScanMode, ReuseFileManager,
                                     SkipExcludedPPRanges);
 #if LLVM_ENABLE_THREADS
   unsigned NumWorkers =
@@ -307,12 +210,8 @@ int main(int argc, const char **argv) {
 #endif
   std::vector<std::unique_ptr<DependencyScanningTool>> WorkerTools;
   for (unsigned I = 0; I < NumWorkers; ++I)
-    WorkerTools.push_back(std::make_unique<DependencyScanningTool>(Service));
-
-  std::vector<SingleCommandCompilationDatabase> Inputs;
-  for (tooling::CompileCommand Cmd :
-       AdjustingCompilations->getAllCompileCommands())
-    Inputs.emplace_back(Cmd);
+    WorkerTools.push_back(std::make_unique<DependencyScanningTool>(
+        Service, *AdjustingCompilations));
 
   std::vector<std::thread> WorkerThreads;
   std::atomic<bool> HadErrors(false);
@@ -327,22 +226,20 @@ int main(int argc, const char **argv) {
     auto Worker = [I, &Lock, &Index, &Inputs, &HadErrors, &WorkerTools,
                    &DependencyOS, &Errs]() {
       while (true) {
-        const SingleCommandCompilationDatabase *Input;
-        std::string Filename;
-        std::string CWD;
+        std::string Input;
+        StringRef CWD;
         // Take the next input.
         {
           std::unique_lock<std::mutex> LockGuard(Lock);
           if (Index >= Inputs.size())
             return;
-          Input = &Inputs[Index++];
-          tooling::CompileCommand Cmd = Input->getAllCompileCommands()[0];
-          Filename = std::move(Cmd.Filename);
-          CWD = std::move(Cmd.Directory);
+          const auto &Compilation = Inputs[Index++];
+          Input = Compilation.first;
+          CWD = Compilation.second;
         }
         // Run the tool on it.
-        auto MaybeFile = WorkerTools[I]->getDependencyFile(*Input, CWD);
-        if (handleDependencyToolResult(Filename, MaybeFile, DependencyOS, Errs))
+        auto MaybeFile = WorkerTools[I]->getDependencyFile(Input, CWD);
+        if (handleDependencyToolResult(Input, MaybeFile, DependencyOS, Errs))
           HadErrors = true;
       }
     };

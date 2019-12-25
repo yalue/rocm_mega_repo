@@ -286,7 +286,9 @@ static HSAKMT_STATUS debug_trap(HSAuint32 NodeId,
 	CHECK_KFD_OPEN();
 
 	if (op == KFD_IOC_DBG_TRAP_NODE_SUSPEND ||
-			op == KFD_IOC_DBG_TRAP_NODE_RESUME) {
+			op == KFD_IOC_DBG_TRAP_NODE_RESUME ||
+			op == KFD_IOC_DBG_TRAP_GET_VERSION ||
+			op == KFD_IOC_DBG_TRAP_GET_QUEUE_SNAPSHOT) {
 		if  (NodeId != INVALID_NODEID)
 			return HSAKMT_STATUS_INVALID_HANDLE;
 
@@ -380,20 +382,6 @@ HSAKMT_STATUS HSAKMTAPI hsaKmtDisableDebugTrap(HSAuint32 NodeId)
 			INVALID_PID,
 			0,
 			NULL);
-}
-
-HSAKMT_STATUS HSAKMTAPI hsaKmtSetDebugTrapData2(HSAuint32 NodeId,
-					       HSAuint32 TrapData0,
-					       HSAuint32 TrapData1)
-{
-	return debug_trap(NodeId,
-				KFD_IOC_DBG_TRAP_SET_TRAP_DATA,
-				TrapData0,
-				TrapData1,
-				0,
-				INVALID_PID,
-				0,
-				NULL);
 }
 
 HSAKMT_STATUS HSAKMTAPI hsaKmtSetWaveLaunchTrapOverride(
@@ -596,3 +584,84 @@ hsaKmtQueryDebugEvent(
 	return result;
 }
 
+/**
+ * Get the major and minor version of the kernel debugger support.
+ *
+ * Returns:
+ *   - HSAKMT_STATUS_SUCCESS if successful.
+ *
+ *   - HSAKMT_STATUS_INVALID_HANDLE if NodeId is invalid.
+ *
+ *   - HSAKMT_STATUS_NOT_SUPPORTED if debug trap not supported for NodeId.
+*/
+HSAKMT_STATUS
+HSAKMTAPI
+hsaKmtGetKernelDebugTrapVersionInfo(
+    HSAuint32 *Major,  //Out
+    HSAuint32 *Minor   //Out
+)
+{
+	HSAKMT_STATUS result;
+	struct kfd_ioctl_dbg_trap_args argout = {0};
+
+	result =  debug_trap(INVALID_NODEID,
+				KFD_IOC_DBG_TRAP_GET_VERSION,
+				0,
+				0,
+				0,
+				INVALID_PID,
+				0,
+				&argout);
+
+	*Major = argout.data1;
+	*Minor = argout.data2;
+	return result;
+}
+
+/**
+ * Get the major and minor version of the Thunk debugger support.
+*/
+void
+HSAKMTAPI
+hsaKmtGetThunkDebugTrapVersionInfo(
+    HSAuint32 *Major,  //Out
+    HSAuint32 *Minor   //Out
+)
+{
+	*Major = KFD_IOCTL_DBG_MAJOR_VERSION;
+	*Minor = KFD_IOCTL_DBG_MINOR_VERSION;
+}
+
+HSAKMT_STATUS
+HSAKMTAPI
+hsaKmtGetQueueSnapshot(
+		HSAuint32	NodeId, //IN
+		HSAuint32	Pid, // IN
+		bool		ClearEvents, //IN
+		void		*SnapshotBuf, //IN
+		HSAuint32	*QssEntries //IN/OUT
+		)
+{
+	HSAKMT_STATUS result;
+	struct kfd_ioctl_dbg_trap_args argout = {0};
+	uint32_t flags = 0;
+
+	if (ClearEvents)
+		flags |= KFD_DBG_EV_FLAG_CLEAR_STATUS;
+
+	result = debug_trap(NodeId,
+			    KFD_IOC_DBG_TRAP_GET_QUEUE_SNAPSHOT,
+			    flags,
+			    *QssEntries,
+			    0,
+			    Pid,
+			    (HSAuint64)SnapshotBuf,
+			    &argout);
+
+	if (result)
+		return result;
+
+	*QssEntries = argout.data2;
+
+	return 0;
+}

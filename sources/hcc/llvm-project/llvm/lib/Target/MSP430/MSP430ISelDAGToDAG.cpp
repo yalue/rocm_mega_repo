@@ -37,22 +37,25 @@ namespace {
     enum {
       RegBase,
       FrameIndexBase
-    } BaseType = RegBase;
+    } BaseType;
 
     struct {            // This is really a union, discriminated by BaseType!
       SDValue Reg;
-      int FrameIndex = 0;
+      int FrameIndex;
     } Base;
 
-    int16_t Disp = 0;
-    const GlobalValue *GV = nullptr;
-    const Constant *CP = nullptr;
-    const BlockAddress *BlockAddr = nullptr;
-    const char *ES = nullptr;
-    int JT = -1;
-    unsigned Align = 0;  // CP alignment.
+    int16_t Disp;
+    const GlobalValue *GV;
+    const Constant *CP;
+    const BlockAddress *BlockAddr;
+    const char *ES;
+    int JT;
+    unsigned Align;    // CP alignment.
 
-    MSP430ISelAddressMode() = default;
+    MSP430ISelAddressMode()
+      : BaseType(RegBase), Disp(0), GV(nullptr), CP(nullptr),
+        BlockAddr(nullptr), ES(nullptr), JT(-1), Align(0) {
+    }
 
     bool hasSymbolicDisplacement() const {
       return GV != nullptr || CP != nullptr || ES != nullptr || JT != -1;

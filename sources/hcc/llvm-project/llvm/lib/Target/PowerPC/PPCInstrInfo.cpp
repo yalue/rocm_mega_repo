@@ -108,7 +108,7 @@ ScheduleHazardRecognizer *
 PPCInstrInfo::CreateTargetHazardRecognizer(const TargetSubtargetInfo *STI,
                                            const ScheduleDAG *DAG) const {
   unsigned Directive =
-      static_cast<const PPCSubtarget *>(STI)->getCPUDirective();
+      static_cast<const PPCSubtarget *>(STI)->getDarwinDirective();
   if (Directive == PPC::DIR_440 || Directive == PPC::DIR_A2 ||
       Directive == PPC::DIR_E500mc || Directive == PPC::DIR_E5500) {
     const InstrItineraryData *II =
@@ -125,7 +125,7 @@ ScheduleHazardRecognizer *
 PPCInstrInfo::CreateTargetPostRAHazardRecognizer(const InstrItineraryData *II,
                                                  const ScheduleDAG *DAG) const {
   unsigned Directive =
-      DAG->MF.getSubtarget<PPCSubtarget>().getCPUDirective();
+      DAG->MF.getSubtarget<PPCSubtarget>().getDarwinDirective();
 
   // FIXME: Leaving this as-is until we have POWER9 scheduling info
   if (Directive == PPC::DIR_PWR7 || Directive == PPC::DIR_PWR8)
@@ -202,7 +202,7 @@ int PPCInstrInfo::getOperandLatency(const InstrItineraryData *ItinData,
 
     // On some cores, there is an additional delay between writing to a condition
     // register, and using it from a branch.
-    unsigned Directive = Subtarget.getCPUDirective();
+    unsigned Directive = Subtarget.getDarwinDirective();
     switch (Directive) {
     default: break;
     case PPC::DIR_7400:
@@ -469,7 +469,7 @@ void PPCInstrInfo::insertNoop(MachineBasicBlock &MBB,
                               MachineBasicBlock::iterator MI) const {
   // This function is used for scheduling, and the nop wanted here is the type
   // that terminates dispatch groups on the POWER cores.
-  unsigned Directive = Subtarget.getCPUDirective();
+  unsigned Directive = Subtarget.getDarwinDirective();
   unsigned Opcode;
   switch (Directive) {
   default:            Opcode = PPC::NOP; break;
@@ -903,15 +903,15 @@ static unsigned getCRBitValue(unsigned CRBit) {
 
 void PPCInstrInfo::copyPhysReg(MachineBasicBlock &MBB,
                                MachineBasicBlock::iterator I,
-                               const DebugLoc &DL, MCRegister DestReg,
-                               MCRegister SrcReg, bool KillSrc) const {
+                               const DebugLoc &DL, unsigned DestReg,
+                               unsigned SrcReg, bool KillSrc) const {
   // We can end up with self copies and similar things as a result of VSX copy
   // legalization. Promote them here.
   const TargetRegisterInfo *TRI = &getRegisterInfo();
   if (PPC::F8RCRegClass.contains(DestReg) &&
       PPC::VSRCRegClass.contains(SrcReg)) {
-    MCRegister SuperReg =
-        TRI->getMatchingSuperReg(DestReg, PPC::sub_64, &PPC::VSRCRegClass);
+    unsigned SuperReg =
+      TRI->getMatchingSuperReg(DestReg, PPC::sub_64, &PPC::VSRCRegClass);
 
     if (VSXSelfCopyCrash && SrcReg == SuperReg)
       llvm_unreachable("nop VSX copy");
@@ -919,8 +919,8 @@ void PPCInstrInfo::copyPhysReg(MachineBasicBlock &MBB,
     DestReg = SuperReg;
   } else if (PPC::F8RCRegClass.contains(SrcReg) &&
              PPC::VSRCRegClass.contains(DestReg)) {
-    MCRegister SuperReg =
-        TRI->getMatchingSuperReg(SrcReg, PPC::sub_64, &PPC::VSRCRegClass);
+    unsigned SuperReg =
+      TRI->getMatchingSuperReg(SrcReg, PPC::sub_64, &PPC::VSRCRegClass);
 
     if (VSXSelfCopyCrash && DestReg == SuperReg)
       llvm_unreachable("nop VSX copy");
@@ -931,7 +931,7 @@ void PPCInstrInfo::copyPhysReg(MachineBasicBlock &MBB,
   // Different class register copy
   if (PPC::CRBITRCRegClass.contains(SrcReg) &&
       PPC::GPRCRegClass.contains(DestReg)) {
-    MCRegister CRReg = getCRFromCRBit(SrcReg);
+    unsigned CRReg = getCRFromCRBit(SrcReg);
     BuildMI(MBB, I, DL, get(PPC::MFOCRF), DestReg).addReg(CRReg);
     getKillRegState(KillSrc);
     // Rotate the CR bit in the CR fields to be the least significant bit and
@@ -1836,8 +1836,8 @@ bool PPCInstrInfo::optimizeCompareInstr(MachineInstr &CmpInstr, unsigned SrcReg,
 
   int NewOpC = -1;
   int MIOpC = MI->getOpcode();
-  if (MIOpC == PPC::ANDIo || MIOpC == PPC::ANDI8o ||
-      MIOpC == PPC::ANDISo || MIOpC == PPC::ANDIS8o)
+  if (MIOpC == PPC::ANDIo || MIOpC == PPC::ANDIo8 ||
+      MIOpC == PPC::ANDISo || MIOpC == PPC::ANDISo8)
     NewOpC = MIOpC;
   else {
     NewOpC = PPC::getRecordFormOpcode(MIOpC);
@@ -1945,7 +1945,7 @@ bool PPCInstrInfo::optimizeCompareInstr(MachineInstr &CmpInstr, unsigned SrcReg,
         Mask >>= MBInLoHWord ? 0 : 16;
         NewOpC = MIOpC == PPC::RLWINM ?
           (MBInLoHWord ? PPC::ANDIo : PPC::ANDISo) :
-          (MBInLoHWord ? PPC::ANDI8o :PPC::ANDIS8o);
+          (MBInLoHWord ? PPC::ANDIo8 :PPC::ANDISo8);
       } else if (MRI->use_empty(GPRRes) && (ME == 31) &&
                  (ME - MB + 1 == SH) && (MB >= 16)) {
         // If we are rotating by the exact number of bits as are in the mask
@@ -1953,7 +1953,7 @@ bool PPCInstrInfo::optimizeCompareInstr(MachineInstr &CmpInstr, unsigned SrcReg,
         // that's just an andis. (as long as the GPR result has no uses).
         Mask = ((1LLU << 32) - 1) & ~((1LLU << (32 - SH)) - 1);
         Mask >>= 16;
-        NewOpC = MIOpC == PPC::RLWINM ? PPC::ANDISo :PPC::ANDIS8o;
+        NewOpC = MIOpC == PPC::RLWINM ? PPC::ANDISo :PPC::ANDISo8;
       }
       // If we've set the mask, we can transform.
       if (Mask != ~0LLU) {
@@ -1966,7 +1966,7 @@ bool PPCInstrInfo::optimizeCompareInstr(MachineInstr &CmpInstr, unsigned SrcReg,
       int64_t MB = MI->getOperand(3).getImm();
       if (MB >= 48) {
         uint64_t Mask = (1LLU << (63 - MB + 1)) - 1;
-        NewOpC = PPC::ANDI8o;
+        NewOpC = PPC::ANDIo8;
         MI->RemoveOperand(3);
         MI->getOperand(2).setImm(Mask);
         NumRcRotatesConvertedToRcAnd++;
@@ -2306,7 +2306,7 @@ void PPCInstrInfo::replaceInstrWithLI(MachineInstr &MI,
 
   // Replace the instruction.
   if (LII.SetCR) {
-    MI.setDesc(get(LII.Is64Bit ? PPC::ANDI8o : PPC::ANDIo));
+    MI.setDesc(get(LII.Is64Bit ? PPC::ANDIo8 : PPC::ANDIo));
     // Set the immediate.
     MachineInstrBuilder(*MI.getParent()->getParent(), MI)
         .addImm(LII.Imm).addReg(PPC::CR0, RegState::ImplicitDefine);
@@ -2525,225 +2525,6 @@ void PPCInstrInfo::fixupIsDeadOrKill(MachineInstr &StartMI, MachineInstr &EndMI,
   // Ensure RegMo liveness is killed after EndMI.
   assert((IsKillSet || (MO && MO->isDead())) &&
          "RegNo should be killed or dead");
-}
-
-// This opt tries to convert the following imm form to an index form to save an
-// add for stack variables.
-// Return false if no such pattern found.
-//
-// ADDI instr: ToBeChangedReg = ADDI FrameBaseReg, OffsetAddi
-// ADD instr:  ToBeDeletedReg = ADD ToBeChangedReg(killed), ScaleReg
-// Imm instr:  Reg            = op OffsetImm, ToBeDeletedReg(killed)
-//
-// can be converted to:
-//
-// new ADDI instr: ToBeChangedReg = ADDI FrameBaseReg, (OffsetAddi + OffsetImm)
-// Index instr:    Reg            = opx ScaleReg, ToBeChangedReg(killed)
-//
-// In order to eliminate ADD instr, make sure that:
-// 1: (OffsetAddi + OffsetImm) must be int16 since this offset will be used in
-//    new ADDI instr and ADDI can only take int16 Imm.
-// 2: ToBeChangedReg must be killed in ADD instr and there is no other use
-//    between ADDI and ADD instr since its original def in ADDI will be changed
-//    in new ADDI instr. And also there should be no new def for it between
-//    ADD and Imm instr as ToBeChangedReg will be used in Index instr.
-// 3: ToBeDeletedReg must be killed in Imm instr and there is no other use
-//    between ADD and Imm instr since ADD instr will be eliminated.
-// 4: ScaleReg must not be redefined between ADD and Imm instr since it will be
-//    moved to Index instr.
-bool PPCInstrInfo::foldFrameOffset(MachineInstr &MI) const {
-  MachineFunction *MF = MI.getParent()->getParent();
-  MachineRegisterInfo *MRI = &MF->getRegInfo();
-  bool PostRA = !MRI->isSSA();
-  // Do this opt after PEI which is after RA. The reason is stack slot expansion
-  // in PEI may expose such opportunities since in PEI, stack slot offsets to
-  // frame base(OffsetAddi) are determined.
-  if (!PostRA)
-    return false;
-  unsigned ToBeDeletedReg = 0;
-  int64_t OffsetImm = 0;
-  unsigned XFormOpcode = 0;
-  ImmInstrInfo III;
-
-  // Check if Imm instr meets requirement.
-  if (!isImmInstrEligibleForFolding(MI, ToBeDeletedReg, XFormOpcode, OffsetImm,
-                                    III))
-    return false;
-
-  bool OtherIntermediateUse = false;
-  MachineInstr *ADDMI = getDefMIPostRA(ToBeDeletedReg, MI, OtherIntermediateUse);
-
-  // Exit if there is other use between ADD and Imm instr or no def found.
-  if (OtherIntermediateUse || !ADDMI)
-    return false;
-
-  // Check if ADD instr meets requirement.
-  if (!isADDInstrEligibleForFolding(*ADDMI))
-    return false;
-
-  unsigned ScaleRegIdx = 0;
-  int64_t OffsetAddi = 0;
-  MachineInstr *ADDIMI = nullptr;
-
-  // Check if there is a valid ToBeChangedReg in ADDMI.
-  // 1: It must be killed.
-  // 2: Its definition must be a valid ADDIMI.
-  // 3: It must satify int16 offset requirement.
-  if (isValidToBeChangedReg(ADDMI, 1, ADDIMI, OffsetAddi, OffsetImm))
-    ScaleRegIdx = 2;
-  else if (isValidToBeChangedReg(ADDMI, 2, ADDIMI, OffsetAddi, OffsetImm))
-    ScaleRegIdx = 1;
-  else
-    return false;
-
-  assert(ADDIMI && "There should be ADDIMI for valid ToBeChangedReg.");
-  unsigned ToBeChangedReg = ADDIMI->getOperand(0).getReg();
-  unsigned ScaleReg = ADDMI->getOperand(ScaleRegIdx).getReg();
-  auto NewDefFor = [&](unsigned Reg, MachineBasicBlock::iterator Start,
-                       MachineBasicBlock::iterator End) {
-    for (auto It = ++Start; It != End; It++)
-      if (It->modifiesRegister(Reg, &getRegisterInfo()))
-        return true;
-    return false;
-  };
-  // Make sure no other def for ToBeChangedReg and ScaleReg between ADD Instr
-  // and Imm Instr.
-  if (NewDefFor(ToBeChangedReg, *ADDMI, MI) || NewDefFor(ScaleReg, *ADDMI, MI))
-    return false;
-
-  // Now start to do the transformation.
-  LLVM_DEBUG(dbgs() << "Replace instruction: "
-                    << "\n");
-  LLVM_DEBUG(ADDIMI->dump());
-  LLVM_DEBUG(ADDMI->dump());
-  LLVM_DEBUG(MI.dump());
-  LLVM_DEBUG(dbgs() << "with: "
-                    << "\n");
-
-  // Update ADDI instr.
-  ADDIMI->getOperand(2).setImm(OffsetAddi + OffsetImm);
-
-  // Update Imm instr.
-  MI.setDesc(get(XFormOpcode));
-  MI.getOperand(III.ImmOpNo)
-      .ChangeToRegister(ScaleReg, false, false,
-                        ADDMI->getOperand(ScaleRegIdx).isKill());
-
-  MI.getOperand(III.OpNoForForwarding)
-      .ChangeToRegister(ToBeChangedReg, false, false, true);
-
-  // Eliminate ADD instr.
-  ADDMI->eraseFromParent();
-
-  LLVM_DEBUG(ADDIMI->dump());
-  LLVM_DEBUG(MI.dump());
-
-  return true;
-}
-
-bool PPCInstrInfo::isADDIInstrEligibleForFolding(MachineInstr &ADDIMI,
-                                                 int64_t &Imm) const {
-  unsigned Opc = ADDIMI.getOpcode();
-
-  // Exit if the instruction is not ADDI.
-  if (Opc != PPC::ADDI && Opc != PPC::ADDI8)
-    return false;
-
-  Imm = ADDIMI.getOperand(2).getImm();
-
-  return true;
-}
-
-bool PPCInstrInfo::isADDInstrEligibleForFolding(MachineInstr &ADDMI) const {
-  unsigned Opc = ADDMI.getOpcode();
-
-  // Exit if the instruction is not ADD.
-  return Opc == PPC::ADD4 || Opc == PPC::ADD8;
-}
-
-bool PPCInstrInfo::isImmInstrEligibleForFolding(MachineInstr &MI,
-                                                unsigned &ToBeDeletedReg,
-                                                unsigned &XFormOpcode,
-                                                int64_t &OffsetImm,
-                                                ImmInstrInfo &III) const {
-  // Only handle load/store.
-  if (!MI.mayLoadOrStore())
-    return false;
-
-  unsigned Opc = MI.getOpcode();
-
-  XFormOpcode = RI.getMappedIdxOpcForImmOpc(Opc);
-
-  // Exit if instruction has no index form.
-  if (XFormOpcode == PPC::INSTRUCTION_LIST_END)
-    return false;
-
-  // TODO: sync the logic between instrHasImmForm() and ImmToIdxMap.
-  if (!instrHasImmForm(XFormOpcode, isVFRegister(MI.getOperand(0).getReg()),
-                       III, true))
-    return false;
-
-  if (!III.IsSummingOperands)
-    return false;
-
-  MachineOperand ImmOperand = MI.getOperand(III.ImmOpNo);
-  MachineOperand RegOperand = MI.getOperand(III.OpNoForForwarding);
-  // Only support imm operands, not relocation slots or others.
-  if (!ImmOperand.isImm())
-    return false;
-
-  assert(RegOperand.isReg() && "Instruction format is not right");
-
-  // There are other use for ToBeDeletedReg after Imm instr, can not delete it.
-  if (!RegOperand.isKill())
-    return false;
-
-  ToBeDeletedReg = RegOperand.getReg();
-  OffsetImm = ImmOperand.getImm();
-
-  return true;
-}
-
-bool PPCInstrInfo::isValidToBeChangedReg(MachineInstr *ADDMI, unsigned Index,
-                                         MachineInstr *&ADDIMI,
-                                         int64_t &OffsetAddi,
-                                         int64_t OffsetImm) const {
-  assert((Index == 1 || Index == 2) && "Invalid operand index for add.");
-  MachineOperand &MO = ADDMI->getOperand(Index);
-
-  if (!MO.isKill())
-    return false;
-
-  bool OtherIntermediateUse = false;
-
-  ADDIMI = getDefMIPostRA(MO.getReg(), *ADDMI, OtherIntermediateUse);
-  // Currently handle only one "add + Imminstr" pair case, exit if other
-  // intermediate use for ToBeChangedReg found.
-  // TODO: handle the cases where there are other "add + Imminstr" pairs
-  // with same offset in Imminstr which is like:
-  //
-  // ADDI instr: ToBeChangedReg  = ADDI FrameBaseReg, OffsetAddi
-  // ADD instr1: ToBeDeletedReg1 = ADD ToBeChangedReg, ScaleReg1
-  // Imm instr1: Reg1            = op1 OffsetImm, ToBeDeletedReg1(killed)
-  // ADD instr2: ToBeDeletedReg2 = ADD ToBeChangedReg(killed), ScaleReg2
-  // Imm instr2: Reg2            = op2 OffsetImm, ToBeDeletedReg2(killed)
-  //
-  // can be converted to:
-  //
-  // new ADDI instr: ToBeChangedReg = ADDI FrameBaseReg,
-  //                                       (OffsetAddi + OffsetImm)
-  // Index instr1:   Reg1           = opx1 ScaleReg1, ToBeChangedReg
-  // Index instr2:   Reg2           = opx2 ScaleReg2, ToBeChangedReg(killed)
-
-  if (OtherIntermediateUse || !ADDIMI)
-    return false;
-  // Check if ADDI instr meets requirement.
-  if (!isADDIInstrEligibleForFolding(*ADDIMI, OffsetAddi))
-    return false;
-
-  if (isInt<16>(OffsetAddi + OffsetImm))
-    return true;
-  return false;
 }
 
 // If this instruction has an immediate form and one of its operands is a
@@ -3083,7 +2864,7 @@ bool PPCInstrInfo::instrHasImmForm(unsigned Opc, bool IsVFReg,
     switch(Opc) {
     default: llvm_unreachable("Unknown opcode");
     case PPC::ANDo: III.ImmOpcode = PPC::ANDIo; break;
-    case PPC::AND8o: III.ImmOpcode = PPC::ANDI8o; break;
+    case PPC::AND8o: III.ImmOpcode = PPC::ANDIo8; break;
     case PPC::OR: III.ImmOpcode = PPC::ORI; break;
     case PPC::OR8: III.ImmOpcode = PPC::ORI8; break;
     case PPC::XOR: III.ImmOpcode = PPC::XORI; break;
@@ -3757,10 +3538,8 @@ bool PPCInstrInfo::transformToImmFormFedByLI(MachineInstr &MI,
     ForwardKilledOperandReg = MI.getOperand(ConstantOpNo).getReg();
 
   unsigned Opc = MI.getOpcode();
-  bool SpecialShift32 = Opc == PPC::SLW || Opc == PPC::SLWo ||
-                        Opc == PPC::SRW || Opc == PPC::SRWo ||
-                        Opc == PPC::SLW8 || Opc == PPC::SLW8o ||
-                        Opc == PPC::SRW8 || Opc == PPC::SRW8o;
+  bool SpecialShift32 =
+    Opc == PPC::SLW || Opc == PPC::SLWo || Opc == PPC::SRW || Opc == PPC::SRWo;
   bool SpecialShift64 =
     Opc == PPC::SLD || Opc == PPC::SLDo || Opc == PPC::SRD || Opc == PPC::SRDo;
   bool SetCR = Opc == PPC::SLWo || Opc == PPC::SRWo ||
@@ -4067,8 +3846,8 @@ PPCInstrInfo::isSignOrZeroExtended(const MachineInstr &MI, bool SignExt,
   case PPC::ORIS:
   case PPC::XORI:
   case PPC::XORIS:
-  case PPC::ANDI8o:
-  case PPC::ANDIS8o:
+  case PPC::ANDIo8:
+  case PPC::ANDISo8:
   case PPC::ORI8:
   case PPC::ORIS8:
   case PPC::XORI8:

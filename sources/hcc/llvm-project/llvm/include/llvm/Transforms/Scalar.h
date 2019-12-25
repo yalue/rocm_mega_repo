@@ -18,6 +18,7 @@
 
 namespace llvm {
 
+class BasicBlockPass;
 class Function;
 class FunctionPass;
 class ModulePass;
@@ -49,7 +50,8 @@ FunctionPass *createSCCPPass();
 //===----------------------------------------------------------------------===//
 //
 // DeadInstElimination - This pass quickly removes trivially dead instructions
-// without modifying the CFG of the function.  It is a FunctionPass.
+// without modifying the CFG of the function.  It is a BasicBlockPass, so it
+// runs efficiently when queued next to other BasicBlockPass's.
 //
 Pass *createDeadInstEliminationPass();
 

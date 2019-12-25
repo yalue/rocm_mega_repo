@@ -697,7 +697,7 @@ void StmtPrinter::VisitOMPCriticalDirective(OMPCriticalDirective *Node) {
   Indent() << "#pragma omp critical";
   if (Node->getDirectiveName().getName()) {
     OS << " (";
-    Node->getDirectiveName().printName(OS, Policy);
+    Node->getDirectiveName().printName(OS);
     OS << ")";
   }
   PrintOMPExecutableDirective(Node);
@@ -711,12 +711,6 @@ void StmtPrinter::VisitOMPParallelForDirective(OMPParallelForDirective *Node) {
 void StmtPrinter::VisitOMPParallelForSimdDirective(
     OMPParallelForSimdDirective *Node) {
   Indent() << "#pragma omp parallel for simd";
-  PrintOMPExecutableDirective(Node);
-}
-
-void StmtPrinter::VisitOMPParallelMasterDirective(
-    OMPParallelMasterDirective *Node) {
-  Indent() << "#pragma omp parallel master";
   PrintOMPExecutableDirective(Node);
 }
 
@@ -844,12 +838,6 @@ void StmtPrinter::VisitOMPMasterTaskLoopSimdDirective(
 void StmtPrinter::VisitOMPParallelMasterTaskLoopDirective(
     OMPParallelMasterTaskLoopDirective *Node) {
   Indent() << "#pragma omp parallel master taskloop";
-  PrintOMPExecutableDirective(Node);
-}
-
-void StmtPrinter::VisitOMPParallelMasterTaskLoopSimdDirective(
-    OMPParallelMasterTaskLoopSimdDirective *Node) {
-  Indent() << "#pragma omp parallel master taskloop simd";
   PrintOMPExecutableDirective(Node);
 }
 
@@ -1310,7 +1298,7 @@ void StmtPrinter::VisitUnaryExprOrTypeTraitExpr(UnaryExprOrTypeTraitExpr *Node){
 void StmtPrinter::VisitGenericSelectionExpr(GenericSelectionExpr *Node) {
   OS << "_Generic(";
   PrintExpr(Node->getControllingExpr());
-  for (const GenericSelectionExpr::Association Assoc : Node->associations()) {
+  for (const GenericSelectionExpr::Association &Assoc : Node->associations()) {
     OS << ", ";
     QualType T = Assoc.getType();
     if (T.isNull())
@@ -2241,7 +2229,7 @@ void StmtPrinter::VisitFunctionParmPackExpr(FunctionParmPackExpr *E) {
 }
 
 void StmtPrinter::VisitMaterializeTemporaryExpr(MaterializeTemporaryExpr *Node){
-  PrintExpr(Node->getSubExpr());
+  PrintExpr(Node->GetTemporaryExpr());
 }
 
 void StmtPrinter::VisitCXXFoldExpr(CXXFoldExpr *E) {

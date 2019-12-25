@@ -91,9 +91,10 @@ ProgramStateManager::~ProgramStateManager() {
     I->second.second(I->second.first);
 }
 
-ProgramStateRef ProgramStateManager::removeDeadBindingsFromEnvironmentAndStore(
-    ProgramStateRef state, const StackFrameContext *LCtx,
-    SymbolReaper &SymReaper) {
+ProgramStateRef
+ProgramStateManager::removeDeadBindings(ProgramStateRef state,
+                                   const StackFrameContext *LCtx,
+                                   SymbolReaper& SymReaper) {
 
   // This code essentially performs a "mark-and-sweep" of the VariableBindings.
   // The roots are any Block-level exprs and Decls that our liveness algorithm
@@ -111,7 +112,8 @@ ProgramStateRef ProgramStateManager::removeDeadBindingsFromEnvironmentAndStore(
   NewState.setStore(newStore);
   SymReaper.setReapedStore(newStore);
 
-  return getPersistentState(NewState);
+  ProgramStateRef Result = getPersistentState(NewState);
+  return ConstraintMgr->removeDeadBindings(Result, SymReaper);
 }
 
 ProgramStateRef ProgramState::bindLoc(Loc LV,

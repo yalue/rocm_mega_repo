@@ -29,11 +29,10 @@ template <typename T> class ArrayRef;
   class CGIOperandList {
   public:
     class ConstraintInfo {
-      enum { None, EarlyClobber, Tied } Kind = None;
-      unsigned OtherTiedOperand = 0;
-
+      enum { None, EarlyClobber, Tied } Kind;
+      unsigned OtherTiedOperand;
     public:
-      ConstraintInfo() = default;
+      ConstraintInfo() : Kind(None) {}
 
       static ConstraintInfo getEarlyClobber() {
         ConstraintInfo I;
@@ -333,9 +332,9 @@ template <typename T> class ArrayRef;
     struct ResultOperand {
     private:
       std::string Name;
-      Record *R = nullptr;
-      int64_t Imm = 0;
+      Record *R;
 
+      int64_t Imm;
     public:
       enum {
         K_Record,

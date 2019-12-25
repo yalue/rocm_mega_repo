@@ -23,8 +23,7 @@ class NVPTXMCAsmInfo : public MCAsmInfo {
   virtual void anchor();
 
 public:
-  explicit NVPTXMCAsmInfo(const Triple &TheTriple,
-                          const MCTargetOptions &Options);
+  explicit NVPTXMCAsmInfo(const Triple &TheTriple);
 
   /// Return true if the .section directive should be omitted when
   /// emitting \p SectionName.  For example:

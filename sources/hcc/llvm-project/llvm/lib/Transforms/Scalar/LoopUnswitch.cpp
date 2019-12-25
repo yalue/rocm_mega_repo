@@ -59,7 +59,6 @@
 #include "llvm/IR/User.h"
 #include "llvm/IR/Value.h"
 #include "llvm/IR/ValueHandle.h"
-#include "llvm/InitializePasses.h"
 #include "llvm/Pass.h"
 #include "llvm/Support/Casting.h"
 #include "llvm/Support/CommandLine.h"
@@ -684,7 +683,7 @@ bool LoopUnswitch::processCurrentLoop() {
     for (auto &I : *BB) {
       auto CS = CallSite(&I);
       if (!CS) continue;
-      if (CS.isConvergent())
+      if (CS.hasFnAttr(Attribute::Convergent))
         return false;
       if (auto *II = dyn_cast<InvokeInst>(&I))
         if (!II->getUnwindDest()->canSplitPredecessors())

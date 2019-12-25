@@ -75,6 +75,15 @@ FileSpec::FileSpec(llvm::StringRef path, Style style) : m_style(style) {
 FileSpec::FileSpec(llvm::StringRef path, const llvm::Triple &triple)
     : FileSpec{path, triple.isOSWindows() ? Style::windows : Style::posix} {}
 
+// Copy constructor
+FileSpec::FileSpec(const FileSpec *rhs) : m_directory(), m_filename() {
+  if (rhs)
+    *this = *rhs;
+}
+
+// Virtual destructor in case anyone inherits from this class.
+FileSpec::~FileSpec() {}
+
 namespace {
 /// Safely get a character at the specified index.
 ///
@@ -165,6 +174,16 @@ bool needsNormalization(const llvm::StringRef &path) {
 
 
 }
+// Assignment operator.
+const FileSpec &FileSpec::operator=(const FileSpec &rhs) {
+  if (this != &rhs) {
+    m_directory = rhs.m_directory;
+    m_filename = rhs.m_filename;
+    m_is_resolved = rhs.m_is_resolved;
+    m_style = rhs.m_style;
+  }
+  return *this;
+}
 
 void FileSpec::SetFile(llvm::StringRef pathname) { SetFile(pathname, m_style); }
 
@@ -252,7 +271,7 @@ bool FileSpec::operator<(const FileSpec &rhs) const {
 
 // Dump a FileSpec object to a stream
 Stream &lldb_private::operator<<(Stream &s, const FileSpec &f) {
-  f.Dump(s.AsRawOstream());
+  f.Dump(&s);
   return s;
 }
 
@@ -293,18 +312,20 @@ int FileSpec::Compare(const FileSpec &a, const FileSpec &b, bool full) {
 }
 
 bool FileSpec::Equal(const FileSpec &a, const FileSpec &b, bool full) {
-  if (full || (a.GetDirectory() && b.GetDirectory()))
-    return a == b;
+  // case sensitivity of equality test
+  const bool case_sensitive = a.IsCaseSensitive() || b.IsCaseSensitive();
 
-  return a.FileEquals(b);
-}
+  const bool filenames_equal = ConstString::Equals(a.m_filename,
+                                                   b.m_filename,
+                                                   case_sensitive);
 
-bool FileSpec::Match(const FileSpec &pattern, const FileSpec &file) {
-  if (pattern.GetDirectory())
-    return pattern == file;
-  if (pattern.GetFilename())
-    return pattern.FileEquals(file);
-  return true;
+  if (!filenames_equal)
+    return false;
+
+  if (!full && (a.GetDirectory().IsEmpty() || b.GetDirectory().IsEmpty()))
+    return filenames_equal;
+
+  return a == b;
 }
 
 llvm::Optional<FileSpec::Style> FileSpec::GuessPathStyle(llvm::StringRef absolute_path) {
@@ -321,12 +342,14 @@ llvm::Optional<FileSpec::Style> FileSpec::GuessPathStyle(llvm::StringRef absolut
 // Dump the object to the supplied stream. If the object contains a valid
 // directory name, it will be displayed followed by a directory delimiter, and
 // the filename.
-void FileSpec::Dump(llvm::raw_ostream &s) const {
-  std::string path{GetPath(true)};
-  s << path;
-  char path_separator = GetPreferredPathSeparator(m_style);
-  if (!m_filename && !path.empty() && path.back() != path_separator)
-    s << path_separator;
+void FileSpec::Dump(Stream *s) const {
+  if (s) {
+    std::string path{GetPath(true)};
+    s->PutCString(path);
+    char path_separator = GetPreferredPathSeparator(m_style);
+    if (!m_filename && !path.empty() && path.back() != path_separator)
+      s->PutChar(path_separator);
+  }
 }
 
 FileSpec::Style FileSpec::GetPathStyle() const { return m_style; }

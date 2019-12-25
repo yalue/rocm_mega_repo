@@ -46,7 +46,7 @@ THE SOFTWARE.
 #include "hsa/hsa_ext_image.h"
 #include "hip/hip_runtime.h"
 #include "hip_hcc_internal.h"
-#include "hip/hip_hcc.h"
+#include "hip/hip_ext.h"
 #include "trace_helper.h"
 #include "env.h"
 
@@ -310,6 +310,8 @@ void ihipStream_t::locked_wait() {
     hc::completion_future marker;
     {
         LockedAccessor_StreamCrit_t crit(_criticalData);
+        // skipping marker since stream is empty
+        if (crit->_av.get_is_empty()) return;
         marker = crit->_av.create_marker(hc::no_scope);
     }
 
@@ -324,14 +326,6 @@ void ihipStream_t::locked_streamWaitEvent(ihipEventData_t& ecd) {
     crit->_av.create_blocking_marker(ecd.marker(), hc::accelerator_scope);
 }
 
-
-// Causes current stream to wait for specified event to complete:
-// Note this does not provide any kind of host serialization.
-bool ihipStream_t::locked_eventIsReady(hipEvent_t event) {
-    LockedAccessor_EventCrit_t ecrit(event->criticalData());
-
-    return (ecrit->_eventData.marker().is_ready());
-}
 
 // Create a marker in this stream.
 // Save state in the event so it can track the status of the event.
@@ -734,7 +728,6 @@ hipError_t ihipDevice_t::initProperties(hipDeviceProp_t* prop) {
     err = hsa_agent_get_info(_hsaAgent, HSA_AGENT_INFO_NAME, &archName);
 
     prop->gcnArch = atoi(archName + 3);
-
     DeviceErrorCheck(err);
 
     // Get agent node
@@ -782,10 +775,12 @@ hipError_t ihipDevice_t::initProperties(hipDeviceProp_t* prop) {
     err = hsa_agent_get_info(_hsaAgent, (hsa_agent_info_t)HSA_AMD_AGENT_INFO_BDFID, &bdf_id);
     DeviceErrorCheck(err);
 
-    // BDFID is 16bit uint: [8bit - BusID | 5bit - Device ID | 3bit - Function/DomainID]
-    prop->pciDomainID = bdf_id & 0x7;
+    // BDFID is 16bit uint: [8bit - BusID | 5bit - Device ID | 3bit - FunctionID]
     prop->pciDeviceID = (bdf_id >> 3) & 0x1F;
     prop->pciBusID = (bdf_id >> 8) & 0xFF;
+
+    err = hsa_agent_get_info(_hsaAgent, (hsa_agent_info_t)HSA_AMD_AGENT_INFO_DOMAIN, &prop->pciDomainID);
+    DeviceErrorCheck(err);
 
     // Masquerade as a 3.0-level device. This will change as more HW functions are properly
     // supported. Application code should use the arch.has* to do detailed feature detection.
@@ -912,6 +907,23 @@ hipError_t ihipDevice_t::initProperties(hipDeviceProp_t* prop) {
     prop->hdpMemFlushCntl = hdpinfo.HDP_MEM_FLUSH_CNTL;
     prop->hdpRegFlushCntl = hdpinfo.HDP_REG_FLUSH_CNTL;
 
+    prop->memPitch = INT_MAX; //Maximum pitch in bytes allowed by memory copies (hardcoded 128 bytes in hipMallocPitch)
+    prop->textureAlignment = 0; //Alignment requirement for textures
+    prop->kernelExecTimeoutEnabled = 0; //no run time limit for running kernels on device
+
+    hsa_isa_t isa;
+    err = hsa_agent_get_info(_hsaAgent, (hsa_agent_info_t)HSA_AGENT_INFO_ISA, &isa);
+    DeviceErrorCheck(err);
+    std::size_t isa_sz = 0u;
+    hsa_isa_get_info_alt(isa, HSA_ISA_INFO_NAME_LENGTH, &isa_sz);
+    std::string isa_name(isa_sz, '\0');
+    hsa_isa_get_info_alt(isa, HSA_ISA_INFO_NAME, &isa_name.front());
+    if (isa_name.find("sram-ecc") != std::string::npos)
+        prop->ECCEnabled = 1; //Device has ECC support Enabled
+    else
+        prop->ECCEnabled = 0; //Device has ECC support disabled
+
+    prop->tccDriver = 0; // valid only for nvcc platform
     return e;
 }
 

@@ -42,7 +42,8 @@ private:
   std::string FileName;
   // This refers to a substring in FileName.
   StringRef FileStem;
-  SmallVector<llvm::Regex, 4> CategoryRegexs;
+  // Regex is not thread-safe.
+  mutable SmallVector<llvm::Regex, 4> CategoryRegexs;
 };
 
 /// Generates replacements for inserting or deleting #include directives in a

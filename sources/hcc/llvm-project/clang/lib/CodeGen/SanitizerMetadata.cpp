@@ -11,7 +11,6 @@
 //===----------------------------------------------------------------------===//
 #include "SanitizerMetadata.h"
 #include "CodeGenModule.h"
-#include "clang/AST/Attr.h"
 #include "clang/AST/Type.h"
 #include "llvm/ADT/StringRef.h"
 #include "llvm/IR/Constants.h"

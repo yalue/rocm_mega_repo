@@ -103,10 +103,9 @@ std::error_code errorToErrorCode(Error Err) {
 #if LLVM_ENABLE_ABI_BREAKING_CHECKS
 void Error::fatalUncheckedError() const {
   dbgs() << "Program aborted due to an unhandled Error:\n";
-  if (getPtr()) {
+  if (getPtr())
     getPtr()->log(dbgs());
-    dbgs() << "\n";
-  }else
+  else
     dbgs() << "Error value was Success. (Note: Success values must still be "
               "checked prior to being destroyed).\n";
   abort();

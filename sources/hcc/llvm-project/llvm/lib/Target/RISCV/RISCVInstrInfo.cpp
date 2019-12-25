@@ -84,8 +84,8 @@ unsigned RISCVInstrInfo::isStoreToStackSlot(const MachineInstr &MI,
 
 void RISCVInstrInfo::copyPhysReg(MachineBasicBlock &MBB,
                                  MachineBasicBlock::iterator MBBI,
-                                 const DebugLoc &DL, MCRegister DstReg,
-                                 MCRegister SrcReg, bool KillSrc) const {
+                                 const DebugLoc &DL, unsigned DstReg,
+                                 unsigned SrcReg, bool KillSrc) const {
   if (RISCV::GPRRegClass.contains(DstReg, SrcReg)) {
     BuildMI(MBB, MBBI, DL, get(RISCV::ADDI), DstReg)
         .addReg(SrcReg, getKillRegState(KillSrc))
@@ -541,84 +541,4 @@ bool RISCVInstrInfo::verifyInstruction(const MachineInstr &MI,
   }
 
   return true;
-}
-
-// Return true if get the base operand, byte offset of an instruction and the
-// memory width. Width is the size of memory that is being loaded/stored.
-bool RISCVInstrInfo::getMemOperandWithOffsetWidth(
-    const MachineInstr &LdSt, const MachineOperand *&BaseReg, int64_t &Offset,
-    unsigned &Width, const TargetRegisterInfo *TRI) const {
-  assert(LdSt.mayLoadOrStore() && "Expected a memory operation.");
-
-  // Here we assume the standard RISC-V ISA, which uses a base+offset
-  // addressing mode. You'll need to relax these conditions to support custom
-  // load/stores instructions.
-  if (LdSt.getNumExplicitOperands() != 3)
-    return false;
-  if (!LdSt.getOperand(1).isReg() || !LdSt.getOperand(2).isImm())
-    return false;
-
-  if (!LdSt.hasOneMemOperand())
-    return false;
-
-  Width = (*LdSt.memoperands_begin())->getSize();
-  BaseReg = &LdSt.getOperand(1);
-  Offset = LdSt.getOperand(2).getImm();
-  return true;
-}
-
-bool RISCVInstrInfo::areMemAccessesTriviallyDisjoint(
-    const MachineInstr &MIa, const MachineInstr &MIb) const {
-  assert(MIa.mayLoadOrStore() && "MIa must be a load or store.");
-  assert(MIb.mayLoadOrStore() && "MIb must be a load or store.");
-
-  if (MIa.hasUnmodeledSideEffects() || MIb.hasUnmodeledSideEffects() ||
-      MIa.hasOrderedMemoryRef() || MIb.hasOrderedMemoryRef())
-    return false;
-
-  // Retrieve the base register, offset from the base register and width. Width
-  // is the size of memory that is being loaded/stored (e.g. 1, 2, 4).  If
-  // base registers are identical, and the offset of a lower memory access +
-  // the width doesn't overlap the offset of a higher memory access,
-  // then the memory accesses are different.
-  const TargetRegisterInfo *TRI = STI.getRegisterInfo();
-  const MachineOperand *BaseOpA = nullptr, *BaseOpB = nullptr;
-  int64_t OffsetA = 0, OffsetB = 0;
-  unsigned int WidthA = 0, WidthB = 0;
-  if (getMemOperandWithOffsetWidth(MIa, BaseOpA, OffsetA, WidthA, TRI) &&
-      getMemOperandWithOffsetWidth(MIb, BaseOpB, OffsetB, WidthB, TRI)) {
-    if (BaseOpA->isIdenticalTo(*BaseOpB)) {
-      int LowOffset = std::min(OffsetA, OffsetB);
-      int HighOffset = std::max(OffsetA, OffsetB);
-      int LowWidth = (LowOffset == OffsetA) ? WidthA : WidthB;
-      if (LowOffset + LowWidth <= HighOffset)
-        return true;
-    }
-  }
-  return false;
-}
-
-std::pair<unsigned, unsigned>
-RISCVInstrInfo::decomposeMachineOperandsTargetFlags(unsigned TF) const {
-  const unsigned Mask = RISCVII::MO_DIRECT_FLAG_MASK;
-  return std::make_pair(TF & Mask, TF & ~Mask);
-}
-
-ArrayRef<std::pair<unsigned, const char *>>
-RISCVInstrInfo::getSerializableDirectMachineOperandTargetFlags() const {
-  using namespace RISCVII;
-  static const std::pair<unsigned, const char *> TargetFlags[] = {
-      {MO_CALL, "riscv-call"},
-      {MO_PLT, "riscv-plt"},
-      {MO_LO, "riscv-lo"},
-      {MO_HI, "riscv-hi"},
-      {MO_PCREL_LO, "riscv-pcrel-lo"},
-      {MO_PCREL_HI, "riscv-pcrel-hi"},
-      {MO_GOT_HI, "riscv-got-hi"},
-      {MO_TPREL_LO, "riscv-tprel-lo"},
-      {MO_TPREL_HI, "riscv-tprel-hi"},
-      {MO_TPREL_ADD, "riscv-tprel-add"},
-      {MO_TLS_GOT_HI, "riscv-tls-got-hi"},
-      {MO_TLS_GD_HI, "riscv-tls-gd-hi"}};
-  return makeArrayRef(TargetFlags);
 }

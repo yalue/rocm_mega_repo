@@ -10,7 +10,7 @@
 #include "BinaryHolder.h"
 #include "DebugMap.h"
 #include "LinkUtils.h"
-#include "llvm/CodeGen/NonRelocatableStringpool.h"
+#include "NonRelocatableStringpool.h"
 #include "llvm/MC/MCAsmLayout.h"
 #include "llvm/MC/MCMachObjectWriter.h"
 #include "llvm/MC/MCObjectStreamer.h"
@@ -442,12 +442,7 @@ bool generateDsymCompanion(const DebugMap &DM, SymbolMapTranslator &Translator,
   }
 
   SmallString<0> NewSymtab;
-  std::function<StringRef(StringRef)> TranslationLambda =
-      Translator ? [&](StringRef Input) { return Translator(Input); }
-                 : static_cast<std::function<StringRef(StringRef)>>(nullptr);
-  // Legacy dsymutil puts an empty string at the start of the line table.
-  // thus we set NonRelocatableStringpool(,PutEmptyString=true)
-  NonRelocatableStringpool NewStrings(TranslationLambda, true);
+  NonRelocatableStringpool NewStrings(Translator);
   unsigned NListSize = Is64Bit ? sizeof(MachO::nlist_64) : sizeof(MachO::nlist);
   unsigned NumSyms = 0;
   uint64_t NewStringsSize = 0;

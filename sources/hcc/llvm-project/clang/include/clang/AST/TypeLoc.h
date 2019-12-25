@@ -14,6 +14,7 @@
 #ifndef LLVM_CLANG_AST_TYPELOC_H
 #define LLVM_CLANG_AST_TYPELOC_H
 
+#include "clang/AST/Attr.h"
 #include "clang/AST/Decl.h"
 #include "clang/AST/NestedNameSpecifier.h"
 #include "clang/AST/TemplateBase.h"
@@ -32,7 +33,6 @@
 
 namespace clang {
 
-class Attr;
 class ASTContext;
 class CXXRecordDecl;
 class Expr;
@@ -172,6 +172,9 @@ public:
   UnqualTypeLoc getUnqualifiedLoc() const; // implemented in this header
 
   TypeLoc IgnoreParens() const;
+
+  /// Strips MacroDefinitionTypeLocs from a type location.
+  TypeLoc IgnoreMacroDefinitions() const;
 
   /// Find a type with the location of an explicit type qualifier.
   ///
@@ -878,7 +881,18 @@ public:
     return dyn_cast_or_null<T>(getAttr());
   }
 
-  SourceRange getLocalSourceRange() const;
+  SourceRange getLocalSourceRange() const {
+    // Note that this does *not* include the range of the attribute
+    // enclosure, e.g.:
+    //    __attribute__((foo(bar)))
+    //    ^~~~~~~~~~~~~~~        ~~
+    // or
+    //    [[foo(bar)]]
+    //    ^~        ~~
+    // That enclosure doesn't necessarily belong to a single attribute
+    // anyway.
+    return getAttr() ? getAttr()->getRange() : SourceRange();
+  }
 
   void initializeLocal(ASTContext &Context, SourceLocation loc) {
     setAttr(nullptr);

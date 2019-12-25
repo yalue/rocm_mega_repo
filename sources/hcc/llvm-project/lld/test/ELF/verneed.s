@@ -145,15 +145,13 @@
 # CHECK-NEXT:      Entries [
 # CHECK-NEXT:        Entry {
 # CHECK-NEXT:          Hash: 1938
-# CHECK-NEXT:          Flags [ (0x0)
-# CHECK-NEXT:          ]
+# CHECK-NEXT:          Flags: 0x0
 # CHECK-NEXT:          Index: 3
 # CHECK-NEXT:          Name: v2
 # CHECK-NEXT:        }
 # CHECK-NEXT:        Entry {
 # CHECK-NEXT:          Hash: 1939
-# CHECK-NEXT:          Flags [ (0x0)
-# CHECK-NEXT:          ]
+# CHECK-NEXT:          Flags: 0x0
 # CHECK-NEXT:          Index: 2
 # CHECK-NEXT:          Name: v3
 # CHECK-NEXT:        }
@@ -166,8 +164,7 @@
 # CHECK-NEXT:      Entries [
 # CHECK-NEXT:        Entry {
 # CHECK-NEXT:          Hash: 1937
-# CHECK-NEXT:          Flags [ (0x0)
-# CHECK-NEXT:          ]
+# CHECK-NEXT:          Flags: 0x0
 # CHECK-NEXT:          Index: 4
 # CHECK-NEXT:          Name: v1
 # CHECK-NEXT:        }

@@ -241,7 +241,7 @@ Linux::Linux(const Driver &D, const llvm::Triple &Triple, const ArgList &Args)
                          .str());
   }
 
-  Distro Distro(D.getVFS(), Triple);
+  Distro Distro(D.getVFS());
 
   if (Distro.IsAlpineLinux() || Triple.isAndroid()) {
     ExtraOpts.push_back("-z");
@@ -512,7 +512,7 @@ std::string Linux::getDynamicLinker(const ArgList &Args) const {
   const llvm::Triple::ArchType Arch = getArch();
   const llvm::Triple &Triple = getTriple();
 
-  const Distro Distro(getDriver().getVFS(), Triple);
+  const Distro Distro(getDriver().getVFS());
 
   if (Triple.isAndroid())
     return Triple.isArch64Bit() ? "/system/bin/linker64" : "/system/bin/linker";
@@ -889,25 +889,20 @@ static std::string DetectLibcxxIncludePath(llvm::vfs::FileSystem &vfs,
 void Linux::addLibCxxIncludePaths(const llvm::opt::ArgList &DriverArgs,
                                   llvm::opt::ArgStringList &CC1Args) const {
   const std::string& SysRoot = computeSysRoot();
-  auto AddIncludePath = [&](std::string Path) {
-    std::string IncludePath = DetectLibcxxIncludePath(getVFS(), Path);
+  const std::string LibCXXIncludePathCandidates[] = {
+      DetectLibcxxIncludePath(getVFS(), getDriver().Dir + "/../include/c++"),
+      // If this is a development, non-installed, clang, libcxx will
+      // not be found at ../include/c++ but it likely to be found at
+      // one of the following two locations:
+      DetectLibcxxIncludePath(getVFS(), SysRoot + "/usr/local/include/c++"),
+      DetectLibcxxIncludePath(getVFS(), SysRoot + "/usr/include/c++") };
+  for (const auto &IncludePath : LibCXXIncludePathCandidates) {
     if (IncludePath.empty() || !getVFS().exists(IncludePath))
-      return false;
+      continue;
+    // Use the first candidate that exists.
     addSystemInclude(DriverArgs, CC1Args, IncludePath);
-    return true;
-  };
-  // Android never uses the libc++ headers installed alongside the toolchain,
-  // which are generally incompatible with the NDK libraries anyway.
-  if (!getTriple().isAndroid())
-    if (AddIncludePath(getDriver().Dir + "/../include/c++"))
-      return;
-  // If this is a development, non-installed, clang, libcxx will
-  // not be found at ../include/c++ but it likely to be found at
-  // one of the following two locations:
-  if (AddIncludePath(SysRoot + "/usr/local/include/c++"))
     return;
-  if (AddIncludePath(SysRoot + "/usr/include/c++"))
-    return;
+  }
 }
 
 void Linux::addLibStdCxxIncludePaths(const llvm::opt::ArgList &DriverArgs,

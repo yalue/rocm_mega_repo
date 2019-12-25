@@ -57,8 +57,7 @@ static __device__ void csrmvn_general_device(rocsparse_int        m,
         // Loop over non-zero elements
         for(rocsparse_int j = row_start + lid; j < row_end; j += WF_SIZE)
         {
-            sum = rocsparse_fma(
-                alpha * csr_val[j], rocsparse_ldg(x + csr_col_ind[j] - idx_base), sum);
+            sum = fma(alpha * csr_val[j], rocsparse_ldg(x + csr_col_ind[j] - idx_base), sum);
         }
 
         // Obtain row sum using parallel reduction
@@ -73,7 +72,7 @@ static __device__ void csrmvn_general_device(rocsparse_int        m,
             }
             else
             {
-                y[row] = rocsparse_fma(beta, y[row], sum);
+                y[row] = fma(beta, y[row], sum);
             }
         }
     }
@@ -85,7 +84,7 @@ static inline __device__ T sum2_reduce(
 {
     if(max_size > reduc_size)
     {
-        cur_sum += partial[lid + reduc_size];
+        cur_sum = cur_sum + partial[lid + reduc_size];
         __syncthreads();
         partial[lid] = cur_sum;
     }
@@ -240,7 +239,7 @@ __device__ void csrmvn_adaptive_device(unsigned long long*  row_blocks,
                     local_cur_val < local_last_val;
                     local_cur_val += numThreadsForRed)
                 {
-                    temp_sum += partialSums[local_cur_val];
+                    temp_sum = temp_sum + partialSums[local_cur_val];
                 }
             }
             __syncthreads();
@@ -265,7 +264,7 @@ __device__ void csrmvn_adaptive_device(unsigned long long*  row_blocks,
                 // performance improvement.
                 if(beta != static_cast<T>(0))
                 {
-                    temp_sum = rocsparse_fma(beta, y[local_row], temp_sum);
+                    temp_sum = fma(beta, y[local_row], temp_sum);
                 }
                 y[local_row] = temp_sum;
             }
@@ -287,14 +286,14 @@ __device__ void csrmvn_adaptive_device(unsigned long long*  row_blocks,
                 for(rocsparse_int local_cur_val = local_first_val; local_cur_val < local_last_val;
                     ++local_cur_val)
                 {
-                    temp_sum += partialSums[local_cur_val];
+                    temp_sum = temp_sum + partialSums[local_cur_val];
                 }
 
                 // After you've done the reduction into the temp_sum register,
                 // put that into the output for each row.
                 if(beta != static_cast<T>(0))
                 {
-                    temp_sum = rocsparse_fma(beta, y[local_row], temp_sum);
+                    temp_sum = fma(beta, y[local_row], temp_sum);
                 }
 
                 y[local_row] = temp_sum;
@@ -328,8 +327,7 @@ __device__ void csrmvn_adaptive_device(unsigned long long*  row_blocks,
             // things.
             for(rocsparse_int j = vecStart + lid; j < vecEnd; j += WG_SIZE)
             {
-                temp_sum
-                    = rocsparse_fma(alpha * csr_val[j], x[csr_col_ind[j] - idx_base], temp_sum);
+                temp_sum = fma(alpha * csr_val[j], x[csr_col_ind[j] - idx_base], temp_sum);
             }
 
             partialSums[lid] = temp_sum;
@@ -345,7 +343,7 @@ __device__ void csrmvn_adaptive_device(unsigned long long*  row_blocks,
 
                 if(beta != static_cast<T>(0))
                 {
-                    temp_sum = rocsparse_fma(beta, y[row], temp_sum);
+                    temp_sum = fma(beta, y[row], temp_sum);
                 }
 
                 y[row] = temp_sum;
@@ -401,7 +399,7 @@ __device__ void csrmvn_adaptive_device(unsigned long long*  row_blocks,
         // Then dump the partially reduced answers into the LDS for inter-work-item reduction.
         for(rocsparse_int j = vecStart + lid; j < vecEnd; j += WG_SIZE)
         {
-            temp_sum = rocsparse_fma(alpha * csr_val[j], x[csr_col_ind[j] - idx_base], temp_sum);
+            temp_sum = fma(alpha * csr_val[j], x[csr_col_ind[j] - idx_base], temp_sum);
         }
 
         partialSums[lid] = temp_sum;

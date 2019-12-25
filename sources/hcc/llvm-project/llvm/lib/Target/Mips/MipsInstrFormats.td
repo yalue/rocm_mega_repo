@@ -97,6 +97,9 @@ class MipsInst<dag outs, dag ins, string asmstr, list<dag> pattern,
   bit isCTI            = 0; // Any form of Control Transfer Instruction.
                             // Required for MIPSR6
   bit hasForbiddenSlot = 0; // Instruction has a forbidden slot.
+  bit IsPCRelativeLoad = 0; // Load instruction with implicit source register
+                            // ($pc) and with explicit offset and destination
+                            // register
   bit hasFCCRegOperand = 0; // Instruction uses $fcc<X> register and is
                             // present in MIPS-I to MIPS-III.
 
@@ -104,7 +107,8 @@ class MipsInst<dag outs, dag ins, string asmstr, list<dag> pattern,
   let TSFlags{3-0}   = FormBits;
   let TSFlags{4}     = isCTI;
   let TSFlags{5}     = hasForbiddenSlot;
-  let TSFlags{6}     = hasFCCRegOperand;
+  let TSFlags{6}     = IsPCRelativeLoad;
+  let TSFlags{7}     = hasFCCRegOperand;
 
   let DecoderNamespace = "Mips";
 
@@ -619,19 +623,6 @@ class SEQI_FM<bits<6> funct> : StdArch {
   let Inst{25-21} = rs;
   let Inst{20-16} = rt;
   let Inst{15-6}  = imm10;
-  let Inst{5-0}   = funct;
-}
-
-class SAA_FM<bits<6> funct> : StdArch {
-  bits<5> rt;
-  bits<5> rs;
-
-  bits<32> Inst;
-
-  let Inst{31-26} = 0x1c;
-  let Inst{25-21} = rs;
-  let Inst{20-16} = rt;
-  let Inst{15-6}  = 0;
   let Inst{5-0}   = funct;
 }
 

@@ -638,8 +638,7 @@ static bool SymbolContextsMightBeEquivalent(SymbolContext &old_sc,
   } else {
     // Otherwise we will compare by name...
     if (old_sc.comp_unit && new_sc.comp_unit) {
-      if (old_sc.comp_unit->GetPrimaryFile() ==
-          new_sc.comp_unit->GetPrimaryFile()) {
+      if (FileSpec::Equal(*old_sc.comp_unit, *new_sc.comp_unit, true)) {
         // Now check the functions:
         if (old_sc.function && new_sc.function &&
             (old_sc.function->GetName() == new_sc.function->GetName())) {

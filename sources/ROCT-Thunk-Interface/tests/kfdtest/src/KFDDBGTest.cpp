@@ -24,12 +24,14 @@
 #include "KFDDBGTest.hpp"
 #include <sys/ptrace.h>
 #include <poll.h>
+#include "linux/kfd_ioctl.h"
 #include "KFDQMTest.hpp"
 #include "PM4Queue.hpp"
 #include "PM4Packet.hpp"
 #include "Dispatch.hpp"
 #include <string>
 
+#if 0
 static const char* loop_inc_isa = \
 "\
 shader loop_inc_isa\n\
@@ -64,11 +66,12 @@ trap_present(1)\n\
     \n\
 end\n\
 ";
+#endif
 
-static const char* iterate_isa_gfx9 = \
+static const char* iterate_isa_gfx = \
 "\
 shader iterate_isa\n\
-asic(GFX9)\n\
+wave_size(32) \n\
 type(CS)\n\
 /*copy the parameters from scalar registers to vector registers*/\n\
     v_mov_b32 v0, s0\n\
@@ -91,10 +94,10 @@ LOOP:\n\
     end\n\
 ";
 
-static const char* jump_to_trap_gfx9 = \
+static const char* jump_to_trap_gfx = \
 "\
 shader jump_to_trap\n\
-asic(GFX9)\n\
+wave_size(32) \n\
 type(CS)\n\
 /*copy the parameters from scalar registers to vector registers*/\n\
     s_trap 1\n\
@@ -118,10 +121,10 @@ LOOP:\n\
     end\n\
 ";
 
-static const char* trap_handler_gfx9 = \
+static const char* trap_handler_gfx = \
 "\
 shader trap_handler\n\
-asic(GFX9)\n\
+wave_size(32) \n\
 type(CS)\n\
 CHECK_VMFAULT:\n\
     /*if trap jumped to by vmfault, restore skip m0 signalling*/\n\
@@ -282,6 +285,55 @@ TEST_F(KFDDBGTest, BasicAddressWatch) {
 }
 #endif
 
+/**
+ * checkDebugVersion:
+ *   Inputs:
+ *       HSAuint32 requiredMajor
+ *           -- Required major version number
+ *       HSAuint32 requiredMinor
+ *           -- Required minor version number
+ *   Output:
+ *     bool:
+ *            i)   false if major version of thunk and kernel are not the same
+ *            ii)  false if kernel minor version is less than the required
+ *                    version if the major version is the required version.
+ *            iii) false if thunk minor version is less than the required
+ *                    version if the major version is the required version.
+ *            iv)  false if hsaKmtGetKernelDebugTrapVersionInfo() call fails.
+ *            v)   true otherwise.
+ *
+*/
+static bool checkDebugVersion(HSAuint32 requiredMajor, HSAuint32 requiredMinor)
+{
+    HSAuint32 kernelMajorNumber = 0;
+    HSAuint32 kernelMinorNumber = 0;
+    HSAuint32 thunkMajorNumber = 0;
+    HSAuint32 thunkMinorNumber = 0;
+
+    hsaKmtGetThunkDebugTrapVersionInfo(&thunkMajorNumber, &thunkMinorNumber);
+
+    if (hsaKmtGetKernelDebugTrapVersionInfo(&kernelMajorNumber,
+                &kernelMinorNumber)) {
+        LOG() << "Failed to get kernel debugger version!" << std::endl;
+        return false;
+    }
+
+    if (kernelMajorNumber != thunkMajorNumber)
+        return false;
+
+    if (kernelMajorNumber < requiredMajor ||
+            (kernelMajorNumber == requiredMajor &&
+             kernelMinorNumber < requiredMinor))
+        return false;
+
+    if (thunkMajorNumber < requiredMajor ||
+            (thunkMajorNumber == requiredMajor &&
+             thunkMinorNumber < requiredMinor))
+        return false;
+
+    return true;
+}
+
 TEST_F(KFDDBGTest, BasicDebuggerSuspendResume) {
     TEST_START(TESTPROFILE_RUNALL)
     if (m_FamilyId >= FAMILY_AI) {
@@ -290,6 +342,12 @@ TEST_F(KFDDBGTest, BasicDebuggerSuspendResume) {
         ASSERT_GE(defaultGPUNode, 0) << "failed to get default GPU Node";
 
         HSAuint32 Flags = 0;
+
+        if(!checkDebugVersion(0, 2)) {
+                LOG() << "Test disabled due to debug API version mismatch";
+                goto exit;
+        }
+
         HsaMemoryBuffer isaBuffer(PAGE_SIZE, defaultGPUNode, true/*zero*/, false/*local*/, true/*exec*/);
         HsaMemoryBuffer iterateBuf(PAGE_SIZE, defaultGPUNode, true, false, false);
         HsaMemoryBuffer resultBuf(PAGE_SIZE, defaultGPUNode, true, false, false);
@@ -300,7 +358,9 @@ TEST_F(KFDDBGTest, BasicDebuggerSuspendResume) {
         int suspendTimeout = 500;
         int syncStatus;
 
-        m_pIsaGen->CompileShader(iterate_isa_gfx9, "iterate_isa", isaBuffer);
+        m_pIsaGen->CompileShader(iterate_isa_gfx,
+                                    "iterate_isa",
+                                    isaBuffer);
 
         PM4Queue queue1;
         HsaQueueResource *qResources;
@@ -367,6 +427,8 @@ TEST_F(KFDDBGTest, BasicDebuggerSuspendResume) {
     } else {
         LOG() << "Skipping test: Test not supported on family ID 0x" << m_FamilyId << "." << std::endl;
     }
+exit:
+    LOG() << std::endl;
     TEST_END
 }
 
@@ -377,6 +439,11 @@ TEST_F(KFDDBGTest, BasicDebuggerQueryQueueStatus) {
         HSAint32 PollFd;
 
         ASSERT_GE(defaultGPUNode, 0) << "failed to get default GPU Node";
+
+        if (!checkDebugVersion(0, 2)) {
+                LOG() << "Test disabled due to debug API version mismatch";
+                goto exit;
+        }
 
         // enable debug trap and check poll fd creation
         ASSERT_SUCCESS(hsaKmtEnableDebugTrapWithPollFd(defaultGPUNode,
@@ -399,8 +466,8 @@ TEST_F(KFDDBGTest, BasicDebuggerQueryQueueStatus) {
                                             0x1000));
 
         // compile and dispatch shader
-        m_pIsaGen->CompileShader(jump_to_trap_gfx9, "jump_to_trap", isaBuf);
-        m_pIsaGen->CompileShader(trap_handler_gfx9, "trap_handler", trap);
+        m_pIsaGen->CompileShader(jump_to_trap_gfx, "jump_to_trap", isaBuf);
+        m_pIsaGen->CompileShader(trap_handler_gfx, "trap_handler", trap);
 
         PM4Queue queue;
         HsaQueueResource *qResources;
@@ -444,12 +511,39 @@ TEST_F(KFDDBGTest, BasicDebuggerQueryQueueStatus) {
         ASSERT_EQ(IsNew, true);
         ASSERT_EQ(EventReceived, HSA_DEBUG_EVENT_TYPE_TRAP);
 
-        // suspend queue, query suspended queue and clear pending event
+        // suspend queue, get snapshot, query suspended queue
+        // and clear pending event
         ASSERT_SUCCESS(hsaKmtQueueSuspend(INVALID_PID, 1, queueIds, 10, 0));
 
         syncStatus = dispatch->SyncWithStatus(suspendTimeout);
         ASSERT_NE(syncStatus, HSAKMT_STATUS_SUCCESS);
         ASSERT_NE(iter[0], result[0]);
+
+        struct kfd_queue_snapshot_entry qssBuf[1] = {};
+        HSAuint32 QssEntries = 0;
+
+        // get only number of queues and don't update the snapshot buffer
+        ASSERT_SUCCESS(hsaKmtGetQueueSnapshot(INVALID_NODEID, INVALID_PID,
+                                              false,
+                                              reinterpret_cast<void *>(qssBuf),
+                                              &QssEntries));
+
+        ASSERT_EQ(QssEntries, 1);
+        ASSERT_EQ(qssBuf[0].ctx_save_restore_address, 0);
+        ASSERT_EQ(qssBuf[0].ring_base_address, 0);
+        ASSERT_EQ(qssBuf[0].ring_size, 0);
+
+        // update the snapshot buffer
+        QssEntries = 1;
+        ASSERT_SUCCESS(hsaKmtGetQueueSnapshot(INVALID_NODEID, INVALID_PID,
+                                              false,
+                                              reinterpret_cast<void *>(qssBuf),
+                                              &QssEntries));
+
+        ASSERT_EQ(QssEntries, 1);
+        ASSERT_NE(qssBuf[0].ctx_save_restore_address, 0);
+        ASSERT_NE(qssBuf[0].ring_base_address, 0);
+        ASSERT_NE(qssBuf[0].ring_size, 0);
 
         ASSERT_SUCCESS(hsaKmtQueryDebugEvent(defaultGPUNode, INVALID_PID,
                                              &qid, true, &EventReceived,
@@ -476,6 +570,8 @@ TEST_F(KFDDBGTest, BasicDebuggerQueryQueueStatus) {
         LOG() << "Skipping test: Test not supported on family ID 0x"
               << m_FamilyId << "." << std::endl;
     }
+exit:
+    LOG() << std::endl;
     TEST_END
 }
 
@@ -524,6 +620,11 @@ TEST_F(KFDDBGTest, BasicDebuggerQueryVMFaultQueueStatus) {
         int defaultGPUNode = m_NodeInfo.HsaDefaultGPUNode();
 
         ASSERT_GE(defaultGPUNode, 0) << "failed to get default GPU Node";
+
+        if (!checkDebugVersion(0, 2)) {
+                LOG() << "Test disabled due to debug API version mismatch";
+                goto exit;
+        }
 
         pid_t childPid = fork();
         ASSERT_GE(childPid, 0);
@@ -576,9 +677,9 @@ TEST_F(KFDDBGTest, BasicDebuggerQueryVMFaultQueueStatus) {
                                       defaultGPUNode);
 
             // compile and dispatch shader
-            m_pIsaGen->CompileShader(jump_to_trap_gfx9, "jump_to_trap",
+            m_pIsaGen->CompileShader(jump_to_trap_gfx, "jump_to_trap",
                                      isaBuf);
-            m_pIsaGen->CompileShader(trap_handler_gfx9, "trap_handler", trap);
+            m_pIsaGen->CompileShader(trap_handler_gfx, "trap_handler", trap);
 
             PM4Queue queue1, queue2;
             HSAuint32 qid1;
@@ -706,5 +807,7 @@ TEST_F(KFDDBGTest, BasicDebuggerQueryVMFaultQueueStatus) {
         LOG() << "Skipping test: Test not supported on family ID 0x"
               << m_FamilyId << "." << std::endl;
     }
+exit:
+    LOG() << std::endl;
     TEST_END
 }

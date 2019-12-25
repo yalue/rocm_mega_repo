@@ -39,50 +39,35 @@ private:
 // This function is called by lldb_private::ScriptInterpreterPython::BreakpointCallbackFunction(...)
 // and is used when a script command is attached to a breakpoint for execution.
 
-SWIGEXPORT llvm::Expected<bool>
+SWIGEXPORT bool
 LLDBSwigPythonBreakpointCallbackFunction
 (
     const char *python_function_name,
     const char *session_dictionary_name,
     const lldb::StackFrameSP& frame_sp,
-    const lldb::BreakpointLocationSP& bp_loc_sp,
-    lldb_private::StructuredDataImpl *args_impl
+    const lldb::BreakpointLocationSP& bp_loc_sp
 )
 {
-    using namespace llvm;
-
     lldb::SBFrame sb_frame (frame_sp);
     lldb::SBBreakpointLocation sb_bp_loc(bp_loc_sp);
+
+    bool stop_at_breakpoint = true;
 
     PyErr_Cleaner py_err_cleaner(true);
     auto dict = PythonModule::MainModule().ResolveName<PythonDictionary>(session_dictionary_name);
     auto pfunc = PythonObject::ResolveNameWithDictionary<PythonCallable>(python_function_name, dict);
 
-    unsigned max_positional_args;
-    if (auto arg_info = pfunc.GetArgInfo())
-        max_positional_args = arg_info.get().max_positional_args;
-    else
-        return arg_info.takeError();
+    if (!pfunc.IsAllocated())
+        return stop_at_breakpoint;
 
     PythonObject frame_arg(PyRefType::Owned, SBTypeToSWIGWrapper(sb_frame));
     PythonObject bp_loc_arg(PyRefType::Owned, SBTypeToSWIGWrapper(sb_bp_loc));
+    PythonObject result = pfunc(frame_arg, bp_loc_arg, dict);
 
-    auto result = [&] () -> Expected<PythonObject> {
-        // If the called function doesn't take extra_args, drop them here:
-        if (max_positional_args < 4) {
-            return pfunc.Call(frame_arg, bp_loc_arg, dict);
-        } else {
-            lldb::SBStructuredData *args_value = new lldb::SBStructuredData(args_impl);
-            PythonObject args_arg(PyRefType::Owned, SBTypeToSWIGWrapper(args_value));
-            return pfunc.Call(frame_arg, bp_loc_arg, args_arg, dict);
-        }
-    } ();
+    if (result.get() == Py_False)
+        stop_at_breakpoint = false;
 
-    if (!result)
-        return result.takeError();
-
-    // Only False counts as false!
-    return result.get().get() != Py_False;
+    return stop_at_breakpoint;
 }
 
 // This function is called by lldb_private::ScriptInterpreterPython::WatchpointCallbackFunction(...)
@@ -291,32 +276,20 @@ LLDBSwigPythonCreateScriptedThreadPlan
     if (!tp_arg.IsAllocated())
         Py_RETURN_NONE;
 
-    llvm::Expected<PythonCallable::ArgInfo> arg_info = pfunc.GetArgInfo();
-    if (!arg_info) {
-        llvm::handleAllErrors(
-            arg_info.takeError(),
-            [&](PythonException &E) {
-                error_string.append(E.ReadBacktrace());
-            },
-            [&](const llvm::ErrorInfoBase &E) {
-                error_string.append(E.message());
-            });
-        Py_RETURN_NONE;
-    }
-
     PythonObject result = {};
-    if (arg_info.get().max_positional_args == 2) {
+    size_t init_num_args = pfunc.GetNumInitArguments().count;
+    if (init_num_args == 3) {
         if (args_impl != nullptr) {
            error_string.assign("args passed, but __init__ does not take an args dictionary");
            Py_RETURN_NONE;
         }
         result = pfunc(tp_arg, dict);
-    } else if (arg_info.get().max_positional_args >= 3) {
+    } else if (init_num_args == 4) {
         lldb::SBStructuredData *args_value = new lldb::SBStructuredData(args_impl);
         PythonObject args_arg(PyRefType::Owned, SBTypeToSWIGWrapper(args_value));
         result = pfunc(tp_arg, args_arg, dict);
     } else {
-        error_string.assign("wrong number of arguments in __init__, should be 2 or 3 (not including self)");
+        error_string.assign("wrong number of arguments in __init__, should be 1 or 2 (not including self & dict)");
         Py_RETURN_NONE;
     }
 
@@ -509,17 +482,11 @@ LLDBSwigPython_CalculateNumChildren
     if (!pfunc.IsAllocated())
         return 0;
 
-    auto arg_info = pfunc.GetArgInfo();
-    if (!arg_info) {
-        llvm::consumeError(arg_info.takeError());
-        return 0;
-    }
-
     PythonObject result;
-
-    if (arg_info.get().max_positional_args < 1)
+    auto argc = pfunc.GetNumArguments();
+    if (argc.count == 1)
         result = pfunc();
-    else
+    else if (argc.count == 2)
         result = pfunc(PythonInteger(max));
 
     if (!result.IsAllocated())
@@ -531,13 +498,13 @@ LLDBSwigPython_CalculateNumChildren
 
     size_t ret_val = int_result.GetInteger();
 
-    if (PyErr_Occurred()) //FIXME use Expected to catch python exceptions
+    if (PyErr_Occurred())
     {
         PyErr_Print();
         PyErr_Clear();
     }
 
-    if (arg_info.get().max_positional_args < 1)
+    if (argc.count == 1)
         ret_val = std::min(ret_val, static_cast<size_t>(max));
 
     return ret_val;

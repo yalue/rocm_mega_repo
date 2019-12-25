@@ -15,9 +15,9 @@
 #ifndef LLVM_C_LINKTIMEOPTIMIZER_H
 #define LLVM_C_LINKTIMEOPTIMIZER_H
 
-#include "llvm-c/ExternC.h"
-
-LLVM_C_EXTERN_C_BEGIN
+#ifdef __cplusplus
+extern "C" {
+#endif
 
 /**
  * @defgroup LLVMCLinkTimeOptimizer Link Time Optimization
@@ -61,6 +61,8 @@ LLVM_C_EXTERN_C_BEGIN
  * @}
  */
 
-  LLVM_C_EXTERN_C_END
+#ifdef __cplusplus
+}
+#endif
 
 #endif

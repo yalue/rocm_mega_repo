@@ -10,7 +10,6 @@
 #include "clang/AST/ASTConsumer.h"
 #include "clang/AST/ASTContext.h"
 #include "clang/AST/DeclGroup.h"
-#include "clang/Basic/Builtins.h"
 #include "clang/Basic/LangStandard.h"
 #include "clang/Frontend/ASTUnit.h"
 #include "clang/Frontend/CompilerInstance.h"
@@ -871,9 +870,9 @@ bool FrontendAction::BeginSourceFile(CompilerInstance &CI,
       // extended by an external source.
       if (CI.getLangOpts().Modules || !CI.hasASTContext() ||
           !CI.getASTContext().getExternalSource()) {
-        CI.createASTReader();
-        CI.getASTReader()->setDeserializationListener(DeserialListener,
-                                                      DeleteDeserialListener);
+        CI.createModuleManager();
+        CI.getModuleManager()->setDeserializationListener(DeserialListener,
+                                                        DeleteDeserialListener);
       }
     }
 
@@ -892,7 +891,7 @@ bool FrontendAction::BeginSourceFile(CompilerInstance &CI,
   } else {
     // FIXME: If this is a problem, recover from it by creating a multiplex
     // source.
-    assert((!CI.getLangOpts().Modules || CI.getASTReader()) &&
+    assert((!CI.getLangOpts().Modules || CI.getModuleManager()) &&
            "modules enabled but created an external source that "
            "doesn't support modules");
   }

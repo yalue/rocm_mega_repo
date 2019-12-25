@@ -155,10 +155,8 @@ public:
 
 protected:
   BreakpointResolverSP CopyForBreakpoint(Breakpoint &breakpoint) override {
-    BreakpointResolverSP ret_sp(
+    return BreakpointResolverSP(
         new ExceptionBreakpointResolver(m_language, m_catch_bp, m_throw_bp));
-    ret_sp->SetBreakpoint(&breakpoint);
-    return ret_sp;
   }
 
   bool SetActualResolver() {

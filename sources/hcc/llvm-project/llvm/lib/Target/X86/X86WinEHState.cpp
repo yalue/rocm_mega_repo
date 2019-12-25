@@ -91,7 +91,7 @@ private:
   EHPersonality Personality = EHPersonality::Unknown;
   Function *PersonalityFn = nullptr;
   bool UseStackGuard = false;
-  int ParentBaseState = 0;
+  int ParentBaseState;
   FunctionCallee SehLongjmpUnwind = nullptr;
   Constant *Cookie = nullptr;
 

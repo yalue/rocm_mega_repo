@@ -24,7 +24,7 @@
 # platfrom. On ROCm platform host and device code is compiled by the same compiler: hcc.
 
 # Find HIP package
-find_package(HIP) # 1.5.18263 is HIP version in ROCm 1.8.2
+find_package(HIP 1.5.18263 REQUIRED) # 1.5.18263 is HIP version in ROCm 1.8.2
 
 if(HIP_PLATFORM STREQUAL "hcc")
   if(NOT (CMAKE_CXX_COMPILER MATCHES ".*/hcc$" OR CMAKE_CXX_COMPILER MATCHES ".*/hipcc$"))

@@ -38,14 +38,11 @@ namespace lldb_private {
 /// the objects needed to parse and interpret or JIT an expression.  It uses
 /// the Clang parser to produce LLVM IR from the expression.
 class ClangUserExpression : public LLVMUserExpression {
-  // LLVM RTTI support
-  static char ID;
-
 public:
-  bool isA(const void *ClassID) const override {
-    return ClassID == &ID || LLVMUserExpression::isA(ClassID);
+  /// LLVM-style RTTI support.
+  static bool classof(const Expression *E) {
+    return E->getKind() == eKindClangUserExpression;
   }
-  static bool classof(const Expression *obj) { return obj->isA(&ID); }
 
   enum { kDefaultTimeout = 500000u };
 
@@ -96,7 +93,7 @@ public:
   /// \param[in] expr
   ///     The expression to parse.
   ///
-  /// \param[in] prefix
+  /// \param[in] expr_prefix
   ///     If non-NULL, a C string containing translation-unit level
   ///     definitions to be included when the expression is parsed.
   ///

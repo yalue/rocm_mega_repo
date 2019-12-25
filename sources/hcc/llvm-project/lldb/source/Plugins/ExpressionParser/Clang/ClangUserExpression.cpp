@@ -42,7 +42,6 @@
 #include "lldb/Symbol/CompileUnit.h"
 #include "lldb/Symbol/Function.h"
 #include "lldb/Symbol/ObjectFile.h"
-#include "lldb/Symbol/SymbolFile.h"
 #include "lldb/Symbol/SymbolVendor.h"
 #include "lldb/Symbol/Type.h"
 #include "lldb/Symbol/VariableList.h"
@@ -63,15 +62,13 @@
 
 using namespace lldb_private;
 
-char ClangUserExpression::ID;
-
 ClangUserExpression::ClangUserExpression(
     ExecutionContextScope &exe_scope, llvm::StringRef expr,
     llvm::StringRef prefix, lldb::LanguageType language,
     ResultType desired_type, const EvaluateExpressionOptions &options,
     ValueObject *ctx_obj)
     : LLVMUserExpression(exe_scope, expr, prefix, language, desired_type,
-                         options),
+                         options, eKindClangUserExpression),
       m_type_system_helper(*m_target_wp.lock(), options.GetExecutionPolicy() ==
                                                     eExecutionPolicyTopLevel),
       m_result_delegate(exe_scope.CalculateTarget()), m_ctx_obj(ctx_obj) {
@@ -479,18 +476,15 @@ CppModuleConfiguration GetModuleConfig(lldb::LanguageType language,
     files.AppendIfUnique(f);
   // We also need to look at external modules in the case of -gmodules as they
   // contain the support files for libc++ and the C library.
-  llvm::DenseSet<SymbolFile *> visited_symbol_files;
-  sc.comp_unit->ForEachExternalModule(
-      visited_symbol_files, [&files](Module &module) {
-        for (std::size_t i = 0; i < module.GetNumCompileUnits(); ++i) {
-          const FileSpecList &support_files =
-              module.GetCompileUnitAtIndex(i)->GetSupportFiles();
-          for (const FileSpec &f : support_files) {
-            files.AppendIfUnique(f);
-          }
-        }
-        return false;
-      });
+  sc.comp_unit->ForEachExternalModule([&files](lldb::ModuleSP module) {
+    for (std::size_t i = 0; i < module->GetNumCompileUnits(); ++i) {
+      const FileSpecList &support_files =
+          module->GetCompileUnitAtIndex(i)->GetSupportFiles();
+      for (const FileSpec &f : support_files) {
+        files.AppendIfUnique(f);
+      }
+    }
+  });
 
   LLDB_LOG(log, "[C++ module config] Found {0} support files to analyze",
            files.GetSize());
@@ -582,7 +576,7 @@ bool ClangUserExpression::Parse(DiagnosticManager &diagnostic_manager,
 
   auto on_exit = llvm::make_scope_exit([this]() { ResetDeclMap(); });
 
-  if (!DeclMap()->WillParse(exe_ctx, GetMaterializer())) {
+  if (!DeclMap()->WillParse(exe_ctx, m_materializer_up.get())) {
     diagnostic_manager.PutString(
         eDiagnosticSeverityError,
         "current process state is unsuitable for expression parsing");
@@ -770,7 +764,7 @@ bool ClangUserExpression::Complete(ExecutionContext &exe_ctx,
 
   auto on_exit = llvm::make_scope_exit([this]() { ResetDeclMap(); });
 
-  if (!DeclMap()->WillParse(exe_ctx, GetMaterializer())) {
+  if (!DeclMap()->WillParse(exe_ctx, m_materializer_up.get())) {
     diagnostic_manager.PutString(
         eDiagnosticSeverityError,
         "current process state is unsuitable for expression parsing");

@@ -21,7 +21,6 @@
 #include <cstring>
 #include <string>
 #include <system_error>
-#include <type_traits>
 
 namespace llvm {
 
@@ -65,7 +64,7 @@ private:
   /// this buffer.
   char *OutBufStart, *OutBufEnd, *OutBufCur;
 
-  enum class BufferKind {
+  enum BufferKind {
     Unbuffered = 0,
     InternalBuffer,
     ExternalBuffer
@@ -98,8 +97,7 @@ public:
   static const Colors RESET = Colors::RESET;
 
   explicit raw_ostream(bool unbuffered = false)
-      : BufferMode(unbuffered ? BufferKind::Unbuffered
-                              : BufferKind::InternalBuffer) {
+      : BufferMode(unbuffered ? Unbuffered : InternalBuffer) {
     // Start out ready to flush.
     OutBufStart = OutBufEnd = OutBufCur = nullptr;
   }
@@ -123,13 +121,13 @@ public:
   /// Set the stream to be buffered, using the specified buffer size.
   void SetBufferSize(size_t Size) {
     flush();
-    SetBufferAndMode(new char[Size], Size, BufferKind::InternalBuffer);
+    SetBufferAndMode(new char[Size], Size, InternalBuffer);
   }
 
   size_t GetBufferSize() const {
     // If we're supposed to be buffered but haven't actually gotten around
     // to allocating the buffer yet, return the value that would be used.
-    if (BufferMode != BufferKind::Unbuffered && OutBufStart == nullptr)
+    if (BufferMode != Unbuffered && OutBufStart == nullptr)
       return preferred_buffer_size();
 
     // Otherwise just return the size of the allocated buffer.
@@ -141,7 +139,7 @@ public:
   /// when the stream is being set to unbuffered.
   void SetUnbuffered() {
     flush();
-    SetBufferAndMode(nullptr, 0, BufferKind::Unbuffered);
+    SetBufferAndMode(nullptr, 0, Unbuffered);
   }
 
   size_t GetNumBytesInBuffer() const {
@@ -327,7 +325,7 @@ protected:
   /// use only by subclasses which can arrange for the output to go directly
   /// into the desired output buffer, instead of being copied on each flush.
   void SetBuffer(char *BufferStart, size_t Size) {
-    SetBufferAndMode(BufferStart, Size, BufferKind::ExternalBuffer);
+    SetBufferAndMode(BufferStart, Size, ExternalBuffer);
   }
 
   /// Return an efficient buffer size for the underlying output mechanism.
@@ -354,17 +352,6 @@ private:
 
   virtual void anchor();
 };
-
-/// Call the appropriate insertion operator, given an rvalue reference to a
-/// raw_ostream object and return a stream of the same type as the argument.
-template <typename OStream, typename T>
-typename std::enable_if<!std::is_reference<OStream>::value &&
-                            std::is_base_of<raw_ostream, OStream>::value,
-                        OStream &&>::type
-operator<<(OStream &&OS, const T &Value) {
-  OS << Value;
-  return std::move(OS);
-}
 
 /// An abstract base class for streams implementations that also support a
 /// pwrite operation. This is useful for code that can mostly stream out data,
@@ -397,7 +384,7 @@ public:
 class raw_fd_ostream : public raw_pwrite_stream {
   int FD;
   bool ShouldClose;
-  bool SupportsSeeking = false;
+  bool SupportsSeeking;
   bool ColorEnabled = true;
 
 #ifdef _WIN32
@@ -408,7 +395,7 @@ class raw_fd_ostream : public raw_pwrite_stream {
 
   std::error_code EC;
 
-  uint64_t pos = 0;
+  uint64_t pos;
 
   /// See raw_ostream::write_impl.
   void write_impl(const char *Ptr, size_t Size) override;

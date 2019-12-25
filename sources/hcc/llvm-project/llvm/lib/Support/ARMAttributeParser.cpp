@@ -73,9 +73,9 @@ ARMAttributeParser::DisplayRoutines[] = {
 
 uint64_t ARMAttributeParser::ParseInteger(const uint8_t *Data,
                                           uint32_t &Offset) {
-  unsigned DecodeLength;
-  uint64_t Value = decodeULEB128(Data + Offset, &DecodeLength);
-  Offset += DecodeLength;
+  unsigned Length;
+  uint64_t Value = decodeULEB128(Data + Offset, &Length);
+  Offset = Offset + Length;
   return Value;
 }
 
@@ -587,9 +587,9 @@ void ARMAttributeParser::nodefaults(AttrType Tag, const uint8_t *Data,
 void ARMAttributeParser::ParseIndexList(const uint8_t *Data, uint32_t &Offset,
                                         SmallVectorImpl<uint8_t> &IndexList) {
   for (;;) {
-    unsigned DecodeLength;
-    uint64_t Value = decodeULEB128(Data + Offset, &DecodeLength);
-    Offset += DecodeLength;
+    unsigned Length;
+    uint64_t Value = decodeULEB128(Data + Offset, &Length);
+    Offset = Offset + Length;
     if (Value == 0)
       break;
     IndexList.push_back(Value);
@@ -599,9 +599,9 @@ void ARMAttributeParser::ParseIndexList(const uint8_t *Data, uint32_t &Offset,
 void ARMAttributeParser::ParseAttributeList(const uint8_t *Data,
                                             uint32_t &Offset, uint32_t Length) {
   while (Offset < Length) {
-    unsigned DecodeLength;
-    uint64_t Tag = decodeULEB128(Data + Offset, &DecodeLength);
-    Offset += DecodeLength;
+    unsigned Length;
+    uint64_t Tag = decodeULEB128(Data + Offset, &Length);
+    Offset += Length;
 
     bool Handled = false;
     for (unsigned AHI = 0, AHE = array_lengthof(DisplayRoutines);

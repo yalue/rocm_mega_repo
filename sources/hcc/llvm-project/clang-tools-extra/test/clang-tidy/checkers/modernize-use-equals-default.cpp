@@ -7,7 +7,7 @@ public:
   ~OL();
 };
 
-OL::OL() {};
+OL::OL() {}
 // CHECK-MESSAGES: :[[@LINE-1]]:5: warning: use '= default' to define a trivial default constructor [modernize-use-equals-default]
 // CHECK-FIXES: OL::OL() = default;
 OL::~OL() {}
@@ -17,9 +17,9 @@ OL::~OL() {}
 // Inline definitions.
 class IL {
 public:
-  IL() {} 	 ; // Note embedded tab on this line
+  IL() {}
   // CHECK-MESSAGES: :[[@LINE-1]]:3: warning: use '= default'
-  // CHECK-FIXES: IL() = default 	 ; // Note embedded tab on this line
+  // CHECK-FIXES: IL() = default;
   ~IL() {}
   // CHECK-MESSAGES: :[[@LINE-1]]:3: warning: use '= default'
   // CHECK-FIXES: ~IL() = default;
@@ -46,20 +46,18 @@ public:
 // Default member initializer
 class DMI {
 public:
-  DMI() {} // Comment before semi-colon on next line
-  ;
-  // CHECK-MESSAGES: :[[@LINE-2]]:3: warning: use '= default'
-  // CHECK-FIXES: DMI() = default // Comment before semi-colon on next line
-  // CHECK-FIXES-NEXT:   ;
+  DMI() {}
+  // CHECK-MESSAGES: :[[@LINE-1]]:3: warning: use '= default'
+  // CHECK-FIXES: DMI() = default;
   int Field = 5;
 };
 
 // Class member
 class CM {
 public:
-  CM() {} /* Comments */ /* before */ /* semicolon */;
+  CM() {}
   // CHECK-MESSAGES: :[[@LINE-1]]:3: warning: use '= default'
-  // CHECK-FIXES: CM() = default /* Comments */ /* before */ /* semicolon */;
+  // CHECK-FIXES: CM() = default;
   OL o;
 };
 
@@ -68,7 +66,7 @@ class Priv {
   Priv() {}
   // CHECK-MESSAGES: :[[@LINE-1]]:3: warning: use '= default'
   // CHECK-FIXES: Priv() = default;
-  ~Priv() {};
+  ~Priv() {}
   // CHECK-MESSAGES: :[[@LINE-1]]:3: warning: use '= default'
   // CHECK-FIXES: ~Priv() = default;
 };

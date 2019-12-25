@@ -335,7 +335,7 @@ namespace {
       // Do not want to hoist if we're not optimizing for size.
       // TODO: We'd like to remove this restriction.
       // See the comment in X86InstrInfo.td for more info.
-      if (!CurDAG->shouldOptForSize())
+      if (!OptForSize)
         return false;
 
       // Walk all the users of the immediate.
@@ -2224,11 +2224,12 @@ bool X86DAGToDAGISel::selectVectorAddr(SDNode *Parent, SDValue N, SDValue &Base,
   AM.Scale = cast<ConstantSDNode>(Mgs->getScale())->getZExtValue();
 
   unsigned AddrSpace = cast<MemSDNode>(Parent)->getPointerInfo().getAddrSpace();
-  if (AddrSpace == X86AS::GS)
+  // AddrSpace 256 -> GS, 257 -> FS, 258 -> SS.
+  if (AddrSpace == 256)
     AM.Segment = CurDAG->getRegister(X86::GS, MVT::i16);
-  if (AddrSpace == X86AS::FS)
+  if (AddrSpace == 257)
     AM.Segment = CurDAG->getRegister(X86::FS, MVT::i16);
-  if (AddrSpace == X86AS::SS)
+  if (AddrSpace == 258)
     AM.Segment = CurDAG->getRegister(X86::SS, MVT::i16);
 
   SDLoc DL(N);
@@ -3018,7 +3019,7 @@ bool X86DAGToDAGISel::foldLoadStoreIntoMemOperand(SDNode *Node) {
    LLVM_FALLTHROUGH;
   case X86ISD::ADD:
     // Try to match inc/dec.
-    if (!Subtarget->slowIncDec() || CurDAG->shouldOptForSize()) {
+    if (!Subtarget->slowIncDec() || OptForSize) {
       bool IsOne = isOneConstant(StoredVal.getOperand(1));
       bool IsNegOne = isAllOnesConstant(StoredVal.getOperand(1));
       // ADD/SUB with 1/-1 and carry flag isn't used can use inc/dec.
@@ -4409,8 +4410,6 @@ void X86DAGToDAGISel::Select(SDNode *Node) {
         ReplaceNode(Node, CNode);
         return;
       }
-
-      break;
     }
     }
 
@@ -5219,13 +5218,6 @@ void X86DAGToDAGISel::Select(SDNode *Node) {
     SelectCode(Res.getNode());
     return;
   }
-  case ISD::STRICT_FP_TO_SINT:
-  case ISD::STRICT_FP_TO_UINT:
-    // FIXME: Remove when we have isel patterns for strict versions of these
-    // nodes.
-    if (!TLI->isStrictFPEnabled())
-      CurDAG->mutateStrictFPToFP(Node);
-    break;
   }
 
   SelectCode(Node);

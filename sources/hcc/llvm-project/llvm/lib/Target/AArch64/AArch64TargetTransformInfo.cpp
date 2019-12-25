@@ -156,12 +156,6 @@ int AArch64TTIImpl::getIntImmCost(Intrinsic::ID IID, unsigned Idx,
   if (BitSize == 0)
     return TTI::TCC_Free;
 
-  // Most (all?) AArch64 intrinsics do not support folding immediates into the
-  // selected instruction, so we compute the materialization cost for the
-  // immediate directly.
-  if (IID >= Intrinsic::aarch64_addg && IID <= Intrinsic::aarch64_udiv)
-    return AArch64TTIImpl::getIntImmCost(Imm, Ty);
-
   switch (IID) {
   default:
     return TTI::TCC_Free;
@@ -484,8 +478,7 @@ int AArch64TTIImpl::getVectorInstrCost(unsigned Opcode, Type *Val,
 int AArch64TTIImpl::getArithmeticInstrCost(
     unsigned Opcode, Type *Ty, TTI::OperandValueKind Opd1Info,
     TTI::OperandValueKind Opd2Info, TTI::OperandValueProperties Opd1PropInfo,
-    TTI::OperandValueProperties Opd2PropInfo, ArrayRef<const Value *> Args,
-    const Instruction *CxtI) {
+    TTI::OperandValueProperties Opd2PropInfo, ArrayRef<const Value *> Args) {
   // Legalize the type.
   std::pair<int, MVT> LT = TLI->getTypeLegalizationCost(DL, Ty);
 
@@ -639,12 +632,12 @@ AArch64TTIImpl::enableMemCmpExpansion(bool OptSize, bool IsZeroCmp) const {
 }
 
 int AArch64TTIImpl::getMemoryOpCost(unsigned Opcode, Type *Ty,
-                                    MaybeAlign Alignment, unsigned AddressSpace,
+                                    unsigned Alignment, unsigned AddressSpace,
                                     const Instruction *I) {
   auto LT = TLI->getTypeLegalizationCost(DL, Ty);
 
   if (ST->isMisaligned128StoreSlow() && Opcode == Instruction::Store &&
-      LT.second.is128BitVector() && (!Alignment || *Alignment < Align(16))) {
+      LT.second.is128BitVector() && Alignment < 16) {
     // Unaligned stores are extremely inefficient. We don't split all
     // unaligned 128-bit stores because the negative impact that has shown in
     // practice on inlined block copy code.
@@ -710,8 +703,8 @@ int AArch64TTIImpl::getCostOfKeepingLiveOverCall(ArrayRef<Type *> Tys) {
     if (!I->isVectorTy())
       continue;
     if (I->getScalarSizeInBits() * I->getVectorNumElements() == 128)
-      Cost += getMemoryOpCost(Instruction::Store, I, Align(128), 0) +
-              getMemoryOpCost(Instruction::Load, I, Align(128), 0);
+      Cost += getMemoryOpCost(Instruction::Store, I, 128, 0) +
+        getMemoryOpCost(Instruction::Load, I, 128, 0);
   }
   return Cost;
 }

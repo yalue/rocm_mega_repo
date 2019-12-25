@@ -114,6 +114,9 @@ typedef enum {
                                          //!< execution of function
   RSMI_STATUS_UNEXPECTED_SIZE,           //!< An unexpected amount of data
                                          //!< was read
+  RSMI_STATUS_NO_DATA,                   //!< No data was found for a given
+                                         //!< input
+
   RSMI_STATUS_UNKNOWN_ERROR = 0xFFFFFFFF,  //!< An unknown error occurred
 } rsmi_status_t;
 
@@ -667,6 +670,43 @@ typedef struct {
     uint32_t pasid;    //!< PASID
 } rsmi_process_info_t;
 
+
+/**
+ * @brief Opaque handle to function-support object
+ */
+typedef struct rsmi_func_id_iter_handle * rsmi_func_id_iter_handle_t;
+
+//! Place-holder "variant" for functions that have don't have any variants,
+//! but do have monitors or sensors.
+#define RSMI_DEFAULT_VARIANT 0xFFFFFFFFFFFFFFFF
+
+/**
+ * @brief This union holds the value of an ::rsmi_func_id_iter_handle_t. The
+ * value may be a function name, or an ennumerated variant value of types
+ * such as ::rsmi_memory_type_t, ::rsmi_temperature_metric_t, etc.
+ */
+typedef union id {
+        uint64_t id;           //!< uint64_t representation of value
+        const char *name;      //!< name string (applicable to functions only)
+        union {
+            //!< Used for ::rsmi_memory_type_t variants
+            rsmi_memory_type_t memory_type;
+            //!< Used for ::rsmi_temperature_metric_t variants
+            rsmi_temperature_metric_t temp_metric;
+            //!< Used for ::rsmi_event_type_t variants
+            rsmi_event_type_t evnt_type;
+            //!< Used for ::rsmi_event_group_t variants
+            rsmi_event_group_t evnt_group;
+            //!< Used for ::rsmi_clk_type_t variants
+            rsmi_clk_type_t clk_type;
+            //!< Used for ::rsmi_fw_block_t variants
+            rsmi_fw_block_t fw_block;
+            //!< Used for ::rsmi_gpu_block_t variants
+            rsmi_gpu_block_t gpu_block_type;
+        };
+} rsmi_func_id_value_t;
+
+
 /*****************************************************************************/
 /** @defgroup InitShutAdmin Initialization and Shutdown
  *  These functions are used for initialization of ROCm SMI and clean up when
@@ -731,8 +771,15 @@ rsmi_status_t rsmi_num_monitor_devices(uint32_t *num_devices);
  *
  *  @param[inout] id a pointer to uint64_t to which the device id will be
  *  written
+ * If this parameter is nullptr, this function will return
+ * ::RSMI_STATUS_INVALID_ARGS if the function is supported with the provided,
+ * arguments and ::RSMI_STATUS_NOT_SUPPORTED if it is not supported with the
+ * provided arguments.
  *
- *  @retval ::RSMI_STATUS_SUCCESS is returned upon successful call.
+ * @retval ::RSMI_STATUS_SUCCESS call was successful
+ * @retval ::RSMI_STATUS_NOT_SUPPORTED installed software or hardware does not
+ * support this function with the given arguments
+ * @retval ::RSMI_STATUS_INVALID_ARGS the provided arguments are not valid
  *
  */
 rsmi_status_t rsmi_dev_id_get(uint32_t dv_ind, uint16_t *id);
@@ -749,8 +796,15 @@ rsmi_status_t rsmi_dev_id_get(uint32_t dv_ind, uint16_t *id);
  *
  *  @param[inout] id a pointer to uint64_t to which the device vendor id will
  *  be written
+ *  If this parameter is nullptr, this function will return
+ *  ::RSMI_STATUS_INVALID_ARGS if the function is supported with the provided,
+ *  arguments and ::RSMI_STATUS_NOT_SUPPORTED if it is not supported with the
+ *  provided arguments.
  *
- *  @retval ::RSMI_STATUS_SUCCESS is returned upon successful call.
+ *  @retval ::RSMI_STATUS_SUCCESS call was successful
+ *  @retval ::RSMI_STATUS_NOT_SUPPORTED installed software or hardware does not
+ *  support this function with the given arguments
+ *  @retval ::RSMI_STATUS_INVALID_ARGS the provided arguments are not valid
  *
  */
 rsmi_status_t rsmi_dev_vendor_id_get(uint32_t dv_ind, uint16_t *id);
@@ -773,10 +827,17 @@ rsmi_status_t rsmi_dev_vendor_id_get(uint32_t dv_ind, uint16_t *id);
  *
  *  @param[inout] name a pointer to a caller provided char buffer to which the
  *  name will be written
+ *  If this parameter is nullptr, this function will return
+ *  ::RSMI_STATUS_INVALID_ARGS if the function is supported with the provided,
+ *  arguments and ::RSMI_STATUS_NOT_SUPPORTED if it is not supported with the
+ *  provided arguments.
  *
  *  @param[in] len the length of the caller provided buffer @p name.
  *
- *  @retval ::RSMI_STATUS_SUCCESS is returned upon successful call.
+ *  @retval ::RSMI_STATUS_SUCCESS call was successful
+ *  @retval ::RSMI_STATUS_NOT_SUPPORTED installed software or hardware does not
+ *  support this function with the given arguments
+ *  @retval ::RSMI_STATUS_INVALID_ARGS the provided arguments are not valid
  *  @retval ::RSMI_STATUS_INSUFFICIENT_SIZE is returned if @p len bytes is not
  *  large enough to hold the entire name. In this case, only @p len bytes will
  *  be written.
@@ -800,10 +861,20 @@ rsmi_status_t rsmi_dev_name_get(uint32_t dv_ind, char *name, size_t len);
  *
  *  @param[inout] brand a pointer to a caller provided char buffer to which the
  *  brand will be written
+ *  If this parameter is nullptr, this function will return
+ *  ::RSMI_STATUS_INVALID_ARGS if the function is supported with the provided,
+ *  arguments and ::RSMI_STATUS_NOT_SUPPORTED if it is not supported with the
+ *  provided arguments.
  *
  *  @param[in] len the length of the caller provided buffer @p brand.
- *
- *  @retval ::RSMI_STATUS_SUCCESS is returned upon successful call.
+
+ *  @retval ::RSMI_STATUS_SUCCESS call was successful
+ *  @retval ::RSMI_STATUS_NOT_SUPPORTED installed software or hardware does not
+ *  support this function with the given arguments
+ *  @retval ::RSMI_STATUS_INVALID_ARGS the provided arguments are not valid
+ *  @retval ::RSMI_STATUS_INSUFFICIENT_SIZE is returned if @p len bytes is not
+ *  large enough to hold the entire name. In this case, only @p len bytes will
+ *  be written.
  *
  */
 rsmi_status_t rsmi_dev_brand_get(uint32_t dv_ind, char *brand, uint32_t len);
@@ -811,10 +882,10 @@ rsmi_status_t rsmi_dev_brand_get(uint32_t dv_ind, char *brand, uint32_t len);
 /**
  *  @brief Get the name string for a give vendor ID
  *
- *  @details Given vendor ID @p id, a pointer to a caller provided char buffer
- *  @p name, and a length of this buffer @p len, this function will write the
- *  name of the vendor (up to @p len characters) buffer @p name. The @p id may
- *  be a device vendor or subsystem vendor ID.
+ *  @details Given a device index @p dv_ind, a pointer to a caller provided
+ *  char buffer @p name, and a length of this buffer @p len, this function will
+ *  write the name of the vendor (up to @p len characters) buffer @p name. The
+ *  @p id may be a device vendor or subsystem vendor ID.
  *
  *  If the integer ID associated with the vendor is not found in one of the
  *  system files containing device name information (e.g.
@@ -822,20 +893,53 @@ rsmi_status_t rsmi_dev_brand_get(uint32_t dv_ind, char *brand, uint32_t len);
  *  as a string. Updating the system name files can be accompplished with
  *  "sudo update-pciids".
  *
- *  @param[in] id a vendor ID
+ *  @param[in] dv_ind a device index
  *
  *  @param[inout] name a pointer to a caller provided char buffer to which the
  *  name will be written
- *
+ *  If this parameter is nullptr, this function will return
+ *  ::RSMI_STATUS_INVALID_ARGS if the function is supported with the provided,
+ *  arguments and ::RSMI_STATUS_NOT_SUPPORTED if it is not supported with the
+ *  provided arguments.
+
  *  @param[in] len the length of the caller provided buffer @p name.
  *
- *  @retval ::RSMI_STATUS_SUCCESS is returned upon successful call.
+ *  @retval ::RSMI_STATUS_SUCCESS call was successful
+ *  @retval ::RSMI_STATUS_NOT_SUPPORTED installed software or hardware does not
+ *  support this function with the given arguments
+ *  @retval ::RSMI_STATUS_INVALID_ARGS the provided arguments are not valid
  *  @retval ::RSMI_STATUS_INSUFFICIENT_SIZE is returned if @p len bytes is not
  *  large enough to hold the entire name. In this case, only @p len bytes will
  *  be written.
  *
  */
-rsmi_status_t rsmi_dev_vendor_name_get(uint32_t id, char *name, size_t len);
+rsmi_status_t rsmi_dev_vendor_name_get(uint32_t dv_ind, char *name,
+                                                                  size_t len);
+
+/**
+ *  @brief Get the vram vendor string of a gpu device.
+ *
+ *  @details Given a device index @p dv_ind, a pointer to a caller provided
+ *  char buffer @p brand, and a length of this buffer @p len, this function
+ *  will write the vram vendor of the device (up to @p len characters) to the
+ *  buffer @p brand.
+ *
+ *  If the vram vendor for the device is not found as one of the values
+ *  contained within rsmi_dev_vram_vendor_get, then this function will return
+ *  the string 'unknown' instead of the vram vendor.
+ *
+ *  @param[in] dv_ind a device index
+ *
+ *  @param[inout] brand a pointer to a caller provided char buffer to which the
+ *  vram vendor will be written
+ *
+ *  @param[in] len the length of the caller provided buffer @p brand.
+ *
+ *  @retval ::RSMI_STATUS_SUCCESS is returned upon successful call.
+ *
+ */
+rsmi_status_t rsmi_dev_vram_vendor_get(uint32_t dv_ind, char *brand,
+                                                                uint32_t len);
 
 /**
  * @brief Get the serial number string for a device
@@ -849,10 +953,17 @@ rsmi_status_t rsmi_dev_vendor_name_get(uint32_t id, char *name, size_t len);
  *
  *  @param[inout] serial_num a pointer to caller-provided memory to which the
  *  serial number will be written
- *
+ *  If this parameter is nullptr, this function will return
+ *  ::RSMI_STATUS_INVALID_ARGS if the function is supported with the provided,
+ *  arguments and ::RSMI_STATUS_NOT_SUPPORTED if it is not supported with the
+ *  provided arguments.
+
  *  @param[in] len the length of the caller provided buffer @p serial_num.
  *
- *  @retval ::RSMI_STATUS_SUCCESS is returned upon successful call.
+ *  @retval ::RSMI_STATUS_SUCCESS call was successful
+ *  @retval ::RSMI_STATUS_NOT_SUPPORTED installed software or hardware does not
+ *  support this function with the given arguments
+ *  @retval ::RSMI_STATUS_INVALID_ARGS the provided arguments are not valid
  *  @retval ::RSMI_STATUS_INSUFFICIENT_SIZE is returned if @p len bytes is not
  *  large enough to hold the entire name. In this case, only @p len bytes will
  *  be written.
@@ -872,8 +983,15 @@ rsmi_status_t rsmi_dev_serial_number_get(uint32_t dv_ind,
  *
  *  @param[inout] id a pointer to uint64_t to which the subsystem device id
  *  will be written
+ *  If this parameter is nullptr, this function will return
+ *  ::RSMI_STATUS_INVALID_ARGS if the function is supported with the provided,
+ *  arguments and ::RSMI_STATUS_NOT_SUPPORTED if it is not supported with the
+ *  provided arguments.
  *
- *  @retval ::RSMI_STATUS_SUCCESS is returned upon successful call.
+ *  @retval ::RSMI_STATUS_SUCCESS call was successful
+ *  @retval ::RSMI_STATUS_NOT_SUPPORTED installed software or hardware does not
+ *  support this function with the given arguments
+ *  @retval ::RSMI_STATUS_INVALID_ARGS the provided arguments are not valid
  *
  */
 rsmi_status_t rsmi_dev_subsystem_id_get(uint32_t dv_ind, uint16_t *id);
@@ -896,10 +1014,17 @@ rsmi_status_t rsmi_dev_subsystem_id_get(uint32_t dv_ind, uint16_t *id);
  *
  *  @param[inout] name a pointer to a caller provided char buffer to which the
  *  name will be written
- *
+ *  If this parameter is nullptr, this function will return
+ *  ::RSMI_STATUS_INVALID_ARGS if the function is supported with the provided,
+ *  arguments and ::RSMI_STATUS_NOT_SUPPORTED if it is not supported with the
+ *  provided arguments.
+
  *  @param[in] len the length of the caller provided buffer @p name.
  *
- *  @retval ::RSMI_STATUS_SUCCESS is returned upon successful call.
+ *  @retval ::RSMI_STATUS_SUCCESS call was successful
+ *  @retval ::RSMI_STATUS_NOT_SUPPORTED installed software or hardware does not
+ *  support this function with the given arguments
+ *  @retval ::RSMI_STATUS_INVALID_ARGS the provided arguments are not valid
  *  @retval ::RSMI_STATUS_INSUFFICIENT_SIZE is returned if @p len bytes is not
  *  large enough to hold the entire name. In this case, only @p len bytes will
  *  be written.
@@ -922,6 +1047,7 @@ rsmi_dev_subsystem_name_get(uint32_t dv_ind, char *name, size_t len);
  *  @retval :: RSMI_STATUS_SUCCESS is returned upon successful call.
  *  @retval :: RSMI_STATUS_INIT_ERROR if failed to get minor number during
  *  initialization.
+ *  @retval ::RSMI_STATUS_INVALID_ARGS the provided arguments are not valid
  *
  */
 rsmi_status_t
@@ -939,9 +1065,15 @@ rsmi_dev_drm_render_minor_get(uint32_t dv_ind, uint32_t *minor);
  *
  *  @param[inout] id a pointer to uint64_t to which the device subsystem vendor
  *  id will be written
+ *  If this parameter is nullptr, this function will return
+ *  ::RSMI_STATUS_INVALID_ARGS if the function is supported with the provided,
+ *  arguments and ::RSMI_STATUS_NOT_SUPPORTED if it is not supported with the
+ *  provided arguments.
  *
- *  @retval ::RSMI_STATUS_SUCCESS is returned upon successful call.
- *
+ *  @retval ::RSMI_STATUS_SUCCESS call was successful
+ *  @retval ::RSMI_STATUS_NOT_SUPPORTED installed software or hardware does not
+ *  support this function with the given arguments
+ *  @retval ::RSMI_STATUS_INVALID_ARGS the provided arguments are not valid
  */
 rsmi_status_t rsmi_dev_subsystem_vendor_id_get(uint32_t dv_ind, uint16_t *id);
 
@@ -956,8 +1088,15 @@ rsmi_status_t rsmi_dev_subsystem_vendor_id_get(uint32_t dv_ind, uint16_t *id);
  *
  *  @param[inout] id a pointer to uint64_t to which the unique ID of the GPU
  *  is written
+ *  If this parameter is nullptr, this function will return
+ *  ::RSMI_STATUS_INVALID_ARGS if the function is supported with the provided,
+ *  arguments and ::RSMI_STATUS_NOT_SUPPORTED if it is not supported with the
+ *  provided arguments.
  *
- *  @retval ::RSMI_STATUS_SUCCESS is returned upon successful call.
+ *  @retval ::RSMI_STATUS_SUCCESS call was successful
+ *  @retval ::RSMI_STATUS_NOT_SUPPORTED installed software or hardware does not
+ *  support this function with the given arguments
+ *  @retval ::RSMI_STATUS_INVALID_ARGS the provided arguments are not valid
  */
 rsmi_status_t rsmi_dev_unique_id_get(uint32_t dv_ind, uint64_t *id);
 
@@ -1013,9 +1152,15 @@ rsmi_dev_pci_bandwidth_get(uint32_t dv_ind, rsmi_pcie_bandwidth_t *bandwidth);
  *
  *  @param[inout] bdfid a pointer to uint64_t to which the device bdfid value
  *  will be written
+ *  If this parameter is nullptr, this function will return
+ *  ::RSMI_STATUS_INVALID_ARGS if the function is supported with the provided,
+ *  arguments and ::RSMI_STATUS_NOT_SUPPORTED if it is not supported with the
+ *  provided arguments.
  *
- *  @retval ::RSMI_STATUS_SUCCESS is returned upon successful call.
-
+ *  @retval ::RSMI_STATUS_SUCCESS call was successful
+ *  @retval ::RSMI_STATUS_NOT_SUPPORTED installed software or hardware does not
+ *  support this function with the given arguments
+ *  @retval ::RSMI_STATUS_INVALID_ARGS the provided arguments are not valid
  */
 rsmi_status_t rsmi_dev_pci_id_get(uint32_t dv_ind, uint64_t *bdfid);
 
@@ -1040,6 +1185,8 @@ rsmi_status_t rsmi_dev_pci_id_get(uint32_t dv_ind, uint64_t *bdfid);
  *  size will be written. If pointer is NULL, it will be ignored.
  *
  *  @retval ::RSMI_STATUS_SUCCESS is returned upon successful call.
+ *  @retval ::RSMI_STATUS_NOT_SUPPORTED installed software or hardware does not
+ *  support this function with the given arguments
  */
 rsmi_status_t rsmi_dev_pci_throughput_get(uint32_t dv_ind, uint64_t *sent,
                                     uint64_t *received, uint64_t *max_pkt_sz);
@@ -1056,8 +1203,15 @@ rsmi_status_t rsmi_dev_pci_throughput_get(uint32_t dv_ind, uint64_t *sent,
  *
  *  @param[inout] counter a pointer to uint64_t to which the sum of the NAK's
  *  received and generated by the GPU is written
+ *  If this parameter is nullptr, this function will return
+ *  ::RSMI_STATUS_INVALID_ARGS if the function is supported with the provided,
+ *  arguments and ::RSMI_STATUS_NOT_SUPPORTED if it is not supported with the
+ *  provided arguments.
  *
- *  @retval ::RSMI_STATUS_SUCCESS is returned upon successful call.
+ *  @retval ::RSMI_STATUS_SUCCESS call was successful
+ *  @retval ::RSMI_STATUS_NOT_SUPPORTED installed software or hardware does not
+ *  support this function with the given arguments
+ *  @retval ::RSMI_STATUS_INVALID_ARGS the provided arguments are not valid
  */
 rsmi_status_t rsmi_dev_pci_replay_counter_get(uint32_t dv_ind,
                                                            uint64_t *counter);
@@ -1093,6 +1247,10 @@ rsmi_status_t rsmi_dev_pci_replay_counter_get(uint32_t dv_ind,
  *  bandwidths that are to be enabled (1) and disabled (0). Only the lowest
  *  ::rsmi_frequencies_t::num_supported (of ::rsmi_pcie_bandwidth_t) bits of
  *  this mask are relevant.
+ *
+ *  @retval ::RSMI_STATUS_SUCCESS call was successful
+ *  @retval ::RSMI_STATUS_PERMISSION function requires root access
+ *
  */
 rsmi_status_t rsmi_dev_pci_bandwidth_set(uint32_t dv_ind, uint64_t bw_bitmask);
 
@@ -1118,9 +1276,15 @@ rsmi_status_t rsmi_dev_pci_bandwidth_set(uint32_t dv_ind, uint64_t bw_bitmask);
  *
  *  @param[inout] power a pointer to uint64_t to which the average power
  *  consumption will be written
+ *  If this parameter is nullptr, this function will return
+ *  ::RSMI_STATUS_INVALID_ARGS if the function is supported with the provided,
+ *  arguments and ::RSMI_STATUS_NOT_SUPPORTED if it is not supported with the
+ *  provided arguments.
  *
- *  @retval ::RSMI_STATUS_SUCCESS is returned upon successful call.
- *
+ *  @retval ::RSMI_STATUS_SUCCESS call was successful
+ *  @retval ::RSMI_STATUS_NOT_SUPPORTED installed software or hardware does not
+ *  support this function with the given arguments
+ *  @retval ::RSMI_STATUS_INVALID_ARGS the provided arguments are not valid
  */
 rsmi_status_t
 rsmi_dev_power_ave_get(uint32_t dv_ind, uint32_t sensor_ind, uint64_t *power);
@@ -1140,9 +1304,15 @@ rsmi_dev_power_ave_get(uint32_t dv_ind, uint32_t sensor_ind, uint64_t *power);
  *
  *  @param[inout] cap a pointer to a uint64_t that indicates the power cap,
  *  in microwatts
+ *  If this parameter is nullptr, this function will return
+ *  ::RSMI_STATUS_INVALID_ARGS if the function is supported with the provided,
+ *  arguments and ::RSMI_STATUS_NOT_SUPPORTED if it is not supported with the
+ *  provided arguments.
  *
- *  @retval ::RSMI_STATUS_SUCCESS is returned upon successful call.
- *
+ *  @retval ::RSMI_STATUS_SUCCESS call was successful
+ *  @retval ::RSMI_STATUS_NOT_SUPPORTED installed software or hardware does not
+ *  support this function with the given arguments
+ *  @retval ::RSMI_STATUS_INVALID_ARGS the provided arguments are not valid
  */
 rsmi_status_t
 rsmi_dev_power_cap_get(uint32_t dv_ind, uint32_t sensor_ind, uint64_t *cap);
@@ -1160,11 +1330,22 @@ rsmi_dev_power_cap_get(uint32_t dv_ind, uint32_t sensor_ind, uint64_t *cap);
  *
  *  @param[inout] max a pointer to a uint64_t that indicates the maximum
  *  possible power cap, in microwatts
+ *  If this parameter is nullptr, this function will return
+ *  ::RSMI_STATUS_INVALID_ARGS if the function is supported with the provided,
+ *  arguments and ::RSMI_STATUS_NOT_SUPPORTED if it is not supported with the
+ *  provided arguments.
  *
  *  @param[inout] min a pointer to a uint64_t that indicates the minimum
  *  possible power cap, in microwatts
+ *  If this parameter is nullptr, this function will return
+ *  ::RSMI_STATUS_INVALID_ARGS if the function is supported with the provided,
+ *  arguments and ::RSMI_STATUS_NOT_SUPPORTED if it is not supported with the
+ *  provided arguments.
  *
- *  @retval ::RSMI_STATUS_SUCCESS is returned upon successful call.
+ *  @retval ::RSMI_STATUS_SUCCESS call was successful
+ *  @retval ::RSMI_STATUS_NOT_SUPPORTED installed software or hardware does not
+ *  support this function with the given arguments
+ *  @retval ::RSMI_STATUS_INVALID_ARGS the provided arguments are not valid
  *
  */
 rsmi_status_t
@@ -1190,37 +1371,38 @@ rsmi_dev_power_cap_range_get(uint32_t dv_ind, uint32_t sensor_ind,
  *  @param[in] sensor_ind a 0-based sensor index. Normally, this will be 0.
  *  If a device has more than one sensor, it could be greater than 0.
  *
- *  @param[inout] cap a uint64_t that indicates the desired power cap, in
+ *  @param[in] cap a uint64_t that indicates the desired power cap, in
  *  microwatts
  *
  *  @retval ::RSMI_STATUS_SUCCESS is returned upon successful call.
+ *  @retval ::RSMI_STATUS_INVALID_ARGS the provided arguments are not valid
+ *  @retval ::RSMI_STATUS_PERMISSION function requires root access
  *
  */
 rsmi_status_t
 rsmi_dev_power_cap_set(uint32_t dv_ind, uint32_t sensor_ind, uint64_t cap);
 
 /**
- * @brief Set the power profile
+ *  @brief Set the power profile
  *
- * @details Given a device index @p dv_ind, a sensor index sensor_ind, and a
- * @p profile, this function will attempt to set the current profile to the
- * provided profile. The provided profile must be one of the currently
- * supported profiles, as indicated by a call to
- * ::rsmi_dev_power_profile_presets_get()
+ *  @details Given a device index @p dv_ind and a @p profile, this function will
+ *  attempt to set the current profile to the provided profile. The provided
+ *  profile must be one of the currently supported profiles, as indicated by a
+ *  call to ::rsmi_dev_power_profile_presets_get()
  *
- * @param[in] dv_ind a device index
+ *  @param[in] dv_ind a device index
  *
- * @param[in] sensor_ind a 0-based sensor index. Normally, this will be 0.
- * If a device has more than one sensor, it could be greater than 0.
+ *  @param[in] reserved Not currently used. Set to 0.
  *
- * @param[in] profile a ::rsmi_power_profile_preset_masks_t that hold the mask
- * of the desired new power profile
+ *  @param[in] profile a ::rsmi_power_profile_preset_masks_t that hold the mask
+ *  of the desired new power profile
  *
- * @retval ::RSMI_STATUS_SUCCESS is returned upon successful call.
+ *  @retval ::RSMI_STATUS_SUCCESS is returned upon successful call.
+ *  @retval ::RSMI_STATUS_PERMISSION function requires root access
  *
  */
 rsmi_status_t
-rsmi_dev_power_profile_set(uint32_t dv_ind, uint32_t sensor_ind,
+rsmi_dev_power_profile_set(uint32_t dv_ind, uint32_t reserved,
                                    rsmi_power_profile_preset_masks_t profile);
 /** @} */  // end of PowerCont
 /*****************************************************************************/
@@ -1247,8 +1429,15 @@ rsmi_dev_power_profile_set(uint32_t dv_ind, uint32_t sensor_ind,
  *
  *  @param[inout] total a pointer to uint64_t to which the total amount of
  *  memory will be written
+ *  If this parameter is nullptr, this function will return
+ *  ::RSMI_STATUS_INVALID_ARGS if the function is supported with the provided,
+ *  arguments and ::RSMI_STATUS_NOT_SUPPORTED if it is not supported with the
+ *  provided arguments.
  *
- *  @retval ::RSMI_STATUS_SUCCESS is returned upon successful call.
+ *  @retval ::RSMI_STATUS_SUCCESS call was successful
+ *  @retval ::RSMI_STATUS_NOT_SUPPORTED installed software or hardware does not
+ *  support this function with the given arguments
+ *  @retval ::RSMI_STATUS_INVALID_ARGS the provided arguments are not valid
  *
  */
 rsmi_status_t
@@ -1270,8 +1459,15 @@ rsmi_dev_memory_total_get(uint32_t dv_ind, rsmi_memory_type_t mem_type,
  *
  *  @param[inout] used a pointer to uint64_t to which the amount of memory
  *  currently being used will be written
+ *  If this parameter is nullptr, this function will return
+ *  ::RSMI_STATUS_INVALID_ARGS if the function is supported with the provided,
+ *  arguments and ::RSMI_STATUS_NOT_SUPPORTED if it is not supported with the
+ *  provided arguments.
  *
- *  @retval ::RSMI_STATUS_SUCCESS is returned upon successful call.
+ *  @retval ::RSMI_STATUS_SUCCESS call was successful
+ *  @retval ::RSMI_STATUS_NOT_SUPPORTED installed software or hardware does not
+ *  support this function with the given arguments
+ *  @retval ::RSMI_STATUS_INVALID_ARGS the provided arguments are not valid
  *
  */
 rsmi_status_t
@@ -1279,51 +1475,64 @@ rsmi_dev_memory_usage_get(uint32_t dv_ind, rsmi_memory_type_t mem_type,
                                                               uint64_t *used);
 
 /**
- * @brief Get percentage of time any device memory is being used
+ *  @brief Get percentage of time any device memory is being used
  *
- * @details Given a device index @p dv_ind, this function returns the
- * percentage of time that any device memory is being used for the specified
- * device.
+ *  @details Given a device index @p dv_ind, this function returns the
+ *  percentage of time that any device memory is being used for the specified
+ *  device.
  *
- * @param[in] dv_ind a device index
+ *  @param[in] dv_ind a device index
  *
- * @param[inout] busy_percent a pointer to the uint32_t to which the busy
- * percent will be written
+ *  @param[inout] busy_percent a pointer to the uint32_t to which the busy
+ *  percent will be written
+ *  If this parameter is nullptr, this function will return
+ *  ::RSMI_STATUS_INVALID_ARGS if the function is supported with the provided,
+ *  arguments and ::RSMI_STATUS_NOT_SUPPORTED if it is not supported with the
+ *  provided arguments.
  *
- * @retval ::RSMI_STATUS_SUCCESS is returned upon successful call
+ *  @retval ::RSMI_STATUS_SUCCESS call was successful
+ *  @retval ::RSMI_STATUS_NOT_SUPPORTED installed software or hardware does not
+ *  support this function with the given arguments
+ *  @retval ::RSMI_STATUS_INVALID_ARGS the provided arguments are not valid
  *
  */
 rsmi_status_t
 rsmi_dev_memory_busy_percent_get(uint32_t dv_ind, uint32_t *busy_percent);
 
 /**
- * @brief Get information about reserved ("retired") memory pages
+ *  @brief Get information about reserved ("retired") memory pages
  *
- * @details Given a device index @p dv_ind, this function returns retired page
- * information @p records corresponding to the device with the provided device
- * index @p dv_ind. The number of retired page records is returned through @p
- * num_pages. @p records may be NULL on input. In this case, the number of
- * records available for retrieval will be returned through @p num_pages.
+ *  @details Given a device index @p dv_ind, this function returns retired page
+ *  information @p records corresponding to the device with the provided device
+ *  index @p dv_ind. The number of retired page records is returned through @p
+ *  num_pages. @p records may be NULL on input. In this case, the number of
+ *  records available for retrieval will be returned through @p num_pages.
  *
- * @param[in] dv_ind a device index
+ *  @param[in] dv_ind a device index
  *
- * @param[inout] num_pages a pointer to a uint32. As input, the value passed
- * through this parameter is the number of ::rsmi_retired_page_record_t's that
- * may be safely written to the memory pointed to by @p records. This is the
- * limit on how many records will be written to @p records. On return, @p
- * num_pages will contain the number of records written to @p records, or the
- * number of records that could have been written if enough memory had been
- * provided.
+ *  @param[inout] num_pages a pointer to a uint32. As input, the value passed
+ *  through this parameter is the number of ::rsmi_retired_page_record_t's that
+ *  may be safely written to the memory pointed to by @p records. This is the
+ *  limit on how many records will be written to @p records. On return, @p
+ *  num_pages will contain the number of records written to @p records, or the
+ *  number of records that could have been written if enough memory had been
+ *  provided.
+ *  If this parameter is nullptr, this function will return
+ *  ::RSMI_STATUS_INVALID_ARGS if the function is supported with the provided,
+ *  arguments and ::RSMI_STATUS_NOT_SUPPORTED if it is not supported with the
+ *  provided arguments.
  *
- * @param[inout] records A pointer to a block of memory to which the
- * ::rsmi_retired_page_record_t values will be written. This value may be NULL.
- * In this case, this function can be used to query how many records are
- * available to read.
+ *  @param[inout] records A pointer to a block of memory to which the
+ *  ::rsmi_retired_page_record_t values will be written. This value may be NULL.
+ *  In this case, this function can be used to query how many records are
+ *  available to read.
  *
- * @retval ::RSMI_STATUS_SUCCESS is returned upon successful call.
- *
- * ::RSMI_STATUS_INSUFFICIENT_SIZE is returned if more records were available
- * than allowed by the provided, allocated memory.
+ *  @retval ::RSMI_STATUS_SUCCESS call was successful
+ *  @retval ::RSMI_STATUS_NOT_SUPPORTED installed software or hardware does not
+ *  support this function with the given arguments
+ *  @retval ::RSMI_STATUS_INVALID_ARGS the provided arguments are not valid
+ *  @retval ::RSMI_STATUS_INSUFFICIENT_SIZE is returned if more records were available
+ *  than allowed by the provided, allocated memory.
  */
 rsmi_status_t
 rsmi_dev_memory_reserved_pages_get(uint32_t dv_ind, uint32_t *num_pages,
@@ -1350,31 +1559,45 @@ rsmi_dev_memory_reserved_pages_get(uint32_t dv_ind, uint32_t *num_pages,
  *
  *  @param[inout] speed a pointer to uint32_t to which the speed will be
  *  written
+ *  If this parameter is nullptr, this function will return
+ *  ::RSMI_STATUS_INVALID_ARGS if the function is supported with the provided,
+ *  arguments and ::RSMI_STATUS_NOT_SUPPORTED if it is not supported with the
+ *  provided arguments.
  *
- *  @retval ::RSMI_STATUS_SUCCESS is returned upon successful call.
+ *  @retval ::RSMI_STATUS_SUCCESS call was successful
+ *  @retval ::RSMI_STATUS_NOT_SUPPORTED installed software or hardware does not
+ *  support this function with the given arguments
+ *  @retval ::RSMI_STATUS_INVALID_ARGS the provided arguments are not valid
  *
  */
 rsmi_status_t rsmi_dev_fan_rpms_get(uint32_t dv_ind, uint32_t sensor_ind,
                                                               int64_t *speed);
 
 /**
- * @brief Get the fan speed for the specified device as a value relative to
- * ::RSMI_MAX_FAN_SPEED
+ *  @brief Get the fan speed for the specified device as a value relative to
+ *  ::RSMI_MAX_FAN_SPEED
  *
- * @details Given a device index @p dv_ind and a pointer to a uint32_t
- * @p speed, this function will write the current fan speed (a value
- * between 0 and the maximum fan speed, ::RSMI_MAX_FAN_SPEED) to the uint32_t
- * pointed to by @p speed
+ *  @details Given a device index @p dv_ind and a pointer to a uint32_t
+ *  @p speed, this function will write the current fan speed (a value
+ *  between 0 and the maximum fan speed, ::RSMI_MAX_FAN_SPEED) to the uint32_t
+ *  pointed to by @p speed
  *
- * @param[in] dv_ind a device index
+ *  @param[in] dv_ind a device index
  *
- * @param[in] sensor_ind a 0-based sensor index. Normally, this will be 0.
- * If a device has more than one sensor, it could be greater than 0.
+ *  @param[in] sensor_ind a 0-based sensor index. Normally, this will be 0.
+ *  If a device has more than one sensor, it could be greater than 0.
  *
- * @param[inout] speed a pointer to uint32_t to which the speed will be
- * written
+ *  @param[inout] speed a pointer to uint32_t to which the speed will be
+ *  written
+ *  If this parameter is nullptr, this function will return
+ *  ::RSMI_STATUS_INVALID_ARGS if the function is supported with the provided,
+ *  arguments and ::RSMI_STATUS_NOT_SUPPORTED if it is not supported with the
+ *  provided arguments.
  *
- * @retval ::RSMI_STATUS_SUCCESS is returned upon successful call.
+ *  @retval ::RSMI_STATUS_SUCCESS call was successful
+ *  @retval ::RSMI_STATUS_NOT_SUPPORTED installed software or hardware does not
+ *  support this function with the given arguments
+ *  @retval ::RSMI_STATUS_INVALID_ARGS the provided arguments are not valid
  *
  */
 rsmi_status_t rsmi_dev_fan_speed_get(uint32_t dv_ind,
@@ -1394,8 +1617,15 @@ rsmi_status_t rsmi_dev_fan_speed_get(uint32_t dv_ind,
  *
  *  @param[inout] max_speed a pointer to uint32_t to which the maximum speed
  *  will be written
+ *  If this parameter is nullptr, this function will return
+ *  ::RSMI_STATUS_INVALID_ARGS if the function is supported with the provided,
+ *  arguments and ::RSMI_STATUS_NOT_SUPPORTED if it is not supported with the
+ *  provided arguments.
  *
- *  @retval ::RSMI_STATUS_SUCCESS is returned upon successful call.
+ *  @retval ::RSMI_STATUS_SUCCESS call was successful
+ *  @retval ::RSMI_STATUS_NOT_SUPPORTED installed software or hardware does not
+ *  support this function with the given arguments
+ *  @retval ::RSMI_STATUS_INVALID_ARGS the provided arguments are not valid
  *
  */
 rsmi_status_t rsmi_dev_fan_speed_max_get(uint32_t dv_ind,
@@ -1420,8 +1650,15 @@ rsmi_status_t rsmi_dev_fan_speed_max_get(uint32_t dv_ind,
  *
  *  @param[inout] temperature a pointer to int64_t to which the temperature
  *  will be written, in millidegrees Celcius.
+ *  If this parameter is nullptr, this function will return
+ *  ::RSMI_STATUS_INVALID_ARGS if the function is supported with the provided,
+ *  arguments and ::RSMI_STATUS_NOT_SUPPORTED if it is not supported with the
+ *  provided arguments.
  *
- *  @retval ::RSMI_STATUS_SUCCESS is returned upon successful call.
+ *  @retval ::RSMI_STATUS_SUCCESS call was successful
+ *  @retval ::RSMI_STATUS_NOT_SUPPORTED installed software or hardware does not
+ *  support this function with the given arguments
+ *  @retval ::RSMI_STATUS_INVALID_ARGS the provided arguments are not valid
  *
  */
 rsmi_status_t rsmi_dev_temp_metric_get(uint32_t dv_ind, uint32_t sensor_type,
@@ -1434,36 +1671,43 @@ rsmi_status_t rsmi_dev_temp_metric_get(uint32_t dv_ind, uint32_t sensor_type,
  *  @{
  */
 /**
- * @brief Reset the fan to automatic driver control
+ *  @brief Reset the fan to automatic driver control
  *
- * @details This function returns control of the fan to the system
+ *  @details This function returns control of the fan to the system
  *
- * @param[in] dv_ind a device index
+ *  @param[in] dv_ind a device index
  *
- * @param[in] sensor_ind a 0-based sensor index. Normally, this will be 0.
- * If a device has more than one sensor, it could be greater than 0.
+ *  @param[in] sensor_ind a 0-based sensor index. Normally, this will be 0.
+ *  If a device has more than one sensor, it could be greater than 0.
  *
- * @retval ::RSMI_STATUS_SUCCESS is returned upon successful call.
+ *  @retval ::RSMI_STATUS_SUCCESS is returned upon successful call.
+ *  @retval ::RSMI_STATUS_NOT_SUPPORTED installed software or hardware does not
+ *  support this function with the given arguments
+
  */
 rsmi_status_t rsmi_dev_fan_reset(uint32_t dv_ind, uint32_t sensor_ind);
 
 /**
- * @brief Set the fan speed for the specified device with the provided speed,
- * in RPMs.
+ *  @brief Set the fan speed for the specified device with the provided speed,
+ *  in RPMs.
  *
- * @details Given a device index @p dv_ind and a integer value indicating
- * speed @p speed, this function will attempt to set the fan speed to @p speed.
- * An error will be returned if the specified speed is outside the allowable
- * range for the device. The maximum value is 255 and the minimum is 0.
+ *  @details Given a device index @p dv_ind and a integer value indicating
+ *  speed @p speed, this function will attempt to set the fan speed to @p speed.
+ *  An error will be returned if the specified speed is outside the allowable
+ *  range for the device. The maximum value is 255 and the minimum is 0.
  *
- * @param[in] dv_ind a device index
+ *  @param[in] dv_ind a device index
  *
- * @param[in] sensor_ind a 0-based sensor index. Normally, this will be 0.
- * If a device has more than one sensor, it could be greater than 0.
+ *  @param[in] sensor_ind a 0-based sensor index. Normally, this will be 0.
+ *  If a device has more than one sensor, it could be greater than 0.
  *
- * @param[in] speed the speed to which the function will attempt to set the fan
+ *  @param[in] speed the speed to which the function will attempt to set the fan
  *
- * @retval ::RSMI_STATUS_SUCCESS is returned upon successful call.
+ *  @retval ::RSMI_STATUS_SUCCESS is returned upon successful call.
+ *  @retval ::RSMI_STATUS_NOT_SUPPORTED installed software or hardware does not
+ *  support this function with the given arguments
+ *  @retval ::RSMI_STATUS_PERMISSION function requires root access
+ *
  */
 rsmi_status_t rsmi_dev_fan_speed_set(uint32_t dv_ind, uint32_t sensor_ind,
                                                               uint64_t speed);
@@ -1477,19 +1721,26 @@ rsmi_status_t rsmi_dev_fan_speed_set(uint32_t dv_ind, uint32_t sensor_ind,
  */
 
 /**
- * @brief Get percentage of time device is busy doing any processing
+ *  @brief Get percentage of time device is busy doing any processing
  *
- * @details Given a device index @p dv_ind, this function returns the
- * percentage of time that the specified device is busy. The device is
- * considered busy if any one or more of its sub-blocks are working, and idle
- * if none of the sub-blocks are working.
+ *  @details Given a device index @p dv_ind, this function returns the
+ *  percentage of time that the specified device is busy. The device is
+ *  considered busy if any one or more of its sub-blocks are working, and idle
+ *  if none of the sub-blocks are working.
  *
- * @param[in] dv_ind a device index
+ *  @param[in] dv_ind a device index
  *
- * @param[inout] busy_percent a pointer to the uint32_t to which the busy
- * percent will be written
+ *  @param[inout] busy_percent a pointer to the uint32_t to which the busy
+ *  percent will be written
+ *  If this parameter is nullptr, this function will return
+ *  ::RSMI_STATUS_INVALID_ARGS if the function is supported with the provided,
+ *  arguments and ::RSMI_STATUS_NOT_SUPPORTED if it is not supported with the
+ *  provided arguments.
  *
- * @retval ::RSMI_STATUS_SUCCESS is returned upon successful call
+ *  @retval ::RSMI_STATUS_SUCCESS call was successful
+ *  @retval ::RSMI_STATUS_NOT_SUPPORTED installed software or hardware does not
+ *  support this function with the given arguments
+ *  @retval ::RSMI_STATUS_INVALID_ARGS the provided arguments are not valid
  *
  */
 rsmi_status_t
@@ -1507,8 +1758,15 @@ rsmi_dev_busy_percent_get(uint32_t dv_ind, uint32_t *busy_percent);
  *
  *  @param[inout] perf a pointer to ::rsmi_dev_perf_level_t to which the
  *  performance level will be written
+ *  If this parameter is nullptr, this function will return
+ *  ::RSMI_STATUS_INVALID_ARGS if the function is supported with the provided,
+ *  arguments and ::RSMI_STATUS_NOT_SUPPORTED if it is not supported with the
+ *  provided arguments.
  *
- *  @retval ::RSMI_STATUS_SUCCESS is returned upon successful call.
+ *  @retval ::RSMI_STATUS_SUCCESS call was successful
+ *  @retval ::RSMI_STATUS_NOT_SUPPORTED installed software or hardware does not
+ *  support this function with the given arguments
+ *  @retval ::RSMI_STATUS_INVALID_ARGS the provided arguments are not valid
  *
  */
 rsmi_status_t rsmi_dev_perf_level_get(uint32_t dv_ind,
@@ -1526,8 +1784,15 @@ rsmi_status_t rsmi_dev_perf_level_get(uint32_t dv_ind,
  *
  *  @param[inout] od a pointer to uint32_t to which the overdrive percentage
  *  will be written
+ *  If this parameter is nullptr, this function will return
+ *  ::RSMI_STATUS_INVALID_ARGS if the function is supported with the provided,
+ *  arguments and ::RSMI_STATUS_NOT_SUPPORTED if it is not supported with the
+ *  provided arguments.
  *
- *  @retval ::RSMI_STATUS_SUCCESS is returned upon successful call.
+ *  @retval ::RSMI_STATUS_SUCCESS call was successful
+ *  @retval ::RSMI_STATUS_NOT_SUPPORTED installed software or hardware does not
+ *  support this function with the given arguments
+ *  @retval ::RSMI_STATUS_INVALID_ARGS the provided arguments are not valid
  *
  */
 rsmi_status_t rsmi_dev_overdrive_level_get(uint32_t dv_ind, uint32_t *od);
@@ -1548,85 +1813,117 @@ rsmi_status_t rsmi_dev_overdrive_level_get(uint32_t dv_ind, uint32_t *od);
  *  @param[inout] f a pointer to a caller provided ::rsmi_frequencies_t structure
  *  to which the frequency information will be written. Frequency values are in
  *  Hz.
+ *  If this parameter is nullptr, this function will return
+ *  ::RSMI_STATUS_INVALID_ARGS if the function is supported with the provided,
+ *  arguments and ::RSMI_STATUS_NOT_SUPPORTED if it is not supported with the
+ *  provided arguments.
  *
- *  @retval ::RSMI_STATUS_SUCCESS is returned upon successful call.
+ *  @retval ::RSMI_STATUS_SUCCESS call was successful
+ *  @retval ::RSMI_STATUS_NOT_SUPPORTED installed software or hardware does not
+ *  support this function with the given arguments
+ *  @retval ::RSMI_STATUS_INVALID_ARGS the provided arguments are not valid
  *
  */
 rsmi_status_t rsmi_dev_gpu_clk_freq_get(uint32_t dv_ind,
                              rsmi_clk_type_t clk_type, rsmi_frequencies_t *f);
 
 /**
- * @brief This function retrieves the voltage/frequency curve information
+ *  @brief This function retrieves the voltage/frequency curve information
  *
- * @details Given a device index @p dv_ind and a pointer to a
- * ::rsmi_od_volt_freq_data_t structure @p odv, this function will populate @p
- * odv. See ::rsmi_od_volt_freq_data_t for more details.
+ *  @details Given a device index @p dv_ind and a pointer to a
+ *  ::rsmi_od_volt_freq_data_t structure @p odv, this function will populate @p
+ *  odv. See ::rsmi_od_volt_freq_data_t for more details.
  *
- * @param[in] dv_ind a device index
+ *  @param[in] dv_ind a device index
  *
- * @param[in] odv a pointer to an ::rsmi_od_volt_freq_data_t structure
+ *  @param[inout] odv a pointer to an ::rsmi_od_volt_freq_data_t structure
+ *  If this parameter is nullptr, this function will return
+ *  ::RSMI_STATUS_INVALID_ARGS if the function is supported with the provided,
+ *  arguments and ::RSMI_STATUS_NOT_SUPPORTED if it is not supported with the
+ *  provided arguments.
  *
- * @retval ::RSMI_STATUS_SUCCESS is returned upon successful call.
+ *  @retval ::RSMI_STATUS_SUCCESS call was successful
+ *  @retval ::RSMI_STATUS_NOT_SUPPORTED installed software or hardware does not
+ *  support this function with the given arguments
+ *  @retval ::RSMI_STATUS_INVALID_ARGS the provided arguments are not valid
  */
 rsmi_status_t rsmi_dev_od_volt_info_get(uint32_t dv_ind,
                                                rsmi_od_volt_freq_data_t *odv);
 
 /**
- * @brief This function will retrieve the current valid regions in the
- * frequency/voltage space.
+ *  @brief This function will retrieve the current valid regions in the
+ *  frequency/voltage space.
  *
- * @details Given a device index @p dv_ind, a pointer to an unsigned integer
- * @p num_regions and a buffer of ::rsmi_freq_volt_region_t structures, @p
- * buffer, this function will populate @p buffer with the current
- * frequency-volt space regions. The caller should assign @p buffer to memory
- * that can be written to by this function. The caller should also
- * indicate the number of ::rsmi_freq_volt_region_t structures that can safely
- * be written to @p buffer in @p num_regions.
+ *  @details Given a device index @p dv_ind, a pointer to an unsigned integer
+ *  @p num_regions and a buffer of ::rsmi_freq_volt_region_t structures, @p
+ *  buffer, this function will populate @p buffer with the current
+ *  frequency-volt space regions. The caller should assign @p buffer to memory
+ *  that can be written to by this function. The caller should also
+ *  indicate the number of ::rsmi_freq_volt_region_t structures that can safely
+ *  be written to @p buffer in @p num_regions.
  *
- * The number of regions to expect this function provide (@p num_regions) can
- * be obtained by calling ::rsmi_dev_od_volt_info_get().
+ *  The number of regions to expect this function provide (@p num_regions) can
+ *  be obtained by calling ::rsmi_dev_od_volt_info_get().
  *
- * @param[in] dv_ind a device index
+ *  @param[in] dv_ind a device index
  *
- * @param[inout] num_regions As input, this is the number of
- * ::rsmi_freq_volt_region_t structures that can be written to @p buffer. As
- * output, this is the number of ::rsmi_freq_volt_region_t structures that were
- * actually written.
+ *  @param[inout] num_regions As input, this is the number of
+ *  ::rsmi_freq_volt_region_t structures that can be written to @p buffer. As
+ *  output, this is the number of ::rsmi_freq_volt_region_t structures that were
+ *  actually written.
+ *  If this parameter is nullptr, this function will return
+ *  ::RSMI_STATUS_INVALID_ARGS if the function is supported with the provided,
+ *  arguments and ::RSMI_STATUS_NOT_SUPPORTED if it is not supported with the
+ *  provided arguments.
  *
- * @param[inout] buffer a caller provided buffer to which
- * ::rsmi_freq_volt_region_t structures will be written
+ *  @param[inout] buffer a caller provided buffer to which
+ *  ::rsmi_freq_volt_region_t structures will be written
+ *  If this parameter is nullptr, this function will return
+ *  ::RSMI_STATUS_INVALID_ARGS if the function is supported with the provided,
+ *  arguments and ::RSMI_STATUS_NOT_SUPPORTED if it is not supported with the
+ *  provided arguments.
  *
- * @retval ::RSMI_STATUS_SUCCESS is returned upon successful call.
+ *  @retval ::RSMI_STATUS_SUCCESS call was successful
+ *  @retval ::RSMI_STATUS_NOT_SUPPORTED installed software or hardware does not
+ *  support this function with the given arguments
+ *  @retval ::RSMI_STATUS_INVALID_ARGS the provided arguments are not valid
  */
 rsmi_status_t rsmi_dev_od_volt_curve_regions_get(uint32_t dv_ind,
                       uint32_t *num_regions, rsmi_freq_volt_region_t *buffer);
 
 /**
- * @brief Get the list of available preset power profiles and an indication of
- * which profile is currently active.
+ *  @brief Get the list of available preset power profiles and an indication of
+ *  which profile is currently active.
  *
- * @details Given a device index @p dv_ind and a pointer to a
- * ::rsmi_power_profile_status_t @p status, this function will set the bits of
- * the ::rsmi_power_profile_status_t.available_profiles bit field of @p status to
- * 1 if the profile corresponding to the respective
- * ::rsmi_power_profile_preset_masks_t profiles are enabled. For example, if both
- * the VIDEO and VR power profiles are available selections, then
- * ::RSMI_PWR_PROF_PRST_VIDEO_MASK AND'ed with
- * ::rsmi_power_profile_status_t.available_profiles will be non-zero as will
- * ::RSMI_PWR_PROF_PRST_VR_MASK AND'ed with
- * ::rsmi_power_profile_status_t.available_profiles. Additionally,
- * ::rsmi_power_profile_status_t.current will be set to the
- * ::rsmi_power_profile_preset_masks_t of the profile that is currently active.
+ *  @details Given a device index @p dv_ind and a pointer to a
+ *  ::rsmi_power_profile_status_t @p status, this function will set the bits of
+ *  the ::rsmi_power_profile_status_t.available_profiles bit field of @p status to
+ *  1 if the profile corresponding to the respective
+ *  ::rsmi_power_profile_preset_masks_t profiles are enabled. For example, if both
+ *  the VIDEO and VR power profiles are available selections, then
+ *  ::RSMI_PWR_PROF_PRST_VIDEO_MASK AND'ed with
+ *  ::rsmi_power_profile_status_t.available_profiles will be non-zero as will
+ *  ::RSMI_PWR_PROF_PRST_VR_MASK AND'ed with
+ *  ::rsmi_power_profile_status_t.available_profiles. Additionally,
+ *  ::rsmi_power_profile_status_t.current will be set to the
+ *  ::rsmi_power_profile_preset_masks_t of the profile that is currently active.
  *
- * @param[in] dv_ind a device index
+ *  @param[in] dv_ind a device index
  *
- * @param[in] sensor_ind a 0-based sensor index. Normally, this will be 0.
- * If a device has more than one sensor, it could be greater than 0.
+ *  @param[in] sensor_ind a 0-based sensor index. Normally, this will be 0.
+ *  If a device has more than one sensor, it could be greater than 0.
  *
- * @param[inout] status a pointer to ::rsmi_power_profile_status_t that will be
- * populated by a call to this function
+ *  @param[inout] status a pointer to ::rsmi_power_profile_status_t that will be
+ *  populated by a call to this function
+ *  If this parameter is nullptr, this function will return
+ *  ::RSMI_STATUS_INVALID_ARGS if the function is supported with the provided,
+ *  arguments and ::RSMI_STATUS_NOT_SUPPORTED if it is not supported with the
+ *  provided arguments.
  *
- *  @retval ::RSMI_STATUS_SUCCESS is returned upon successful call.
+ *  @retval ::RSMI_STATUS_SUCCESS call was successful
+ *  @retval ::RSMI_STATUS_NOT_SUPPORTED installed software or hardware does not
+ *  support this function with the given arguments
+ *  @retval ::RSMI_STATUS_INVALID_ARGS the provided arguments are not valid
  *
  */
 rsmi_status_t
@@ -1654,6 +1951,9 @@ rsmi_dev_power_profile_presets_get(uint32_t dv_ind, uint32_t sensor_ind,
  *  @param[in] perf_lvl the value to which the performance level should be set
  *
  *  @retval ::RSMI_STATUS_SUCCESS is returned upon successful call.
+ *  @retval ::RSMI_STATUS_NOT_SUPPORTED installed software or hardware does not
+ *  support this function with the given arguments
+ *  @retval ::RSMI_STATUS_PERMISSION function requires root access
  *
  */
 rsmi_status_t
@@ -1692,7 +1992,10 @@ rsmi_dev_perf_level_set(int32_t dv_ind, rsmi_dev_perf_level_t perf_lvl);
  *
  *  @param[in] od the value to which the overdrive level should be set
  *
- *  @retval ::RSMI_STATUS_SUCCESS is returned upon successful call.
+ *  @retval ::RSMI_STATUS_SUCCESS call was successful
+ *  @retval ::RSMI_STATUS_NOT_SUPPORTED installed software or hardware does not
+ *  support this function with the given arguments
+ *  @retval ::RSMI_STATUS_PERMISSION function requires root access
  *
  */
 rsmi_status_t rsmi_dev_overdrive_level_set(int32_t dv_ind, uint32_t od);
@@ -1724,28 +2027,15 @@ rsmi_status_t rsmi_dev_overdrive_level_set(int32_t dv_ind, uint32_t od);
  *  @param[in] freq_bitmask A bitmask indicating the indices of the
  *  frequencies that are to be enabled (1) and disabled (0). Only the lowest
  *  ::rsmi_frequencies_t.num_supported bits of this mask are relevant.
+ *
+ *  @retval ::RSMI_STATUS_SUCCESS is returned upon successful call.
+ *  @retval ::RSMI_STATUS_NOT_SUPPORTED installed software or hardware does not
+ *  support this function with the given arguments
+ *  @retval ::RSMI_STATUS_PERMISSION function requires root access
+ *
  */
 rsmi_status_t rsmi_dev_gpu_clk_freq_set(uint32_t dv_ind,
                              rsmi_clk_type_t clk_type, uint64_t freq_bitmask);
-
-/**
- * @brief Set the frequency limits for the specified clock
- *
- * @details Given a device index @p dv_ind, a clock type (::rsmi_clk_type_t)
- * @p clk, and a pointer to a ::rsmi_range_t @p range containing the desired
- * upper and lower frequency limits, this function will attempt to set the
- * frequency limits to those specified in @p range.
- *
- * @param[in] dv_ind a device index
- *
- * @param[in] clk The clock type for which the limits should be imposed.
- *
- * @param[in] range A pointer to the ::rsmi_range_t containing the desired limits
- *
- * @retval ::RSMI_STATUS_SUCCESS is returned upon successful call.
- */
-rsmi_status_t rsmi_dev_od_freq_range_set(uint32_t dv_ind, rsmi_clk_type_t clk,
-                                                           rsmi_range_t *range);
 
 /** @} */  // end of PerfCont
 
@@ -1772,66 +2062,85 @@ rsmi_status_t
 rsmi_version_get(rsmi_version_t *version);
 
 /**
- * @brief Get the driver version string for the current system.
+ *  @brief Get the driver version string for the current system.
  *
- * @details Given a software component @p component, a pointer to a char
- * buffer, @p ver_str, this function will write the driver version string
- * (up to @p len characters) for the current system to @p ver_str. The caller
- * must ensure that it is safe to write at least @p len characters to @p
- * ver_str.
+ *  @details Given a software component @p component, a pointer to a char
+ *  buffer, @p ver_str, this function will write the driver version string
+ *  (up to @p len characters) for the current system to @p ver_str. The caller
+ *  must ensure that it is safe to write at least @p len characters to @p
+ *  ver_str.
  *
- * @param[in] component The component for which the version string is being
- * requested
+ *  @param[in] component The component for which the version string is being
+ *  requested
  *
- * @param[inout] ver_str A pointer to a buffer of char's to which the VBIOS
- * name will be written
+ *  @param[inout] ver_str A pointer to a buffer of char's to which the version
+ *  of @p component will be written
  *
- * @param[in] len The number of char's pointed to by @p ver_str which can
- * safely be written to by this function.
+ *  @param[in] len the length of the caller provided buffer @p name.
  *
- * @retval ::RSMI_STATUS_SUCCESS is returned upon successful call.
+ *  @retval ::RSMI_STATUS_SUCCESS call was successful
+ *  @retval ::RSMI_STATUS_NOT_SUPPORTED installed software or hardware does not
+ *  support this function with the given arguments
+ *  @retval ::RSMI_STATUS_INVALID_ARGS the provided arguments are not valid
+ *  @retval ::RSMI_STATUS_INSUFFICIENT_SIZE is returned if @p len bytes is not
+ *  large enough to hold the entire name. In this case, only @p len bytes will
+ *  be written.
  */
 rsmi_status_t
 rsmi_version_str_get(rsmi_sw_component_t component, char *ver_str,
                                                                 uint32_t len);
 
 /**
- * @brief Get the VBIOS identifer string
+ *  @brief Get the VBIOS identifer string
  *
- * @details Given a device ID @p dv_ind, and a pointer to a char buffer,
- * @p vbios, this function will write the VBIOS string (up to @p len
- * characters) for device @p dv_ind to @p vbios. The caller must ensure that
- * it is safe to write at least @p len characters to @p vbios.
+ *  @details Given a device ID @p dv_ind, and a pointer to a char buffer,
+ *  @p vbios, this function will write the VBIOS string (up to @p len
+ *  characters) for device @p dv_ind to @p vbios. The caller must ensure that
+ *  it is safe to write at least @p len characters to @p vbios.
  *
- * @param[in] dv_ind a device index
+ *  @param[in] dv_ind a device index
  *
- * @param[inout] vbios A pointer to a buffer of char's to which the VBIOS name
- * will be written
+ *  @param[inout] vbios A pointer to a buffer of char's to which the VBIOS name
+ *  will be written
+ *  If this parameter is nullptr, this function will return
+ *  ::RSMI_STATUS_INVALID_ARGS if the function is supported with the provided,
+ *  arguments and ::RSMI_STATUS_NOT_SUPPORTED if it is not supported with the
+ *  provided arguments.
  *
- * @param[in] len The number of char's pointed to by @p vbios which can safely
- * be written to by this function.
+ *  @param[in] len The number of char's pointed to by @p vbios which can safely
+ *  be written to by this function.
  *
- * @retval ::RSMI_STATUS_SUCCESS is returned upon successful call.
+ *  @retval ::RSMI_STATUS_SUCCESS call was successful
+ *  @retval ::RSMI_STATUS_NOT_SUPPORTED installed software or hardware does not
+ *  support this function with the given arguments
+ *  @retval ::RSMI_STATUS_INVALID_ARGS the provided arguments are not valid
  *
  */
 rsmi_status_t
 rsmi_dev_vbios_version_get(uint32_t dv_ind, char *vbios, uint32_t len);
 
 /**
- * @brief Get the firmware versions for a device
+ *  @brief Get the firmware versions for a device
  *
- * @details Given a device ID @p dv_ind, and a pointer to a uint64_t,
- * @p fw_version, this function will write the FW Versions as a string (up to @p len
- * characters) for device @p dv_ind to @p vbios. The caller must ensure that
- * it is safe to write at least @p len characters to @p vbios.
+ *  @details Given a device ID @p dv_ind, and a pointer to a uint64_t,
+ *  @p fw_version, this function will write the FW Versions as a string (up to @p len
+ *  characters) for device @p dv_ind to @p vbios. The caller must ensure that
+ *  it is safe to write at least @p len characters to @p vbios.
  *
- * @param[in] dv_ind a device index
+ *  @param[in] dv_ind a device index
  *
- * @param[in] block The firmware block for which the version is being requested
+ *  @param[in] block The firmware block for which the version is being requested
  *
- * @param[inout] fw_version The version for the firmware block
+ *  @param[inout] fw_version The version for the firmware block
+ *  If this parameter is nullptr, this function will return
+ *  ::RSMI_STATUS_INVALID_ARGS if the function is supported with the provided,
+ *  arguments and ::RSMI_STATUS_NOT_SUPPORTED if it is not supported with the
+ *  provided arguments.
  *
- * @retval ::RSMI_STATUS_SUCCESS is returned upon successful call.
+ *  @retval ::RSMI_STATUS_SUCCESS call was successful
+ *  @retval ::RSMI_STATUS_NOT_SUPPORTED installed software or hardware does not
+ *  support this function with the given arguments
+ *  @retval ::RSMI_STATUS_INVALID_ARGS the provided arguments are not valid
  *
  */
 rsmi_status_t
@@ -1848,86 +2157,102 @@ rsmi_dev_firmware_version_get(uint32_t dv_ind, rsmi_fw_block_t block,
  */
 
 /**
- * @brief Retrieve the error counts for a GPU block
+ *  @brief Retrieve the error counts for a GPU block
  *
- * @details Given a device index @p dv_ind, an ::rsmi_gpu_block_t @p block and a
- * pointer to an ::rsmi_error_count_t @p ec, this function will write the error
- * count values for the GPU block indicated by @p block to memory pointed to by
- * @p ec.
+ *  @details Given a device index @p dv_ind, an ::rsmi_gpu_block_t @p block and a
+ *  pointer to an ::rsmi_error_count_t @p ec, this function will write the error
+ *  count values for the GPU block indicated by @p block to memory pointed to by
+ *  @p ec.
  *
- * @param[in] dv_ind a device index
+ *  @param[in] dv_ind a device index
  *
- * @param[in] block The block for which error counts should be retrieved
+ *  @param[in] block The block for which error counts should be retrieved
  *
- * @param[inout] ec A pointer to an ::rsmi_error_count_t to which the error
- * counts should be written
+ *  @param[inout] ec A pointer to an ::rsmi_error_count_t to which the error
+ *  counts should be written
+ *  If this parameter is nullptr, this function will return
+ *  ::RSMI_STATUS_INVALID_ARGS if the function is supported with the provided,
+ *  arguments and ::RSMI_STATUS_NOT_SUPPORTED if it is not supported with the
+ *  provided arguments.
  *
- * @retval ::RSMI_STATUS_SUCCESS is returned upon successful call.
- *
- * ::RSMI_STATUS_NOT_SUPPORTED will be returned if either ECC is not enabled
- * for the specified block @p block, or if there is no kernel support for ECC
- * for that block.
+ *  @retval ::RSMI_STATUS_SUCCESS call was successful
+ *  @retval ::RSMI_STATUS_NOT_SUPPORTED installed software or hardware does not
+ *  support this function with the given arguments
+ *  @retval ::RSMI_STATUS_INVALID_ARGS the provided arguments are not valid
  *
  */
 rsmi_status_t rsmi_dev_ecc_count_get(uint32_t dv_ind,
                               rsmi_gpu_block_t block, rsmi_error_count_t *ec);
 
 /**
- * @brief Retrieve the enabled ECC bit-mask
+ *  @brief Retrieve the enabled ECC bit-mask
  *
- * @details Given a device index @p dv_ind, and a pointer to a uint64_t @p
- * enabled_mask, this function will write bits to memory pointed to by
- * @p enabled_blocks. Upon a successful call, @p enabled_blocks can then be
- * AND'd with elements of the ::rsmi_gpu_block_t ennumeration to determine if
- * the corresponding block has ECC enabled. Note that whether a block has ECC
- * enabled or not in the device is independent of whether there is kernel
- * support for error counting for that block. Although a block may be enabled,
- * but there may not be kernel support for reading error counters for that
- * block.
+ *  @details Given a device index @p dv_ind, and a pointer to a uint64_t @p
+ *  enabled_mask, this function will write bits to memory pointed to by
+ *  @p enabled_blocks. Upon a successful call, @p enabled_blocks can then be
+ *  AND'd with elements of the ::rsmi_gpu_block_t ennumeration to determine if
+ *  the corresponding block has ECC enabled. Note that whether a block has ECC
+ *  enabled or not in the device is independent of whether there is kernel
+ *  support for error counting for that block. Although a block may be enabled,
+ *  but there may not be kernel support for reading error counters for that
+ *  block.
  *
- * @param[in] dv_ind a device index
+ *  @param[in] dv_ind a device index
  *
- * @param[inout] enabled_blocks A pointer to a uint64_t to which the enabled
- * blocks bits will be written
+ *  @param[inout] enabled_blocks A pointer to a uint64_t to which the enabled
+ *  blocks bits will be written.
+ *  If this parameter is nullptr, this function will return
+ *  ::RSMI_STATUS_INVALID_ARGS if the function is supported with the provided,
+ *  arguments and ::RSMI_STATUS_NOT_SUPPORTED if it is not supported with the
+ *  provided arguments.
  *
- * @retval ::RSMI_STATUS_SUCCESS is returned upon successful call.
- *
+ *  @retval ::RSMI_STATUS_SUCCESS call was successful
+ *  @retval ::RSMI_STATUS_NOT_SUPPORTED installed software or hardware does not
+ *  support this function with the given arguments
+ *  @retval ::RSMI_STATUS_INVALID_ARGS the provided arguments are not valid
  */
 rsmi_status_t rsmi_dev_ecc_enabled_get(uint32_t dv_ind,
                                                     uint64_t *enabled_blocks);
 
 /**
- * @brief Retrieve the ECC status for a GPU block
+ *  @brief Retrieve the ECC status for a GPU block
  *
- * @details Given a device index @p dv_ind, an ::rsmi_gpu_block_t @p block and
- * a pointer to an ::rsmi_ras_err_state_t @p state, this function will write
- * the current state for the GPU block indicated by @p block to memory pointed
- * to by @p state.
+ *  @details Given a device index @p dv_ind, an ::rsmi_gpu_block_t @p block and
+ *  a pointer to an ::rsmi_ras_err_state_t @p state, this function will write
+ *  the current state for the GPU block indicated by @p block to memory pointed
+ *  to by @p state.
  *
- * @param[in] dv_ind a device index
+ *  @param[in] dv_ind a device index
  *
- * @param[in] block The block for which error counts should be retrieved
+ *  @param[in] block The block for which error counts should be retrieved
  *
- * @param[inout] state A pointer to an ::rsmi_ras_err_state_t to which the
- * ECC state should be written
+ *  @param[inout] state A pointer to an ::rsmi_ras_err_state_t to which the
+ *  ECC state should be written
+ *  If this parameter is nullptr, this function will return
+ *  ::RSMI_STATUS_INVALID_ARGS if the function is supported with the provided,
+ *  arguments and ::RSMI_STATUS_NOT_SUPPORTED if it is not supported with the
+ *  provided arguments.
  *
- * @retval ::RSMI_STATUS_SUCCESS is returned upon successful call.
+ *  @retval ::RSMI_STATUS_SUCCESS call was successful
+ *  @retval ::RSMI_STATUS_NOT_SUPPORTED installed software or hardware does not
+ *  support this function with the given arguments
+ *  @retval ::RSMI_STATUS_INVALID_ARGS the provided arguments are not valid
  *
  */
 rsmi_status_t rsmi_dev_ecc_status_get(uint32_t dv_ind, rsmi_gpu_block_t block,
                                                   rsmi_ras_err_state_t *state);
 /**
- * @brief Get a description of a provided RSMI error status
+ *  @brief Get a description of a provided RSMI error status
  *
- * @details Set the provided pointer to a const char *, @p status_string, to
- * a string containing a description of the provided error code @p status.
+ *  @details Set the provided pointer to a const char *, @p status_string, to
+ *  a string containing a description of the provided error code @p status.
  *
- * @param[in] status The error status for which a description is desired
+ *  @param[in] status The error status for which a description is desired
  *
- * @param[inout] status_string A pointer to a const char * which will be made
- * to point to a description of the provided error code
+ *  @param[inout] status_string A pointer to a const char * which will be made
+ *  to point to a description of the provided error code
  *
- * @retval ::RSMI_STATUS_SUCCESS is returned upon successful call
+ *  @retval ::RSMI_STATUS_SUCCESS is returned upon successful call
  *
  */
 rsmi_status_t
@@ -1943,45 +2268,53 @@ rsmi_status_string(rsmi_status_t status, const char **status_string);
  */
 
 /**
- * @brief Tell if an event group is supported by a given device
+ *  @brief Tell if an event group is supported by a given device
  *
- * @details Given a device index @p dv_ind and an event group specifier @p
- * group, tell if @p group type events are supported by the device associated
- * with @p dv_ind
+ *  @details Given a device index @p dv_ind and an event group specifier @p
+ *  group, tell if @p group type events are supported by the device associated
+ *  with @p dv_ind
  *
- * @param[in] dv_ind device index of device being queried
+ *  @param[in] dv_ind device index of device being queried
  *
- * @param[in] group ::rsmi_event_group_t identifier of group for which support
- * is being queried
+ *  @param[in] group ::rsmi_event_group_t identifier of group for which support
+ *  is being queried
  *
- * @retval
- * ::RSMI_STATUS_SUCCESS if the device associatee with @p dv_ind
- * support counting events of the type indicated by @p group.
- *
- * ::RSMI_STATUS_NOT_SUPPORTED If the device does not support event group @p
- * group
+ *  @retval ::RSMI_STATUS_SUCCESS if the device associatee with @p dv_ind
+ *  support counting events of the type indicated by @p group.
+ *  @retval ::RSMI_STATUS_NOT_SUPPORTED installed software or hardware does not
+ *  support this function with the given arguments
+ *  group
  *
  */
 rsmi_status_t
 rsmi_dev_counter_group_supported(uint32_t dv_ind, rsmi_event_group_t group);
 
 /**
- * @brief Create a performance counter object
+ *  @brief Create a performance counter object
  *
- * @details Create a performance counter object of type @p type for the device
- * with a device index of @p dv_ind, and write a handle to the object to the
- * memory location pointed to by @p evnt_handle. @p evnt_handle can be used
- * with other performance event operations. The handle should be deallocated
- * with ::rsmi_dev_counter_destroy() when no longer needed.
+ *  @details Create a performance counter object of type @p type for the device
+ *  with a device index of @p dv_ind, and write a handle to the object to the
+ *  memory location pointed to by @p evnt_handle. @p evnt_handle can be used
+ *  with other performance event operations. The handle should be deallocated
+ *  with ::rsmi_dev_counter_destroy() when no longer needed.
  *
- * @param[in] dv_ind a device index
+ *  @param[in] dv_ind a device index
  *
- * @param[in] type the type of performance event to create
+ *  @param[in] type the type of performance event to create
  *
- * @param[inout] evnt_handle A pointer to a ::rsmi_event_handle_t which will be
- * associated with a newly allocated counter
+ *  @param[inout] evnt_handle A pointer to a ::rsmi_event_handle_t which will be
+ *  associated with a newly allocated counter
+ *  If this parameter is nullptr, this function will return
+ *  ::RSMI_STATUS_INVALID_ARGS if the function is supported with the provided,
+ *  arguments and ::RSMI_STATUS_NOT_SUPPORTED if it is not supported with the
+ *  provided arguments.
  *
- * @retval ::RSMI_STATUS_SUCCESS is returned upon successful call
+ *  @retval ::RSMI_STATUS_SUCCESS call was successful
+ *  @retval ::RSMI_STATUS_NOT_SUPPORTED installed software or hardware does not
+ *  support this function with the given arguments
+ *  @retval ::RSMI_STATUS_INVALID_ARGS the provided arguments are not valid
+ *  @retval ::RSMI_STATUS_OUT_OF_RESOURCES unable to allocate memory for counter
+ *  @retval ::RSMI_STATUS_PERMISSION function requires root access
  *
  */
 rsmi_status_t
@@ -1989,32 +2322,36 @@ rsmi_dev_counter_create(uint32_t dv_ind, rsmi_event_type_t type,
                                             rsmi_event_handle_t *evnt_handle);
 
 /**
- * @brief Deallocate a performance counter object
+ *  @brief Deallocate a performance counter object
  *
- * @details Deallocate the performance counter object with the provided
- * ::rsmi_event_handle_t @p evnt_handle
+ *  @details Deallocate the performance counter object with the provided
+ *  ::rsmi_event_handle_t @p evnt_handle
  *
- * @param[in] evnt_handle handle to event object to be deallocated
+ *  @param[in] evnt_handle handle to event object to be deallocated
  *
- * @retval ::RSMI_STATUS_SUCCESS is returned upon successful call
+ *  @retval ::RSMI_STATUS_SUCCESS is returned upon successful call
+ *  @retval ::RSMI_STATUS_INVALID_ARGS the provided arguments are not valid
+ *  @retval ::RSMI_STATUS_PERMISSION function requires root access
  *
  */
 rsmi_status_t
 rsmi_dev_counter_destroy(rsmi_event_handle_t evnt_handle);
 
 /**
- * @brief Issue performance counter control commands
+ *  @brief Issue performance counter control commands
  *
- * @details Issue a command @p cmd on the event counter associated with the
- * provided handle @p evt_handle.
+ *  @details Issue a command @p cmd on the event counter associated with the
+ *  provided handle @p evt_handle.
  *
- * @param[in] evt_handle an event handle
+ *  @param[in] evt_handle an event handle
  *
- * @param[in] cmd The event counter command to be issued
+ *  @param[in] cmd The event counter command to be issued
  *
- * @param[inout] cmd_args Currently not used. Should be set to NULL.
+ *  @param[inout] cmd_args Currently not used. Should be set to NULL.
  *
- * @retval ::RSMI_STATUS_SUCCESS is returned upon successful call
+ *  @retval ::RSMI_STATUS_SUCCESS is returned upon successful call
+ *  @retval ::RSMI_STATUS_INVALID_ARGS the provided arguments are not valid
+ *  @retval ::RSMI_STATUS_PERMISSION function requires root access
  *
  */
 rsmi_status_t
@@ -2022,18 +2359,20 @@ rsmi_counter_control(rsmi_event_handle_t evt_handle,
                                   rsmi_counter_command_t cmd, void *cmd_args);
 
 /**
- * @brief Read the current value of a performance counter
+ *  @brief Read the current value of a performance counter
  *
- * @details Read the current counter value of the counter associated with the
- * provided handle @p evt_handle and write the value to the location pointed
- * to by @p value.
+ *  @details Read the current counter value of the counter associated with the
+ *  provided handle @p evt_handle and write the value to the location pointed
+ *  to by @p value.
  *
- * @param[in] evt_handle an event handle
+ *  @param[in] evt_handle an event handle
  *
- * @param[inout] value pointer to memory of size of ::rsmi_counter_value_t to
- * which the counter value will be written
+ *  @param[inout] value pointer to memory of size of ::rsmi_counter_value_t to
+ *  which the counter value will be written
  *
- * @retval ::RSMI_STATUS_SUCCESS is returned upon successful call
+ *  @retval ::RSMI_STATUS_SUCCESS is returned upon successful call
+ *  @retval ::RSMI_STATUS_INVALID_ARGS the provided arguments are not valid
+ *  @retval ::RSMI_STATUS_PERMISSION function requires root access
  *
  */
 rsmi_status_t
@@ -2041,21 +2380,22 @@ rsmi_counter_read(rsmi_event_handle_t evt_handle,
                                                  rsmi_counter_value_t *value);
 
 /**
- * @brief Get the number of currently available counters
+ *  @brief Get the number of currently available counters
  *
- * @details Given a device index @p dv_ind, a performance event group @p grp,
- * and a pointer to a uint32_t @p available, this function will write the
- * number of @p grp type counters that are available on the device with index
- * @p dv_ind to the memory that @p available points to.
+ *  @details Given a device index @p dv_ind, a performance event group @p grp,
+ *  and a pointer to a uint32_t @p available, this function will write the
+ *  number of @p grp type counters that are available on the device with index
+ *  @p dv_ind to the memory that @p available points to.
  *
- * @param[in] dv_ind a device index
+ *  @param[in] dv_ind a device index
  *
- * @param[in] grp an event device group
+ *  @param[in] grp an event device group
  *
- * @param[inout] available A pointer to a uint32_t to which the number of
- * available counters will be written
+ *  @param[inout] available A pointer to a uint32_t to which the number of
+ *  available counters will be written
  *
- * @retval ::RSMI_STATUS_SUCCESS is returned upon successful call
+ *  @retval ::RSMI_STATUS_SUCCESS is returned upon successful call
+ *  @retval ::RSMI_STATUS_INVALID_ARGS the provided arguments are not valid
  *
  */
 rsmi_status_t
@@ -2071,59 +2411,60 @@ rsmi_counter_available_counters_get(uint32_t dv_ind,
  */
 
 /**
- * @brief Get process information about processes currently using GPU
+ *  @brief Get process information about processes currently using GPU
  *
- * @details Given a non-NULL pointer to an array @p procs of
- * ::rsmi_process_info_t's, of length *@p num_items, this function will write
- * up to *@p num_items instances of ::rsmi_process_info_t to the memory pointed
- * to by @p procs. These instances contain information about each process
- * utilizing a GPU. If @p procs is not NULL, @p num_items will be updated with
- * the number of processes actually written. If @p procs is NULL, @p num_items
- * will be updated with the number of processes for which there is current
- * process information. Calling this function with @p procs being NULL is a way
- * to determine how much memory should be allocated for when @p procs is not
- * NULL.
+ *  @details Given a non-NULL pointer to an array @p procs of
+ *  ::rsmi_process_info_t's, of length *@p num_items, this function will write
+ *  up to *@p num_items instances of ::rsmi_process_info_t to the memory pointed
+ *  to by @p procs. These instances contain information about each process
+ *  utilizing a GPU. If @p procs is not NULL, @p num_items will be updated with
+ *  the number of processes actually written. If @p procs is NULL, @p num_items
+ *  will be updated with the number of processes for which there is current
+ *  process information. Calling this function with @p procs being NULL is a way
+ *  to determine how much memory should be allocated for when @p procs is not
+ *  NULL.
  *
- * @param[inout] procs a pointer to memory provided by the caller to which
- * process information will be written. This may be NULL in which case only @p
- * num_items will be updated with the number of processes found.
+ *  @param[inout] procs a pointer to memory provided by the caller to which
+ *  process information will be written. This may be NULL in which case only @p
+ *  num_items will be updated with the number of processes found.
  *
- * @param[inout] num_items A pointer to a uint32_t, which on input, should
- * contain the amount of memory in ::rsmi_process_info_t's which have been
- * provided by the @p procs argument. On output, if @p procs is non-NULL, this
- * will be updated with the number ::rsmi_process_info_t structs actually
- * written. If @p procs is NULL, this argument will be updated with the number
- * processes for which there is information.
+ *  @param[inout] num_items A pointer to a uint32_t, which on input, should
+ *  contain the amount of memory in ::rsmi_process_info_t's which have been
+ *  provided by the @p procs argument. On output, if @p procs is non-NULL, this
+ *  will be updated with the number ::rsmi_process_info_t structs actually
+ *  written. If @p procs is NULL, this argument will be updated with the number
+ *  processes for which there is information.
  *
- * @retval ::RSMI_STATUS_SUCCESS is returned upon successful call
- *
- * ::RSMI_STATUS_INSUFFICIENT_SIZE is returned if there were more
- * processes for which information was available, but not enough space was
- * provided as indicated by @p procs and @p num_items, on input.
+ *  @retval ::RSMI_STATUS_SUCCESS is returned upon successful call
+ *  @retval ::RSMI_STATUS_INVALID_ARGS the provided arguments are not valid
+ *  @retval ::RSMI_STATUS_INSUFFICIENT_SIZE is returned if there were more
+ *  processes for which information was available, but not enough space was
+ *  provided as indicated by @p procs and @p num_items, on input.
  */
 rsmi_status_t
 rsmi_compute_process_info_get(rsmi_process_info_t *procs, uint32_t *num_items);
 
 /**
- * @brief Get process information about a specific process
+ *  @brief Get process information about a specific process
  *
- * @details Given a pointer to an ::rsmi_process_info_t @p proc and a process id
- * @p pid, this function will write the process information for @p pid, if
- * available, to the memory pointed to by @p proc.
+ *  @details Given a pointer to an ::rsmi_process_info_t @p proc and a process id
+ *  @p pid, this function will write the process information for @p pid, if
+ *  available, to the memory pointed to by @p proc.
  *
- * @param[in] pid The process ID for which process information is being requested
+ *  @param[in] pid The process ID for which process information is being requested
  *
- * @param[inout] proc a pointer to a ::rsmi_process_info_t to which
- * process information for @p pid will be written if it is found.
+ *  @param[inout] proc a pointer to a ::rsmi_process_info_t to which
+ *  process information for @p pid will be written if it is found.
  *
- * @retval ::RSMI_STATUS_SUCCESS is returned upon successful call
- *
- * ::RSMI_STATUS_NOT_FOUND is returned if there was no process information
- * found for the provided @p pid
+ *  @retval ::RSMI_STATUS_SUCCESS is returned upon successful call
+ *  @retval ::RSMI_STATUS_INVALID_ARGS the provided arguments are not valid
+ *  @retval ::RSMI_STATUS_NOT_FOUND is returned if there was no process information
+ *  found for the provided @p pid
  *
  */
 rsmi_status_t
 rsmi_compute_process_info_by_pid_get(uint32_t pid, rsmi_process_info_t *proc);
+
 
 /** @} */  // end of SysInfo
 
@@ -2134,19 +2475,26 @@ rsmi_compute_process_info_by_pid_get(uint32_t pid, rsmi_process_info_t *proc);
  */
 
 /**
- * @brief Retrieve the XGMI error status for a device
+ *  @brief Retrieve the XGMI error status for a device
  *
- * @details Given a device index @p dv_ind, and a pointer to an
- * ::rsmi_xgmi_status_t @p status, this function will write the current XGMI
- * error state ::rsmi_xgmi_status_t for the device @p dv_ind to the memory
- * pointed to by @p status.
+ *  @details Given a device index @p dv_ind, and a pointer to an
+ *  ::rsmi_xgmi_status_t @p status, this function will write the current XGMI
+ *  error state ::rsmi_xgmi_status_t for the device @p dv_ind to the memory
+ *  pointed to by @p status.
  *
- * @param[in] dv_ind a device index
+ *  @param[in] dv_ind a device index
  *
- * @param[inout] status A pointer to an ::rsmi_xgmi_status_t to which the
- * XGMI error state should be written
+ *  @param[inout] status A pointer to an ::rsmi_xgmi_status_t to which the
+ *  XGMI error state should be written
+ *  If this parameter is nullptr, this function will return
+ *  ::RSMI_STATUS_INVALID_ARGS if the function is supported with the provided,
+ *  arguments and ::RSMI_STATUS_NOT_SUPPORTED if it is not supported with the
+ *  provided arguments.
  *
- * @retval ::RSMI_STATUS_SUCCESS is returned upon successful call.
+ *  @retval ::RSMI_STATUS_SUCCESS call was successful
+ *  @retval ::RSMI_STATUS_NOT_SUPPORTED installed software or hardware does not
+ *  support this function with the given arguments
+ *  @retval ::RSMI_STATUS_INVALID_ARGS the provided arguments are not valid
  *
  */
 rsmi_status_t
@@ -2168,6 +2516,231 @@ rsmi_status_t
 rsmi_dev_xgmi_error_reset(uint32_t dv_ind);
 
 /** @} */  // end of SysInfo
+
+
+/*****************************************************************************/
+/** @defgroup APISupport Supported Functions
+ *  API function support varies by both GPU type and the version of the
+ *  installed ROCm stack.  The functions described in this section can be used
+ *  to determine, up front, which functions are supported for a given device
+ *  on a system. If such "up front" knowledge of support for a function is not
+ *  needed, alternatively, one can call a device related function and check the
+ *  return code.
+ *
+ *  Some functions have several variations ("variants") where some variants are
+ *  supported and others are not. For example, on a given device,
+ *  ::rsmi_dev_temp_metric_get may support some types of temperature metrics
+ *  (e.g., ::RSMI_TEMP_CRITICAL_HYST), but not others
+ *  (e.g., ::RSMI_TEMP_EMERGENCY).
+ *
+ *  In addition to a top level of variant support for a function, a function
+ *  may have varying support for monitors/sensors. These are considered
+ *  "sub-variants" in functions described in this section. Continuing the
+ *  ::rsmi_dev_temp_metric_get example, if variant
+ *  ::RSMI_TEMP_CRITICAL_HYST is supported, perhaps
+ *  only the sub-variant sensors ::RSMI_TEMP_TYPE_EDGE
+ *  and ::RSMI_TEMP_TYPE_EDGE are supported, but not
+ *  ::RSMI_TEMP_TYPE_MEMORY.
+ *
+ *  In cases where a function takes in a sensor id parameter but does not have
+ *  any "top level" variants, the functions in this section will indicate a
+ *  default "variant", ::RSMI_DEFAULT_VARIANT, for the top level variant, and
+ *  the various monitor support will be sub-variants of this.
+ *
+ *  The functions in this section use the "iterator" concept to list which
+ *  functions are supported; to list which variants of the supported functions
+ *  are supported; and finally which monitors/sensors are supported for a
+ *  variant.
+ *
+ *  Here is example code that prints out all supported functions, their
+ *  supported variants and sub-variants. Please see the related descriptions
+ *  functions and RSMI types.
+ *  \latexonly
+ *  \pagebreak
+ *  \endlatexonly
+ *  \code{.cpp}
+ *     rsmi_func_id_iter_handle_t iter_handle, var_iter, sub_var_iter;
+ *     rsmi_func_id_value_t value;
+ *     rsmi_status_t err;
+ *
+ *     for (uint32_t i = 0; i < <number of devices>; ++i) {
+ *      std::cout << "Supported RSMI Functions:" << std::endl;
+ *      std::cout << "\tVariants (Monitors)" << std::endl;
+ *
+ *      err = rsmi_dev_supported_func_iterator_open(i, &iter_handle);
+ *
+ *      while (1) {
+ *        err = rsmi_func_iter_value_get(iter_handle, &value);
+ *        std::cout << "Function Name: " << value.name << std::endl;
+ *
+ *        err = rsmi_dev_supported_variant_iterator_open(iter_handle, &var_iter);
+ *        if (err != RSMI_STATUS_NO_DATA) {
+ *          std::cout << "\tVariants/Monitors: ";
+ *          while (1) {
+ *            err = rsmi_func_iter_value_get(var_iter, &value);
+ *            if (value.id == RSMI_DEFAULT_VARIANT) {
+ *              std::cout << "Default Variant ";
+ *            } else {
+ *              std::cout << value.id;
+ *            }
+ *            std::cout << " (";
+ *
+ *            err =
+ *              rsmi_dev_supported_variant_iterator_open(var_iter, &sub_var_iter);
+ *            if (err != RSMI_STATUS_NO_DATA) {
+ *
+ *              while (1) {
+ *                err = rsmi_func_iter_value_get(sub_var_iter, &value);
+ *                std::cout << value.id << ", ";
+ *
+ *                err = rsmi_func_iter_next(sub_var_iter);
+ *
+ *                if (err == RSMI_STATUS_NO_DATA) {
+ *                  break;
+ *                }
+ *              }
+ *              err = rsmi_dev_supported_func_iterator_close(&sub_var_iter);
+ *            }
+ *
+ *            std::cout << "), ";
+ *
+ *            err = rsmi_func_iter_next(var_iter);
+ *
+ *            if (err == RSMI_STATUS_NO_DATA) {
+ *              break;
+ *            }
+ *          }
+ *          std::cout << std::endl;
+ *
+ *          err = rsmi_dev_supported_func_iterator_close(&var_iter);
+ *        }
+ *
+ *        err = rsmi_func_iter_next(iter_handle);
+ *
+ *        if (err == RSMI_STATUS_NO_DATA) {
+ *          break;
+ *        }
+ *      }
+ *      err = rsmi_dev_supported_func_iterator_close(&iter_handle);
+ *    }
+ * \endcode
+ *
+ *  @{
+ */
+
+
+/**
+ * @brief Get a function name iterator of supported RSMI functions for a device
+ *
+ * @details Given a device index @p dv_ind, this function will write a function
+ * iterator handle to the caller-provided memory pointed to by @p handle. This
+ * handle can be used to iterate through all the supported functions.
+ *
+ * Note that although this function takes in @p dv_ind as an argument,
+ * ::rsmi_dev_supported_func_iterator_open itself will not be among the
+ * functions listed as supported. This is because
+ * ::rsmi_dev_supported_func_iterator_open does not depend on hardware or
+ * driver support and should always be supported.
+ *
+ * @param[in] dv_ind a device index of device for which support information is
+ * requested
+ *
+ * @param[inout] handle A pointer to caller-provided memory to which the
+ * function iterator will be written.
+ *
+ * @retval ::RSMI_STATUS_SUCCESS is returned upon successful call.
+ *
+ */
+rsmi_status_t
+rsmi_dev_supported_func_iterator_open(uint32_t dv_ind,
+                                          rsmi_func_id_iter_handle_t *handle);
+
+/**
+ * @brief Get a variant iterator for a given handle
+ *
+ * @details Given a ::rsmi_func_id_iter_handle_t @p obj_h, this function will
+ * write a function iterator handle to the caller-provided memory pointed to
+ * by @p var_iter. This handle can be used to iterate through all the supported
+ * variants of the provided handle. @p obj_h may be a handle to a function
+ * object, as provided by a call to ::rsmi_dev_supported_func_iterator_open, or
+ * it may be a variant itself (from a call to
+ * ::rsmi_dev_supported_variant_iterator_open), it which case @p var_iter will
+ * be an iterator of the sub-variants of @p obj_h (e.g., monitors).
+ *
+ * This call allocates a small amount of memory to @p var_iter. To free this memory
+ * ::rsmi_dev_supported_func_iterator_close should be called on the returned
+ * iterator handle @p var_iter when it is no longer needed.
+ *
+ * @param[in] obj_h an iterator handle for which the variants are being requested
+ *
+ * @param[inout] var_iter A pointer to caller-provided memory to which the
+ * sub-variant iterator will be written.
+ *
+ * @retval ::RSMI_STATUS_SUCCESS is returned upon successful call.
+ *
+ */
+rsmi_status_t
+rsmi_dev_supported_variant_iterator_open(rsmi_func_id_iter_handle_t obj_h,
+                                        rsmi_func_id_iter_handle_t *var_iter);
+
+/**
+ * @brief Advance a function identifer iterator
+ *
+ * @details Given a function id iterator handle (::rsmi_func_id_iter_handle_t)
+ * @p handle, this function will increment the iterator to point to the next
+ * identifier. After a successful call to this function, obtaining the value
+ * of the iterator @p handle will provide the value of the next item in the
+ * list of functions/variants.
+ *
+ * If there are no more items in the list, ::RSMI_STATUS_NO_DATA is returned.
+ *
+ * @param[in] handle A pointer to an iterator handle to be incremented
+ *
+ * @retval ::RSMI_STATUS_SUCCESS is returned upon successful call.
+ * @retval ::RSMI_STATUS_NO_DATA is returned when list of identifiers has been
+ * exhausted
+ *
+ */
+rsmi_status_t
+rsmi_func_iter_next(rsmi_func_id_iter_handle_t handle);
+
+/**
+ * @brief Close a variant iterator handle
+ *
+ * @details Given a pointer to an ::rsmi_func_id_iter_handle_t @p handle, this
+ * function will free the resources being used by the handle
+ *
+ * @param[in] handle A pointer to an iterator handle to be closed
+ *
+ * @retval ::RSMI_STATUS_SUCCESS is returned upon successful call.
+ *
+ */
+rsmi_status_t
+rsmi_dev_supported_func_iterator_close(rsmi_func_id_iter_handle_t *handle);
+
+/**
+ * @brief Get the value associated with a function/variant iterator
+ *
+ * @details Given an ::rsmi_func_id_iter_handle_t @p handle, this function
+ * will write the identifier of the function/variant to the user provided
+ * memory pointed to by @p value.
+ *
+ * @p value may point to a function name, a variant id, or a monitor/sensor
+ * index, depending on what kind of iterator @p handle is
+ *
+ * @param[in] handle An iterator for which the value is being requested
+ *
+ * @param[inout] value A pointer to an ::rsmi_func_id_value_t provided by the
+ * caller to which this function will write the value assocaited with @p handle
+ *
+ * @retval ::RSMI_STATUS_SUCCESS is returned upon successful call.
+ *
+ */
+rsmi_status_t
+rsmi_func_iter_value_get(rsmi_func_id_iter_handle_t handle,
+                                                 rsmi_func_id_value_t *value);
+
+/** @} */  // end of APISupport
 
 #ifdef __cplusplus
 }

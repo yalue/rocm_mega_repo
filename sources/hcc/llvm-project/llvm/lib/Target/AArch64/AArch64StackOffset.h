@@ -15,7 +15,6 @@
 #define LLVM_LIB_TARGET_AARCH64_AARCH64STACKOFFSET_H
 
 #include "llvm/Support/MachineValueType.h"
-#include "llvm/Support/TypeSize.h"
 
 namespace llvm {
 
@@ -46,7 +45,8 @@ public:
   StackOffset() : Bytes(0), ScalableBytes(0) {}
 
   StackOffset(int64_t Offset, MVT::SimpleValueType T) : StackOffset() {
-    assert(MVT(T).isByteSized() && "Offset type is not a multiple of bytes");
+    assert(MVT(T).getSizeInBits() % 8 == 0 &&
+           "Offset type is not a multiple of bytes");
     *this += Part(Offset, T);
   }
 
@@ -56,11 +56,11 @@ public:
   StackOffset &operator=(const StackOffset &) = default;
 
   StackOffset &operator+=(const StackOffset::Part &Other) {
-    const TypeSize Size = Other.second.getSizeInBits();
-    if (Size.isScalable())
-      ScalableBytes += Other.first * ((int64_t)Size.getKnownMinSize() / 8);
+    int64_t OffsetInBytes = Other.first * (Other.second.getSizeInBits() / 8);
+    if (Other.second.isScalableVector())
+      ScalableBytes += OffsetInBytes;
     else
-      Bytes += Other.first * ((int64_t)Size.getFixedSize() / 8);
+      Bytes += OffsetInBytes;
     return *this;
   }
 

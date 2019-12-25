@@ -63,7 +63,6 @@ Error COFFReader::readSections(Object &Obj) const {
     Sections.push_back(Section());
     Section &S = Sections.back();
     S.Header = *Sec;
-    S.Header.Characteristics &= ~COFF::IMAGE_SCN_LNK_NRELOC_OVFL;
     ArrayRef<uint8_t> Contents;
     if (Error E = COFFObj.getSectionContents(Sec, Contents))
       return E;
@@ -75,6 +74,9 @@ Error COFFReader::readSections(Object &Obj) const {
       S.Name = *NameOrErr;
     else
       return NameOrErr.takeError();
+    if (Sec->hasExtendedRelocations())
+      return createStringError(object_error::parse_failed,
+                               "extended relocations not supported yet");
   }
   Obj.addSections(Sections);
   return Error::success();

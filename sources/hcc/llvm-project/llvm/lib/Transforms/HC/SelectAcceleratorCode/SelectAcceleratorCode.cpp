@@ -25,7 +25,6 @@
 #include "llvm/IR/Module.h"
 #include "llvm/Pass.h"
 #include "llvm/Support/raw_ostream.h"
-#include "llvm/Support/CommandLine.h"
 
 #include <algorithm>
 
@@ -111,28 +110,17 @@ class SelectAcceleratorCode : public ModulePass {
     }
 
     static
-    bool forceAlwaysInline_(Function &F)
+    bool alwaysInline_(Function &F)
     {
-        if (F.hasFnAttribute(Attribute::AlwaysInline)) {
-            // already marked as always inline,
-            // nothing needs to be changed
-            assert(!F.hasFnAttribute(Attribute::OptimizeNone));
-            assert(!F.hasFnAttribute(Attribute::NoInline));
+        if (!F.hasFnAttribute(Attribute::AlwaysInline)) {
+            if (F.hasFnAttribute(Attribute::NoInline)) {
+                F.removeFnAttr(Attribute::NoInline);
+            }
+            F.addFnAttr(Attribute::AlwaysInline);
+
             return false;
         }
 
-        if (F.hasFnAttribute(Attribute::OptimizeNone)) {
-            // don't inline functions with optnone
-            // Function with optnone is required to have
-            // noinline
-            assert(F.hasFnAttribute(Attribute::NoInline));
-            return false;
-        }
-
-        if (F.hasFnAttribute(Attribute::NoInline)) {
-            F.removeFnAttr(Attribute::NoInline);
-        }
-        F.addFnAttr(Attribute::AlwaysInline);
         return true;
     }
 public:
@@ -160,7 +148,7 @@ public:
         Modified = eraseDeadAliases_(M) || Modified;
 
         if (!EnableFunctionCalls)
-            for (auto&& F : M.functions()) Modified = forceAlwaysInline_(F) || Modified;
+            for (auto&& F : M.functions()) Modified = !alwaysInline_(F) || Modified;
 
         return Modified;
     }

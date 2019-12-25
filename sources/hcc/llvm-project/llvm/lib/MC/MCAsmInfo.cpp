@@ -100,7 +100,7 @@ MCAsmInfo::getExprForFDESymbol(const MCSymbol *Sym,
   return MCBinaryExpr::createSub(Res, PC, Context);
 }
 
-bool MCAsmInfo::isAcceptableChar(char C) const {
+static bool isAcceptableChar(char C) {
   return (C >= 'a' && C <= 'z') || (C >= 'A' && C <= 'Z') ||
          (C >= '0' && C <= '9') || C == '_' || C == '$' || C == '.' || C == '@';
 }

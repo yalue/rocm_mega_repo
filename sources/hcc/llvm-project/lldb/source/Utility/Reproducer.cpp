@@ -25,16 +25,6 @@ llvm::Error Reproducer::Initialize(ReproducerMode mode,
   lldbassert(!InstanceImpl() && "Already initialized.");
   InstanceImpl().emplace();
 
-  // The environment can override the capture mode.
-  if (mode != ReproducerMode::Replay) {
-    std::string env =
-        llvm::StringRef(getenv("LLDB_CAPTURE_REPRODUCER")).lower();
-    if (env == "0" || env == "off")
-      mode = ReproducerMode::Off;
-    else if (env == "1" || env == "on")
-      mode = ReproducerMode::Capture;
-  }
-
   switch (mode) {
   case ReproducerMode::Capture: {
     if (!root) {
@@ -153,14 +143,12 @@ static FileSpec MakeAbsolute(FileSpec file_spec) {
   return FileSpec(path, file_spec.GetPathStyle());
 }
 
-Generator::Generator(FileSpec root) : m_root(MakeAbsolute(std::move(root))) {
+Generator::Generator(FileSpec root)
+    : m_root(MakeAbsolute(std::move(root))), m_done(false) {
   GetOrCreate<repro::WorkingDirectoryProvider>();
 }
 
-Generator::~Generator() {
-  if (!m_done)
-    Discard();
-}
+Generator::~Generator() {}
 
 ProviderBase *Generator::Register(std::unique_ptr<ProviderBase> provider) {
   std::lock_guard<std::mutex> lock(m_providers_mutex);

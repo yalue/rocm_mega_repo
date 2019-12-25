@@ -151,11 +151,11 @@ public:
 
   /// Returns the alignment field of an attribute as a byte alignment
   /// value.
-  MaybeAlign getAlignment() const;
+  unsigned getAlignment() const;
 
   /// Returns the stack alignment field of an attribute as a byte
   /// alignment value.
-  MaybeAlign getStackAlignment() const;
+  unsigned getStackAlignment() const;
 
   /// Returns the number of dereferenceable bytes from the
   /// dereferenceable attribute.
@@ -285,8 +285,8 @@ public:
   /// Return the target-dependent attribute object.
   Attribute getAttribute(StringRef Kind) const;
 
-  MaybeAlign getAlignment() const;
-  MaybeAlign getStackAlignment() const;
+  unsigned getAlignment() const;
+  unsigned getStackAlignment() const;
   uint64_t getDereferenceableBytes() const;
   uint64_t getDereferenceableOrNullBytes() const;
   Type *getByValType() const;
@@ -604,16 +604,16 @@ public:
   }
 
   /// Return the alignment of the return value.
-  MaybeAlign getRetAlignment() const;
+  unsigned getRetAlignment() const;
 
   /// Return the alignment for the specified function parameter.
-  MaybeAlign getParamAlignment(unsigned ArgNo) const;
+  unsigned getParamAlignment(unsigned ArgNo) const;
 
   /// Return the byval type for the specified function parameter.
   Type *getParamByValType(unsigned ArgNo) const;
 
   /// Get the stack alignment.
-  MaybeAlign getStackAlignment(unsigned Index) const;
+  unsigned getStackAlignment(unsigned Index) const;
 
   /// Get the number of dereferenceable bytes (or zero if unknown).
   uint64_t getDereferenceableBytes(unsigned Index) const;
@@ -774,10 +774,12 @@ public:
   bool hasAlignmentAttr() const;
 
   /// Retrieve the alignment attribute, if it exists.
-  MaybeAlign getAlignment() const { return Alignment; }
+  uint64_t getAlignment() const { return Alignment ? Alignment->value() : 0; }
 
   /// Retrieve the stack alignment attribute, if it exists.
-  MaybeAlign getStackAlignment() const { return StackAlignment; }
+  uint64_t getStackAlignment() const {
+    return StackAlignment ? StackAlignment->value() : 0;
+  }
 
   /// Retrieve the number of dereferenceable bytes, if the
   /// dereferenceable attribute exists (zero is returned otherwise).
@@ -794,29 +796,13 @@ public:
   /// doesn't exist, pair(0, 0) is returned.
   std::pair<unsigned, Optional<unsigned>> getAllocSizeArgs() const;
 
-  /// This turns an alignment into the form used internally in Attribute.
-  /// This call has no effect if Align is not set.
-  AttrBuilder &addAlignmentAttr(MaybeAlign Align);
-
   /// This turns an int alignment (which must be a power of 2) into the
   /// form used internally in Attribute.
-  /// This call has no effect if Align is 0.
-  /// Deprecated, use the version using a MaybeAlign.
-  inline AttrBuilder &addAlignmentAttr(unsigned Align) {
-    return addAlignmentAttr(MaybeAlign(Align));
-  }
-
-  /// This turns a stack alignment into the form used internally in Attribute.
-  /// This call has no effect if Align is not set.
-  AttrBuilder &addStackAlignmentAttr(MaybeAlign Align);
+  AttrBuilder &addAlignmentAttr(unsigned Align);
 
   /// This turns an int stack alignment (which must be a power of 2) into
   /// the form used internally in Attribute.
-  /// This call has no effect if Align is 0.
-  /// Deprecated, use the version using a MaybeAlign.
-  inline AttrBuilder &addStackAlignmentAttr(unsigned Align) {
-    return addStackAlignmentAttr(MaybeAlign(Align));
-  }
+  AttrBuilder &addStackAlignmentAttr(unsigned Align);
 
   /// This turns the number of dereferenceable bytes into the form used
   /// internally in Attribute.

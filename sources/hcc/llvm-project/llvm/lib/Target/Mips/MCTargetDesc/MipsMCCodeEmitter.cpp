@@ -600,8 +600,7 @@ getExprOpValue(const MCExpr *Expr, SmallVectorImpl<MCFixup> &Fixups,
   }
 
   if (Kind == MCExpr::Binary) {
-    unsigned Res =
-        getExprOpValue(cast<MCBinaryExpr>(Expr)->getLHS(), Fixups, STI);
+    unsigned Res = getExprOpValue(cast<MCBinaryExpr>(Expr)->getLHS(), Fixups, STI);
     Res += getExprOpValue(cast<MCBinaryExpr>(Expr)->getRHS(), Fixups, STI);
     return Res;
   }
@@ -730,8 +729,7 @@ getExprOpValue(const MCExpr *Expr, SmallVectorImpl<MCFixup> &Fixups,
     default: llvm_unreachable("Unknown fixup kind!");
       break;
     case MCSymbolRefExpr::VK_None:
-      // FIXME: This is ok for O32/N32 but not N64.
-      FixupKind = Mips::fixup_Mips_32;
+      FixupKind = Mips::fixup_Mips_32; // FIXME: This is ok for O32/N32 but not N64.
       break;
     } // switch
 
@@ -770,8 +768,7 @@ unsigned MipsMCCodeEmitter::getMemEncoding(const MCInst &MI, unsigned OpNo,
                                            const MCSubtargetInfo &STI) const {
   // Base register is encoded in bits 20-16, offset is encoded in bits 15-0.
   assert(MI.getOperand(OpNo).isReg());
-  unsigned RegBits = getMachineOpValue(MI, MI.getOperand(OpNo), Fixups, STI)
-                     << 16;
+  unsigned RegBits = getMachineOpValue(MI, MI.getOperand(OpNo),Fixups, STI) << 16;
   unsigned OffBits = getMachineOpValue(MI, MI.getOperand(OpNo+1), Fixups, STI);
 
   // Apply the scale factor if there is one.
@@ -860,8 +857,7 @@ getMemEncodingMMImm9(const MCInst &MI, unsigned OpNo,
   assert(MI.getOperand(OpNo).isReg());
   unsigned RegBits = getMachineOpValue(MI, MI.getOperand(OpNo), Fixups,
                                        STI) << 16;
-  unsigned OffBits =
-      getMachineOpValue(MI, MI.getOperand(OpNo + 1), Fixups, STI);
+  unsigned OffBits = getMachineOpValue(MI, MI.getOperand(OpNo + 1), Fixups, STI);
 
   return (OffBits & 0x1FF) | RegBits;
 }
@@ -896,8 +892,7 @@ getMemEncodingMMImm12(const MCInst &MI, unsigned OpNo,
 
   // Base register is encoded in bits 20-16, offset is encoded in bits 11-0.
   assert(MI.getOperand(OpNo).isReg());
-  unsigned RegBits = getMachineOpValue(MI, MI.getOperand(OpNo), Fixups, STI)
-                     << 16;
+  unsigned RegBits = getMachineOpValue(MI, MI.getOperand(OpNo), Fixups, STI) << 16;
   unsigned OffBits = getMachineOpValue(MI, MI.getOperand(OpNo+1), Fixups, STI);
 
   return (OffBits & 0x0FFF) | RegBits;

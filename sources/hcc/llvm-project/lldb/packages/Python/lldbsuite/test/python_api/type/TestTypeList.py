@@ -73,17 +73,13 @@ class TypeAndTypeListTestCase(TestBase):
                         self.assertTrue(enum_member)
                         self.DebugSBType(enum_member.type)
                 elif field.name == "my_type_is_nameless":
-                    self.assertFalse(
+                    self.assertTrue(
                         field.type.IsAnonymousType(),
-                        "my_type_is_nameless is not an anonymous type")
+                        "my_type_is_nameless has an anonymous type")
                 elif field.name == "my_type_is_named":
                     self.assertFalse(
                         field.type.IsAnonymousType(),
                         "my_type_is_named has a named type")
-                elif field.name == None:
-                    self.assertTrue(
-                        field.type.IsAnonymousType(),
-                        "Nameless type is not anonymous")
 
         # Pass an empty string.  LLDB should not crash. :-)
         fuzz_types = target.FindTypes(None)

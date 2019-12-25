@@ -29,8 +29,6 @@ list(APPEND SCUDO_LINK_FLAGS -Wl,-z,defs,-z,now,-z,relro)
 append_list_if(COMPILER_RT_HAS_NODEFAULTLIBS_FLAG -nodefaultlibs SCUDO_LINK_FLAGS)
 
 if(ANDROID)
-  list(APPEND SCUDO_CFLAGS -fno-emulated-tls)
-
 # Put the shared library in the global group. For more details, see
 # android-changes-for-ndk-developers.md#changes-to-library-search-order
   append_list_if(COMPILER_RT_HAS_Z_GLOBAL -Wl,-z,global SCUDO_LINK_FLAGS)
@@ -79,6 +77,7 @@ set(SCUDO_SOURCES
   fuchsia.cpp
   linux.cpp
   report.cpp
+  secondary.cpp
   string_utils.cpp
   )
 
@@ -133,7 +132,6 @@ if(COMPILER_RT_HAS_SCUDO_STANDALONE)
     CFLAGS ${SCUDO_CFLAGS}
     PARENT_TARGET scudo_standalone)
 
-  add_subdirectory(benchmarks)
   if(COMPILER_RT_INCLUDE_TESTS)
     add_subdirectory(tests)
   endif()

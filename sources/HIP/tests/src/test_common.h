@@ -17,13 +17,23 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE.
 */
 
-#include <iostream>
-#include <iomanip>
-#if __CUDACC__
-#include <sys/time.h>
-#else
-#include <chrono>
+/*
+ * File is intended to C and CPP compliant hence any CPP specic changes
+ * should be added into CPP section
+ *
+ */
+
+#ifdef __cplusplus
+    #include <iostream>
+    #include <iomanip>
+    #if __CUDACC__
+        #include <sys/time.h>
+    #else
+        #include <chrono>
+    #endif
 #endif
+
+// ************************ GCC section **************************
 #include <stddef.h>
 
 #include "hip/hip_runtime.h"
@@ -40,14 +50,6 @@ THE SOFTWARE.
 #define KMAG "\x1B[35m"
 #define KCYN "\x1B[36m"
 #define KWHT "\x1B[37m"
-
-
-#ifdef __HIP_PLATFORM_HCC
-#define TYPENAME(T) typeid(T).name()
-#else
-#define TYPENAME(T) "?"
-#endif
-
 
 #define passed()                                                                                   \
     printf("%sPASSED!%s\n", KGRN, KNRM);                                                           \
@@ -97,22 +99,40 @@ THE SOFTWARE.
 
 #ifdef _WIN64
 #include <tchar.h>
-#define aligned_alloc _aligned_malloc
+#define aligned_alloc(x,y) _aligned_malloc(y,x)
+#define aligned_free(x) _aligned_free(x)
 #define popen(x,y) _popen(x,y)
 #define pclose(x) _pclose(x)
 #define setenv(x,y,z) _putenv_s(x,y)
+#define unsetenv _putenv
+#else
+#define aligned_free(x) free(x)
 #endif
 
 // standard command-line variables:
 extern size_t N;
 extern char memsetval;
 extern int memsetD32val;
+extern short memsetD16val;
+extern char memsetD8val;
 extern int iterations;
 extern unsigned blocksPerCU;
 extern unsigned threadsPerBlock;
 extern int p_gpuDevice;
 extern unsigned p_verbose;
 extern int p_tests;
+extern const char* HIP_VISIBLE_DEVICES_STR;
+extern const char* CUDA_VISIBLE_DEVICES_STR;
+extern const char* PATH_SEPERATOR_STR;
+
+// ********************* CPP section *********************
+#ifdef __cplusplus
+
+#ifdef __HIP_PLATFORM_HCC
+#define TYPENAME(T) typeid(T).name()
+#else
+#define TYPENAME(T) "?"
+#endif
 
 namespace HipTest {
 
@@ -136,6 +156,36 @@ int parseInt(const char* str, int* output);
 int parseStandardArguments(int argc, char* argv[], bool failOnUndefinedArg);
 
 unsigned setNumBlocks(unsigned blocksPerCU, unsigned threadsPerBlock, size_t N);
+
+template<typename T> // pointer type
+void checkArray(T hData, T hOutputData, size_t width, size_t height,size_t depth)
+{
+   for (int i = 0; i < depth; i++) {
+      for (int j = 0; j < height; j++) {
+          for (int k = 0; k < width; k++) {
+              int offset = i*width*height + j*width + k;
+              if (hData[offset] != hOutputData[offset]) {
+                  std::cerr << '[' << i << ',' << j << ',' << k << "]:" << hData[offset] << "----" << hOutputData[offset]<<"  ";
+                  failed("mistmatch at:%d %d %d",i,j,k);
+              }
+          }
+       }
+   }
+}
+
+template<typename T> 
+void checkArray(T input, T output, size_t height, size_t width)
+{
+    for(int i=0; i<height; i++ ){
+        for(int j=0; j<width; j++ ){
+            int offset = i*width + j;
+            if( input[offset] !=  output[offset] ){
+                 std::cerr << '[' << i << ',' << j << ',' << "]:" << input[offset] << "----" << output[offset]<<"  ";
+                 failed("mistmatch at:%d %d",i,j);
+            }
+        }
+    }
+}
 
 
 template <typename T>
@@ -470,3 +520,4 @@ struct MemTraits<MemcpyAsync> {
 };
 
 };  // namespace HipTest
+#endif //__cplusplus

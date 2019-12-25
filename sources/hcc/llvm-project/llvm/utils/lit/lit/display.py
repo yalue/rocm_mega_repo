@@ -1,93 +1,76 @@
 import sys
 
+import lit.ProgressBar
 
 def create_display(opts, tests, total_tests, workers):
     if opts.quiet:
-        return NopDisplay()
+        return NopProgressDisplay()
 
     of_total = (' of %d' % total_tests) if (tests != total_tests) else ''
     header = '-- Testing: %d%s tests, %d workers --' % (tests, of_total, workers)
 
     progress_bar = None
     if opts.succinct and opts.useProgressBar:
-        import lit.ProgressBar
         try:
             tc = lit.ProgressBar.TerminalController()
             progress_bar = lit.ProgressBar.ProgressBar(tc, header)
-            header = None
         except ValueError:
+            print(header)
             progress_bar = lit.ProgressBar.SimpleProgressBar('Testing: ')
+    else:
+        print(header)
 
-    return Display(opts, tests, header, progress_bar)
+    if progress_bar:
+        progress_bar.update(0, '')
 
+    return ProgressDisplay(opts, tests, progress_bar)
 
-class NopDisplay(object):
-    def print_header(self): pass
+class NopProgressDisplay(object):
     def update(self, test): pass
-    def clear(self, interrupted): pass
+    def finish(self): pass
 
-
-class Display(object):
-    def __init__(self, opts, tests, header, progress_bar):
+class ProgressDisplay(object):
+    def __init__(self, opts, numTests, progressBar):
         self.opts = opts
-        self.tests = tests
-        self.header = header
-        self.progress_bar = progress_bar
+        self.numTests = numTests
+        self.progressBar = progressBar
         self.completed = 0
 
-    def print_header(self):
-        if self.header:
-            print(self.header)
-        if self.progress_bar:
-            self.progress_bar.update(0.0, '')
+    def finish(self):
+        if self.progressBar:
+            self.progressBar.clear()
+        elif self.opts.succinct:
+            sys.stdout.write('\n')
 
     def update(self, test):
         self.completed += 1
 
-        show_result = test.isFailure() or \
+        show_result = test.result.code.isFailure or \
                 self.opts.showAllOutput or \
                 (not self.opts.quiet and not self.opts.succinct)
         if show_result:
-            if self.progress_bar:
-                self.progress_bar.clear(interrupted=False)
             self.print_result(test)
 
-        if self.progress_bar:
-            if test.isFailure():
-                self.progress_bar.barColor = 'RED'
-            percent = float(self.completed) / self.tests
-            self.progress_bar.update(percent, test.getFullName())
-
-    def clear(self, interrupted):
-        if self.progress_bar:
-            self.progress_bar.clear(interrupted)
+        if self.progressBar:
+            percent = float(self.completed) / self.numTests
+            self.progressBar.update(percent, test.getFullName())
 
     def print_result(self, test):
+        if self.progressBar:
+            self.progressBar.clear()
+
         # Show the test result line.
         test_name = test.getFullName()
         print('%s: %s (%d of %d)' % (test.result.code.name, test_name,
-                                     self.completed, self.tests))
+                                     self.completed, self.numTests))
 
         # Show the test failure output, if requested.
-        if (test.isFailure() and self.opts.showOutput) or \
+        if (test.result.code.isFailure and self.opts.showOutput) or \
            self.opts.showAllOutput:
-            if test.isFailure():
+            if test.result.code.isFailure:
                 print("%s TEST '%s' FAILED %s" % ('*'*20, test.getFullName(),
                                                   '*'*20))
-            out = test.result.output
-            # Encode/decode so that, when using Python 3.6.5 in Windows 10,
-            # print(out) doesn't raise UnicodeEncodeError if out contains
-            # special characters.  However, Python 2 might try to decode
-            # as part of the encode call if out is already encoded, so skip
-            # encoding if it raises UnicodeDecodeError.
-            if sys.stdout.encoding:
-                try:
-                    out = out.encode(encoding=sys.stdout.encoding,
-                                     errors="replace")
-                except UnicodeDecodeError:
-                    pass
-                out = out.decode(encoding=sys.stdout.encoding)
-            print(out)
+            print(test.result.output)
             print("*" * 20)
 
         # Report test metrics, if present.

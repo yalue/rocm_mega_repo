@@ -13,14 +13,18 @@
 using namespace lldb;
 using namespace lldb_private;
 
-TypeCategoryImpl::TypeCategoryImpl(IFormatChangeListener *clist,
-                                   ConstString name)
+TypeCategoryImpl::TypeCategoryImpl(
+    IFormatChangeListener *clist, ConstString name,
+    std::initializer_list<lldb::LanguageType> langs)
     : m_format_cont("format", "regex-format", clist),
       m_summary_cont("summary", "regex-summary", clist),
       m_filter_cont("filter", "regex-filter", clist),
       m_synth_cont("synth", "regex-synth", clist),
       m_validator_cont("validator", "regex-validator", clist), m_enabled(false),
-      m_change_listener(clist), m_mutex(), m_name(name), m_languages() {}
+      m_change_listener(clist), m_mutex(), m_name(name), m_languages() {
+  for (const lldb::LanguageType lang : langs)
+    AddLanguage(lang);
+}
 
 static bool IsApplicable(lldb::LanguageType category_lang,
                          lldb::LanguageType valobj_lang) {
@@ -84,6 +88,12 @@ lldb::LanguageType TypeCategoryImpl::GetLanguageAtIndex(size_t idx) {
 
 void TypeCategoryImpl::AddLanguage(lldb::LanguageType lang) {
   m_languages.push_back(lang);
+}
+
+bool TypeCategoryImpl::HasLanguage(lldb::LanguageType lang) {
+  const auto iter = std::find(m_languages.begin(), m_languages.end(), lang),
+             end = m_languages.end();
+  return (iter != end);
 }
 
 bool TypeCategoryImpl::Get(ValueObject &valobj,

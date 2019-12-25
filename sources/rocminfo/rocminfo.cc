@@ -42,7 +42,6 @@
  * DEALINGS WITH THE SOFTWARE.
  *
  */
-#include <errno.h>
 #include <stdio.h>
 #include <string.h>
 #include <sys/types.h>
@@ -1045,14 +1044,14 @@ void CheckInitialState(void) {
 
   struct group *gr_s = getgrnam("video");  // NOLINT
   if (gr_s == nullptr) {
-    printf("%sFailed to get group info to check for video group membership: "
-      "%s%s\n", COL_RED, strerror(errno), COL_RESET);
+    printf("%sFailed to get group info to check"
+                       " for video group membership%s\n", COL_RED, COL_RESET);
     return;
   }
 
   if (getlogin_r(u_name, 32)) {
-    printf("%sFailed to get user name to check for video group membership: "
-      "%s%s\n", COL_RED, strerror(errno), COL_RESET);
+    printf("%sFailed to get user name to check for"
+                           " video group membership%s\n", COL_RED, COL_RESET);
     return;
   }
 

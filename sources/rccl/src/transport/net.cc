@@ -245,8 +245,6 @@ end:
   return dev;
 }
 
-extern bool useFineGrainVramPcie;
-
 NCCL_PARAM(NetGdrRead, "NET_GDR_READ", -2);
 NCCL_PARAM(NetGdrLevel, "NET_GDR_LEVEL", PATH_PHB);
 
@@ -257,7 +255,7 @@ static ncclResult_t netGetGdrSupport(int dev, int read, int* useGdr) {
   CUDACHECK(hipGetDevice(&cudaDev));
   NCCLCHECK(getNvmlDevice(cudaDev, &nvmlDev))
 
-  if (!useFineGrainVramPcie) {
+  if (!hasFineGrainVramPcie()) {
     INFO(NCCL_INIT|NCCL_NET,"NET/%s : GPU Direct RDMA Disabled for GPU %d / Need Fine Grain VRAM over PCIe", ncclNetName(), cudaDev);
     return ncclSuccess;
   }
@@ -547,8 +545,8 @@ ncclResult_t netRecvProxy(struct ncclProxyArgs* args) {
             if (resources->useGdr) {
               ncclNetFlush(resources->netRecvComm, localBuff+buffSlot*stepSize, size, mhandle);
               // Flush local HDP register after local read-back finishes
-              STORE(resources->curr_hdp_reg, 0x1);
-              TRACE(NCCL_NET, "Flushing GPU memory via HDP %p", resources->curr_hdp_reg);
+              //STORE(resources->curr_hdp_reg, 0x1);
+              //TRACE(NCCL_NET, "Flushing GPU memory via HDP %p", resources->curr_hdp_reg);
             }
             STORE(&resources->hostRecvMem->tail, args->head);
           }

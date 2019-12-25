@@ -37,7 +37,6 @@ add_lldb_library(lldbCore
   FormatEntity.cpp
   Highlighter.cpp
   IOHandler.cpp
-  IOHandlerCursesGUI.cpp
   Mangled.cpp
   Module.cpp
   ModuleChild.cpp

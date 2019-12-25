@@ -22,14 +22,17 @@ public:
   BreakpointLocationCollection();
 
   ~BreakpointLocationCollection();
-
+  
   BreakpointLocationCollection &operator=(const BreakpointLocationCollection &rhs);
 
   /// Add the breakpoint \a bp_loc_sp to the list.
   ///
-  /// \param[in] bp_loc_sp
+  /// \param[in] bp_sp
   ///     Shared pointer to the breakpoint location that will get added
   ///     to the list.
+  ///
+  /// \result
+  ///     Returns breakpoint location id.
   void Add(const lldb::BreakpointLocationSP &bp_loc_sp);
 
   /// Removes the breakpoint location given by \b breakID from this
@@ -63,7 +66,7 @@ public:
   /// Returns a shared pointer to the breakpoint location with id \a
   /// breakID, const version.
   ///
-  /// \param[in] break_id
+  /// \param[in] breakID
   ///     The breakpoint location ID to seek for.
   ///
   /// \param[in] break_loc_id
@@ -108,6 +111,9 @@ public:
   ///
   /// \param[in] context
   ///    This contains the information about this stop.
+  ///
+  /// \param[in] breakID
+  ///    This break ID that we hit.
   ///
   /// \return
   ///    \b true if we should stop, \b false otherwise.

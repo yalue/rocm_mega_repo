@@ -1157,7 +1157,6 @@ The following type trait primitives are supported by Clang. Those traits marked
 * ``__is_reference`` (C++, Embarcadero)
 * ``__is_rvalue_reference`` (C++, Embarcadero)
 * ``__is_same`` (C++, Embarcadero)
-* ``__is_same_as`` (GCC): Synonym for ``__is_same``.
 * ``__is_scalar`` (C++, Embarcadero)
 * ``__is_sealed`` (Microsoft):
   Synonym for ``__is_final``.
@@ -2586,8 +2585,6 @@ the corresponding C11 operations, are:
 * ``__c11_atomic_fetch_and``
 * ``__c11_atomic_fetch_or``
 * ``__c11_atomic_fetch_xor``
-* ``__c11_atomic_fetch_max``
-* ``__c11_atomic_fetch_min``
 
 The macros ``__ATOMIC_RELAXED``, ``__ATOMIC_CONSUME``, ``__ATOMIC_ACQUIRE``,
 ``__ATOMIC_RELEASE``, ``__ATOMIC_ACQ_REL``, and ``__ATOMIC_SEQ_CST`` are

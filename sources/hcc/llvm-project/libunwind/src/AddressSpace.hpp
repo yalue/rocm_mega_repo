@@ -27,7 +27,7 @@
 
 #if _LIBUNWIND_USE_DLADDR
 #include <dlfcn.h>
-#if defined(__ELF__) && defined(_LIBUNWIND_LINK_DL_LIB)
+#if defined(__unix__) && defined(__ELF__) && defined(_LIBUNWIND_HAS_COMMENT_LIB_PRAGMA)
 #pragma comment(lib, "dl")
 #endif
 #endif
@@ -433,12 +433,8 @@ inline bool LocalAddressSpace::findUnwindSections(pint_t targetAddr,
   HANDLE process = GetCurrentProcess();
   DWORD needed;
 
-  if (!EnumProcessModules(process, mods, sizeof(mods), &needed)) {
-    DWORD err = GetLastError();
-    _LIBUNWIND_TRACE_UNWINDING("findUnwindSections: EnumProcessModules failed, "
-                               "returned error %d", (int)err);
+  if (!EnumProcessModules(process, mods, sizeof(mods), &needed))
     return false;
-  }
 
   for (unsigned i = 0; i < (needed / sizeof(HMODULE)); i++) {
     PIMAGE_DOS_HEADER pidh = (PIMAGE_DOS_HEADER)mods[i];

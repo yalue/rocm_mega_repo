@@ -6,11 +6,10 @@
 //
 //===----------------------------------------------------------------------===//
 
-#include "tests/scudo_unit_test.h"
-
 #include "mutex.h"
 
-#include <pthread.h>
+#include "gtest/gtest.h"
+
 #include <string.h>
 
 class TestData {

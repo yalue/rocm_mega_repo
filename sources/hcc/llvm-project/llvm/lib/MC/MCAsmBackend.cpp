@@ -9,6 +9,7 @@
 #include "llvm/MC/MCAsmBackend.h"
 #include "llvm/ADT/None.h"
 #include "llvm/ADT/STLExtras.h"
+#include "llvm/MC/MCCodePadder.h"
 #include "llvm/MC/MCELFObjectWriter.h"
 #include "llvm/MC/MCFixupKindInfo.h"
 #include "llvm/MC/MCMachObjectWriter.h"
@@ -22,7 +23,8 @@
 
 using namespace llvm;
 
-MCAsmBackend::MCAsmBackend(support::endianness Endian) : Endian(Endian) {}
+MCAsmBackend::MCAsmBackend(support::endianness Endian)
+    : CodePadder(new MCCodePadder()), Endian(Endian) {}
 
 MCAsmBackend::~MCAsmBackend() = default;
 
@@ -110,4 +112,26 @@ bool MCAsmBackend::fixupNeedsRelaxationAdvanced(
   if (!Resolved)
     return true;
   return fixupNeedsRelaxation(Fixup, Value, DF, Layout);
+}
+
+void MCAsmBackend::handleCodePaddingBasicBlockStart(
+    MCObjectStreamer *OS, const MCCodePaddingContext &Context) {
+  CodePadder->handleBasicBlockStart(OS, Context);
+}
+
+void MCAsmBackend::handleCodePaddingBasicBlockEnd(
+    const MCCodePaddingContext &Context) {
+  CodePadder->handleBasicBlockEnd(Context);
+}
+
+void MCAsmBackend::handleCodePaddingInstructionBegin(const MCInst &Inst) {
+  CodePadder->handleInstructionBegin(Inst);
+}
+
+void MCAsmBackend::handleCodePaddingInstructionEnd(const MCInst &Inst) {
+  CodePadder->handleInstructionEnd(Inst);
+}
+
+bool MCAsmBackend::relaxFragment(MCPaddingFragment *PF, MCAsmLayout &Layout) {
+  return CodePadder->relaxFragment(PF, Layout);
 }

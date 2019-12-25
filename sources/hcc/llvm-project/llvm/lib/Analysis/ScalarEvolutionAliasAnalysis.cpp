@@ -19,7 +19,6 @@
 //===----------------------------------------------------------------------===//
 
 #include "llvm/Analysis/ScalarEvolutionAliasAnalysis.h"
-#include "llvm/InitializePasses.h"
 using namespace llvm;
 
 AliasResult SCEVAAResult::alias(const MemoryLocation &LocA,

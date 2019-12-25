@@ -36,7 +36,6 @@
 #include "llvm/Support/ThreadPool.h"
 #include "llvm/Support/Threading.h"
 #include "llvm/Support/ToolOutputFile.h"
-#include "llvm/Support/VirtualFileSystem.h"
 
 #include <functional>
 #include <map>
@@ -705,8 +704,8 @@ int CodeCoverageTool::run(Command Cmd, int argc, const char **argv) {
     // Read in -name-whitelist files.
     if (!NameFilterFiles.empty()) {
       std::string SpecialCaseListErr;
-      NameWhitelist = SpecialCaseList::create(
-          NameFilterFiles, *vfs::getRealFileSystem(), SpecialCaseListErr);
+      NameWhitelist =
+          SpecialCaseList::create(NameFilterFiles, SpecialCaseListErr);
       if (!NameWhitelist)
         error(SpecialCaseListErr);
     }

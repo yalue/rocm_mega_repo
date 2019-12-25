@@ -81,8 +81,7 @@ protected:
     for (auto &stat : target.GetStatistics()) {
       result.AppendMessageWithFormat(
           "%s : %u\n",
-          lldb_private::GetStatDescription(
-              static_cast<lldb_private::StatisticKind>(i))
+          lldb_private::GetStatDescription(static_cast<lldb_private::StatisticKind>(i))
               .c_str(),
           stat);
       i += 1;

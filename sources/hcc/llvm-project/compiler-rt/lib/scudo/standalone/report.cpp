@@ -34,7 +34,7 @@ private:
   ScopedString Message;
 };
 
-inline void NORETURN trap() { __builtin_trap(); }
+INLINE void NORETURN trap() { __builtin_trap(); }
 
 // This could potentially be called recursively if a CHECK fails in the reports.
 void NORETURN reportCheckFailed(const char *File, int Line,

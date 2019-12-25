@@ -172,7 +172,6 @@ void TestLineNumbers(void) {
 // CHECK-NEXT:   }
 // CHECK-NEXT:  },
 // CHECK-NEXT:  "name": "TestLocation",
-// CHECK-NEXT:  "mangledName": "TestLocation",
 // CHECK-NEXT:  "type": {
 // CHECK-NEXT:   "qualType": "int"
 // CHECK-NEXT:  },
@@ -223,7 +222,6 @@ void TestLineNumbers(void) {
 // CHECK-NEXT:   }
 // CHECK-NEXT:  },
 // CHECK-NEXT:  "name": "TestIndent",
-// CHECK-NEXT:  "mangledName": "TestIndent",
 // CHECK-NEXT:  "type": {
 // CHECK-NEXT:   "qualType": "int"
 // CHECK-NEXT:  },
@@ -374,7 +372,6 @@ void TestLineNumbers(void) {
 // CHECK-NEXT:       }
 // CHECK-NEXT:      },
 // CHECK-NEXT:      "name": "x",
-// CHECK-NEXT:      "mangledName": "x",
 // CHECK-NEXT:      "type": {
 // CHECK-NEXT:       "qualType": "int"
 // CHECK-NEXT:      },
@@ -443,7 +440,6 @@ void TestLineNumbers(void) {
 // CHECK-NEXT:       }
 // CHECK-NEXT:      },
 // CHECK-NEXT:      "name": "y",
-// CHECK-NEXT:      "mangledName": "y",
 // CHECK-NEXT:      "type": {
 // CHECK-NEXT:       "qualType": "int"
 // CHECK-NEXT:      }
@@ -469,7 +465,6 @@ void TestLineNumbers(void) {
 // CHECK-NEXT:       }
 // CHECK-NEXT:      },
 // CHECK-NEXT:      "name": "z",
-// CHECK-NEXT:      "mangledName": "z",
 // CHECK-NEXT:      "type": {
 // CHECK-NEXT:       "qualType": "int"
 // CHECK-NEXT:      }
@@ -500,7 +495,6 @@ void TestLineNumbers(void) {
 // CHECK-NEXT:   }
 // CHECK-NEXT:  },
 // CHECK-NEXT:  "name": "TestOpaqueValueExpr",
-// CHECK-NEXT:  "mangledName": "TestOpaqueValueExpr",
 // CHECK-NEXT:  "type": {
 // CHECK-NEXT:   "qualType": "int"
 // CHECK-NEXT:  },
@@ -715,7 +709,6 @@ void TestLineNumbers(void) {
 // CHECK-NEXT:      },
 // CHECK-NEXT:      "isUsed": true,
 // CHECK-NEXT:      "name": "T1",
-// CHECK-NEXT:      "mangledName": "T1",
 // CHECK-NEXT:      "type": {
 // CHECK-NEXT:       "qualType": "char"
 // CHECK-NEXT:      },
@@ -808,7 +801,6 @@ void TestLineNumbers(void) {
 // CHECK-NEXT:      },
 // CHECK-NEXT:      "isUsed": true,
 // CHECK-NEXT:      "name": "T2",
-// CHECK-NEXT:      "mangledName": "T2",
 // CHECK-NEXT:      "type": {
 // CHECK-NEXT:       "qualType": "int"
 // CHECK-NEXT:      },
@@ -1931,7 +1923,6 @@ void TestLineNumbers(void) {
 // CHECK-NEXT:       }
 // CHECK-NEXT:      },
 // CHECK-NEXT:      "name": "j",
-// CHECK-NEXT:      "mangledName": "j",
 // CHECK-NEXT:      "type": {
 // CHECK-NEXT:       "qualType": "int"
 // CHECK-NEXT:      },
@@ -2214,7 +2205,6 @@ void TestLineNumbers(void) {
 // CHECK-NEXT:      },
 // CHECK-NEXT:      "isUsed": true,
 // CHECK-NEXT:      "name": "ptr",
-// CHECK-NEXT:      "mangledName": "ptr",
 // CHECK-NEXT:      "type": {
 // CHECK-NEXT:       "qualType": "void *"
 // CHECK-NEXT:      },
@@ -3873,7 +3863,6 @@ void TestLineNumbers(void) {
 // CHECK-NEXT:        },
 // CHECK-NEXT:        "isUsed": true,
 // CHECK-NEXT:        "name": "i",
-// CHECK-NEXT:        "mangledName": "i",
 // CHECK-NEXT:        "type": {
 // CHECK-NEXT:         "qualType": "int"
 // CHECK-NEXT:        },
@@ -5167,7 +5156,6 @@ void TestLineNumbers(void) {
 // CHECK-NEXT:          },
 // CHECK-NEXT:          "isUsed": true,
 // CHECK-NEXT:          "name": "a",
-// CHECK-NEXT:          "mangledName": "a",
 // CHECK-NEXT:          "type": {
 // CHECK-NEXT:           "qualType": "int"
 // CHECK-NEXT:          },
@@ -5312,7 +5300,6 @@ void TestLineNumbers(void) {
 // CHECK-NEXT:       }
 // CHECK-NEXT:      },
 // CHECK-NEXT:      "name": "a",
-// CHECK-NEXT:      "mangledName": "a",
 // CHECK-NEXT:      "type": {
 // CHECK-NEXT:       "qualType": "int"
 // CHECK-NEXT:      }
@@ -5358,7 +5345,6 @@ void TestLineNumbers(void) {
 // CHECK-NEXT:       }
 // CHECK-NEXT:      },
 // CHECK-NEXT:      "name": "b",
-// CHECK-NEXT:      "mangledName": "b",
 // CHECK-NEXT:      "type": {
 // CHECK-NEXT:       "qualType": "int"
 // CHECK-NEXT:      }

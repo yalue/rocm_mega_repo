@@ -223,6 +223,7 @@ THE SOFTWARE.
                     Enable_if_t<
                         std::is_floating_point<T>{} &&
                         !std::is_same<T, double>{}>* = nullptr>
+                __host__ __device__
                 operator T() const { return data; }
             #endif
             __host__ __device__
@@ -1125,8 +1126,7 @@ THE SOFTWARE.
             {
                 auto r = static_cast<__half2_raw>(x).data ==
                     static_cast<__half2_raw>(y).data;
-                return __half2_raw{_Float16_2{
-                    static_cast<_Float16>(r.x), static_cast<_Float16>(r.y)}};
+                return __builtin_convertvector(-r, _Float16_2);
             }
             inline
             __device__
@@ -1134,8 +1134,7 @@ THE SOFTWARE.
             {
                 auto r = static_cast<__half2_raw>(x).data !=
                     static_cast<__half2_raw>(y).data;
-                return __half2_raw{_Float16_2{
-                    static_cast<_Float16>(r.x), static_cast<_Float16>(r.y)}};
+                return __builtin_convertvector(-r, _Float16_2);
             }
             inline
             __device__
@@ -1143,8 +1142,7 @@ THE SOFTWARE.
             {
                 auto r = static_cast<__half2_raw>(x).data <=
                     static_cast<__half2_raw>(y).data;
-                return __half2_raw{_Float16_2{
-                    static_cast<_Float16>(r.x), static_cast<_Float16>(r.y)}};
+                return __builtin_convertvector(-r, _Float16_2);
             }
             inline
             __device__
@@ -1152,8 +1150,7 @@ THE SOFTWARE.
             {
                 auto r = static_cast<__half2_raw>(x).data >=
                     static_cast<__half2_raw>(y).data;
-                return __half2_raw{_Float16_2{
-                    static_cast<_Float16>(r.x), static_cast<_Float16>(r.y)}};
+                return __builtin_convertvector(-r, _Float16_2);
             }
             inline
             __device__
@@ -1161,8 +1158,7 @@ THE SOFTWARE.
             {
                 auto r = static_cast<__half2_raw>(x).data <
                     static_cast<__half2_raw>(y).data;
-                return __half2_raw{_Float16_2{
-                    static_cast<_Float16>(r.x), static_cast<_Float16>(r.y)}};
+                return __builtin_convertvector(-r, _Float16_2);
             }
             inline
             __device__
@@ -1170,8 +1166,7 @@ THE SOFTWARE.
             {
                 auto r = static_cast<__half2_raw>(x).data >
                     static_cast<__half2_raw>(y).data;
-                return __half2_raw{_Float16_2{
-                    static_cast<_Float16>(r.x), static_cast<_Float16>(r.y)}};
+                return __builtin_convertvector(-r, _Float16_2);
             }
             inline
             __device__

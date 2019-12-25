@@ -14,7 +14,6 @@
 #include "clang/AST/ASTLambda.h"
 #include "clang/AST/ASTMutationListener.h"
 #include "clang/AST/ASTUnresolvedSet.h"
-#include "clang/AST/Attr.h"
 #include "clang/AST/CXXInheritance.h"
 #include "clang/AST/DeclBase.h"
 #include "clang/AST/DeclTemplate.h"
@@ -413,7 +412,7 @@ CXXRecordDecl::setBases(CXXBaseSpecifier const * const *Bases,
       data().HasIrrelevantDestructor = false;
 
     // C++11 [class.copy]p18:
-    //   The implicitly-declared copy assignment operator for a class X will
+    //   The implicitly-declared copy assignment oeprator for a class X will
     //   have the form 'X& X::operator=(const X&)' if each direct base class B
     //   of X has a copy assignment operator whose parameter is of type 'const
     //   B&', 'const volatile B&', or 'B' [...]
@@ -2805,36 +2804,6 @@ NamespaceAliasDecl::CreateDeserialized(ASTContext &C, unsigned ID) {
                                         SourceLocation(), nullptr,
                                         NestedNameSpecifierLoc(),
                                         SourceLocation(), nullptr);
-}
-
-void LifetimeExtendedTemporaryDecl::anchor() {}
-
-/// Retrieve the storage duration for the materialized temporary.
-StorageDuration LifetimeExtendedTemporaryDecl::getStorageDuration() const {
-  const ValueDecl *ExtendingDecl = getExtendingDecl();
-  if (!ExtendingDecl)
-    return SD_FullExpression;
-  // FIXME: This is not necessarily correct for a temporary materialized
-  // within a default initializer.
-  if (isa<FieldDecl>(ExtendingDecl))
-    return SD_Automatic;
-  // FIXME: This only works because storage class specifiers are not allowed
-  // on decomposition declarations.
-  if (isa<BindingDecl>(ExtendingDecl))
-    return ExtendingDecl->getDeclContext()->isFunctionOrMethod() ? SD_Automatic
-                                                                 : SD_Static;
-  return cast<VarDecl>(ExtendingDecl)->getStorageDuration();
-}
-
-APValue *LifetimeExtendedTemporaryDecl::getOrCreateValue(bool MayCreate) const {
-  assert(getStorageDuration() == SD_Static &&
-         "don't need to cache the computed value for this temporary");
-  if (MayCreate && !Value) {
-    Value = (new (getASTContext()) APValue);
-    getASTContext().addDestruction(Value);
-  }
-  assert(Value && "may not be null");
-  return Value;
 }
 
 void UsingShadowDecl::anchor() {}

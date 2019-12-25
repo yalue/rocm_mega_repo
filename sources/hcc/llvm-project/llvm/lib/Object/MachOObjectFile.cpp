@@ -128,10 +128,6 @@ static unsigned getCPUType(const MachOObjectFile &O) {
   return O.getHeader().cputype;
 }
 
-static unsigned getCPUSubType(const MachOObjectFile &O) {
-  return O.getHeader().cpusubtype;
-}
-
 static uint32_t
 getPlainRelocationAddress(const MachO::any_relocation_info &RE) {
   return RE.r_word0;
@@ -2569,7 +2565,7 @@ StringRef MachOObjectFile::getFileFormatName() const {
   }
 }
 
-Triple::ArchType MachOObjectFile::getArch(uint32_t CPUType, uint32_t CPUSubType) {
+Triple::ArchType MachOObjectFile::getArch(uint32_t CPUType) {
   switch (CPUType) {
   case MachO::CPU_TYPE_I386:
     return Triple::x86;
@@ -2741,7 +2737,7 @@ ArrayRef<StringRef> MachOObjectFile::getValidArchs() {
 }
 
 Triple::ArchType MachOObjectFile::getArch() const {
-  return getArch(getCPUType(*this), getCPUSubType(*this));
+  return getArch(getCPUType(*this));
 }
 
 Triple MachOObjectFile::getArchTriple(const char **McpuDefault) const {

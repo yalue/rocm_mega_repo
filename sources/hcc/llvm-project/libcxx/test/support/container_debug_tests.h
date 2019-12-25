@@ -63,15 +63,15 @@ enum ContainerType {
 };
 
 constexpr bool isSequential(ContainerType CT) {
-  return CT >= CT_Vector && CT <= CT_ForwardList;
+  return CT_Vector >= CT && CT_ForwardList <= CT;
 }
 
 constexpr bool isAssociative(ContainerType CT) {
-  return CT >= CT_Map && CT <= CT_MultiSet;
+  return CT_Map >= CT && CT_MultiSet <= CT;
 }
 
 constexpr bool isUnordered(ContainerType CT) {
-  return CT >= CT_UnorderedMap && CT <= CT_UnorderedMultiSet;
+  return CT_UnorderedMap >= CT && CT_UnorderedMultiSet <= CT;
 }
 
 constexpr bool isSet(ContainerType CT) {

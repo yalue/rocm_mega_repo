@@ -32,6 +32,8 @@
 //
 //===----------------------------------------------------------------------===//
 
+#include <cstring>
+#include <functional>
 #include "Interp/Context.h"
 #include "Interp/Frame.h"
 #include "Interp/State.h"
@@ -39,7 +41,6 @@
 #include "clang/AST/ASTContext.h"
 #include "clang/AST/ASTDiagnostic.h"
 #include "clang/AST/ASTLambda.h"
-#include "clang/AST/Attr.h"
 #include "clang/AST/CXXInheritance.h"
 #include "clang/AST/CharUnits.h"
 #include "clang/AST/CurrentSourceLocExprScope.h"
@@ -56,8 +57,6 @@
 #include "llvm/ADT/SmallBitVector.h"
 #include "llvm/Support/SaveAndRestore.h"
 #include "llvm/Support/raw_ostream.h"
-#include <cstring>
-#include <functional>
 
 #define DEBUG_TYPE "exprconstant"
 
@@ -108,7 +107,7 @@ namespace {
             dyn_cast<MaterializeTemporaryExpr>(Base)) {
       SmallVector<const Expr *, 2> CommaLHSs;
       SmallVector<SubobjectAdjustment, 2> Adjustments;
-      const Expr *Temp = MTE->getSubExpr();
+      const Expr *Temp = MTE->GetTemporaryExpr();
       const Expr *Inner = Temp->skipRValueSubobjectAdjustments(CommaLHSs,
                                                                Adjustments);
       // Keep any cv-qualifiers from the reference if we generated a temporary
@@ -764,8 +763,11 @@ namespace {
     /// we will evaluate.
     unsigned StepsLeft;
 
-    /// Enable the experimental new constant interpreter. If an expression is
-    /// not supported by the interpreter, an error is triggered.
+    /// Force the use of the experimental new constant interpreter, bailing out
+    /// with an error if a feature is not supported.
+    bool ForceNewConstInterp;
+
+    /// Enable the experimental new constant interpreter.
     bool EnableNewConstInterp;
 
     /// BottomFrame - The frame in which evaluation started. This must be
@@ -919,8 +921,10 @@ namespace {
     EvalInfo(const ASTContext &C, Expr::EvalStatus &S, EvaluationMode Mode)
         : Ctx(const_cast<ASTContext &>(C)), EvalStatus(S), CurrentCall(nullptr),
           CallStackDepth(0), NextCallIndex(1),
-          StepsLeft(C.getLangOpts().ConstexprStepLimit),
-          EnableNewConstInterp(C.getLangOpts().EnableNewConstInterp),
+          StepsLeft(getLangOpts().ConstexprStepLimit),
+          ForceNewConstInterp(getLangOpts().ForceNewConstInterp),
+          EnableNewConstInterp(ForceNewConstInterp ||
+                               getLangOpts().EnableNewConstInterp),
           BottomFrame(*this, SourceLocation(), nullptr, nullptr, nullptr),
           EvaluatingDecl((const ValueDecl *)nullptr),
           EvaluatingDeclValue(nullptr), HasActiveDiagnostic(false),
@@ -1035,13 +1039,10 @@ namespace {
     /// cleanups would have had a side-effect, note that as an unmodeled
     /// side-effect and return false. Otherwise, return true.
     bool discardCleanups() {
-      for (Cleanup &C : CleanupStack) {
-        if (C.hasSideEffect() && !noteSideEffect()) {
-          CleanupStack.clear();
-          return false;
-        }
-      }
-      CleanupStack.clear();
+      for (Cleanup &C : CleanupStack)
+        if (C.hasSideEffect())
+          if (!noteSideEffect())
+            return false;
       return true;
     }
 
@@ -2071,7 +2072,7 @@ static bool CheckLValueConstantExpression(EvalInfo &Info, SourceLocation Loc,
         return false;
       }
 
-      APValue *V = MTE->getOrCreateValue(false);
+      APValue *V = Info.Ctx.getMaterializedTemporaryValue(MTE, false);
       assert(V && "evasluation result refers to uninitialised temporary");
       if (!CheckEvaluationResult(CheckEvaluationResultKind::ConstantExpression,
                                  Info, MTE->getExprLoc(), TempType, *V,
@@ -3675,7 +3676,7 @@ static CompleteObject findCompleteObject(EvalInfo &Info, const Expr *E,
           return CompleteObject();
         }
 
-        BaseVal = MTE->getOrCreateValue(false);
+        BaseVal = Info.Ctx.getMaterializedTemporaryValue(MTE, false);
         assert(BaseVal && "got reference to unevaluated temporary");
       } else {
         if (!IsAccess)
@@ -5332,16 +5333,9 @@ static bool HandleUnionActiveMemberChange(EvalInfo &Info, const Expr *LHSExpr,
       if (!FD || FD->getType()->isReferenceType())
         break;
 
-      //    ... and also contains A.B if B names a union member ...
-      if (FD->getParent()->isUnion()) {
-        //    ... of a non-class, non-array type, or of a class type with a
-        //    trivial default constructor that is not deleted, or an array of
-        //    such types.
-        auto *RD =
-            FD->getType()->getBaseElementTypeUnsafe()->getAsCXXRecordDecl();
-        if (!RD || RD->hasTrivialDefaultConstructor())
-          UnionPathLengths.push_back({PathLength - 1, FD});
-      }
+      //    ... and also contains A.B if B names a union member
+      if (FD->getParent()->isUnion())
+        UnionPathLengths.push_back({PathLength - 1, FD});
 
       E = ME->getBase();
       --PathLength;
@@ -6830,36 +6824,6 @@ public:
     return StmtVisitorTy::Visit(Source);
   }
 
-  bool VisitPseudoObjectExpr(const PseudoObjectExpr *E) {
-    for (const Expr *SemE : E->semantics()) {
-      if (auto *OVE = dyn_cast<OpaqueValueExpr>(SemE)) {
-        // FIXME: We can't handle the case where an OpaqueValueExpr is also the
-        // result expression: there could be two different LValues that would
-        // refer to the same object in that case, and we can't model that.
-        if (SemE == E->getResultExpr())
-          return Error(E);
-
-        // Unique OVEs get evaluated if and when we encounter them when
-        // emitting the rest of the semantic form, rather than eagerly.
-        if (OVE->isUnique())
-          continue;
-
-        LValue LV;
-        if (!Evaluate(Info.CurrentCall->createTemporary(
-                          OVE, getStorageType(Info.Ctx, OVE), false, LV),
-                      Info, OVE->getSourceExpr()))
-          return false;
-      } else if (SemE == E->getResultExpr()) {
-        if (!StmtVisitorTy::Visit(SemE))
-          return false;
-      } else {
-        if (!EvaluateIgnoredValue(Info, SemE))
-          return false;
-      }
-    }
-    return true;
-  }
-
   bool VisitCallExpr(const CallExpr *E) {
     APValue Result;
     if (!handleCallExpr(E, Result, nullptr))
@@ -7117,13 +7081,6 @@ public:
       if (!handleLValueToRValueBitCast(Info, DestValue, SourceValue, E))
         return false;
       return DerivedSuccess(DestValue, E);
-    }
-
-    case CK_AddressSpaceConversion: {
-      APValue Value;
-      if (!Evaluate(Value, Info, E->getSubExpr()))
-        return false;
-      return DerivedSuccess(Value, E);
     }
     }
 
@@ -7503,8 +7460,8 @@ bool LValueExprEvaluator::VisitMaterializeTemporaryExpr(
   // Walk through the expression to find the materialized temporary itself.
   SmallVector<const Expr *, 2> CommaLHSs;
   SmallVector<SubobjectAdjustment, 2> Adjustments;
-  const Expr *Inner =
-      E->getSubExpr()->skipRValueSubobjectAdjustments(CommaLHSs, Adjustments);
+  const Expr *Inner = E->GetTemporaryExpr()->
+      skipRValueSubobjectAdjustments(CommaLHSs, Adjustments);
 
   // If we passed any comma operators, evaluate their LHSs.
   for (unsigned I = 0, N = CommaLHSs.size(); I != N; ++I)
@@ -7516,7 +7473,7 @@ bool LValueExprEvaluator::VisitMaterializeTemporaryExpr(
   // value for use outside this evaluation.
   APValue *Value;
   if (E->getStorageDuration() == SD_Static) {
-    Value = E->getOrCreateValue(true);
+    Value = Info.Ctx.getMaterializedTemporaryValue(E, true);
     *Value = APValue();
     Result.set(E);
   } else {
@@ -7899,11 +7856,6 @@ public:
     // either copied into the closure object's field that represents the '*this'
     // or refers to '*this'.
     if (isLambdaCallOperator(Info.CurrentCall->Callee)) {
-      // Ensure we actually have captured 'this'. (an error will have
-      // been previously reported if not).
-      if (!Info.CurrentCall->LambdaThisCaptureField)
-        return false;
-
       // Update 'Result' to refer to the data member/field of the closure object
       // that represents the '*this' capture.
       if (!HandleLValueMember(Info, E, Result,
@@ -9069,7 +9021,7 @@ bool RecordExprEvaluator::VisitCXXConstructExpr(const CXXConstructExpr *E,
   if (E->isElidable() && !ZeroInit)
     if (const MaterializeTemporaryExpr *ME
           = dyn_cast<MaterializeTemporaryExpr>(E->getArg(0)))
-      return Visit(ME->getSubExpr());
+      return Visit(ME->GetTemporaryExpr());
 
   if (ZeroInit && !ZeroInitialization(E, T))
     return false;
@@ -10631,24 +10583,8 @@ bool IntExprEvaluator::VisitBuiltinCallExpr(const CallExpr *E,
     return false;
   }
 
-  case Builtin::BI__builtin_is_constant_evaluated: {
-    const auto *Callee = Info.CurrentCall->getCallee();
-    if (Info.InConstantContext && !Info.CheckingPotentialConstantExpression &&
-        (Info.CallStackDepth == 1 ||
-         (Info.CallStackDepth == 2 && Callee->isInStdNamespace() &&
-          Callee->getIdentifier() &&
-          Callee->getIdentifier()->isStr("is_constant_evaluated")))) {
-      // FIXME: Find a better way to avoid duplicated diagnostics.
-      if (Info.EvalStatus.Diag)
-        Info.report((Info.CallStackDepth == 1) ? E->getExprLoc()
-                                               : Info.CurrentCall->CallLoc,
-                    diag::warn_is_constant_evaluated_always_true_constexpr)
-            << (Info.CallStackDepth == 1 ? "__builtin_is_constant_evaluated"
-                                         : "std::is_constant_evaluated");
-    }
-
+  case Builtin::BI__builtin_is_constant_evaluated:
     return Success(Info.InConstantContext, E);
-  }
 
   case Builtin::BI__builtin_ctz:
   case Builtin::BI__builtin_ctzl:
@@ -13438,25 +13374,32 @@ static bool EvaluateInPlace(APValue &Result, EvalInfo &Info, const LValue &This,
 /// EvaluateAsRValue - Try to evaluate this expression, performing an implicit
 /// lvalue-to-rvalue cast if it is an lvalue.
 static bool EvaluateAsRValue(EvalInfo &Info, const Expr *E, APValue &Result) {
-  if (Info.EnableNewConstInterp) {
-    if (!Info.Ctx.getInterpContext().evaluateAsRValue(Info, E, Result))
+   if (Info.EnableNewConstInterp) {
+    auto &InterpCtx = Info.Ctx.getInterpContext();
+    switch (InterpCtx.evaluateAsRValue(Info, E, Result)) {
+    case interp::InterpResult::Success:
+      return true;
+    case interp::InterpResult::Fail:
       return false;
-  } else {
-    if (E->getType().isNull())
-      return false;
-
-    if (!CheckLiteralType(Info, E))
-      return false;
-
-    if (!::Evaluate(Result, Info, E))
-      return false;
-
-    if (E->isGLValue()) {
-      LValue LV;
-      LV.setFrom(Info.Ctx, Result);
-      if (!handleLValueToRValueConversion(Info, E, E->getType(), LV, Result))
-        return false;
+    case interp::InterpResult::Bail:
+      break;
     }
+  }
+
+  if (E->getType().isNull())
+    return false;
+
+  if (!CheckLiteralType(Info, E))
+    return false;
+
+  if (!::Evaluate(Result, Info, E))
+    return false;
+
+  if (E->isGLValue()) {
+    LValue LV;
+    LV.setFrom(Info.Ctx, Result);
+    if (!handleLValueToRValueConversion(Info, E, E->getType(), LV, Result))
+      return false;
   }
 
   // Check this core constant expression is a constant expression.
@@ -13668,36 +13611,46 @@ bool Expr::EvaluateAsInitializer(APValue &Value, const ASTContext &Ctx,
 
   if (Info.EnableNewConstInterp) {
     auto &InterpCtx = const_cast<ASTContext &>(Ctx).getInterpContext();
-    if (!InterpCtx.evaluateAsInitializer(Info, VD, Value))
+    switch (InterpCtx.evaluateAsInitializer(Info, VD, Value)) {
+    case interp::InterpResult::Fail:
+      // Bail out if an error was encountered.
       return false;
-  } else {
-    LValue LVal;
-    LVal.set(VD);
-
-    // C++11 [basic.start.init]p2:
-    //  Variables with static storage duration or thread storage duration shall
-    //  be zero-initialized before any other initialization takes place.
-    // This behavior is not present in C.
-    if (Ctx.getLangOpts().CPlusPlus && !VD->hasLocalStorage() &&
-        !DeclTy->isReferenceType()) {
-      ImplicitValueInitExpr VIE(DeclTy);
-      if (!EvaluateInPlace(Value, Info, LVal, &VIE,
-                           /*AllowNonLiteralTypes=*/true))
-        return false;
+    case interp::InterpResult::Success:
+      // Evaluation succeeded and value was set.
+      return CheckConstantExpression(Info, DeclLoc, DeclTy, Value);
+    case interp::InterpResult::Bail:
+      // Evaluate the value again for the tree evaluator to use.
+      break;
     }
-
-    if (!EvaluateInPlace(Value, Info, LVal, this,
-                         /*AllowNonLiteralTypes=*/true) ||
-        EStatus.HasSideEffects)
-      return false;
-
-    // At this point, any lifetime-extended temporaries are completely
-    // initialized.
-    Info.performLifetimeExtension();
-
-    if (!Info.discardCleanups())
-      llvm_unreachable("Unhandled cleanup; missing full expression marker?");
   }
+
+  LValue LVal;
+  LVal.set(VD);
+
+  // C++11 [basic.start.init]p2:
+  //  Variables with static storage duration or thread storage duration shall be
+  //  zero-initialized before any other initialization takes place.
+  // This behavior is not present in C.
+  if (Ctx.getLangOpts().CPlusPlus && !VD->hasLocalStorage() &&
+      !DeclTy->isReferenceType()) {
+    ImplicitValueInitExpr VIE(DeclTy);
+    if (!EvaluateInPlace(Value, Info, LVal, &VIE,
+                         /*AllowNonLiteralTypes=*/true))
+      return false;
+  }
+
+  if (!EvaluateInPlace(Value, Info, LVal, this,
+                       /*AllowNonLiteralTypes=*/true) ||
+      EStatus.HasSideEffects)
+    return false;
+
+  // At this point, any lifetime-extended temporaries are completely
+  // initialized.
+  Info.performLifetimeExtension();
+
+  if (!Info.discardCleanups())
+    llvm_unreachable("Unhandled cleanup; missing full expression marker?");
+
   return CheckConstantExpression(Info, DeclLoc, DeclTy, Value) &&
          CheckMemoryLeaks(Info);
 }
@@ -14380,41 +14333,27 @@ bool Expr::EvaluateWithSubstitution(APValue &Value, ASTContext &Ctx,
     assert(MD && "Don't provide `this` for non-methods.");
     assert(!MD->isStatic() && "Don't provide `this` for static methods.");
 #endif
-    if (!This->isValueDependent() &&
-        EvaluateObjectArgument(Info, This, ThisVal) &&
-        !Info.EvalStatus.HasSideEffects)
+    if (EvaluateObjectArgument(Info, This, ThisVal))
       ThisPtr = &ThisVal;
-
-    // Ignore any side-effects from a failed evaluation. This is safe because
-    // they can't interfere with any other argument evaluation.
-    Info.EvalStatus.HasSideEffects = false;
+    if (Info.EvalStatus.HasSideEffects)
+      return false;
   }
 
   ArgVector ArgValues(Args.size());
   for (ArrayRef<const Expr*>::iterator I = Args.begin(), E = Args.end();
        I != E; ++I) {
     if ((*I)->isValueDependent() ||
-        !Evaluate(ArgValues[I - Args.begin()], Info, *I) ||
-        Info.EvalStatus.HasSideEffects)
+        !Evaluate(ArgValues[I - Args.begin()], Info, *I))
       // If evaluation fails, throw away the argument entirely.
       ArgValues[I - Args.begin()] = APValue();
-
-    // Ignore any side-effects from a failed evaluation. This is safe because
-    // they can't interfere with any other argument evaluation.
-    Info.EvalStatus.HasSideEffects = false;
+    if (Info.EvalStatus.HasSideEffects)
+      return false;
   }
-
-  // Parameter cleanups happen in the caller and are not part of this
-  // evaluation.
-  Info.discardCleanups();
-  Info.EvalStatus.HasSideEffects = false;
 
   // Build fake call to Callee.
   CallStackFrame Frame(Info, Callee->getLocation(), Callee, ThisPtr,
                        ArgValues.data());
-  // FIXME: Missing ExprWithCleanups in enable_if conditions?
-  FullExpressionRAII Scope(Info);
-  return Evaluate(Value, Info, this) && Scope.destroy() &&
+  return Evaluate(Value, Info, this) && Info.discardCleanups() &&
          !Info.EvalStatus.HasSideEffects;
 }
 
@@ -14436,8 +14375,14 @@ bool Expr::isPotentialConstantExpr(const FunctionDecl *FD,
 
   // The constexpr VM attempts to compile all methods to bytecode here.
   if (Info.EnableNewConstInterp) {
-    Info.Ctx.getInterpContext().isPotentialConstantExpr(Info, FD);
-    return Diags.empty();
+    auto &InterpCtx = Info.Ctx.getInterpContext();
+    switch (InterpCtx.isPotentialConstantExpr(Info, FD)) {
+    case interp::InterpResult::Success:
+    case interp::InterpResult::Fail:
+      return Diags.empty();
+    case interp::InterpResult::Bail:
+      break;
+    }
   }
 
   const CXXMethodDecl *MD = dyn_cast<CXXMethodDecl>(FD);

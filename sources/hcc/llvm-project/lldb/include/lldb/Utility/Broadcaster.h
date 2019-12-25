@@ -65,6 +65,7 @@ public:
   }
 
   bool operator<(const BroadcastEventSpec &rhs) const;
+  BroadcastEventSpec &operator=(const BroadcastEventSpec &rhs);
 
 private:
   ConstString m_broadcaster_class;

@@ -59,7 +59,7 @@ option(BUILD_TEST "Build tests (requires googletest)" ON)
 include(cmake/Dependencies.cmake)
 
 # Setup VERSION
-set(VERSION_STRING "2.8.0")
+set(VERSION_STRING "2.9.0")
 
 rocm_setup_version(VERSION ${VERSION_STRING})
 
@@ -81,13 +81,13 @@ endif()
 
 # Package
 if(HIP_PLATFORM STREQUAL "hcc")
-  set(CPACK_DEBIAN_PACKAGE_DEPENDS "hip_hcc (>= 1.5), rocprim (>= 2.5)")
-  set(CPACK_RPM_PACKAGE_REQUIRES "hip_hcc >= 1.5, rocprim >= 2.5")
+  set(CPACK_DEBIAN_PACKAGE_DEPENDS "rocm-dev (>= 2.5.27), rocprim (>= 2.5)")
+  set(CPACK_RPM_PACKAGE_REQUIRES "rocm-dev >= 2.5.27, rocprim >= 2.5")
   set(CPACK_DEBIAN_PACKAGE_REPLACES "cub-hip")
   set(CPACK_RPM_PACKAGE_OBSOLETES "cub-hip")
 else()
-  set(CPACK_DEBIAN_PACKAGE_DEPENDS "hip_nvcc (>= 1.5)")
-  set(CPACK_RPM_PACKAGE_REQUIRES "hip_nvcc >= 1.5")
+  set(CPACK_DEBIAN_PACKAGE_DEPENDS "hip-nvcc (>= 1.5)")
+  set(CPACK_RPM_PACKAGE_REQUIRES "hip-nvcc >= 1.5")
 endif()
 set(CPACK_RESOURCE_FILE_LICENSE "${CMAKE_CURRENT_SOURCE_DIR}/LICENSE.txt")
 if(NOT CPACK_PACKAGING_INSTALL_PREFIX)

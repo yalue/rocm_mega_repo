@@ -26,8 +26,7 @@ using namespace llvm;
 using namespace lld;
 
 // The functions defined in this file can be called from multiple threads,
-// but lld::outs() or lld::errs() are not thread-safe. We protect them using a
-// mutex.
+// but outs() or errs() are not thread-safe. We protect them using a mutex.
 static std::mutex mu;
 
 // We want to separate multi-line messages with a newline. `sep` is "\n"
@@ -40,15 +39,13 @@ static StringRef getSeparator(const Twine &msg) {
   return "";
 }
 
-raw_ostream *lld::stdoutOS;
-raw_ostream *lld::stderrOS;
-
-raw_ostream &lld::outs() { return stdoutOS ? *stdoutOS : llvm::outs(); }
-raw_ostream &lld::errs() { return stderrOS ? *stderrOS : llvm::errs(); }
-
 ErrorHandler &lld::errorHandler() {
   static ErrorHandler handler;
   return handler;
+}
+
+void lld::enableColors(bool enable) {
+  errorHandler().errorOS->enable_colors(enable);
 }
 
 void lld::exitLld(int val) {
@@ -61,8 +58,8 @@ void lld::exitLld(int val) {
   // build allows us to get the output of -time-passes.
   llvm_shutdown();
 
-  lld::outs().flush();
-  lld::errs().flush();
+  outs().flush();
+  errs().flush();
   _exit(val);
 }
 
@@ -152,13 +149,13 @@ void ErrorHandler::log(const Twine &msg) {
   if (!verbose)
     return;
   std::lock_guard<std::mutex> lock(mu);
-  lld::errs() << logName << ": " << msg << "\n";
+  *errorOS << logName << ": " << msg << "\n";
 }
 
 void ErrorHandler::message(const Twine &msg) {
   std::lock_guard<std::mutex> lock(mu);
-  lld::outs() << msg << "\n";
-  lld::outs().flush();
+  outs() << msg << "\n";
+  outs().flush();
 }
 
 void ErrorHandler::warn(const Twine &msg) {
@@ -168,8 +165,8 @@ void ErrorHandler::warn(const Twine &msg) {
   }
 
   std::lock_guard<std::mutex> lock(mu);
-  lld::errs() << sep << getLocation(msg) << ": " << Colors::MAGENTA
-              << "warning: " << Colors::RESET << msg << "\n";
+  *errorOS << sep << getLocation(msg) << ": " << Colors::MAGENTA
+           << "warning: " << Colors::RESET << msg << "\n";
   sep = getSeparator(msg);
 }
 
@@ -193,11 +190,11 @@ void ErrorHandler::error(const Twine &msg) {
   std::lock_guard<std::mutex> lock(mu);
 
   if (errorLimit == 0 || errorCount < errorLimit) {
-    lld::errs() << sep << getLocation(msg) << ": " << Colors::RED
-                << "error: " << Colors::RESET << msg << "\n";
+    *errorOS << sep << getLocation(msg) << ": " << Colors::RED
+             << "error: " << Colors::RESET << msg << "\n";
   } else if (errorCount == errorLimit) {
-    lld::errs() << sep << getLocation(msg) << ": " << Colors::RED
-                << "error: " << Colors::RESET << errorLimitExceededMsg << "\n";
+    *errorOS << sep << getLocation(msg) << ": " << Colors::RED
+             << "error: " << Colors::RESET << errorLimitExceededMsg << "\n";
     if (exitEarly)
       exitLld(1);
   }

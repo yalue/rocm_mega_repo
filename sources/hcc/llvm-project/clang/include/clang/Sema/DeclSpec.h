@@ -833,8 +833,7 @@ public:
     DQ_PR_unsafe_unretained = 0x800,
     DQ_PR_nullability = 0x1000,
     DQ_PR_null_resettable = 0x2000,
-    DQ_PR_class = 0x4000,
-    DQ_PR_direct = 0x8000,
+    DQ_PR_class = 0x4000
   };
 
   ObjCDeclSpec()
@@ -904,7 +903,7 @@ private:
   unsigned objcDeclQualifier : 7;
 
   // NOTE: VC++ treats enums as signed, avoid using ObjCPropertyAttributeKind
-  unsigned PropertyAttributes : 16;
+  unsigned PropertyAttributes : 15;
 
   unsigned Nullability : 2;
 

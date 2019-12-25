@@ -698,7 +698,6 @@ void func(int val) {
 // CHECK-NEXT:      },
 // CHECK-NEXT:      "isUsed": true,
 // CHECK-NEXT:      "name": "i",
-// CHECK-NEXT:      "mangledName": "_ZZ4funciE1i",
 // CHECK-NEXT:      "type": {
 // CHECK-NEXT:       "qualType": "int"
 // CHECK-NEXT:      },
@@ -880,7 +879,6 @@ void func(int val) {
 // CHECK-NEXT:      },
 // CHECK-NEXT:      "isUsed": true,
 // CHECK-NEXT:      "name": "i",
-// CHECK-NEXT:      "mangledName": "_ZZ4funciE1i_0",
 // CHECK-NEXT:      "type": {
 // CHECK-NEXT:       "qualType": "int"
 // CHECK-NEXT:      },

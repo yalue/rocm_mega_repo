@@ -23,6 +23,7 @@
 
 #include <sys/time.h>
 #include <vector>
+#include <utility>
 #include "KFDQMTest.hpp"
 #include "PM4Queue.hpp"
 #include "PM4Packet.hpp"
@@ -70,6 +71,25 @@ TEST_F(KFDQMTest, CreateDestroyCpQueue) {
     TEST_END
 }
 
+TEST_F(KFDQMTest, SubmitNopCpQueue) {
+    TEST_START(TESTPROFILE_RUNALL)
+
+    int defaultGPUNode = m_NodeInfo.HsaDefaultGPUNode();
+    ASSERT_GE(defaultGPUNode, 0) << "failed to get default GPU Node";
+
+    PM4Queue queue;
+
+    ASSERT_SUCCESS(queue.Create(defaultGPUNode));
+
+    queue.PlaceAndSubmitPacket(PM4NopPacket());
+
+    queue.Wait4PacketConsumption();
+
+    EXPECT_SUCCESS(queue.Destroy());
+
+    TEST_END
+}
+
 TEST_F(KFDQMTest, SubmitPacketCpQueue) {
     TEST_START(TESTPROFILE_RUNALL)
 
@@ -95,32 +115,30 @@ TEST_F(KFDQMTest, SubmitPacketCpQueue) {
     TEST_END
 }
 
-TEST_F(KFDQMTest, MultipleCpQueues) {
+TEST_F(KFDQMTest, AllCpQueues) {
     TEST_START(TESTPROFILE_RUNALL)
 
     int defaultGPUNode = m_NodeInfo.HsaDefaultGPUNode();
     ASSERT_GE(defaultGPUNode, 0) << "failed to get default GPU Node";
 
-    static const unsigned int MAX_CP_QUEUES = 16;
-
     HsaMemoryBuffer destBuf(PAGE_SIZE, defaultGPUNode, false);
 
     destBuf.Fill(0xFF);
 
-    PM4Queue queues[MAX_CP_QUEUES];
+    std::vector<PM4Queue> queues(m_numCpQueues);
 
-    for (unsigned int qidx = 0; qidx < MAX_CP_QUEUES; ++qidx)
+    for (unsigned int qidx = 0; qidx < m_numCpQueues; ++qidx)
         ASSERT_SUCCESS(queues[qidx].Create(defaultGPUNode)) << " QueueId=" << qidx;
 
-    for (unsigned int qidx = 0; qidx < MAX_CP_QUEUES; ++qidx) {
+    for (unsigned int qidx = 0; qidx < m_numCpQueues; ++qidx) {
         queues[qidx].PlaceAndSubmitPacket(PM4WriteDataPacket(destBuf.As<unsigned int*>()+qidx*2, qidx, qidx));
 
         queues[qidx].Wait4PacketConsumption();
 
-        WaitOnValue(destBuf.As<unsigned int*>()+qidx*2, qidx);
+        EXPECT_TRUE(WaitOnValue(destBuf.As<unsigned int*>()+qidx*2, qidx));
     }
 
-    for (unsigned int qidx = 0; qidx < MAX_CP_QUEUES; ++qidx)
+    for (unsigned int qidx = 0; qidx < m_numCpQueues; ++qidx)
        EXPECT_SUCCESS(queues[qidx].Destroy());
 
     TEST_END
@@ -135,6 +153,25 @@ TEST_F(KFDQMTest, CreateDestroySdmaQueue) {
     SDMAQueue queue;
 
     ASSERT_SUCCESS(queue.Create(defaultGPUNode));
+
+    EXPECT_SUCCESS(queue.Destroy());
+
+    TEST_END
+}
+
+TEST_F(KFDQMTest, SubmitNopSdmaQueue) {
+    TEST_START(TESTPROFILE_RUNALL)
+
+    int defaultGPUNode = m_NodeInfo.HsaDefaultGPUNode();
+    ASSERT_GE(defaultGPUNode, 0) << "failed to get default GPU Node";
+
+    SDMAQueue queue;
+
+    ASSERT_SUCCESS(queue.Create(defaultGPUNode));
+
+    queue.PlaceAndSubmitPacket(SDMANopPacket());
+
+    queue.Wait4PacketConsumption();
 
     EXPECT_SUCCESS(queue.Destroy());
 
@@ -166,7 +203,7 @@ TEST_F(KFDQMTest, SubmitPacketSdmaQueue) {
     TEST_END
 }
 
-TEST_F(KFDQMTest, MultipleSdmaQueues) {
+TEST_F(KFDQMTest, AllSdmaQueues) {
     TEST_START(TESTPROFILE_RUNALL)
 
     int defaultGPUNode = m_NodeInfo.HsaDefaultGPUNode();
@@ -601,14 +638,13 @@ HSAint64 KFDQMTest::TimeConsumedwithCUMask(int node, uint32_t* mask, uint32_t ma
     EXPECT_SUCCESS(queue.SetCUMask(mask, mask_count));
     queue.SetSkipWaitConsump(true);
 
-    struct timeval start, now;
-    gettimeofday(&start, NULL);
+    HSAuint64 startTime = GetSystemTickCountInMicroSec();
     dispatch.Submit(queue);
     dispatch.Sync();
-    gettimeofday(&now, NULL);
+    HSAuint64 endTime = GetSystemTickCountInMicroSec();
 
     EXPECT_SUCCESS(queue.Destroy());
-    return (now.tv_sec *1000LL + now.tv_usec/1000LL - start.tv_sec * 1000LL - start.tv_usec/1000LL);
+    return endTime - startTime;
 }
 
 /* To cover for outliers, allow us to get the Average time based on a specified number of iterations */
@@ -792,7 +828,7 @@ TEST_F(KFDQMTest, QueuePriorityOnDifferentPipe) {
     };
 
     int activeTaskBitmap = 0x3;
-    struct timeval start, end[2];
+    HSAuint64 startTime, endTime[2];
     HsaEvent *pHsaEvent[2];
     int numEvent = 2;
     PM4Queue queue[2];
@@ -811,7 +847,7 @@ TEST_F(KFDQMTest, QueuePriorityOnDifferentPipe) {
         dispatch[i].SetDim(1024, 16, 16);
     }
 
-    gettimeofday(&start, NULL);
+    startTime = GetSystemTickCountInMicroSec();
     for (i = 0; i < 2; i++)
         dispatch[i].Submit(queue[i]);
 
@@ -819,7 +855,7 @@ TEST_F(KFDQMTest, QueuePriorityOnDifferentPipe) {
         hsaKmtWaitOnMultipleEvents(pHsaEvent, numEvent, false, g_TestTimeOut);
         for (i = 0; i < 2; i++) {
             if ((activeTaskBitmap & (1 << i)) && (syncBuffer[i] == pHsaEvent[i]->EventId)) {
-                gettimeofday(&end[i], NULL);
+                endTime[i] = GetSystemTickCountInMicroSec();
                 activeTaskBitmap &= ~(1 << i);
             }
         }
@@ -827,9 +863,9 @@ TEST_F(KFDQMTest, QueuePriorityOnDifferentPipe) {
 
     for (i = 0; i < 2; i++) {
         EXPECT_SUCCESS(queue[i].Destroy());
-        int ms = end[i].tv_sec *1000LL + end[i].tv_usec/1000LL - start.tv_sec * 1000LL - start.tv_usec/1000LL;
+        int usecs = endTime[i] - startTime;
         LOG() << "Task priority: " << std::dec << priority[i] << "\t";
-        LOG() << "Task duration: " << std::dec << ms << "ms" << std::endl;
+        LOG() << "Task duration: " << std::dec << usecs << "usecs" << std::endl;
     }
 
     TEST_END
@@ -857,7 +893,7 @@ TEST_F(KFDQMTest, QueuePriorityOnSamePipe) {
     };
 
     int activeTaskBitmap = 0x3;
-    struct timeval start, end[2];
+    HSAuint64 startTime, endTime[2];
     HsaEvent *pHsaEvent[2];
     int numEvent = 2;
     PM4Queue queue[13];
@@ -885,7 +921,7 @@ TEST_F(KFDQMTest, QueuePriorityOnSamePipe) {
         dispatch[i].SetDim(1024, 16, 16);
     }
 
-    gettimeofday(&start, NULL);
+    startTime = GetSystemTickCountInMicroSec();
     for (i = 0; i < 2; i++)
         dispatch[i].Submit(queue[i]);
 
@@ -893,16 +929,16 @@ TEST_F(KFDQMTest, QueuePriorityOnSamePipe) {
         hsaKmtWaitOnMultipleEvents(pHsaEvent, numEvent, false, g_TestTimeOut);
         for (i = 0; i < 2; i++) {
             if ((activeTaskBitmap & (1 << i)) && (syncBuffer[i] == pHsaEvent[i]->EventId)) {
-                gettimeofday(&end[i], NULL);
+                endTime[i] = GetSystemTickCountInMicroSec();
                 activeTaskBitmap &= ~(1 << i);
             }
         }
     }
 
     for (i = 0; i < 2; i++) {
-        int ms = end[i].tv_sec *1000LL + end[i].tv_usec/1000LL - start.tv_sec * 1000LL - start.tv_usec/1000LL;
+        int usecs = endTime[i] - startTime;
         LOG() << "Task priority: " << std::dec << priority[i] << "\t";
-        LOG() << "Task duration: " << std::dec << ms << "ms" << std::endl;
+        LOG() << "Task duration: " << std::dec << usecs << "usecs" << std::endl;
     }
 
     for (i = 0; i <= 12; i++) {
@@ -1295,19 +1331,18 @@ TEST_F(KFDQMTest, SdmaQueueWraparound) {
 struct AtomicIncThreadParams {
     HSAint64* pDest;
     volatile unsigned int count;
-    volatile bool stop;
+    volatile bool loop;
 };
 
 unsigned int AtomicIncThread(void* pCtx) {
     AtomicIncThreadParams* pArgs = reinterpret_cast<AtomicIncThreadParams*>(pCtx);
 
-    while (pArgs->stop)
-        {}
-
-    while (!pArgs->stop) {
+    while (pArgs->loop) {
         AtomicInc(pArgs->pDest);
         ++pArgs->count;
     }
+
+    LOG() << "CPU atomic increments finished" << std::endl;
 
     return 0;
 }
@@ -1339,28 +1374,31 @@ TEST_F(KFDQMTest, Atomics) {
 
     AtomicIncThreadParams params;
     params.pDest = destBuf.As<HSAint64*>();
-    params.stop = true;
+    params.loop = true;
     params.count = 0;
 
     uint64_t threadId;
 
     ASSERT_EQ(true, StartThread(&AtomicIncThread, &params, threadId));
 
-    params.stop = false;
+    LOG() << "Waiting for CPU to atomic increment 1000 times" << std::endl;
 
-    while (params.count == 0)
+    while (params.count < 1000)
         {}
+
+    LOG() << "Submitting the GPU atomic increment shader" << std::endl;
 
     dispatch.Submit(queue);
     dispatch.Sync();
 
-    params.stop = true;
+    params.loop = false;
 
     WaitForThread(threadId);
 
     EXPECT_EQ(destBuf.As<unsigned int*>()[0], 1024 + params.count);
 
-    LOG() << "GPU increments: 1024, CPU increments: " << params.count << std::endl;
+    LOG() << "GPU increments: 1024, CPU increments: " << std::dec
+            << params.count << std::endl;
 
     queue.Destroy();
 
@@ -1459,8 +1497,10 @@ TEST_F(KFDQMTest, P2PTest) {
     if (g_TestDstNodeId != -1 && g_TestNodeId != -1) {
         nodes.push_back(g_TestNodeId);
         nodes.push_back(g_TestDstNodeId);
-        if (!m_NodeInfo.IsGPUNodeLargeBar(nodes[1])) {
-            LOG() << "Skipping test: Dst GPU is not a large bar GPU." << std::endl;
+
+        if (!m_NodeInfo.IsGPUNodeLargeBar(g_TestDstNodeId) &&
+            !m_NodeInfo.AreGPUNodesXGMI(g_TestNodeId, g_TestDstNodeId)) {
+            LOG() << "Skipping test: Dst GPU specified is not peer-accessible." << std::endl;
             return;
         }
         if (nodes[0] == nodes[1]) {
@@ -1469,12 +1509,10 @@ TEST_F(KFDQMTest, P2PTest) {
         }
     } else {
         HSAint32 defaultGPU = m_NodeInfo.HsaDefaultGPUNode();
-        nodes.push_back(defaultGPU);
-        for (unsigned i = 0; i < gpuNodes.size(); i++)
-            if (m_NodeInfo.IsGPUNodeLargeBar(gpuNodes.at(i)) && gpuNodes.at(i) != defaultGPU)
-                nodes.push_back(gpuNodes.at(i));
+        m_NodeInfo.FindAccessiblePeers(&nodes, defaultGPU, true);
         if (nodes.size() < 2) {
             LOG() << "Skipping test: Test requires at least one large bar GPU." << std::endl;
+            LOG() << "               or two GPUs are XGMI connected." << std::endl;
             return;
         }
     }
@@ -1486,6 +1524,7 @@ TEST_F(KFDQMTest, P2PTest) {
     memFlags.ui32.PageSize = HSA_PAGE_SIZE_4KB;
     memFlags.ui32.HostAccess = 1;
     memFlags.ui32.NonPaged = 1;
+    memFlags.ui32.NoNUMABind = 1;
     unsigned int end = size / sizeof(HSAuint32) - 1;
 
     /* 1. Allocate a system buffer and allow the access to GPUs */

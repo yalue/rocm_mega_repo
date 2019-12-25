@@ -16,7 +16,6 @@
 #include "lldb-python.h"
 
 #include "PythonDataObjects.h"
-#include "PythonReadline.h"
 #include "ScriptInterpreterPythonImpl.h"
 
 #include "lldb/API/SBFrame.h"
@@ -73,28 +72,10 @@ extern "C" void init_lldb(void);
 // These prototypes are the Pythonic implementations of the required callbacks.
 // Although these are scripting-language specific, their definition depends on
 // the public API.
-
-#pragma clang diagnostic push
-#pragma clang diagnostic ignored "-Wreturn-type-c-linkage"
-
-// Disable warning C4190: 'LLDBSwigPythonBreakpointCallbackFunction' has
-// C-linkage specified, but returns UDT 'llvm::Expected<bool>' which is
-// incompatible with C
-#if _MSC_VER
-#pragma warning (push)
-#pragma warning (disable : 4190)
-#endif
-
-extern "C" llvm::Expected<bool> LLDBSwigPythonBreakpointCallbackFunction(
+extern "C" bool LLDBSwigPythonBreakpointCallbackFunction(
     const char *python_function_name, const char *session_dictionary_name,
     const lldb::StackFrameSP &sb_frame,
-    const lldb::BreakpointLocationSP &sb_bp_loc, StructuredDataImpl *args_impl);
-
-#if _MSC_VER
-#pragma warning (pop)
-#endif
-
-#pragma clang diagnostic pop
+    const lldb::BreakpointLocationSP &sb_bp_loc);
 
 extern "C" bool LLDBSwigPythonWatchpointCallbackFunction(
     const char *python_function_name, const char *session_dictionary_name,
@@ -229,22 +210,6 @@ public:
     m_stdin_tty_state.Save(STDIN_FILENO, false);
 
     InitializePythonHome();
-
-#ifdef LLDB_USE_LIBEDIT_READLINE_COMPAT_MODULE
-    // Python's readline is incompatible with libedit being linked into lldb.
-    // Provide a patched version local to the embedded interpreter.
-    bool ReadlinePatched = false;
-    for (auto *p = PyImport_Inittab; p->name != NULL; p++) {
-      if (strcmp(p->name, "readline") == 0) {
-        p->initfunc = initlldb_readline;
-        break;
-      }
-    }
-    if (!ReadlinePatched) {
-      PyImport_AppendInittab("readline", initlldb_readline);
-      ReadlinePatched = true;
-    }
-#endif
 
     // Register _lldb as a built-in module.
     PyImport_AppendInittab("_lldb", LLDBSwigPyInit);
@@ -587,10 +552,8 @@ void ScriptInterpreterPythonImpl::IOHandlerInputComplete(IOHandler &io_handler,
         break;
       data_up->user_source.SplitIntoLines(data);
 
-      StructuredData::ObjectSP empty_args_sp;
       if (GenerateBreakpointCommandCallbackData(data_up->user_source,
-                                                data_up->script_source,
-                                                false)
+                                                data_up->script_source)
               .Success()) {
         auto baton_sp = std::make_shared<BreakpointOptions::CommandBaton>(
             std::move(data_up));
@@ -814,32 +777,6 @@ PythonDictionary &ScriptInterpreterPythonImpl::GetSysModuleDictionary() {
   PythonModule sys_module = unwrapIgnoringErrors(PythonModule::Import("sys"));
   m_sys_module_dict = sys_module.GetDictionary();
   return m_sys_module_dict;
-}
-
-llvm::Expected<unsigned>
-ScriptInterpreterPythonImpl::GetMaxPositionalArgumentsForCallable(
-    const llvm::StringRef &callable_name) {
-  if (callable_name.empty()) {
-    return llvm::createStringError(
-        llvm::inconvertibleErrorCode(),
-        "called with empty callable name.");
-  }
-  Locker py_lock(this, Locker::AcquireLock |
-                 Locker::InitSession |
-                 Locker::NoSTDIN);
-  auto dict = PythonModule::MainModule()
-      .ResolveName<PythonDictionary>(m_dictionary_name);
-  auto pfunc = PythonObject::ResolveNameWithDictionary<PythonCallable>(
-      callable_name, dict);
-  if (!pfunc.IsAllocated()) {
-    return llvm::createStringError(
-        llvm::inconvertibleErrorCode(),
-        "can't find callable: %s", callable_name.str().c_str());
-  }
-  llvm::Expected<PythonCallable::ArgInfo> arg_info = pfunc.GetArgInfo();
-  if (!arg_info)
-    return arg_info.takeError();
-  return arg_info.get().max_positional_args;
 }
 
 static std::string GenerateUniqueName(const char *base_name_wanted,
@@ -1202,7 +1139,6 @@ bool ScriptInterpreterPythonImpl::ExecuteOneLineWithReturn(
     return true;
   }
   }
-  llvm_unreachable("Fully covered switch!");
 }
 
 Status ScriptInterpreterPythonImpl::ExecuteMultipleLines(
@@ -1260,46 +1196,14 @@ void ScriptInterpreterPythonImpl::CollectDataForWatchpointCommandCallback(
       "    ", *this, true, wp_options);
 }
 
-Status ScriptInterpreterPythonImpl::SetBreakpointCommandCallbackFunction(
-    BreakpointOptions *bp_options, const char *function_name,
-    StructuredData::ObjectSP extra_args_sp) {
-  Status error;
+void ScriptInterpreterPythonImpl::SetBreakpointCommandCallbackFunction(
+    BreakpointOptions *bp_options, const char *function_name) {
   // For now just cons up a oneliner that calls the provided function.
   std::string oneliner("return ");
   oneliner += function_name;
-
-  llvm::Expected<unsigned> maybe_args =
-      GetMaxPositionalArgumentsForCallable(function_name);
-  if (!maybe_args) {
-    error.SetErrorStringWithFormat(
-        "could not get num args: %s",
-        llvm::toString(maybe_args.takeError()).c_str());
-    return error;
-  }
-  size_t max_args = *maybe_args;
-
-  bool uses_extra_args = false;
-  if (max_args >= 4) {
-    uses_extra_args = true;
-    oneliner += "(frame, bp_loc, extra_args, internal_dict)";
-  } else if (max_args >= 3) {
-    if (extra_args_sp) {
-      error.SetErrorString("cannot pass extra_args to a three argument callback"
-                          );
-      return error;
-    }
-    uses_extra_args = false;
-    oneliner += "(frame, bp_loc, internal_dict)";
-  } else {
-    error.SetErrorStringWithFormat("expected 3 or 4 argument "
-                                   "function, %s can only take %zu",
-                                   function_name, max_args);
-    return error;
-  }
-
-  SetBreakpointCommandCallback(bp_options, oneliner.c_str(), extra_args_sp,
-                               uses_extra_args);
-  return error;
+  oneliner += "(frame, bp_loc, internal_dict)";
+  m_debugger.GetScriptInterpreter()->SetBreakpointCommandCallback(
+      bp_options, oneliner.c_str());
 }
 
 Status ScriptInterpreterPythonImpl::SetBreakpointCommandCallback(
@@ -1307,8 +1211,7 @@ Status ScriptInterpreterPythonImpl::SetBreakpointCommandCallback(
     std::unique_ptr<BreakpointOptions::CommandData> &cmd_data_up) {
   Status error;
   error = GenerateBreakpointCommandCallbackData(cmd_data_up->user_source,
-                                                cmd_data_up->script_source,
-                                                false);
+                                                cmd_data_up->script_source);
   if (error.Fail()) {
     return error;
   }
@@ -1319,17 +1222,11 @@ Status ScriptInterpreterPythonImpl::SetBreakpointCommandCallback(
   return error;
 }
 
-Status ScriptInterpreterPythonImpl::SetBreakpointCommandCallback(
-    BreakpointOptions *bp_options, const char *command_body_text) {
-  return SetBreakpointCommandCallback(bp_options, command_body_text, {},false);
-}
-
 // Set a Python one-liner as the callback for the breakpoint.
 Status ScriptInterpreterPythonImpl::SetBreakpointCommandCallback(
-    BreakpointOptions *bp_options, const char *command_body_text,
-    StructuredData::ObjectSP extra_args_sp,
-    bool uses_extra_args) {
-  auto data_up = std::make_unique<CommandDataPython>(extra_args_sp);
+    BreakpointOptions *bp_options, const char *command_body_text) {
+  auto data_up = std::make_unique<CommandDataPython>();
+
   // Split the command_body_text into lines, and pass that to
   // GenerateBreakpointCommandCallbackData.  That will wrap the body in an
   // auto-generated function, and return the function name in script_source.
@@ -1337,8 +1234,7 @@ Status ScriptInterpreterPythonImpl::SetBreakpointCommandCallback(
 
   data_up->user_source.SplitIntoLines(command_body_text);
   Status error = GenerateBreakpointCommandCallbackData(data_up->user_source,
-                                                       data_up->script_source,
-                                                       uses_extra_args);
+                                                       data_up->script_source);
   if (error.Success()) {
     auto baton_sp =
         std::make_shared<BreakpointOptions::CommandBaton>(std::move(data_up));
@@ -1875,7 +1771,8 @@ StructuredData::DictionarySP ScriptInterpreterPythonImpl::OSPlugin_CreateThread(
 
 StructuredData::ObjectSP ScriptInterpreterPythonImpl::CreateScriptedThreadPlan(
     const char *class_name, StructuredDataImpl *args_data,
-    std::string &error_str, lldb::ThreadPlanSP thread_plan_sp) {
+    std::string &error_str, 
+    lldb::ThreadPlanSP thread_plan_sp) {
   if (class_name == nullptr || class_name[0] == '\0')
     return StructuredData::ObjectSP();
 
@@ -2166,8 +2063,7 @@ bool ScriptInterpreterPythonImpl::GenerateTypeSynthClass(
 }
 
 Status ScriptInterpreterPythonImpl::GenerateBreakpointCommandCallbackData(
-    StringList &user_input, std::string &output,
-    bool has_extra_args) {
+    StringList &user_input, std::string &output) {
   static uint32_t num_created_functions = 0;
   user_input.RemoveBlankLines();
   StreamString sstr;
@@ -2179,12 +2075,8 @@ Status ScriptInterpreterPythonImpl::GenerateBreakpointCommandCallbackData(
 
   std::string auto_generated_function_name(GenerateUniqueName(
       "lldb_autogen_python_bp_callback_func_", num_created_functions));
-  if (has_extra_args)
-    sstr.Printf("def %s (frame, bp_loc, extra_args, internal_dict):",
-                auto_generated_function_name.c_str());
-  else
-    sstr.Printf("def %s (frame, bp_loc, internal_dict):",
-                auto_generated_function_name.c_str());
+  sstr.Printf("def %s (frame, bp_loc, internal_dict):",
+              auto_generated_function_name.c_str());
 
   error = GenerateFunction(sstr.GetData(), user_input);
   if (!error.Success())
@@ -2301,26 +2193,10 @@ bool ScriptInterpreterPythonImpl::BreakpointCallbackFunction(
           Locker py_lock(python_interpreter, Locker::AcquireLock |
                                                  Locker::InitSession |
                                                  Locker::NoSTDIN);
-          Expected<bool> maybe_ret_val =
-              LLDBSwigPythonBreakpointCallbackFunction(
-                  python_function_name,
-                  python_interpreter->m_dictionary_name.c_str(), stop_frame_sp,
-                  bp_loc_sp, bp_option_data->m_extra_args_up.get());
-
-          if (!maybe_ret_val) {
-
-            llvm::handleAllErrors(
-                maybe_ret_val.takeError(),
-                [&](PythonException &E) {
-                  debugger.GetErrorStream() << E.ReadBacktrace();
-                },
-                [&](const llvm::ErrorInfoBase &E) {
-                  debugger.GetErrorStream() << E.message();
-                });
-
-          } else {
-            ret_val = maybe_ret_val.get();
-          }
+          ret_val = LLDBSwigPythonBreakpointCallbackFunction(
+              python_function_name,
+              python_interpreter->m_dictionary_name.c_str(), stop_frame_sp,
+              bp_loc_sp);
         }
         return ret_val;
       }

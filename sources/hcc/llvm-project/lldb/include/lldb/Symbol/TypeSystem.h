@@ -52,11 +52,48 @@ struct LanguageSet {
 /// Interface for representing the Type Systems in different languages.
 class TypeSystem : public PluginInterface {
 public:
+  // Intrusive type system that allows us to use llvm casting.
+  //
+  // To add a new type system:
+  //
+  // 1 - Add a new enumeration for llvm casting below for your TypeSystem
+  //     subclass, here we will use eKindFoo
+  //
+  // 2 - Your TypeSystem subclass will inherit from TypeSystem and needs
+  //     to implement a static classof() function that returns your
+  //     enumeration:
+  //
+  //    class Foo : public lldb_private::TypeSystem
+  //    {
+  //        static bool classof(const TypeSystem *ts)
+  //        {
+  //            return ts->getKind() == TypeSystem::eKindFoo;
+  //        }
+  //    };
+  //
+  // 3 - Contruct your TypeSystem subclass with the enumeration from below
+  //
+  //    Foo() :
+  //        TypeSystem(TypeSystem::eKindFoo),
+  //        ...
+  //    {
+  //    }
+  //
+  // Then you can use the llvm casting on any "TypeSystem *" to get an instance
+  // of your subclass.
+  enum LLVMCastKind {
+    eKindClang,
+    eKindSwift,
+    eKindOCaml,
+    kNumKinds
+  };
+
   // Constructors and Destructors
+  TypeSystem(LLVMCastKind kind);
+
   ~TypeSystem() override;
 
-  // LLVM RTTI support
-  virtual bool isA(const void *ClassID) const = 0;
+  LLVMCastKind getKind() const { return m_kind; }
 
   static lldb::TypeSystemSP CreateInstance(lldb::LanguageType language,
                                            Module *module);
@@ -227,8 +264,6 @@ public:
 
   virtual CompilerType
   GetRValueReferenceType(lldb::opaque_compiler_type_t type);
-
-  virtual CompilerType GetAtomicType(lldb::opaque_compiler_type_t type);
 
   virtual CompilerType AddConstModifier(lldb::opaque_compiler_type_t type);
 
@@ -459,7 +494,8 @@ public:
   virtual bool IsMeaninglessWithoutDynamicResolution(void *type);
 
 protected:
-  SymbolFile *m_sym_file = nullptr;
+  const LLVMCastKind m_kind; // Support for llvm casting
+  SymbolFile *m_sym_file;
 };
 
 class TypeSystemMap {

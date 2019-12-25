@@ -44,7 +44,6 @@
 #include "clang/AST/TypeLoc.h"
 #include "clang/AST/TypeVisitor.h"
 #include "clang/AST/UnresolvedSet.h"
-#include "clang/Basic/Builtins.h"
 #include "clang/Basic/ExceptionSpecificationType.h"
 #include "clang/Basic/FileManager.h"
 #include "clang/Basic/IdentifierTable.h"
@@ -484,9 +483,6 @@ namespace clang {
     ExpectedDecl VisitUsingDirectiveDecl(UsingDirectiveDecl *D);
     ExpectedDecl VisitUnresolvedUsingValueDecl(UnresolvedUsingValueDecl *D);
     ExpectedDecl VisitUnresolvedUsingTypenameDecl(UnresolvedUsingTypenameDecl *D);
-    ExpectedDecl VisitBuiltinTemplateDecl(BuiltinTemplateDecl *D);
-    ExpectedDecl
-    VisitLifetimeExtendedTemporaryDecl(LifetimeExtendedTemporaryDecl *D);
 
     Expected<ObjCTypeParamList *>
     ImportObjCTypeParamList(ObjCTypeParamList *list);
@@ -2228,9 +2224,6 @@ ExpectedDecl ASTNodeImporter::VisitNamespaceDecl(NamespaceDecl *D) {
   ExpectedSLoc BeginLocOrErr = import(D->getBeginLoc());
   if (!BeginLocOrErr)
     return BeginLocOrErr.takeError();
-  ExpectedSLoc RBraceLocOrErr = import(D->getRBraceLoc());
-  if (!RBraceLocOrErr)
-    return RBraceLocOrErr.takeError();
 
   // Create the "to" namespace, if needed.
   NamespaceDecl *ToNamespace = MergeWithNamespace;
@@ -2240,7 +2233,6 @@ ExpectedDecl ASTNodeImporter::VisitNamespaceDecl(NamespaceDecl *D) {
             *BeginLocOrErr, Loc, Name.getAsIdentifierInfo(),
             /*PrevDecl=*/nullptr))
       return ToNamespace;
-    ToNamespace->setRBraceLoc(*RBraceLocOrErr);
     ToNamespace->setLexicalDeclContext(LexicalDC);
     LexicalDC->addDeclInternal(ToNamespace);
 
@@ -2549,10 +2541,9 @@ ExpectedDecl ASTNodeImporter::VisitEnumDecl(EnumDecl *D) {
   SourceLocation ToBeginLoc;
   NestedNameSpecifierLoc ToQualifierLoc;
   QualType ToIntegerType;
-  SourceRange ToBraceRange;
-  if (auto Imp = importSeq(D->getBeginLoc(), D->getQualifierLoc(),
-                           D->getIntegerType(), D->getBraceRange()))
-    std::tie(ToBeginLoc, ToQualifierLoc, ToIntegerType, ToBraceRange) = *Imp;
+  if (auto Imp = importSeq(
+      D->getBeginLoc(), D->getQualifierLoc(), D->getIntegerType()))
+    std::tie(ToBeginLoc, ToQualifierLoc, ToIntegerType) = *Imp;
   else
     return Imp.takeError();
 
@@ -2566,7 +2557,6 @@ ExpectedDecl ASTNodeImporter::VisitEnumDecl(EnumDecl *D) {
 
   D2->setQualifierInfo(ToQualifierLoc);
   D2->setIntegerType(ToIntegerType);
-  D2->setBraceRange(ToBraceRange);
   D2->setAccess(D->getAccess());
   D2->setLexicalDeclContext(LexicalDC);
   LexicalDC->addDeclInternal(D2);
@@ -2801,10 +2791,6 @@ ExpectedDecl ASTNodeImporter::VisitRecordDecl(RecordDecl *D) {
     LexicalDC->addDeclInternal(D2);
   }
 
-  if (auto BraceRangeOrErr = import(D->getBraceRange()))
-    D2->setBraceRange(*BraceRangeOrErr);
-  else
-    return BraceRangeOrErr.takeError();
   if (auto QualifierLocOrErr = import(D->getQualifierLoc()))
     D2->setQualifierInfo(*QualifierLocOrErr);
   else
@@ -3975,10 +3961,10 @@ ExpectedDecl ASTNodeImporter::VisitObjCMethodDecl(ObjCMethodDecl *D) {
 
   ObjCMethodDecl *ToMethod;
   if (GetImportedOrCreateDecl(
-          ToMethod, D, Importer.getToContext(), Loc, ToEndLoc,
-          Name.getObjCSelector(), ToReturnType, ToReturnTypeSourceInfo, DC,
-          D->isInstanceMethod(), D->isVariadic(), D->isPropertyAccessor(),
-          D->isSynthesizedAccessorStub(), D->isImplicit(), D->isDefined(),
+          ToMethod, D, Importer.getToContext(), Loc,
+          ToEndLoc, Name.getObjCSelector(), ToReturnType,
+          ToReturnTypeSourceInfo, DC, D->isInstanceMethod(), D->isVariadic(),
+          D->isPropertyAccessor(), D->isImplicit(), D->isDefined(),
           D->getImplementationControl(), D->hasRelatedResultType()))
     return ToMethod;
 
@@ -4010,14 +3996,6 @@ ExpectedDecl ASTNodeImporter::VisitObjCMethodDecl(ObjCMethodDecl *D) {
 
   ToMethod->setLexicalDeclContext(LexicalDC);
   LexicalDC->addDeclInternal(ToMethod);
-
-  // Implicit params are declared when Sema encounters the definition but this
-  // never happens when the method is imported. Manually declare the implicit
-  // params now that the MethodDecl knows its class interface.
-  if (D->getSelfDecl())
-    ToMethod->createImplicitParams(Importer.getToContext(),
-                                   ToMethod->getClassInterface());
-
   return ToMethod;
 }
 
@@ -4486,20 +4464,6 @@ ExpectedDecl ASTNodeImporter::VisitUnresolvedUsingTypenameDecl(
   return ToUsing;
 }
 
-ExpectedDecl ASTNodeImporter::VisitBuiltinTemplateDecl(BuiltinTemplateDecl *D) {
-  Decl* ToD = nullptr;
-  switch (D->getBuiltinTemplateKind()) {
-  case BuiltinTemplateKind::BTK__make_integer_seq:
-    ToD = Importer.getToContext().getMakeIntegerSeqDecl();
-    break;
-  case BuiltinTemplateKind::BTK__type_pack_element:
-    ToD = Importer.getToContext().getTypePackElementDecl();
-    break;
-  }
-  assert(ToD && "BuiltinTemplateDecl of unsupported kind!");
-  Importer.MapImported(D, ToD);
-  return ToD;
-}
 
 Error ASTNodeImporter::ImportDefinition(
     ObjCInterfaceDecl *From, ObjCInterfaceDecl *To, ImportDefinitionKind Kind) {
@@ -5095,8 +5059,6 @@ ExpectedDecl ASTNodeImporter::VisitClassTemplateDecl(ClassTemplateDecl *D) {
       Decl *Found = FoundDecl;
       auto *FoundTemplate = dyn_cast<ClassTemplateDecl>(Found);
       if (FoundTemplate) {
-        if (!hasSameVisibilityContext(FoundTemplate, D))
-          continue;
 
         if (IsStructuralMatch(D, FoundTemplate)) {
           ClassTemplateDecl *TemplateWithDef =
@@ -5312,11 +5274,6 @@ ExpectedDecl ASTNodeImporter::VisitClassTemplateSpecializationDecl(
   if (D2->isExplicitInstantiationOrSpecialization()) {
     LexicalDC->addDeclInternal(D2);
   }
-
-  if (auto BraceRangeOrErr = import(D->getBraceRange()))
-    D2->setBraceRange(*BraceRangeOrErr);
-  else
-    return BraceRangeOrErr.takeError();
 
   // Import the qualifier, if any.
   if (auto LocOrErr = import(D->getQualifierLoc()))
@@ -6316,8 +6273,7 @@ ExpectedStmt ASTNodeImporter::VisitDeclRefExpr(DeclRefExpr *E) {
   TemplateArgumentListInfo *ToResInfo = nullptr;
   if (E->hasExplicitTemplateArgs()) {
     if (Error Err =
-            ImportTemplateArgumentListInfo(E->getLAngleLoc(), E->getRAngleLoc(),
-                                           E->template_arguments(), ToTAInfo))
+        ImportTemplateArgumentListInfo(E->template_arguments(), ToTAInfo))
       return std::move(Err);
     ToResInfo = &ToTAInfo;
   }
@@ -7033,52 +6989,23 @@ ASTNodeImporter::VisitCXXTemporaryObjectExpr(CXXTemporaryObjectExpr *E) {
       E->requiresZeroInitialization());
 }
 
-ExpectedDecl ASTNodeImporter::VisitLifetimeExtendedTemporaryDecl(
-    LifetimeExtendedTemporaryDecl *D) {
-  DeclContext *DC, *LexicalDC;
-  if (Error Err = ImportDeclContext(D, DC, LexicalDC))
-    return std::move(Err);
-
-  auto Imp = importSeq(D->getTemporaryExpr(), D->getExtendingDecl());
-  // FIXME: the APValue should be imported as well if present.
-  if (!Imp)
-    return Imp.takeError();
-
-  Expr *Temporary;
-  ValueDecl *ExtendingDecl;
-  std::tie(Temporary, ExtendingDecl) = *Imp;
-  // FIXME: Should ManglingNumber get numbers associated with 'to' context?
-
-  LifetimeExtendedTemporaryDecl *To;
-  if (GetImportedOrCreateDecl(To, D, Temporary, ExtendingDecl,
-                              D->getManglingNumber()))
-    return To;
-
-  To->setLexicalDeclContext(LexicalDC);
-  LexicalDC->addDeclInternal(To);
-  return To;
-}
-
 ExpectedStmt
 ASTNodeImporter::VisitMaterializeTemporaryExpr(MaterializeTemporaryExpr *E) {
-  auto Imp = importSeq(E->getType(),
-                       E->getLifetimeExtendedTemporaryDecl() ? nullptr
-                                                             : E->getSubExpr(),
-                       E->getLifetimeExtendedTemporaryDecl());
+  auto Imp = importSeq(
+      E->getType(), E->GetTemporaryExpr(), E->getExtendingDecl());
   if (!Imp)
     return Imp.takeError();
 
   QualType ToType;
   Expr *ToTemporaryExpr;
-  LifetimeExtendedTemporaryDecl *ToMaterializedDecl;
-  std::tie(ToType, ToTemporaryExpr, ToMaterializedDecl) = *Imp;
-  if (!ToTemporaryExpr)
-    ToTemporaryExpr = cast<Expr>(ToMaterializedDecl->getTemporaryExpr());
+  const ValueDecl *ToExtendingDecl;
+  std::tie(ToType, ToTemporaryExpr, ToExtendingDecl) = *Imp;
 
-  auto *ToMTE = new (Importer.getToContext()) MaterializeTemporaryExpr(
-      ToType, ToTemporaryExpr, E->isBoundToLvalueReference(),
-      ToMaterializedDecl);
+  auto *ToMTE =  new (Importer.getToContext()) MaterializeTemporaryExpr(
+      ToType, ToTemporaryExpr, E->isBoundToLvalueReference());
 
+  // FIXME: Should ManglingNumber get numbers associated with 'to' context?
+  ToMTE->setExtendingDecl(ToExtendingDecl, E->getManglingNumber());
   return ToMTE;
 }
 
@@ -7393,19 +7320,20 @@ ExpectedStmt ASTNodeImporter::VisitCXXDependentScopeMemberExpr(
 
 ExpectedStmt
 ASTNodeImporter::VisitDependentScopeDeclRefExpr(DependentScopeDeclRefExpr *E) {
-  auto Imp = importSeq(E->getQualifierLoc(), E->getTemplateKeywordLoc(),
-                       E->getDeclName(), E->getNameInfo().getLoc(),
-                       E->getLAngleLoc(), E->getRAngleLoc());
+  auto Imp = importSeq(
+      E->getQualifierLoc(), E->getTemplateKeywordLoc(), E->getDeclName(),
+      E->getExprLoc(), E->getLAngleLoc(), E->getRAngleLoc());
   if (!Imp)
     return Imp.takeError();
 
   NestedNameSpecifierLoc ToQualifierLoc;
-  SourceLocation ToTemplateKeywordLoc, ToNameLoc, ToLAngleLoc, ToRAngleLoc;
+  SourceLocation ToTemplateKeywordLoc, ToExprLoc, ToLAngleLoc, ToRAngleLoc;
   DeclarationName ToDeclName;
-  std::tie(ToQualifierLoc, ToTemplateKeywordLoc, ToDeclName, ToNameLoc,
-           ToLAngleLoc, ToRAngleLoc) = *Imp;
+  std::tie(
+      ToQualifierLoc, ToTemplateKeywordLoc, ToDeclName, ToExprLoc,
+      ToLAngleLoc, ToRAngleLoc) = *Imp;
 
-  DeclarationNameInfo ToNameInfo(ToDeclName, ToNameLoc);
+  DeclarationNameInfo ToNameInfo(ToDeclName, ToExprLoc);
   if (Error Err = ImportDeclarationNameLoc(E->getNameInfo(), ToNameInfo))
     return std::move(Err);
 
@@ -7470,7 +7398,7 @@ ASTNodeImporter::VisitUnresolvedLookupExpr(UnresolvedLookupExpr *E) {
     else
       return ToDOrErr.takeError();
 
-  if (E->hasExplicitTemplateArgs()) {
+  if (E->hasExplicitTemplateArgs() && E->getTemplateKeywordLoc().isValid()) {
     TemplateArgumentListInfo ToTAInfo;
     if (Error Err = ImportTemplateArgumentListInfo(
         E->getLAngleLoc(), E->getRAngleLoc(), E->template_arguments(),
@@ -7524,9 +7452,8 @@ ASTNodeImporter::VisitUnresolvedMemberExpr(UnresolvedMemberExpr *E) {
   TemplateArgumentListInfo ToTAInfo;
   TemplateArgumentListInfo *ResInfo = nullptr;
   if (E->hasExplicitTemplateArgs()) {
-    TemplateArgumentListInfo FromTAInfo;
-    E->copyTemplateArgumentsInto(FromTAInfo);
-    if (Error Err = ImportTemplateArgumentListInfo(FromTAInfo, ToTAInfo))
+    if (Error Err =
+        ImportTemplateArgumentListInfo(E->template_arguments(), ToTAInfo))
       return std::move(Err);
     ResInfo = &ToTAInfo;
   }
@@ -8339,14 +8266,8 @@ ASTImporter::Import(NestedNameSpecifierLoc FromNNS) {
         return std::move(Err);
       TypeSourceInfo *TSI = getToContext().getTrivialTypeSourceInfo(
             QualType(Spec->getAsType(), 0), ToTLoc);
-      if (Kind == NestedNameSpecifier::TypeSpecWithTemplate)
-        // ToLocalBeginLoc is here the location of the 'template' keyword.
-        Builder.Extend(getToContext(), ToLocalBeginLoc, TSI->getTypeLoc(),
-                       ToLocalEndLoc);
-      else
-        // No location for 'template' keyword here.
-        Builder.Extend(getToContext(), SourceLocation{}, TSI->getTypeLoc(),
-                       ToLocalEndLoc);
+      Builder.Extend(getToContext(), ToLocalBeginLoc, TSI->getTypeLoc(),
+                     ToLocalEndLoc);
       break;
     }
 

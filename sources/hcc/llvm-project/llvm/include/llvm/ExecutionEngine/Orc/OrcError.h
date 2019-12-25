@@ -14,8 +14,6 @@
 #define LLVM_EXECUTIONENGINE_ORC_ORCERROR_H
 
 #include "llvm/Support/Error.h"
-#include "llvm/Support/raw_ostream.h"
-#include <string>
 #include <system_error>
 
 namespace llvm {

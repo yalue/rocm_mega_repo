@@ -51,7 +51,7 @@ enum Flavor {
 };
 
 LLVM_ATTRIBUTE_NORETURN static void die(const Twine &s) {
-  llvm::errs() << s << "\n";
+  errs() << s << "\n";
   exit(1);
 }
 
@@ -150,14 +150,14 @@ int main(int argc, const char **argv) {
   switch (parseFlavor(args)) {
   case Gnu:
     if (isPETarget(args))
-      return !mingw::link(args, canExitEarly(), llvm::outs(), llvm::errs());
-    return !elf::link(args, canExitEarly(), llvm::outs(), llvm::errs());
+      return !mingw::link(args);
+    return !elf::link(args, canExitEarly());
   case WinLink:
-    return !coff::link(args, canExitEarly(), llvm::outs(), llvm::errs());
+    return !coff::link(args, canExitEarly());
   case Darwin:
-    return !mach_o::link(args, canExitEarly(), llvm::outs(), llvm::errs());
+    return !mach_o::link(args, canExitEarly());
   case Wasm:
-    return !wasm::link(args, canExitEarly(), llvm::outs(), llvm::errs());
+    return !wasm::link(args, canExitEarly());
   default:
     die("lld is a generic driver.\n"
         "Invoke ld.lld (Unix), ld64.lld (macOS), lld-link (Windows), wasm-ld"

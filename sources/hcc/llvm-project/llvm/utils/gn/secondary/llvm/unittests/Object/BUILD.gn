@@ -8,7 +8,6 @@ unittest("ObjectTests") {
   ]
   sources = [
     "MinidumpTest.cpp",
-    "ObjectFileTest.cpp",
     "SymbolSizeTest.cpp",
     "SymbolicFileTest.cpp",
   ]

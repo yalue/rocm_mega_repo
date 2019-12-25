@@ -229,8 +229,6 @@ def disable_lifetimemarkers : Flag<["-"], "disable-lifetime-markers">,
            "enabled">;
 def disable_O0_optnone : Flag<["-"], "disable-O0-optnone">,
   HelpText<"Disable adding the optnone attribute to functions at O0">;
-def disable_O0_noinline : Flag<["-"], "disable-O0-noinline">,
-  HelpText<"Disable forcing the noinline attribute to be added to non-always_inline functions at O0">;
 def disable_red_zone : Flag<["-"], "disable-red-zone">,
   HelpText<"Do not emit code that uses the red zone.">;
 def dwarf_column_info : Flag<["-"], "dwarf-column-info">,
@@ -389,6 +387,8 @@ def flto_visibility_public_std:
 def flto_unit: Flag<["-"], "flto-unit">,
     HelpText<"Emit IR to support LTO unit features (CFI, whole program vtable opt)">;
 def fno_lto_unit: Flag<["-"], "fno-lto-unit">;
+def fthin_link_bitcode_EQ : Joined<["-"], "fthin-link-bitcode=">,
+    HelpText<"Write minimized bitcode to <file> for the ThinLTO thin link only">;
 def femit_debug_entry_values : Flag<["-"], "femit-debug-entry-values">,
     HelpText<"Enables debug info about call site parameter's entry values">;
 def fdebug_pass_manager : Flag<["-"], "fdebug-pass-manager">,
@@ -402,10 +402,6 @@ def msign_return_address_key_EQ : Joined<["-"], "msign-return-address-key=">,
     Values<"a_key,b_key">;
 def mbranch_target_enforce : Flag<["-"], "mbranch-target-enforce">;
 def fno_dllexport_inlines : Flag<["-"], "fno-dllexport-inlines">;
-def cfguard_no_checks : Flag<["-"], "cfguard-no-checks">,
-    HelpText<"Emit Windows Control Flow Guard tables only (no checks)">;
-def cfguard : Flag<["-"], "cfguard">,
-    HelpText<"Emit Windows Control Flow Guard tables and checks">;
 
 //===----------------------------------------------------------------------===//
 // Dependency Output Options

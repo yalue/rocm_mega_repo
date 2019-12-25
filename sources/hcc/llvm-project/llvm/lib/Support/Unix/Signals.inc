@@ -82,15 +82,18 @@ using namespace llvm;
 static RETSIGTYPE SignalHandler(int Sig);  // defined below.
 static RETSIGTYPE InfoSignalHandler(int Sig);  // defined below.
 
+static void DefaultPipeSignalFunction() {
+  exit(EX_IOERR);
+}
+
 using SignalHandlerFunctionType = void (*)();
 /// The function to call if ctrl-c is pressed.
 static std::atomic<SignalHandlerFunctionType> InterruptFunction =
     ATOMIC_VAR_INIT(nullptr);
 static std::atomic<SignalHandlerFunctionType> InfoSignalFunction =
     ATOMIC_VAR_INIT(nullptr);
-/// The function to call on SIGPIPE (one-time use only).
-static std::atomic<SignalHandlerFunctionType> OneShotPipeSignalFunction =
-    ATOMIC_VAR_INIT(nullptr);
+static std::atomic<SignalHandlerFunctionType> PipeSignalFunction =
+    ATOMIC_VAR_INIT(DefaultPipeSignalFunction);
 
 namespace {
 /// Signal-safe removal of files.
@@ -209,7 +212,7 @@ static StringRef Argv0;
 /// if there is, it's not our direct responsibility. For whatever reason, our
 /// continued execution is no longer desirable.
 static const int IntSigs[] = {
-  SIGHUP, SIGINT, SIGTERM, SIGUSR2
+  SIGHUP, SIGINT, SIGPIPE, SIGTERM, SIGUSR2
 };
 
 /// Signals that represent that we have a bug, and our prompt termination has
@@ -240,7 +243,7 @@ static const int InfoSigs[] = {
 
 static const size_t NumSigs =
     array_lengthof(IntSigs) + array_lengthof(KillSigs) +
-    array_lengthof(InfoSigs) + 1 /* SIGPIPE */;
+    array_lengthof(InfoSigs);
 
 
 static std::atomic<unsigned> NumRegisteredSignals = ATOMIC_VAR_INIT(0);
@@ -325,8 +328,6 @@ static void RegisterHandlers() { // Not signal-safe.
     registerHandler(S, SignalKind::IsKill);
   for (auto S : KillSigs)
     registerHandler(S, SignalKind::IsKill);
-  if (OneShotPipeSignalFunction)
-    registerHandler(SIGPIPE, SignalKind::IsKill);
   for (auto S : InfoSigs)
     registerHandler(S, SignalKind::IsInfo);
 }
@@ -361,15 +362,15 @@ static RETSIGTYPE SignalHandler(int Sig) {
   {
     RemoveFilesToRemove();
 
-    if (Sig == SIGPIPE)
-      if (auto OldOneShotPipeFunction =
-              OneShotPipeSignalFunction.exchange(nullptr))
-        return OldOneShotPipeFunction();
-
     if (std::find(std::begin(IntSigs), std::end(IntSigs), Sig)
         != std::end(IntSigs)) {
       if (auto OldInterruptFunction = InterruptFunction.exchange(nullptr))
         return OldInterruptFunction();
+
+      // Send a special return code that drivers can check for, from sysexits.h.
+      if (Sig == SIGPIPE)
+        if (SignalHandlerFunctionType CurrentPipeFunction = PipeSignalFunction)
+          CurrentPipeFunction();
 
       raise(Sig);   // Execute the default handler.
       return;
@@ -409,14 +410,9 @@ void llvm::sys::SetInfoSignalFunction(void (*Handler)()) {
   RegisterHandlers();
 }
 
-void llvm::sys::SetOneShotPipeSignalFunction(void (*Handler)()) {
-  OneShotPipeSignalFunction.exchange(Handler);
+void llvm::sys::SetPipeSignalFunction(void (*Handler)()) {
+  PipeSignalFunction.exchange(Handler);
   RegisterHandlers();
-}
-
-void llvm::sys::DefaultOneShotPipeSignalHandler() {
-  // Send a special return code that drivers can check for, from sysexits.h.
-  exit(EX_IOERR);
 }
 
 // The public API

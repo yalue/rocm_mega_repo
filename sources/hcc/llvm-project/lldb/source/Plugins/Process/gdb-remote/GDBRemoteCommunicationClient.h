@@ -89,7 +89,7 @@ public:
   /// Sends a GDB remote protocol 'A' packet that delivers program
   /// arguments to the remote server.
   ///
-  /// \param[in] launch_info
+  /// \param[in] argv
   ///     A NULL terminated array of const C strings to use as the
   ///     arguments.
   ///
@@ -155,7 +155,7 @@ public:
   /// Sets the path to use for stdin/out/err for a process
   /// that will be launched with the 'A' packet.
   ///
-  /// \param[in] file_spec
+  /// \param[in] path
   ///     The path to use for stdin/out/err
   ///
   /// \return
@@ -595,8 +595,6 @@ protected:
 
   Status GetQXferMemoryMapRegionInfo(lldb::addr_t addr,
                                      MemoryRegionInfo &region);
-
-  LazyBool GetThreadPacketSupported(lldb::tid_t tid, llvm::StringRef packetStr);
 
 private:
   DISALLOW_COPY_AND_ASSIGN(GDBRemoteCommunicationClient);

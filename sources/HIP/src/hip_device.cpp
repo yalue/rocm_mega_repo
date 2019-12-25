@@ -33,18 +33,16 @@ hipError_t hipGetDevice(int* deviceId) {
     HIP_INIT_API(hipGetDevice, deviceId);
 
     hipError_t e = hipSuccess;
+    if (deviceId == nullptr)
+        return ihipLogStatus(hipErrorInvalidValue);
 
     auto ctx = ihipGetTlsDefaultCtx();
 
-    if (deviceId != nullptr) {
-        if (ctx == nullptr) {
-            e = hipErrorInvalidDevice;  // TODO, check error code.
-            *deviceId = -1;
-        } else {
-            *deviceId = ctx->getDevice()->_deviceId;
-        }
+    if (ctx == nullptr) {
+        e = hipErrorInvalidDevice;  // TODO, check error code.
+        *deviceId = -1;
     } else {
-        e = hipErrorInvalidValue;
+        *deviceId = ctx->getDevice()->_deviceId;
     }
 
     return ihipLogStatus(e);
@@ -310,6 +308,21 @@ hipError_t ihipDeviceGetAttribute(int* pi, hipDeviceAttribute_t attr, int device
                 break;
             case hipDeviceAttributeCooperativeMultiDeviceLaunch:
                 *pi = prop->cooperativeMultiDeviceLaunch;
+                break;
+            case hipDeviceAttributeMaxPitch:
+                *pi = prop->memPitch;
+                break;
+	    case hipDeviceAttributeTextureAlignment:
+                *pi = prop->textureAlignment;
+                break;
+            case hipDeviceAttributeKernelExecTimeout:
+                *pi = prop->kernelExecTimeoutEnabled;
+                break;
+            case hipDeviceAttributeCanMapHostMemory:
+                *pi = prop->canMapHostMemory;
+                break;
+            case hipDeviceAttributeEccEnabled:
+                *pi = prop->ECCEnabled;
                 break;
             default:
                 e = hipErrorInvalidValue;

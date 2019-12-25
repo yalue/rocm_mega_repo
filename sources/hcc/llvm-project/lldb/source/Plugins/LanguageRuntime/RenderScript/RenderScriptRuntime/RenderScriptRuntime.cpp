@@ -2240,7 +2240,8 @@ void RenderScriptRuntime::FindStructTypeName(Element &elem,
   // Iterate over all the global variables looking for one with a matching type
   // to the Element. We make the assumption a match exists since there needs to
   // be a global variable to reflect the struct type back into java host code.
-  for (const VariableSP &var_sp : var_list) {
+  for (uint32_t i = 0; i < var_list.GetSize(); ++i) {
+    const VariableSP var_sp(var_list.GetVariableAtIndex(i));
     if (!var_sp)
       continue;
 
@@ -3891,7 +3892,7 @@ void RSModuleDescriptor::Dump(Stream &strm) const {
   int indent = strm.GetIndentLevel();
 
   strm.Indent();
-  m_module->GetFileSpec().Dump(strm.AsRawOstream());
+  m_module->GetFileSpec().Dump(&strm);
   strm.Indent(m_module->GetNumCompileUnits() ? "Debug info loaded."
                                              : "Debug info does not exist.");
   strm.EOL();

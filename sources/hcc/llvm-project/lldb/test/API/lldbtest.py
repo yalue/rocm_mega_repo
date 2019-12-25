@@ -72,17 +72,15 @@ class LLDBTest(TestFormat):
         # copying the binary into a different location.
         if 'DYLD_INSERT_LIBRARIES' in test.config.environment and \
                 (sys.executable.startswith('/System/') or \
-                sys.executable.startswith('/usr/bin/')):
+                sys.executable.startswith('/usr/')):
             builddir = getBuildDir(cmd)
             mkdir_p(builddir)
             copied_python = os.path.join(builddir, 'copied-system-python')
             if not os.path.isfile(copied_python):
                 import shutil, subprocess
                 python = subprocess.check_output([
-                    sys.executable,
-                    '-c',
-                    'import sys; print(sys.executable)'
-                ]).decode('utf-8').strip()
+                    '/usr/bin/python2.7', '-c',
+                    'import sys; print sys.executable']).strip()
                 shutil.copy(python, copied_python)
             cmd[0] = copied_python
 

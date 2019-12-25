@@ -7,11 +7,9 @@
 //===----------------------------------------------------------------------===//
 
 #include "llvm/Analysis/TargetTransformInfo.h"
-#include "llvm/Analysis/CFG.h"
-#include "llvm/Analysis/LoopIterator.h"
 #include "llvm/Analysis/TargetTransformInfoImpl.h"
-#include "llvm/IR/CFG.h"
 #include "llvm/IR/CallSite.h"
+#include "llvm/IR/CFG.h"
 #include "llvm/IR/DataLayout.h"
 #include "llvm/IR/Instruction.h"
 #include "llvm/IR/Instructions.h"
@@ -19,9 +17,10 @@
 #include "llvm/IR/Module.h"
 #include "llvm/IR/Operator.h"
 #include "llvm/IR/PatternMatch.h"
-#include "llvm/InitializePasses.h"
 #include "llvm/Support/CommandLine.h"
 #include "llvm/Support/ErrorHandling.h"
+#include "llvm/Analysis/CFG.h"
+#include "llvm/Analysis/LoopIterator.h"
 #include <utility>
 
 using namespace llvm;
@@ -195,10 +194,9 @@ int TargetTransformInfo::getIntrinsicCost(
 }
 
 unsigned
-TargetTransformInfo::getEstimatedNumberOfCaseClusters(
-    const SwitchInst &SI, unsigned &JTSize, ProfileSummaryInfo *PSI,
-    BlockFrequencyInfo *BFI) const {
-  return TTIImpl->getEstimatedNumberOfCaseClusters(SI, JTSize, PSI, BFI);
+TargetTransformInfo::getEstimatedNumberOfCaseClusters(const SwitchInst &SI,
+                                                      unsigned &JTSize) const {
+  return TTIImpl->getEstimatedNumberOfCaseClusters(SI, JTSize);
 }
 
 int TargetTransformInfo::getUserCost(const User *U,
@@ -242,12 +240,6 @@ bool TargetTransformInfo::isHardwareLoopProfitable(
   Loop *L, ScalarEvolution &SE, AssumptionCache &AC,
   TargetLibraryInfo *LibInfo, HardwareLoopInfo &HWLoopInfo) const {
   return TTIImpl->isHardwareLoopProfitable(L, SE, AC, LibInfo, HWLoopInfo);
-}
-
-bool TargetTransformInfo::preferPredicateOverEpilogue(Loop *L, LoopInfo *LI,
-    ScalarEvolution &SE, AssumptionCache &AC, TargetLibraryInfo *TLI,
-    DominatorTree *DT, const LoopAccessInfo *LAI) const {
-  return TTIImpl->preferPredicateOverEpilogue(L, LI, SE, AC, TLI, DT, LAI);
 }
 
 void TargetTransformInfo::getUnrollingPreferences(
@@ -592,10 +584,10 @@ TargetTransformInfo::getOperandInfo(Value *V, OperandValueProperties &OpProps) {
 int TargetTransformInfo::getArithmeticInstrCost(
     unsigned Opcode, Type *Ty, OperandValueKind Opd1Info,
     OperandValueKind Opd2Info, OperandValueProperties Opd1PropInfo,
-    OperandValueProperties Opd2PropInfo, ArrayRef<const Value *> Args,
-    const Instruction *CxtI) const {
-  int Cost = TTIImpl->getArithmeticInstrCost(
-      Opcode, Ty, Opd1Info, Opd2Info, Opd1PropInfo, Opd2PropInfo, Args, CxtI);
+    OperandValueProperties Opd2PropInfo,
+    ArrayRef<const Value *> Args) const {
+  int Cost = TTIImpl->getArithmeticInstrCost(Opcode, Ty, Opd1Info, Opd2Info,
+                                             Opd1PropInfo, Opd2PropInfo, Args);
   assert(Cost >= 0 && "TTI should not produce negative costs!");
   return Cost;
 }
@@ -647,7 +639,7 @@ int TargetTransformInfo::getVectorInstrCost(unsigned Opcode, Type *Val,
 }
 
 int TargetTransformInfo::getMemoryOpCost(unsigned Opcode, Type *Src,
-                                         MaybeAlign Alignment,
+                                         unsigned Alignment,
                                          unsigned AddressSpace,
                                          const Instruction *I) const {
   assert ((I == nullptr || I->getOpcode() == Opcode) &&
@@ -1183,7 +1175,7 @@ int TargetTransformInfo::getInstructionThroughput(const Instruction *I) const {
     Op2VK = getOperandInfo(I->getOperand(1), Op2VP);
     SmallVector<const Value *, 2> Operands(I->operand_values());
     return getArithmeticInstrCost(I->getOpcode(), I->getType(), Op1VK, Op2VK,
-                                  Op1VP, Op2VP, Operands, I);
+                                  Op1VP, Op2VP, Operands);
   }
   case Instruction::FNeg: {
     TargetTransformInfo::OperandValueKind Op1VK, Op2VK;
@@ -1193,7 +1185,7 @@ int TargetTransformInfo::getInstructionThroughput(const Instruction *I) const {
     Op2VP = OP_None;
     SmallVector<const Value *, 2> Operands(I->operand_values());
     return getArithmeticInstrCost(I->getOpcode(), I->getType(), Op1VK, Op2VK,
-                                  Op1VP, Op2VP, Operands, I);
+                                  Op1VP, Op2VP, Operands);
   }
   case Instruction::Select: {
     const SelectInst *SI = cast<SelectInst>(I);
@@ -1209,14 +1201,14 @@ int TargetTransformInfo::getInstructionThroughput(const Instruction *I) const {
     const StoreInst *SI = cast<StoreInst>(I);
     Type *ValTy = SI->getValueOperand()->getType();
     return getMemoryOpCost(I->getOpcode(), ValTy,
-                           MaybeAlign(SI->getAlignment()),
-                           SI->getPointerAddressSpace(), I);
+                                SI->getAlignment(),
+                                SI->getPointerAddressSpace(), I);
   }
   case Instruction::Load: {
     const LoadInst *LI = cast<LoadInst>(I);
     return getMemoryOpCost(I->getOpcode(), I->getType(),
-                           MaybeAlign(LI->getAlignment()),
-                           LI->getPointerAddressSpace(), I);
+                                LI->getAlignment(),
+                                LI->getPointerAddressSpace(), I);
   }
   case Instruction::ZExt:
   case Instruction::SExt:

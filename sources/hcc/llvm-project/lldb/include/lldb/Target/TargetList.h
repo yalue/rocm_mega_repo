@@ -55,12 +55,12 @@ public:
   /// \param[in] debugger
   ///     The debugger to associate this target with
   ///
-  /// \param[in] user_exe_path
+  /// \param[in] file_spec
   ///     The main executable file for a debug target. This value
-  ///     can be empty and the file can be set later using:
+  ///     can be nullptr and the file can be set later using:
   ///     Target::SetExecutableModule (ModuleSP&)
   ///
-  /// \param[in] triple_str
+  /// \param[in] triple_cstr
   ///     A target triple string to be used for the target. This can
   ///     be nullptr if the triple is not known or when attaching to a
   ///     process.

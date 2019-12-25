@@ -27,7 +27,7 @@ using namespace llvm;
 // SelectionDAG operations.
 namespace {
 class RISCVDAGToDAGISel final : public SelectionDAGISel {
-  const RISCVSubtarget *Subtarget = nullptr;
+  const RISCVSubtarget *Subtarget;
 
 public:
   explicit RISCVDAGToDAGISel(RISCVTargetMachine &TargetMachine)

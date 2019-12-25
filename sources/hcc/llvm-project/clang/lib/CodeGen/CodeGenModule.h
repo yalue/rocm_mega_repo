@@ -17,6 +17,7 @@
 #include "CodeGenTypeCache.h"
 #include "CodeGenTypes.h"
 #include "SanitizerMetadata.h"
+#include "clang/AST/Attr.h"
 #include "clang/AST/DeclCXX.h"
 #include "clang/AST/DeclObjC.h"
 #include "clang/AST/DeclOpenMP.h"
@@ -76,9 +77,6 @@ class AnnotateAttr;
 class CXXDestructorDecl;
 class Module;
 class CoverageSourceInfo;
-class TargetAttr;
-class InitSegAttr;
-struct ParsedTargetAttr;
 
 namespace CodeGen {
 
@@ -528,17 +526,17 @@ private:
     int GlobalUniqueCount;
   } Block;
 
-  GlobalDecl initializedGlobalDecl;
-
-  /// @}
-
   /// void @llvm.lifetime.start(i64 %size, i8* nocapture <ptr>)
   llvm::Function *LifetimeStartFn = nullptr;
 
   /// void @llvm.lifetime.end(i64 %size, i8* nocapture <ptr>)
   llvm::Function *LifetimeEndFn = nullptr;
 
+  GlobalDecl initializedGlobalDecl;
+
   std::unique_ptr<SanitizerMetadata> SanitizerMD;
+
+  /// @}
 
   llvm::MapVector<const Decl *, bool> DeferredEmptyCoverageMappingDecls;
 
@@ -1038,22 +1036,11 @@ public:
   }
 
   /// Create or return a runtime function declaration with the specified type
-  /// and name. If \p AssumeConvergent is true, the call will have the
-  /// convergent attribute added.
+  /// and name.
   llvm::FunctionCallee
   CreateRuntimeFunction(llvm::FunctionType *Ty, StringRef Name,
                         llvm::AttributeList ExtraAttrs = llvm::AttributeList(),
-                        bool Local = false, bool AssumeConvergent = false);
-
-  /// Create or return a runtime function declaration with the specified type
-  /// and name. This will automatically add the convergent attribute to the
-  /// function declaration.
-  llvm::FunctionCallee CreateConvergentRuntimeFunction(
-      llvm::FunctionType *Ty, StringRef Name,
-      llvm::AttributeList ExtraAttrs = llvm::AttributeList(),
-      bool Local = false) {
-    return CreateRuntimeFunction(Ty, Name, ExtraAttrs, Local, true);
-  }
+                        bool Local = false);
 
   /// Create a new runtime global variable with the specified type and name.
   llvm::Constant *CreateRuntimeVariable(llvm::Type *Ty,
@@ -1163,7 +1150,7 @@ public:
 
   /// Parses the target attributes passed in, and returns only the ones that are
   /// valid feature names.
-  ParsedTargetAttr filterFunctionTargetAttrs(const TargetAttr *TD);
+  TargetAttr::ParsedTargetAttr filterFunctionTargetAttrs(const TargetAttr *TD);
 
   // Fills in the supplied string map with the set of target features for the
   // passed in function.

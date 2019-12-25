@@ -115,6 +115,8 @@ private:
 
   void optimizeCondBr(MachineBasicBlock &MBB,
                       SmallVectorImpl<MachineBasicBlock *> &BranchPath);
+  void fixBranchProb(MachineBasicBlock *NextMBB, MachineBasicBlock *RootMBB,
+                     SmallVectorImpl<MachineBasicBlock *> &BranchPath);
   void replaceBrDest(MachineBasicBlock *MBB, MachineBasicBlock *OrigDest,
                      MachineBasicBlock *NewDest);
   void fixupModifiedCond(MachineBasicBlock *MBB);

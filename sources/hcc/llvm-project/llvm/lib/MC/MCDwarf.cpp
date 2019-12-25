@@ -1701,8 +1701,7 @@ void FrameEmitterImpl::EmitFDE(const MCSymbol &cieStart,
         MakeStartMinusEndExpr(Streamer, SectionStart, cieStart, 0);
     emitAbsValue(Streamer, offset, 4);
   } else {
-    Streamer.EmitSymbolValue(&cieStart, 4,
-                             asmInfo->needsDwarfSectionOffsetDirective());
+    Streamer.EmitSymbolValue(&cieStart, 4);
   }
 
   // PC Begin

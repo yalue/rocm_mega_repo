@@ -6,6 +6,7 @@
 //
 //===----------------------------------------------------------------------===//
 
+#include <mutex>
 #include "CommandObjectPlatform.h"
 #include "lldb/Core/Debugger.h"
 #include "lldb/Core/Module.h"
@@ -22,7 +23,6 @@
 #include "lldb/Target/Process.h"
 #include "lldb/Utility/Args.h"
 #include "lldb/Utility/DataExtractor.h"
-#include <mutex>
 
 #include "llvm/ADT/SmallString.h"
 #include "llvm/Support/Threading.h"
@@ -1152,7 +1152,8 @@ protected:
   class CommandOptions : public Options {
   public:
     CommandOptions()
-        : Options(), match_info(), show_args(false), verbose(false) {}
+        : Options(), match_info(), show_args(false), verbose(false) {
+    }
 
     ~CommandOptions() override = default;
 
@@ -1605,6 +1606,7 @@ public:
                  CommandReturnObject &result) override {
     ExecutionContext exe_ctx = GetCommandInterpreter().GetExecutionContext();
     m_options.NotifyOptionParsingStarting(&exe_ctx);
+
 
     // Print out an usage syntax on an empty command line.
     if (raw_command_line.empty()) {

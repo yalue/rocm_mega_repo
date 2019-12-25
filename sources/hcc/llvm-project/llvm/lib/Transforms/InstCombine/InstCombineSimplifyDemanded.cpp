@@ -1247,56 +1247,29 @@ Value *InstCombiner::SimplifyDemandedVectorElts(Value *V, APInt DemandedElts,
     break;
   }
   case Instruction::ShuffleVector: {
-    auto *Shuffle = cast<ShuffleVectorInst>(I);
-    assert(Shuffle->getOperand(0)->getType() ==
-           Shuffle->getOperand(1)->getType() &&
-           "Expected shuffle operands to have same type");
-    unsigned OpWidth =
-        Shuffle->getOperand(0)->getType()->getVectorNumElements();
-    APInt LeftDemanded(OpWidth, 0), RightDemanded(OpWidth, 0);
+    ShuffleVectorInst *Shuffle = cast<ShuffleVectorInst>(I);
+    unsigned LHSVWidth =
+      Shuffle->getOperand(0)->getType()->getVectorNumElements();
+    APInt LeftDemanded(LHSVWidth, 0), RightDemanded(LHSVWidth, 0);
     for (unsigned i = 0; i < VWidth; i++) {
       if (DemandedElts[i]) {
         unsigned MaskVal = Shuffle->getMaskValue(i);
         if (MaskVal != -1u) {
-          assert(MaskVal < OpWidth * 2 &&
+          assert(MaskVal < LHSVWidth * 2 &&
                  "shufflevector mask index out of range!");
-          if (MaskVal < OpWidth)
+          if (MaskVal < LHSVWidth)
             LeftDemanded.setBit(MaskVal);
           else
-            RightDemanded.setBit(MaskVal - OpWidth);
+            RightDemanded.setBit(MaskVal - LHSVWidth);
         }
       }
     }
 
-    APInt LHSUndefElts(OpWidth, 0);
+    APInt LHSUndefElts(LHSVWidth, 0);
     simplifyAndSetOp(I, 0, LeftDemanded, LHSUndefElts);
 
-    APInt RHSUndefElts(OpWidth, 0);
+    APInt RHSUndefElts(LHSVWidth, 0);
     simplifyAndSetOp(I, 1, RightDemanded, RHSUndefElts);
-
-    // If this shuffle does not change the vector length and the elements
-    // demanded by this shuffle are an identity mask, then this shuffle is
-    // unnecessary.
-    //
-    // We are assuming canonical form for the mask, so the source vector is
-    // operand 0 and operand 1 is not used.
-    //
-    // Note that if an element is demanded and this shuffle mask is undefined
-    // for that element, then the shuffle is not considered an identity
-    // operation. The shuffle prevents poison from the operand vector from
-    // leaking to the result by replacing poison with an undefined value.
-    if (VWidth == OpWidth) {
-      bool IsIdentityShuffle = true;
-      for (unsigned i = 0; i < VWidth; i++) {
-        unsigned MaskVal = Shuffle->getMaskValue(i);
-        if (DemandedElts[i] && i != MaskVal) {
-          IsIdentityShuffle = false;
-          break;
-        }
-      }
-      if (IsIdentityShuffle)
-        return Shuffle->getOperand(0);
-    }
 
     bool NewUndefElts = false;
     unsigned LHSIdx = -1u, LHSValIdx = -1u;
@@ -1310,23 +1283,23 @@ Value *InstCombiner::SimplifyDemandedVectorElts(Value *V, APInt DemandedElts,
       } else if (!DemandedElts[i]) {
         NewUndefElts = true;
         UndefElts.setBit(i);
-      } else if (MaskVal < OpWidth) {
+      } else if (MaskVal < LHSVWidth) {
         if (LHSUndefElts[MaskVal]) {
           NewUndefElts = true;
           UndefElts.setBit(i);
         } else {
-          LHSIdx = LHSIdx == -1u ? i : OpWidth;
-          LHSValIdx = LHSValIdx == -1u ? MaskVal : OpWidth;
+          LHSIdx = LHSIdx == -1u ? i : LHSVWidth;
+          LHSValIdx = LHSValIdx == -1u ? MaskVal : LHSVWidth;
           LHSUniform = LHSUniform && (MaskVal == i);
         }
       } else {
-        if (RHSUndefElts[MaskVal - OpWidth]) {
+        if (RHSUndefElts[MaskVal - LHSVWidth]) {
           NewUndefElts = true;
           UndefElts.setBit(i);
         } else {
-          RHSIdx = RHSIdx == -1u ? i : OpWidth;
-          RHSValIdx = RHSValIdx == -1u ? MaskVal - OpWidth : OpWidth;
-          RHSUniform = RHSUniform && (MaskVal - OpWidth == i);
+          RHSIdx = RHSIdx == -1u ? i : LHSVWidth;
+          RHSValIdx = RHSValIdx == -1u ? MaskVal - LHSVWidth : LHSVWidth;
+          RHSUniform = RHSUniform && (MaskVal - LHSVWidth == i);
         }
       }
     }
@@ -1335,20 +1308,20 @@ Value *InstCombiner::SimplifyDemandedVectorElts(Value *V, APInt DemandedElts,
     // this constant vector to single insertelement instruction.
     // shufflevector V, C, <v1, v2, .., ci, .., vm> ->
     // insertelement V, C[ci], ci-n
-    if (OpWidth == Shuffle->getType()->getNumElements()) {
+    if (LHSVWidth == Shuffle->getType()->getNumElements()) {
       Value *Op = nullptr;
       Constant *Value = nullptr;
       unsigned Idx = -1u;
 
       // Find constant vector with the single element in shuffle (LHS or RHS).
-      if (LHSIdx < OpWidth && RHSUniform) {
+      if (LHSIdx < LHSVWidth && RHSUniform) {
         if (auto *CV = dyn_cast<ConstantVector>(Shuffle->getOperand(0))) {
           Op = Shuffle->getOperand(1);
           Value = CV->getOperand(LHSValIdx);
           Idx = LHSIdx;
         }
       }
-      if (RHSIdx < OpWidth && LHSUniform) {
+      if (RHSIdx < LHSVWidth && LHSUniform) {
         if (auto *CV = dyn_cast<ConstantVector>(Shuffle->getOperand(1))) {
           Op = Shuffle->getOperand(0);
           Value = CV->getOperand(RHSValIdx);

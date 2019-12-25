@@ -78,16 +78,13 @@ private:
 };
 } // anonymous namespace
 
-bool link(ArrayRef<const char *> args, bool canExitEarly, raw_ostream &stdoutOS,
-          raw_ostream &stderrOS) {
-  lld::stdoutOS = &stdoutOS;
-  lld::stderrOS = &stderrOS;
-
+bool link(ArrayRef<const char *> args, bool canExitEarly, raw_ostream &error) {
   errorHandler().logName = args::getFilenameWithoutExe(args[0]);
+  errorHandler().errorOS = &error;
   errorHandler().errorLimitExceededMsg =
       "too many errors emitted, stopping now (use "
       "-error-limit=0 to see all errors)";
-  stderrOS.enable_colors(stderrOS.has_colors());
+  enableColors(error.has_colors());
 
   config = make<Configuration>();
   symtab = make<SymbolTable>();
@@ -135,15 +132,15 @@ static void handleColorDiagnostics(opt::InputArgList &args) {
   if (!arg)
     return;
   if (arg->getOption().getID() == OPT_color_diagnostics) {
-    lld::errs().enable_colors(true);
+    enableColors(true);
   } else if (arg->getOption().getID() == OPT_no_color_diagnostics) {
-    lld::errs().enable_colors(false);
+    enableColors(false);
   } else {
     StringRef s = arg->getValue();
     if (s == "always")
-      lld::errs().enable_colors(true);
+      enableColors(true);
     else if (s == "never")
-      lld::errs().enable_colors(false);
+      enableColors(false);
     else if (s != "auto")
       error("unknown option: --color-diagnostics=" + s);
   }
@@ -651,7 +648,7 @@ void LinkerDriver::link(ArrayRef<const char *> argsArr) {
 
   // Handle --help
   if (args.hasArg(OPT_help)) {
-    parser.PrintHelp(lld::outs(),
+    parser.PrintHelp(outs(),
                      (std::string(argsArr[0]) + " [options] file...").c_str(),
                      "LLVM Linker", false);
     return;
@@ -659,7 +656,7 @@ void LinkerDriver::link(ArrayRef<const char *> argsArr) {
 
   // Handle --version
   if (args.hasArg(OPT_version) || args.hasArg(OPT_v)) {
-    lld::outs() << getLLDVersion() << "\n";
+    outs() << getLLDVersion() << "\n";
     return;
   }
 

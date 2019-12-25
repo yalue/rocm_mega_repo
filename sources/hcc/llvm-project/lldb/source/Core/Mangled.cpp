@@ -32,8 +32,18 @@
 #include <string.h>
 using namespace lldb_private;
 
-static inline bool cstring_is_mangled(llvm::StringRef s) {
-  return Mangled::GetManglingScheme(s) != Mangled::eManglingSchemeNone;
+static inline Mangled::ManglingScheme cstring_mangling_scheme(const char *s) {
+  if (s) {
+    if (s[0] == '?')
+      return Mangled::eManglingSchemeMSVC;
+    if (s[0] == '_' && s[1] == 'Z')
+      return Mangled::eManglingSchemeItanium;
+  }
+  return Mangled::eManglingSchemeNone;
+}
+
+static inline bool cstring_is_mangled(const char *s) {
+  return cstring_mangling_scheme(s) != Mangled::eManglingSchemeNone;
 }
 
 static ConstString 
@@ -88,23 +98,6 @@ get_demangled_name_without_arguments(ConstString mangled,
 }
 
 #pragma mark Mangled
-
-Mangled::ManglingScheme Mangled::GetManglingScheme(llvm::StringRef const name) {
-  if (name.empty())
-    return Mangled::eManglingSchemeNone;
-
-  if (name.startswith("?"))
-    return Mangled::eManglingSchemeMSVC;
-
-  if (name.startswith("_Z"))
-    return Mangled::eManglingSchemeItanium;
-
-  // ___Z is a clang extension of block invocations
-  if (name.startswith("___Z"))
-    return Mangled::eManglingSchemeItanium;
-
-  return Mangled::eManglingSchemeNone;
-}
 
 Mangled::Mangled(ConstString s) : m_mangled(), m_demangled() {
   if (s)
@@ -166,7 +159,7 @@ void Mangled::SetValue(ConstString s, bool mangled) {
 
 void Mangled::SetValue(ConstString name) {
   if (name) {
-    if (cstring_is_mangled(name.GetStringRef())) {
+    if (cstring_is_mangled(name.GetCString())) {
       m_demangled.Clear();
       m_mangled = name;
     } else {
@@ -239,7 +232,7 @@ bool Mangled::DemangleWithRichManglingInfo(
   assert(m_mangled);
 
   // Check whether or not we are interested in this name at all.
-  ManglingScheme scheme = GetManglingScheme(m_mangled.GetStringRef());
+  ManglingScheme scheme = cstring_mangling_scheme(m_mangled.GetCString());
   if (skip_mangled_name && skip_mangled_name(m_mangled.GetStringRef(), scheme))
     return false;
 
@@ -307,7 +300,7 @@ Mangled::GetDemangledName(lldb::LanguageType language) const {
 
     // Don't bother running anything that isn't mangled
     const char *mangled_name = m_mangled.GetCString();
-    ManglingScheme mangling_scheme = GetManglingScheme(m_mangled.GetStringRef());
+    ManglingScheme mangling_scheme{cstring_mangling_scheme(mangled_name)};
     if (mangling_scheme != eManglingSchemeNone &&
         !m_mangled.GetMangledCounterpart(m_demangled)) {
       // We didn't already mangle this name, demangle it and if all goes well
@@ -412,7 +405,6 @@ size_t Mangled::MemorySize() const {
 // within those targets.
 lldb::LanguageType Mangled::GuessLanguage() const {
   ConstString mangled = GetMangledName();
-
   if (mangled) {
     const char *mangled_name = mangled.GetCString();
     if (CPlusPlusLanguage::IsCPPMangledName(mangled_name))

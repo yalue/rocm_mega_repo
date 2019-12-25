@@ -207,6 +207,8 @@ static const struct hsa_gfxip_table gfxip_lookup_table[] = {
 	/* Raven */
 	{ 0x15DD, 9, 0, 2, 0, "Raven", CHIP_RAVEN },
 	{ 0x15D8, 9, 0, 2, 0, "Raven", CHIP_RAVEN },
+	/* Renoir */
+	{ 0x1636, 9, 0, 0, 1, "Renoir", CHIP_RENOIR },
 	/* Vega20 */
 	{ 0x66A0, 9, 0, 6, 1, "Vega20", CHIP_VEGA20 },
 	{ 0x66A1, 9, 0, 6, 1, "Vega20", CHIP_VEGA20 },
@@ -226,6 +228,14 @@ static const struct hsa_gfxip_table gfxip_lookup_table[] = {
 	{ 0x7318, 10, 1, 0, 1, "Navi10", CHIP_NAVI10 },
 	{ 0x731A, 10, 1, 0, 1, "Navi10", CHIP_NAVI10 },
 	{ 0x731F, 10, 1, 0, 1, "Navi10", CHIP_NAVI10 },
+	/* Navi14 */
+	{ 0x7340, 10, 1, 2, 1, "Navi14", CHIP_NAVI14 },
+	{ 0x7341, 10, 1, 2, 1, "Navi14", CHIP_NAVI14 },
+	{ 0x7347, 10, 1, 2, 1, "Navi14", CHIP_NAVI14 },
+	/* Navi12 */
+	{ 0x7360, 10, 1, 1, 1, "Navi12", CHIP_NAVI12 },
+	{ 0x7362, 10, 1, 1, 1, "Navi12", CHIP_NAVI12 },
+
 };
 
 /* information from /proc/cpuinfo */
@@ -1058,7 +1068,11 @@ HSAKMT_STATUS topology_sysfs_get_node_props(uint32_t node_id,
 				props->MarketingName[i] = name[i];
 			props->MarketingName[i] = '\0';
 		}
-	}
+	} else if (props->DeviceId)
+		/* still return success */
+		pr_err("device ID 0x%x is not supported in libhsakmt\n",
+				props->DeviceId);
+
 	if (props->NumFComputeCores)
 		assert(props->EngineId.ui32.Major);
 
@@ -1189,8 +1203,20 @@ static int topology_create_temp_cpu_cache_list(int node,
 	/* Other than cpuY folders, this dir also has cpulist and cpumap */
 	max_cpus = num_subdirs(node_dir, "cpu");
 	if (max_cpus <= 0) {
-		pr_err("Fail to get cpu* dirs under %s\n", path);
-		goto exit;
+		/* If CONFIG_NUMA is not enabled in the kernel,
+		 * /sys/devices/system/node doesn't exist.
+		 */
+		if (node) { /* CPU node must be 0 or something is wrong */
+			pr_err("Fail to get cpu* dirs under %s.", node_dir);
+			goto exit;
+		}
+		/* Fall back to use /sys/devices/system/cpu */
+		snprintf(node_dir, MAXPATHSIZE, "/sys/devices/system/cpu");
+		max_cpus = num_subdirs(node_dir, "cpu");
+		if (max_cpus <= 0) {
+			pr_err("Fail to get cpu* dirs under %s\n", node_dir);
+			goto exit;
+		}
 	}
 
 	p_temp_cpu_ci_list = calloc(max_cpus, sizeof(cpu_cacheinfo_t));
@@ -1207,8 +1233,7 @@ static int topology_create_temp_cpu_cache_list(int node,
 			continue;
 		if (!isdigit(dir->d_name[3])) /* ignore files like cpulist */
 			continue;
-		snprintf(path, MAXPATHSIZE, "/sys/devices/system/node/node%d/%s/cache",
-			node, dir->d_name);
+		snprintf(path, MAXPATHSIZE, "%s/%s/cache", node_dir, dir->d_name);
 		this_cpu->num_caches = num_subdirs(path, "index");
 		this_cpu->cache_prop = calloc(this_cpu->num_caches,
 					sizeof(HsaCacheProperties));
@@ -2200,6 +2225,25 @@ uint16_t get_device_id_by_gpu_id(HSAuint32 gpu_id)
 
 	return 0;
 }
+
+uint32_t get_direct_link_cpu(uint32_t gpu_node)
+{
+	HSAuint64 size = 0;
+	int32_t cpu_id;
+	HSAuint32 i;
+
+	cpu_id = gpu_get_direct_link_cpu(gpu_node, g_props);
+	if (cpu_id == -1)
+		return INVALID_NODEID;
+
+	assert(g_props[cpu_id].mem);
+
+	for (i = 0; i < g_props[cpu_id].node.NumMemoryBanks; i++)
+		size += g_props[cpu_id].mem[i].SizeInBytes;
+
+	return size ? (uint32_t)cpu_id : INVALID_NODEID;
+}
+
 
 HSAKMT_STATUS validate_nodeid_array(uint32_t **gpu_id_array,
 		uint32_t NumberOfNodes, uint32_t *NodeArray)

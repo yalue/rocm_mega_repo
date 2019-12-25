@@ -1314,9 +1314,8 @@ void SwingSchedulerDAG::CopyToPhiMutation::apply(ScheduleDAGInstrs *DAG) {
     // Find the USEs of PHI. If the use is a PHI or REG_SEQUENCE, push back this
     // SUnit to the container.
     SmallVector<SUnit *, 8> UseSUs;
-    // Do not use iterator based loop here as we are updating the container.
-    for (size_t Index = 0; Index < PHISUs.size(); ++Index) {
-      for (auto &Dep : PHISUs[Index]->Succs) {
+    for (auto I = PHISUs.begin(); I != PHISUs.end(); ++I) {
+      for (auto &Dep : (*I)->Succs) {
         if (Dep.getKind() != SDep::Data)
           continue;
 

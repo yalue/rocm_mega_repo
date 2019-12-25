@@ -1,14 +1,24 @@
-C_SOURCES = main.c
+CC ?= clang
+ifeq "$(ARCH)" ""
+	ARCH = x86_64
+endif
 
-include Makefile.rules
+ifeq "$(OS)" ""
+	OS = $(shell uname -s)
+endif
 
-all: a.out.dSYM hide.app/Contents/a.out.dSYM
+CFLAGS ?= -g -O0
 
-hide.app/Contents/a.out.dSYM:
+ifeq "$(OS)" "Darwin"
+	CFLAGS += -arch $(ARCH)
+endif
+
+all: main.c clean
 	mkdir hide.app
 	mkdir hide.app/Contents
+	$(CC) $(CFLAGS) -g $<
 	mv a.out.dSYM hide.app/Contents
 	strip -x a.out
-ifneq "$(CODESIGN)" ""
-	$(CODESIGN) -fs - a.out
-endif
+
+clean:
+	rm -rf a.out a.out.dSYM hide.app

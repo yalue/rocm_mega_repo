@@ -111,9 +111,6 @@ private:
   const minidump::ExceptionStream *m_active_exception;
   lldb::CommandObjectSP m_command_sp;
   bool m_is_wow64;
-  llvm::Optional<MemoryRegionInfos> m_memory_regions;
-
-  void BuildMemoryRegions();
 };
 
 } // namespace minidump

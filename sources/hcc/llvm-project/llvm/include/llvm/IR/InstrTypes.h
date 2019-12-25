@@ -1039,11 +1039,6 @@ struct OperandBundleUse {
     return getTagID() == LLVMContext::OB_funclet;
   }
 
-  /// Return true if this is a "cfguardtarget" operand bundle.
-  bool isCFGuardTargetOperandBundle() const {
-    return getTagID() == LLVMContext::OB_cfguardtarget;
-  }
-
 private:
   /// Pointer to an entry in LLVMContextImpl::getOrInsertBundleTag.
   StringMapEntry<uint32_t> *Tag;
@@ -1270,19 +1265,6 @@ public:
   }
   bool isArgOperand(Value::const_user_iterator UI) const {
     return isArgOperand(&UI.getUse());
-  }
-
-  /// Given a use for a arg operand, get the arg operand number that
-  /// corresponds to it.
-  unsigned getArgOperandNo(const Use *U) const {
-    assert(isArgOperand(U) && "Arg operand # out of range!");
-    return U - arg_begin();
-  }
-
-  /// Given a value use iterator, return the arg operand number corresponding to
-  /// it. Iterator must actually correspond to a data operand.
-  unsigned getArgOperandNo(Value::const_user_iterator UI) const {
-    return getArgOperandNo(&UI.getUse());
   }
 
   /// Returns true if this CallSite passes the given Value* as an argument to
@@ -1585,17 +1567,11 @@ public:
   }
 
   /// Extract the alignment of the return value.
-  unsigned getRetAlignment() const {
-    if (const auto MA = Attrs.getRetAlignment())
-      return MA->value();
-    return 0;
-  }
+  unsigned getRetAlignment() const { return Attrs.getRetAlignment(); }
 
   /// Extract the alignment for a call or parameter (0=unknown).
   unsigned getParamAlignment(unsigned ArgNo) const {
-    if (const auto MA = Attrs.getParamAlignment(ArgNo))
-      return MA->value();
-    return 0;
+    return Attrs.getParamAlignment(ArgNo);
   }
 
   /// Extract the byval type for a call or parameter.

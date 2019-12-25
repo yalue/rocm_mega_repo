@@ -1,5 +1,4 @@
 import lldb
-from lldbsuite.test.decorators import *
 from lldbsuite.test.lldbtest import *
 import lldbsuite.test.lldbutil as lldbutil
 
@@ -8,9 +7,6 @@ class TestMembersAndLocalsWithSameName(TestBase):
 
     mydir = TestBase.compute_mydir(__file__)
 
-    @expectedFailureAll(archs=["aarch64"], oslist=["linux"],
-                        debug_info=["dwo"],
-                        bugnumber="llvm.org/pr44037")
     def test_when_stopped_in_method(self):
         self._load_exe()
 
@@ -113,9 +109,6 @@ class TestMembersAndLocalsWithSameName(TestBase):
         self.assertTrue(val.IsValid())
         self.assertEqual(val.GetValueAsUnsigned(), 778899)
 
-    @expectedFailureAll(archs=["aarch64"], oslist=["linux"],
-                        debug_info=["dwo"],
-                        bugnumber="llvm.org/pr44037")
     def test_when_stopped_in_function(self):
         self._load_exe()
 

@@ -187,7 +187,7 @@ APInt& APInt::operator--() {
   return clearUnusedBits();
 }
 
-/// Adds the RHS APInt to this APInt.
+/// Adds the RHS APint to this APInt.
 /// @returns this, after addition of RHS.
 /// Addition assignment operator.
 APInt& APInt::operator+=(const APInt& RHS) {
@@ -882,31 +882,6 @@ APInt APInt::trunc(unsigned width) const {
     Result.U.pVal[i] = U.pVal[i] << bits >> bits;
 
   return Result;
-}
-
-// Truncate to new width with unsigned saturation.
-APInt APInt::truncUSat(unsigned width) const {
-  assert(width < BitWidth && "Invalid APInt Truncate request");
-  assert(width && "Can't truncate to 0 bits");
-
-  // Can we just losslessly truncate it?
-  if (isIntN(width))
-    return trunc(width);
-  // If not, then just return the new limit.
-  return APInt::getMaxValue(width);
-}
-
-// Truncate to new width with signed saturation.
-APInt APInt::truncSSat(unsigned width) const {
-  assert(width < BitWidth && "Invalid APInt Truncate request");
-  assert(width && "Can't truncate to 0 bits");
-
-  // Can we just losslessly truncate it?
-  if (isSignedIntN(width))
-    return trunc(width);
-  // If not, then just return the new limits.
-  return isNegative() ? APInt::getSignedMinValue(width)
-                      : APInt::getSignedMaxValue(width);
 }
 
 // Sign extend to a new width.
@@ -2073,46 +2048,6 @@ APInt APInt::usub_sat(const APInt &RHS) const {
   return APInt(BitWidth, 0);
 }
 
-APInt APInt::smul_sat(const APInt &RHS) const {
-  bool Overflow;
-  APInt Res = smul_ov(RHS, Overflow);
-  if (!Overflow)
-    return Res;
-
-  // The result is negative if one and only one of inputs is negative.
-  bool ResIsNegative = isNegative() ^ RHS.isNegative();
-
-  return ResIsNegative ? APInt::getSignedMinValue(BitWidth)
-                       : APInt::getSignedMaxValue(BitWidth);
-}
-
-APInt APInt::umul_sat(const APInt &RHS) const {
-  bool Overflow;
-  APInt Res = umul_ov(RHS, Overflow);
-  if (!Overflow)
-    return Res;
-
-  return APInt::getMaxValue(BitWidth);
-}
-
-APInt APInt::sshl_sat(const APInt &RHS) const {
-  bool Overflow;
-  APInt Res = sshl_ov(RHS, Overflow);
-  if (!Overflow)
-    return Res;
-
-  return isNegative() ? APInt::getSignedMinValue(BitWidth)
-                      : APInt::getSignedMaxValue(BitWidth);
-}
-
-APInt APInt::ushl_sat(const APInt &RHS) const {
-  bool Overflow;
-  APInt Res = ushl_ov(RHS, Overflow);
-  if (!Overflow)
-    return Res;
-
-  return APInt::getMaxValue(BitWidth);
-}
 
 void APInt::fromString(unsigned numbits, StringRef str, uint8_t radix) {
   // Check our assumptions here
@@ -2855,7 +2790,7 @@ APInt llvm::APIntOps::RoundingSDiv(const APInt &A, const APInt &B,
       return Quo;
     return Quo + 1;
   }
-  // Currently sdiv rounds towards zero.
+  // Currently sdiv rounds twards zero.
   case APInt::Rounding::TOWARD_ZERO:
     return A.sdiv(B);
   }
@@ -2998,7 +2933,7 @@ llvm::APIntOps::SolveQuadraticEquationWrap(APInt A, APInt B, APInt C,
   APInt Q = SQ * SQ;
   bool InexactSQ = Q != D;
   // The calculated SQ may actually be greater than the exact (non-integer)
-  // value. If that's the case, decrement SQ to get a value that is lower.
+  // value. If that's the case, decremement SQ to get a value that is lower.
   if (Q.sgt(D))
     SQ -= 1;
 
@@ -3050,14 +2985,6 @@ llvm::APIntOps::SolveQuadraticEquationWrap(APInt A, APInt B, APInt C,
   X += 1;
   LLVM_DEBUG(dbgs() << __func__ << ": solution (wrap): " << X << '\n');
   return X;
-}
-
-Optional<unsigned>
-llvm::APIntOps::GetMostSignificantDifferentBit(const APInt &A, const APInt &B) {
-  assert(A.getBitWidth() == B.getBitWidth() && "Must have the same bitwidth");
-  if (A == B)
-    return llvm::None;
-  return A.getBitWidth() - ((A ^ B).countLeadingZeros() + 1);
 }
 
 /// StoreIntToMemory - Fills the StoreBytes bytes of memory starting from Dst

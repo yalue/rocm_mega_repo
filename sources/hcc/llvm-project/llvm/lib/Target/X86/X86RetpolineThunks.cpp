@@ -63,13 +63,13 @@ public:
   }
 
 private:
-  MachineModuleInfo *MMI = nullptr;
-  const TargetMachine *TM = nullptr;
-  bool Is64Bit = false;
-  const X86Subtarget *STI = nullptr;
-  const X86InstrInfo *TII = nullptr;
+  MachineModuleInfo *MMI;
+  const TargetMachine *TM;
+  bool Is64Bit;
+  const X86Subtarget *STI;
+  const X86InstrInfo *TII;
 
-  bool InsertedThunks = false;
+  bool InsertedThunks;
 
   void createThunkFunction(Module &M, StringRef Name);
   void insertRegReturnAddrClobber(MachineBasicBlock &MBB, unsigned Reg);

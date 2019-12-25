@@ -22,6 +22,10 @@ public:
   bool IsMethod() const;
 
   // Accessors
+  lldb::ModuleSP GetContainingDWOModule() const;
+
+  DWARFDIE
+  GetContainingDWOModuleDIE() const;
 
   // Accessing information about a DIE
   const char *GetMangledName() const;

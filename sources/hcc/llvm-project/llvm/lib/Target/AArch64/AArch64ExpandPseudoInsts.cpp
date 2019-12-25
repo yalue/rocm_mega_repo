@@ -110,8 +110,6 @@ bool AArch64ExpandPseudo::expandMOVImm(MachineBasicBlock &MBB,
                                        unsigned BitSize) {
   MachineInstr &MI = *MBBI;
   Register DstReg = MI.getOperand(0).getReg();
-  uint64_t RenamableState =
-      MI.getOperand(0).isRenamable() ? RegState::Renamable : 0;
   uint64_t Imm = MI.getOperand(1).getImm();
 
   if (DstReg == AArch64::XZR || DstReg == AArch64::WZR) {
@@ -146,8 +144,7 @@ bool AArch64ExpandPseudo::expandMOVImm(MachineBasicBlock &MBB,
       bool DstIsDead = MI.getOperand(0).isDead();
       MIBS.push_back(BuildMI(MBB, MBBI, MI.getDebugLoc(), TII->get(I->Opcode))
         .addReg(DstReg, RegState::Define |
-                getDeadRegState(DstIsDead && LastItem) |
-                RenamableState)
+                getDeadRegState(DstIsDead && LastItem))
         .addImm(I->Op1)
         .addImm(I->Op2));
       } break;
@@ -158,8 +155,7 @@ bool AArch64ExpandPseudo::expandMOVImm(MachineBasicBlock &MBB,
       MIBS.push_back(BuildMI(MBB, MBBI, MI.getDebugLoc(), TII->get(I->Opcode))
         .addReg(DstReg,
                 RegState::Define |
-                getDeadRegState(DstIsDead && LastItem) |
-                RenamableState)
+                getDeadRegState(DstIsDead && LastItem))
         .addReg(DstReg)
         .addImm(I->Op1)
         .addImm(I->Op2));

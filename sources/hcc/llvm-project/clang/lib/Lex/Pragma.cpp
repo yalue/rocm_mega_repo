@@ -848,8 +848,8 @@ void Preprocessor::HandlePragmaModuleBuild(Token &Tok) {
          CurLexer->getBuffer().begin() <= End &&
          End <= CurLexer->getBuffer().end() &&
          "module source range not contained within same file buffer");
-  TheModuleLoader.createModuleFromSource(Loc, ModuleName->getName(),
-                                         StringRef(Start, End - Start));
+  TheModuleLoader.loadModuleFromSource(Loc, ModuleName->getName(),
+                                       StringRef(Start, End - Start));
 }
 
 void Preprocessor::HandlePragmaHdrstop(Token &Tok) {

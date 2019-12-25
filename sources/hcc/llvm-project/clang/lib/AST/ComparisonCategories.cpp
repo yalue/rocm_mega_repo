@@ -59,7 +59,7 @@ ComparisonCategoryInfo::ValueInfo *ComparisonCategoryInfo::lookupValueInfo(
   // a new entry representing it.
   DeclContextLookupResult Lookup = Record->getCanonicalDecl()->lookup(
       &Ctx.Idents.get(ComparisonCategories::getResultString(ValueKind)));
-  if (Lookup.empty() || !isa<VarDecl>(Lookup.front()))
+  if (Lookup.size() != 1 || !isa<VarDecl>(Lookup.front()))
     return nullptr;
   Objects.emplace_back(ValueKind, cast<VarDecl>(Lookup.front()));
   return &Objects.back();
@@ -70,7 +70,7 @@ static const NamespaceDecl *lookupStdNamespace(const ASTContext &Ctx,
   if (!StdNS) {
     DeclContextLookupResult Lookup =
         Ctx.getTranslationUnitDecl()->lookup(&Ctx.Idents.get("std"));
-    if (!Lookup.empty())
+    if (Lookup.size() == 1)
       StdNS = dyn_cast<NamespaceDecl>(Lookup.front());
   }
   return StdNS;
@@ -81,7 +81,7 @@ static CXXRecordDecl *lookupCXXRecordDecl(const ASTContext &Ctx,
                                           ComparisonCategoryType Kind) {
   StringRef Name = ComparisonCategories::getCategoryString(Kind);
   DeclContextLookupResult Lookup = StdNS->lookup(&Ctx.Idents.get(Name));
-  if (!Lookup.empty())
+  if (Lookup.size() == 1)
     if (CXXRecordDecl *RD = dyn_cast<CXXRecordDecl>(Lookup.front()))
       return RD;
   return nullptr;
@@ -190,16 +190,19 @@ ComparisonCategories::getPossibleResultsForType(ComparisonCategoryType Type) {
   using CCT = ComparisonCategoryType;
   using CCR = ComparisonCategoryResult;
   std::vector<CCR> Values;
-  Values.reserve(4);
+  Values.reserve(6);
+  Values.push_back(CCR::Equivalent);
   bool IsStrong = (Type == CCT::StrongEquality || Type == CCT::StrongOrdering);
   if (IsStrong)
-  Values.push_back(IsStrong ? CCR::Equal : CCR::Equivalent);
+    Values.push_back(CCR::Equal);
   if (Type == CCT::StrongOrdering || Type == CCT::WeakOrdering ||
       Type == CCT::PartialOrdering) {
     Values.push_back(CCR::Less);
     Values.push_back(CCR::Greater);
   } else {
-    Values.push_back(IsStrong ? CCR::Nonequal : CCR::Nonequivalent);
+    Values.push_back(CCR::Nonequivalent);
+    if (IsStrong)
+      Values.push_back(CCR::Nonequal);
   }
   if (Type == CCT::PartialOrdering)
     Values.push_back(CCR::Unordered);

@@ -65,8 +65,7 @@ class Driver {
     GCCMode,
     GXXMode,
     CPPMode,
-    CLMode,
-    FlangMode
+    CLMode
   } Mode;
 
   enum SaveTempsMode {
@@ -181,10 +180,6 @@ public:
   /// Whether the driver should follow cl.exe like behavior.
   bool IsCLMode() const { return Mode == CLMode; }
 
-  /// Whether the driver should invoke flang for fortran inputs.
-  /// Other modes fall back to calling gcc which in turn calls gfortran.
-  bool IsFlangMode() const { return Mode == FlangMode; }
-
   /// Only print tool bindings, don't build any jobs.
   unsigned CCCPrintBindings : 1;
 
@@ -246,9 +241,6 @@ private:
   /// created targeting that triple. The driver owns all the ToolChain objects
   /// stored in it, and will clean them up when torn down.
   mutable llvm::StringMap<std::unique_ptr<ToolChain>> ToolChains;
-
-  /// Number of parallel jobs.
-  unsigned NumParallelJobs;
 
 private:
   /// TranslateInputArgs - Create a new derived argument list from the input
@@ -542,21 +534,11 @@ public:
   /// handle this action.
   bool ShouldUseClangCompiler(const JobAction &JA) const;
 
-  /// ShouldUseFlangCompiler - Should the flang compiler be used to
-  /// handle this action.
-  bool ShouldUseFlangCompiler(const JobAction &JA) const;
-
   /// Returns true if we are performing any kind of LTO.
   bool isUsingLTO() const { return LTOMode != LTOK_None; }
 
   /// Get the specific kind of LTO being performed.
   LTOKind getLTOMode() const { return LTOMode; }
-
-  /// Get the number of parallel jobs.
-  unsigned getNumberOfParallelJobs() const { return NumParallelJobs; }
-
-  /// Set the number of parallel jobs.
-  void setNumberOfParallelJobs(unsigned N) { NumParallelJobs = N; }
 
 private:
 

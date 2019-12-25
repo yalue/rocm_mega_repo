@@ -63,8 +63,6 @@ static bool IsPageExecutable(uint32_t protect) {
 
 namespace lldb_private {
 
-ProcessDebugger::~ProcessDebugger() {}
-
 lldb::pid_t ProcessDebugger::GetDebuggedProcessId() const {
   if (m_session_data)
     return m_session_data->m_debugger->GetProcess().GetProcessId();

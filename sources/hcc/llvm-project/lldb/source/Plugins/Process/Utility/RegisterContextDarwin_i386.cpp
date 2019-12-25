@@ -19,6 +19,12 @@
 
 #include <memory>
 
+// Support building against older versions of LLVM, this macro was added
+// recently.
+#ifndef LLVM_EXTENSION
+#define LLVM_EXTENSION
+#endif
+
 #include "RegisterContextDarwin_i386.h"
 
 using namespace lldb;

@@ -25,7 +25,6 @@
 #include "llvm/IR/Instructions.h"
 #include "llvm/IR/IntrinsicInst.h"
 #include "llvm/IR/Module.h"
-#include "llvm/InitializePasses.h"
 #include "llvm/Pass.h"
 #include "llvm/Support/CommandLine.h"
 using namespace llvm;
@@ -287,7 +286,7 @@ GlobalsAAResult::getFunctionInfo(const Function *F) {
 void GlobalsAAResult::AnalyzeGlobals(Module &M) {
   SmallPtrSet<Function *, 32> TrackedFunctions;
   for (Function &F : M)
-    if (F.hasLocalLinkage()) {
+    if (F.hasLocalLinkage())
       if (!AnalyzeUsesOfPointer(&F)) {
         // Remember that we are tracking this global.
         NonAddressTakenGlobals.insert(&F);
@@ -295,9 +294,7 @@ void GlobalsAAResult::AnalyzeGlobals(Module &M) {
         Handles.emplace_front(*this, &F);
         Handles.front().I = Handles.begin();
         ++NumNonAddrTakenFunctions;
-      } else
-        UnknownFunctionsWithLocalLinkage = true;
-    }
+      }
 
   SmallPtrSet<Function *, 16> Readers, Writers;
   for (GlobalVariable &GV : M.globals())
@@ -529,12 +526,9 @@ void GlobalsAAResult::AnalyzeCallGraph(CallGraph &CG, Module &M) {
             FI.setMayReadAnyGlobal();
         } else {
           FI.addModRefInfo(ModRefInfo::ModRef);
-          if (!F->onlyAccessesArgMemory())
-            FI.setMayReadAnyGlobal();
-          if (!F->isIntrinsic()) {
-            KnowNothing = true;
-            break;
-          }
+          // Can't say anything useful unless it's an intrinsic - they don't
+          // read or write global variables of the kind considered here.
+          KnowNothing = !F->isIntrinsic();
         }
         continue;
       }
@@ -933,9 +927,7 @@ ModRefInfo GlobalsAAResult::getModRefInfo(const CallBase *Call,
   // global we are tracking, return information if we have it.
   if (const GlobalValue *GV =
           dyn_cast<GlobalValue>(GetUnderlyingObject(Loc.Ptr, DL)))
-    // If GV is internal to this IR and there is no function with local linkage
-    // that has had their address taken, keep looking for a tighter ModRefInfo.
-    if (GV->hasLocalLinkage() && !UnknownFunctionsWithLocalLinkage)
+    if (GV->hasLocalLinkage())
       if (const Function *F = Call->getCalledFunction())
         if (NonAddressTakenGlobals.count(GV))
           if (const FunctionInfo *FI = getFunctionInfo(F))

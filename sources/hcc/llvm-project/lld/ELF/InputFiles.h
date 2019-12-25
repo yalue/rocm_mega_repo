@@ -10,6 +10,7 @@
 #define LLD_ELF_INPUT_FILES_H
 
 #include "Config.h"
+#include "lld/Common/DWARF.h"
 #include "lld/Common/ErrorHandler.h"
 #include "lld/Common/LLVM.h"
 #include "lld/Common/Reproduce.h"
@@ -24,7 +25,6 @@
 #include <map>
 
 namespace llvm {
-struct DILineInfo;
 class TarWriter;
 namespace lto {
 class InputFile;
@@ -32,7 +32,6 @@ class InputFile;
 } // namespace llvm
 
 namespace lld {
-class DWARFCache;
 
 // Returns "<internal>", "foo.a(bar.o)" or "baz.o".
 std::string toString(const elf::InputFile *f);

@@ -20,10 +20,8 @@
 #include "llvm/IR/Module.h"
 #include "llvm/IR/Value.h"
 #include "llvm/IR/ValueHandle.h"
-#include "llvm/InitializePasses.h"
 #include "llvm/MC/MCContext.h"
 #include "llvm/MC/MCSymbol.h"
-#include "llvm/MC/MCSymbolXCOFF.h"
 #include "llvm/Pass.h"
 #include "llvm/Support/Casting.h"
 #include "llvm/Support/ErrorHandling.h"
@@ -118,17 +116,7 @@ ArrayRef<MCSymbol *> MMIAddrLabelMap::getAddrLabelSymbolToEmit(BasicBlock *BB) {
   BBCallbacks.back().setMap(this);
   Entry.Index = BBCallbacks.size() - 1;
   Entry.Fn = BB->getParent();
-  MCSymbol *Sym = Context.createTempSymbol(!BB->hasAddressTaken());
-  if (Context.getObjectFileInfo()->getTargetTriple().isOSBinFormatXCOFF()) {
-    MCSymbol *FnEntryPointSym =
-        Context.lookupSymbol("." + Entry.Fn->getName());
-    assert(FnEntryPointSym && "The function entry pointer symbol should have"
-		              " already been initialized.");
-    MCSectionXCOFF *Csect =
-        cast<MCSymbolXCOFF>(FnEntryPointSym)->getContainingCsect();
-    cast<MCSymbolXCOFF>(Sym)->setContainingCsect(Csect);
-  }
-  Entry.Symbols.push_back(Sym);
+  Entry.Symbols.push_back(Context.createTempSymbol(!BB->hasAddressTaken()));
   return Entry.Symbols;
 }
 

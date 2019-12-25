@@ -1395,7 +1395,8 @@ MachineBasicBlock::computeRegisterLiveness(const TargetRegisterInfo *TRI,
 
     --N;
 
-    PhysRegInfo Info = AnalyzePhysRegInBundle(*I, Reg, TRI);
+    MachineOperandIteratorBase::PhysRegInfo Info =
+        ConstMIOperands(*I).analyzePhysReg(Reg, TRI);
 
     // Register is live when we read it here.
     if (Info.Read)
@@ -1433,7 +1434,8 @@ MachineBasicBlock::computeRegisterLiveness(const TargetRegisterInfo *TRI,
 
       --N;
 
-      PhysRegInfo Info = AnalyzePhysRegInBundle(*I, Reg, TRI);
+      MachineOperandIteratorBase::PhysRegInfo Info =
+          ConstMIOperands(*I).analyzePhysReg(Reg, TRI);
 
       // Defs happen after uses so they take precedence if both are present.
 
@@ -1459,11 +1461,6 @@ MachineBasicBlock::computeRegisterLiveness(const TargetRegisterInfo *TRI,
 
     } while (I != begin() && N > 0);
   }
-
-  // If all the instructions before this in the block are debug instructions,
-  // skip over them.
-  while (I != begin() && std::prev(I)->isDebugInstr())
-    --I;
 
   // Did we get to the start of the block?
   if (I == begin()) {

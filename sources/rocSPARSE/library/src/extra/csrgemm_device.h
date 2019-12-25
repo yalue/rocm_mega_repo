@@ -30,6 +30,37 @@
 
 #include <hip/hip_runtime.h>
 
+// Copy an array
+__global__ void csrgemm_copy(rocsparse_int size,
+                             const rocsparse_int* __restrict__ in,
+                             rocsparse_int* __restrict__ out,
+                             rocsparse_index_base idx_base_in,
+                             rocsparse_index_base idx_base_out)
+{
+    rocsparse_int idx = hipBlockIdx_x * hipBlockDim_x + hipThreadIdx_x;
+
+    if(idx >= size)
+    {
+        return;
+    }
+
+    out[idx] = in[idx] - idx_base_in + idx_base_out;
+}
+
+// Copy and scale an array
+template <typename T>
+__device__ void csrgemm_copy_scale_device(rocsparse_int size, T alpha, const T* in, T* out)
+{
+    rocsparse_int idx = hipBlockIdx_x * hipBlockDim_x + hipThreadIdx_x;
+
+    if(idx >= size)
+    {
+        return;
+    }
+
+    out[idx] = alpha * in[idx];
+}
+
 // Compute number of intermediate products of each row
 template <unsigned int WFSIZE>
 __global__ void csrgemm_intermediate_products(rocsparse_int m,
@@ -156,7 +187,7 @@ __global__ void csrgemm_group_reduce_part1(rocsparse_int m,
     }
 }
 
-template <unsigned int BLOCKSIZE, unsigned int GROUPS>
+template <unsigned int BLOCKSIZE, unsigned int GROUPS, bool CPLX>
 __global__ void csrgemm_group_reduce_part2(rocsparse_int m,
                                            const rocsparse_int* __restrict__ csr_row_ptr,
                                            rocsparse_int* __restrict__ group_size,
@@ -186,7 +217,7 @@ __global__ void csrgemm_group_reduce_part2(rocsparse_int m,
         else if(nnz <=  1024) { ++sdata[hipThreadIdx_x * GROUPS + 4]; workspace[row] = 4; }
         else if(nnz <=  2048) { ++sdata[hipThreadIdx_x * GROUPS + 5]; workspace[row] = 5; }
 #ifndef rocsparse_ILP64
-        else if(nnz <=  4096) { ++sdata[hipThreadIdx_x * GROUPS + 6]; workspace[row] = 6; }
+        else if(nnz <=  4096 && !CPLX) { ++sdata[hipThreadIdx_x * GROUPS + 6]; workspace[row] = 6; }
 #endif
         else                  { ++sdata[hipThreadIdx_x * GROUPS + 7]; workspace[row] = 7; }
         // clang-format on

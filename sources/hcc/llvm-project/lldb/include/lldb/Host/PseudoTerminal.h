@@ -61,14 +61,14 @@ public:
   /// PseudoTerminal::ReleaseMasterFileDescriptor() @li
   /// PseudoTerminal::ReleaseSaveFileDescriptor()
   ///
-  /// \param[out] error_str
+  /// \param[out] error
   ///     An pointer to an error that can describe any errors that
   ///     occur. This can be NULL if no error status is desired.
   ///
   /// \return
-  ///     \b Parent process: a child process ID that is greater
+  ///     \li \b Parent process: a child process ID that is greater
   ///         than zero, or -1 if the fork fails.
-  ///     \b Child process: zero.
+  ///     \li \b Child process: zero.
   lldb::pid_t Fork(char *error_str, size_t error_len);
 
   /// The master file descriptor accessor.
@@ -104,7 +104,7 @@ public:
   /// A master pseudo terminal should already be valid prior to
   /// calling this function.
   ///
-  /// \param[out] error_str
+  /// \param[out] error
   ///     An pointer to an error that can describe any errors that
   ///     occur. This can be NULL if no error status is desired.
   ///
@@ -136,14 +136,14 @@ public:
   ///     Flags to use when calling \c posix_openpt(\a oflag).
   ///     A value of "O_RDWR|O_NOCTTY" is suggested.
   ///
-  /// \param[out] error_str
+  /// \param[out] error
   ///     An pointer to an error that can describe any errors that
   ///     occur. This can be NULL if no error status is desired.
   ///
   /// \return
-  ///     \b true when the master files descriptor is
+  ///     \li \b true when the master files descriptor is
   ///         successfully opened.
-  ///     \b false if anything goes wrong.
+  ///     \li \b false if anything goes wrong.
   ///
   /// \see PseudoTerminal::GetMasterFileDescriptor() @see
   /// PseudoTerminal::ReleaseMasterFileDescriptor()
@@ -165,14 +165,14 @@ public:
   /// \param[in] oflag
   ///     Flags to use when calling \c open(\a oflag).
   ///
-  /// \param[out] error_str
+  /// \param[out] error
   ///     An pointer to an error that can describe any errors that
   ///     occur. This can be NULL if no error status is desired.
   ///
   /// \return
-  ///     \b true when the master files descriptor is
+  ///     \li \b true when the master files descriptor is
   ///         successfully opened.
-  ///     \b false if anything goes wrong.
+  ///     \li \b false if anything goes wrong.
   ///
   /// \see PseudoTerminal::OpenFirstAvailableMaster() @see
   /// PseudoTerminal::GetSlaveFileDescriptor() @see

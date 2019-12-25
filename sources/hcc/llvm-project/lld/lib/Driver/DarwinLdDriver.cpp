@@ -232,7 +232,7 @@ static std::error_code parseOrderFile(StringRef orderFilePath,
      sym = prefixAndSym.first;
     if (!sym.empty()) {
       ctx.appendOrderedSymbol(sym, prefix);
-      // llvm::errs() << sym << ", prefix=" << prefix << "\n";
+      //llvm::errs() << sym << ", prefix=" << prefix << "\n";
     }
   }
   return std::error_code();
@@ -1144,16 +1144,14 @@ static void createFiles(MachOLinkingContext &ctx, bool Implicit) {
 
 /// This is where the link is actually performed.
 bool link(llvm::ArrayRef<const char *> args, bool CanExitEarly,
-          raw_ostream &StdoutOS, raw_ostream &StderrOS) {
-  lld::stdoutOS = &StdoutOS;
-  lld::stderrOS = &StderrOS;
-
+          raw_ostream &Error) {
   errorHandler().logName = args::getFilenameWithoutExe(args[0]);
   errorHandler().errorLimitExceededMsg =
       "too many errors emitted, stopping now (use "
       "'-error-limit 0' to see all errors)";
+  errorHandler().errorOS = &Error;
   errorHandler().exitEarly = CanExitEarly;
-  StderrOS.enable_colors(StderrOS.has_colors());
+  enableColors(Error.has_colors());
 
   MachOLinkingContext ctx;
   if (!parse(args, ctx))
@@ -1198,9 +1196,10 @@ bool link(llvm::ArrayRef<const char *> args, bool CanExitEarly,
   if (auto ec = pm.runOnFile(*merged)) {
     // FIXME: This should be passed to logAllUnhandledErrors but it needs
     // to be passed a Twine instead of a string.
-    lld::errs() << "Failed to run passes on file '" << ctx.outputPath()
-                << "': ";
-    logAllUnhandledErrors(std::move(ec), lld::errs(), std::string());
+    *errorHandler().errorOS << "Failed to run passes on file '"
+                            << ctx.outputPath() << "': ";
+    logAllUnhandledErrors(std::move(ec), *errorHandler().errorOS,
+                          std::string());
     return false;
   }
 
@@ -1211,8 +1210,10 @@ bool link(llvm::ArrayRef<const char *> args, bool CanExitEarly,
   if (auto ec = ctx.writeFile(*merged)) {
     // FIXME: This should be passed to logAllUnhandledErrors but it needs
     // to be passed a Twine instead of a string.
-    lld::errs() << "Failed to write file '" << ctx.outputPath() << "': ";
-    logAllUnhandledErrors(std::move(ec), lld::errs(), std::string());
+    *errorHandler().errorOS << "Failed to write file '" << ctx.outputPath()
+                            << "': ";
+    logAllUnhandledErrors(std::move(ec), *errorHandler().errorOS,
+                          std::string());
     return false;
   }
 

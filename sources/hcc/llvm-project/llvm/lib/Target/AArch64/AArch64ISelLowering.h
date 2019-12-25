@@ -155,14 +155,6 @@ enum NodeType : unsigned {
   SMAXV,
   UMAXV,
 
-  SMAXV_PRED,
-  UMAXV_PRED,
-  SMINV_PRED,
-  UMINV_PRED,
-  ORV_PRED,
-  EORV_PRED,
-  ANDV_PRED,
-
   // Vector bitwise negation
   NOT,
 
@@ -203,17 +195,6 @@ enum NodeType : unsigned {
   SUNPKLO,
   UUNPKHI,
   UUNPKLO,
-
-  INSR,
-
-  // Unsigned gather loads.
-  GLD1,
-  GLD1_SCALED,
-  GLD1_UXTW,
-  GLD1_SXTW,
-  GLD1_UXTW_SCALED,
-  GLD1_SXTW_SCALED,
-  GLD1_IMM,
 
   // NEON Load/Store with post-increment base updates
   LD2post = ISD::FIRST_TARGET_MEMORY_OPCODE,
@@ -415,9 +396,7 @@ public:
   /// Return true if an FMA operation is faster than a pair of fmul and fadd
   /// instructions. fmuladd intrinsics will be expanded to FMAs when this method
   /// returns true, otherwise fmuladd is expanded to fmul + fadd.
-  bool isFMAFasterThanFMulAndFAdd(const MachineFunction &MF,
-                                  EVT VT) const override;
-  bool isFMAFasterThanFMulAndFAdd(const Function &F, Type *Ty) const override;
+  bool isFMAFasterThanFMulAndFAdd(EVT VT) const override;
 
   const MCPhysReg *getScratchRegisters(CallingConv::ID CC) const override;
 
@@ -762,7 +741,6 @@ private:
     return TargetLowering::getInlineAsmMemConstraint(ConstraintCode);
   }
 
-  bool isVectorLoadExtDesirable(SDValue ExtVal) const override;
   bool isUsedByReturnOnly(SDNode *N, SDValue &Chain) const override;
   bool mayBeEmittedAsTailCall(const CallInst *CI) const override;
   bool getIndexedAddressParts(SDNode *Op, SDValue &Base, SDValue &Offset,

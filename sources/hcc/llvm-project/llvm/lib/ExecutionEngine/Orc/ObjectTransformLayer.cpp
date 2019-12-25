@@ -21,18 +21,12 @@ void ObjectTransformLayer::emit(MaterializationResponsibility R,
                                 std::unique_ptr<MemoryBuffer> O) {
   assert(O && "Module must not be null");
 
-  // If there is a transform set then apply it.
-  if (Transform) {
-    if (auto TransformedObj = Transform(std::move(O)))
-      O = std::move(*TransformedObj);
-    else {
-      R.failMaterialization();
-      getExecutionSession().reportError(TransformedObj.takeError());
-      return;
-    }
+  if (auto TransformedObj = Transform(std::move(O)))
+    BaseLayer.emit(std::move(R), std::move(*TransformedObj));
+  else {
+    R.failMaterialization();
+    getExecutionSession().reportError(TransformedObj.takeError());
   }
-
-  BaseLayer.emit(std::move(R), std::move(O));
 }
 
 } // End namespace orc.

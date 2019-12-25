@@ -1,8 +1,6 @@
-; RUN: opt < %s -ipconstprop -S | FileCheck %s
+; RUN: opt < %s -ipconstprop -S | grep "ret i32 %r"
 ; Should not propagate the result of a weak function.
 ; PR2411
-
-; CHECK: ret i32 %r
 
 define weak i32 @foo() nounwind  {
 entry:

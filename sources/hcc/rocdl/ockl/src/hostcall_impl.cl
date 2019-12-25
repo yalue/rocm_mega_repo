@@ -45,7 +45,7 @@ typedef struct {
     hsa_signal_t doorbell;
     ulong free_stack;
     ulong ready_stack;
-    ulong index_mask;
+    uint index_size;
 } buffer_t;
 
 static void
@@ -54,16 +54,28 @@ send_signal(hsa_signal_t signal)
     __ockl_hsa_signal_add(signal, 1, __ockl_memory_order_release);
 }
 
+static ulong
+get_ptr_tag(ulong ptr, uint index_size)
+{
+    return ptr >> index_size;
+}
+
+static ulong
+get_ptr_index(ulong ptr, uint index_size)
+{
+    return ptr & (((ulong)1 << index_size) - 1);
+}
+
 static __global header_t *
 get_header(__global buffer_t *buffer, ulong ptr)
 {
-    return buffer->headers + (ptr & buffer->index_mask);
+    return buffer->headers + get_ptr_index(ptr, buffer->index_size);
 }
 
 static __global payload_t *
 get_payload(__global buffer_t *buffer, ulong ptr)
 {
-    return buffer->payloads + (ptr & buffer->index_mask);
+    return buffer->payloads + get_ptr_index(ptr, buffer->index_size);
 }
 
 static uint
@@ -173,10 +185,10 @@ push_ready_stack(__global buffer_t *buffer, ulong ptr, uint me, uint low)
 }
 
 static ulong
-inc_ptr_tag(ulong ptr, ulong index_mask)
+inc_ptr_tag(ulong ptr, uint index_size)
 {
     // Unit step for the tag.
-    ulong inc = index_mask + 1;
+    ulong inc = 1UL << index_size;
     ptr += inc;
     // When the tag for index 0 wraps, increment the tag.
     return ptr == 0 ? inc : ptr;
@@ -188,7 +200,7 @@ static void
 return_free_packet(__global buffer_t *buffer, ulong ptr, uint me, uint low)
 {
     if (me == low) {
-        ptr = inc_ptr_tag(ptr, buffer->index_mask);
+        ptr = inc_ptr_tag(ptr, buffer->index_size);
         push(&buffer->free_stack, ptr, buffer);
     }
 }
@@ -279,21 +291,9 @@ get_return_value(__global header_t *header, __global payload_t *payload,
  *
  *  *** INTERNAL USE ONLY ***
  *  Internal function, not safe for direct use in user
- *  code. Application kernels must only use __ockl_hostcall_preview()
+ *  code. Application kernels must only use __ockl_hostcall_alpha()
  *  defined elsewhere.
- *
- *  The function is marked noinline to preserve all calls in the
- *  kernel. This is required because the compiler backend includes a
- *  check for the presence of this function as a way to determine that
- *  hostcall is used.
- *
- *  FIXME: Additionally, the optnone attribute is required to ensure
- *  that the SelectAcceleratorCode pass in HCC does not forcibly
- *  inline this function. This should be removed when the SAC pass or
- *  HCC itself is removed.
  */
-__attribute__((noinline))
-__attribute__((optnone))
 long2
 __ockl_hostcall_internal(void *_buffer, uint service_id, ulong arg0, ulong arg1,
                          ulong arg2, ulong arg3, ulong arg4, ulong arg5,

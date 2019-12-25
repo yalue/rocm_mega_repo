@@ -212,11 +212,14 @@ static unsigned countToEliminateCompares(Loop &L, unsigned MaxPeelCount,
     const SCEVAddRecExpr *LeftAR = cast<SCEVAddRecExpr>(LeftSCEV);
 
     // Avoid huge SCEV computations in the loop below, make sure we only
-    // consider AddRecs of the loop we are trying to peel.
-    if (!LeftAR->isAffine() || LeftAR->getLoop() != &L)
-      continue;
+    // consider AddRecs of the loop we are trying to peel and avoid
+    // non-monotonic predicates, as we will not be able to simplify the loop
+    // body.
+    // FIXME: For the non-monotonic predicates ICMP_EQ and ICMP_NE we can
+    //        simplify the loop, if we peel 1 additional iteration, if there
+    //        is no wrapping.
     bool Increasing;
-    if (!(ICmpInst::isEquality(Pred) && LeftAR->hasNoSelfWrap()) &&
+    if (!LeftAR->isAffine() || LeftAR->getLoop() != &L ||
         !SE.isMonotonicPredicate(LeftAR, Pred, Increasing))
       continue;
     (void)Increasing;
@@ -235,43 +238,18 @@ static unsigned countToEliminateCompares(Loop &L, unsigned MaxPeelCount,
       Pred = ICmpInst::getInversePredicate(Pred);
 
     const SCEV *Step = LeftAR->getStepRecurrence(SE);
-    const SCEV *NextIterVal = SE.getAddExpr(IterVal, Step);
-    auto PeelOneMoreIteration = [&IterVal, &NextIterVal, &SE, Step,
-                                 &NewPeelCount]() {
-      IterVal = NextIterVal;
-      NextIterVal = SE.getAddExpr(IterVal, Step);
+    while (NewPeelCount < MaxPeelCount &&
+           SE.isKnownPredicate(Pred, IterVal, RightSCEV)) {
+      IterVal = SE.getAddExpr(IterVal, Step);
       NewPeelCount++;
-    };
-
-    auto CanPeelOneMoreIteration = [&NewPeelCount, &MaxPeelCount]() {
-      return NewPeelCount < MaxPeelCount;
-    };
-
-    while (CanPeelOneMoreIteration() &&
-           SE.isKnownPredicate(Pred, IterVal, RightSCEV))
-      PeelOneMoreIteration();
-
-    // With *that* peel count, does the predicate !Pred become known in the
-    // first iteration of the loop body after peeling?
-    if (!SE.isKnownPredicate(ICmpInst::getInversePredicate(Pred), IterVal,
-                             RightSCEV))
-      continue; // If not, give up.
-
-    // However, for equality comparisons, that isn't always sufficient to
-    // eliminate the comparsion in loop body, we may need to peel one more
-    // iteration. See if that makes !Pred become unknown again.
-    if (ICmpInst::isEquality(Pred) &&
-        !SE.isKnownPredicate(ICmpInst::getInversePredicate(Pred), NextIterVal,
-                             RightSCEV)) {
-      assert(!SE.isKnownPredicate(Pred, IterVal, RightSCEV) &&
-             SE.isKnownPredicate(Pred, NextIterVal, RightSCEV) &&
-             "Expected Pred to go from known to unknown.");
-      if (!CanPeelOneMoreIteration())
-        continue; // Need to peel one more iteration, but can't. Give up.
-      PeelOneMoreIteration(); // Great!
     }
 
-    DesiredPeelCount = std::max(DesiredPeelCount, NewPeelCount);
+    // Only peel the loop if the monotonic predicate !Pred becomes known in the
+    // first iteration of the loop body after peeling.
+    if (NewPeelCount > DesiredPeelCount &&
+        SE.isKnownPredicate(ICmpInst::getInversePredicate(Pred), IterVal,
+                            RightSCEV))
+      DesiredPeelCount = NewPeelCount;
   }
 
   return DesiredPeelCount;

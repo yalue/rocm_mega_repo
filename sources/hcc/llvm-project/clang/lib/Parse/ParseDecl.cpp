@@ -2372,8 +2372,7 @@ Decl *Parser::ParseDeclarationAfterDeclaratorAndAttributes(
         Diag(ConsumeToken(), diag::err_default_delete_in_multiple_declaration)
           << 0 /* default */;
       else
-        Diag(ConsumeToken(), diag::err_default_special_members)
-            << getLangOpts().CPlusPlus2a;
+        Diag(ConsumeToken(), diag::err_default_special_members);
     } else {
       InitializerScopeRAII InitScope(*this, D, ThisDecl);
 
@@ -3997,14 +3996,9 @@ void Parser::ParseDeclarationSpecifiers(DeclSpec &DS,
         PrevSpec = Tok.getIdentifierInfo()->getNameStart();
         isInvalid = true;
         break;
-      }
+      };
       LLVM_FALLTHROUGH;
     case tok::kw_private:
-      // It's fine (but redundant) to check this for __generic on the
-      // fallthrough path; we only form the __generic token in OpenCL mode.
-      if (!getLangOpts().OpenCL)
-        goto DoneWithDeclSpec;
-      LLVM_FALLTHROUGH;
     case tok::kw___private:
     case tok::kw___global:
     case tok::kw___local:
@@ -6698,19 +6692,6 @@ void Parser::ParseParameterDeclarationClause(
        ParsedAttributes &FirstArgAttrs,
        SmallVectorImpl<DeclaratorChunk::ParamInfo> &ParamInfo,
        SourceLocation &EllipsisLoc) {
-
-  // Avoid exceeding the maximum function scope depth.
-  // See https://bugs.llvm.org/show_bug.cgi?id=19607
-  // Note Sema::ActOnParamDeclarator calls ParmVarDecl::setScopeInfo with
-  // getFunctionPrototypeDepth() - 1.
-  if (getCurScope()->getFunctionPrototypeDepth() - 1 >
-      ParmVarDecl::getMaxFunctionScopeDepth()) {
-    Diag(Tok.getLocation(), diag::err_function_scope_depth_exceeded)
-        << ParmVarDecl::getMaxFunctionScopeDepth();
-    cutOffParsing();
-    return;
-  }
-
   do {
     // FIXME: Issue a diagnostic if we parsed an attribute-specifier-seq
     // before deciding this was a parameter-declaration-clause.

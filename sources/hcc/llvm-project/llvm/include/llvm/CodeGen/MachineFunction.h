@@ -20,7 +20,6 @@
 #include "llvm/ADT/ArrayRef.h"
 #include "llvm/ADT/BitVector.h"
 #include "llvm/ADT/DenseMap.h"
-#include "llvm/ADT/FloatingPointMode.h"
 #include "llvm/ADT/GraphTraits.h"
 #include "llvm/ADT/Optional.h"
 #include "llvm/ADT/SmallVector.h"
@@ -37,6 +36,7 @@
 #include "llvm/Support/Compiler.h"
 #include "llvm/Support/ErrorHandling.h"
 #include "llvm/Support/Recycler.h"
+#include "llvm/Target/TargetMachine.h"
 #include <cassert>
 #include <cstdint>
 #include <memory>
@@ -304,10 +304,6 @@ class MachineFunction {
   /// by debug and exception handling consumers.
   std::vector<MCCFIInstruction> FrameInstructions;
 
-  /// List of basic blocks immediately following calls to _setjmp. Used to
-  /// construct a table of valid longjmp targets for Windows Control Flow Guard.
-  std::vector<MCSymbol *> LongjmpTargets;
-
   /// \name Exception Handling
   /// \{
 
@@ -325,6 +321,10 @@ class MachineFunction {
 
   /// CodeView label annotations.
   std::vector<std::pair<MCSymbol *, MDNode *>> CodeViewAnnotations;
+
+  /// CodeView heapallocsites.
+  std::vector<std::tuple<MCSymbol *, MCSymbol *, const DIType *>>
+      CodeViewHeapAllocSites;
 
   bool CallsEHReturn = false;
   bool CallsUnwindInit = false;
@@ -403,7 +403,14 @@ private:
 
   /// A helper function that returns call site info for a give call
   /// instruction if debug entry value support is enabled.
-  CallSiteInfoMap::iterator getCallSiteInfo(const MachineInstr *MI);
+  CallSiteInfoMap::iterator getCallSiteInfo(const MachineInstr *MI) {
+    assert(MI->isCall() &&
+           "Call site info refers only to call instructions!");
+
+    if (!Target.Options.EnableDebugEntryValues)
+      return CallSitesInfo.end();
+    return CallSitesInfo.find(MI);
+  }
 
   // Callbacks for insertion and removal.
   void handleInsertion(MachineInstr &MI);
@@ -553,9 +560,6 @@ public:
   }
   void setHasWinCFI(bool v) { HasWinCFI = v; }
 
-  /// True if this function needs frame moves for debug or exceptions.
-  bool needsFrameMoves() const;
-
   /// Get the function properties
   const MachineFunctionProperties &getProperties() const { return Properties; }
   MachineFunctionProperties &getProperties() { return Properties; }
@@ -574,10 +578,6 @@ public:
   const Ty *getInfo() const {
      return const_cast<MachineFunction*>(this)->getInfo<Ty>();
   }
-
-  /// Returns the denormal handling type for the default rounding mode of the
-  /// function.
-  DenormalMode getDenormalMode(const fltSemantics &FPType) const;
 
   /// getBlockNumbered - MachineBasicBlocks are automatically numbered when they
   /// are inserted into the machine function.  The block number for a machine
@@ -800,9 +800,10 @@ public:
   ///
   /// This is allocated on the function's allocator and so lives the life of
   /// the function.
-  MachineInstr::ExtraInfo *createMIExtraInfo(
-      ArrayRef<MachineMemOperand *> MMOs, MCSymbol *PreInstrSymbol = nullptr,
-      MCSymbol *PostInstrSymbol = nullptr, MDNode *HeapAllocMarker = nullptr);
+  MachineInstr::ExtraInfo *
+  createMIExtraInfo(ArrayRef<MachineMemOperand *> MMOs,
+                    MCSymbol *PreInstrSymbol = nullptr,
+                    MCSymbol *PostInstrSymbol = nullptr);
 
   /// Allocate a string and populate it with the given external symbol name.
   const char *createExternalSymbolName(StringRef Name);
@@ -828,17 +829,6 @@ public:
   }
 
   LLVM_NODISCARD unsigned addFrameInst(const MCCFIInstruction &Inst);
-
-  /// Returns a reference to a list of symbols immediately following calls to
-  /// _setjmp in the function. Used to construct the longjmp target table used
-  /// by Windows Control Flow Guard.
-  const std::vector<MCSymbol *> &getLongjmpTargets() const {
-    return LongjmpTargets;
-  }
-
-  /// Add the specified symbol to the list of valid longjmp targets for Windows
-  /// Control Flow Guard.
-  void addLongjmpTarget(MCSymbol *Target) { LongjmpTargets.push_back(Target); }
 
   /// \name Exception Handling
   /// \{
@@ -955,6 +945,14 @@ public:
 
   ArrayRef<std::pair<MCSymbol *, MDNode *>> getCodeViewAnnotations() const {
     return CodeViewAnnotations;
+  }
+
+  /// Record heapallocsites
+  void addCodeViewHeapAllocSite(MachineInstr *I, const MDNode *MD);
+
+  ArrayRef<std::tuple<MCSymbol *, MCSymbol *, const DIType *>>
+  getCodeViewHeapAllocSites() const {
+    return CodeViewHeapAllocSites;
   }
 
   /// Return a reference to the C++ typeinfo for the current function.

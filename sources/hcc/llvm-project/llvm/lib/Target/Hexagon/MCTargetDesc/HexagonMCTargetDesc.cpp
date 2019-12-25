@@ -219,8 +219,7 @@ static MCRegisterInfo *createHexagonMCRegisterInfo(const Triple &TT) {
 }
 
 static MCAsmInfo *createHexagonMCAsmInfo(const MCRegisterInfo &MRI,
-                                         const Triple &TT,
-                                         const MCTargetOptions &Options) {
+                                         const Triple &TT) {
   MCAsmInfo *MAI = new HexagonMCAsmInfo(TT);
 
   // VirtualFP = (R30 + #0).

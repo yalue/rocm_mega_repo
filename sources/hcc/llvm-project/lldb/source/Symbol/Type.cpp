@@ -139,19 +139,16 @@ Type *SymbolFileType::GetType() {
   return m_type_sp.get();
 }
 
-Type::Type(lldb::user_id_t uid, SymbolFile *symbol_file, ConstString name,
-           llvm::Optional<uint64_t> byte_size, SymbolContextScope *context,
-           user_id_t encoding_uid, EncodingDataType encoding_uid_type,
-           const Declaration &decl, const CompilerType &compiler_type,
+Type::Type(lldb::user_id_t uid, SymbolFile *symbol_file,
+           ConstString name, llvm::Optional<uint64_t> byte_size,
+           SymbolContextScope *context, user_id_t encoding_uid,
+           EncodingDataType encoding_uid_type, const Declaration &decl,
+           const CompilerType &compiler_type,
            ResolveState compiler_type_resolve_state)
     : std::enable_shared_from_this<Type>(), UserID(uid), m_name(name),
       m_symbol_file(symbol_file), m_context(context), m_encoding_type(nullptr),
       m_encoding_uid(encoding_uid), m_encoding_uid_type(encoding_uid_type),
-      m_decl(decl), m_compiler_type(compiler_type),
-      m_compiler_type_resolve_state(
-          compiler_type ? compiler_type_resolve_state
-                        : ResolveState::Unresolved),
-      m_is_complete_objc_class(false) {
+      m_decl(decl), m_compiler_type(compiler_type) {
   if (byte_size) {
     m_byte_size = *byte_size;
     m_byte_size_has_value = true;
@@ -159,15 +156,19 @@ Type::Type(lldb::user_id_t uid, SymbolFile *symbol_file, ConstString name,
     m_byte_size = 0;
     m_byte_size_has_value = false;
   }
+  m_flags.compiler_type_resolve_state =
+      (compiler_type ? compiler_type_resolve_state : eResolveStateUnresolved);
+  m_flags.is_complete_objc_class = false;
 }
 
 Type::Type()
     : std::enable_shared_from_this<Type>(), UserID(0), m_name("<INVALID TYPE>"),
       m_symbol_file(nullptr), m_context(nullptr), m_encoding_type(nullptr),
       m_encoding_uid(LLDB_INVALID_UID), m_encoding_uid_type(eEncodingInvalid),
-      m_compiler_type_resolve_state(ResolveState::Unresolved) {
-  m_byte_size = 0;
-  m_byte_size_has_value = false;
+      m_byte_size(0), m_byte_size_has_value(false), m_decl(),
+      m_compiler_type() {
+  m_flags.compiler_type_resolve_state = eResolveStateUnresolved;
+  m_flags.is_complete_objc_class = false;
 }
 
 void Type::GetDescription(Stream *s, lldb::DescriptionLevel level,
@@ -213,9 +214,6 @@ void Type::GetDescription(Stream *s, lldb::DescriptionLevel level,
     case eEncodingIsVolatileUID:
       s->PutCString(" (unresolved volatile type)");
       break;
-    case eEncodingIsAtomicUID:
-      s->PutCString(" (unresolved atomic type)");
-      break;
     case eEncodingIsTypedefUID:
       s->PutCString(" (unresolved typedef)");
       break;
@@ -258,7 +256,7 @@ void Type::Dump(Stream *s, bool show_context) {
     *s << ", compiler_type = " << m_compiler_type.GetOpaqueQualType() << ' ';
     GetForwardCompilerType().DumpTypeDescription(s);
   } else if (m_encoding_uid != LLDB_INVALID_UID) {
-    s->Format(", type_data = {0:x-16}", m_encoding_uid);
+    *s << ", type_data = " << (uint64_t)m_encoding_uid;
     switch (m_encoding_uid_type) {
     case eEncodingInvalid:
       break;
@@ -273,9 +271,6 @@ void Type::Dump(Stream *s, bool show_context) {
       break;
     case eEncodingIsVolatileUID:
       s->PutCString(" (unresolved volatile type)");
-      break;
-    case eEncodingIsAtomicUID:
-      s->PutCString(" (unresolved atomic type)");
       break;
     case eEncodingIsTypedefUID:
       s->PutCString(" (unresolved typedef)");
@@ -313,7 +308,7 @@ void Type::DumpValue(ExecutionContext *exe_ctx, Stream *s,
                      const DataExtractor &data, uint32_t data_byte_offset,
                      bool show_types, bool show_summary, bool verbose,
                      lldb::Format format) {
-  if (ResolveClangType(ResolveState::Forward)) {
+  if (ResolveClangType(eResolveStateForward)) {
     if (show_types) {
       s->PutChar('(');
       if (verbose)
@@ -349,7 +344,6 @@ llvm::Optional<uint64_t> Type::GetByteSize() {
   case eEncodingIsConstUID:
   case eEncodingIsRestrictUID:
   case eEncodingIsVolatileUID:
-  case eEncodingIsAtomicUID:
   case eEncodingIsTypedefUID: {
     Type *encoding_type = GetEncodingType();
     if (encoding_type)
@@ -478,8 +472,8 @@ bool Type::ResolveClangType(ResolveState compiler_type_resolve_state) {
             encoding_type->GetForwardCompilerType();
         if (encoding_compiler_type.IsValid()) {
           m_compiler_type = encoding_compiler_type;
-          m_compiler_type_resolve_state =
-              encoding_type->m_compiler_type_resolve_state;
+          m_flags.compiler_type_resolve_state =
+              encoding_type->m_flags.compiler_type_resolve_state;
         }
       } break;
 
@@ -496,11 +490,6 @@ bool Type::ResolveClangType(ResolveState compiler_type_resolve_state) {
       case eEncodingIsVolatileUID:
         m_compiler_type =
             encoding_type->GetForwardCompilerType().AddVolatileModifier();
-        break;
-
-      case eEncodingIsAtomicUID:
-        m_compiler_type =
-            encoding_type->GetForwardCompilerType().GetAtomicType();
         break;
 
       case eEncodingIsTypedefUID:
@@ -557,10 +546,6 @@ bool Type::ResolveClangType(ResolveState compiler_type_resolve_state) {
           m_compiler_type = void_compiler_type.AddVolatileModifier();
           break;
 
-        case eEncodingIsAtomicUID:
-          m_compiler_type = void_compiler_type.GetAtomicType();
-          break;
-
         case eEncodingIsTypedefUID:
           m_compiler_type = void_compiler_type.CreateTypedef(
               m_name.AsCString("__lldb_invalid_typedef_name"),
@@ -589,16 +574,16 @@ bool Type::ResolveClangType(ResolveState compiler_type_resolve_state) {
     // set to eResolveStateUnresolved so we need to update it to say that we
     // now have a forward declaration since that is what we created above.
     if (m_compiler_type.IsValid())
-      m_compiler_type_resolve_state = ResolveState::Forward;
+      m_flags.compiler_type_resolve_state = eResolveStateForward;
   }
 
   // Check if we have a forward reference to a class/struct/union/enum?
-  if (compiler_type_resolve_state == ResolveState::Layout ||
-      compiler_type_resolve_state == ResolveState::Full) {
+  if (compiler_type_resolve_state == eResolveStateLayout ||
+      compiler_type_resolve_state == eResolveStateFull) {
     // Check if we have a forward reference to a class/struct/union/enum?
     if (m_compiler_type.IsValid() &&
-        m_compiler_type_resolve_state < compiler_type_resolve_state) {
-      m_compiler_type_resolve_state = ResolveState::Full;
+        m_flags.compiler_type_resolve_state < compiler_type_resolve_state) {
+      m_flags.compiler_type_resolve_state = eResolveStateFull;
       if (!m_compiler_type.IsDefined()) {
         // We have a forward declaration, we need to resolve it to a complete
         // definition.
@@ -616,12 +601,12 @@ bool Type::ResolveClangType(ResolveState compiler_type_resolve_state) {
       ResolveState encoding_compiler_type_resolve_state =
           compiler_type_resolve_state;
 
-      if (compiler_type_resolve_state == ResolveState::Layout) {
+      if (compiler_type_resolve_state == eResolveStateLayout) {
         switch (m_encoding_uid_type) {
         case eEncodingIsPointerUID:
         case eEncodingIsLValueReferenceUID:
         case eEncodingIsRValueReferenceUID:
-          encoding_compiler_type_resolve_state = ResolveState::Forward;
+          encoding_compiler_type_resolve_state = eResolveStateForward;
           break;
         default:
           break;
@@ -642,17 +627,17 @@ uint32_t Type::GetEncodingMask() {
 }
 
 CompilerType Type::GetFullCompilerType() {
-  ResolveClangType(ResolveState::Full);
+  ResolveClangType(eResolveStateFull);
   return m_compiler_type;
 }
 
 CompilerType Type::GetLayoutCompilerType() {
-  ResolveClangType(ResolveState::Layout);
+  ResolveClangType(eResolveStateLayout);
   return m_compiler_type;
 }
 
 CompilerType Type::GetForwardCompilerType() {
-  ResolveClangType(ResolveState::Forward);
+  ResolveClangType(eResolveStateForward);
   return m_compiler_type;
 }
 

@@ -72,7 +72,6 @@ public:
   }
 
   bool enableStackSlotScavenging(const MachineFunction &MF) const override;
-  TargetStackID::Value getStackIDForScalableVectors() const override;
 
   void processFunctionBeforeFrameFinalized(MachineFunction &MF,
                                              RegScavenger *RS) const override;
@@ -102,11 +101,7 @@ public:
 private:
   bool shouldCombineCSRLocalStackBump(MachineFunction &MF,
                                       unsigned StackBumpBytes) const;
-
-  int64_t estimateSVEStackObjectOffsets(MachineFrameInfo &MF) const;
-  int64_t assignSVEStackObjectOffsets(MachineFrameInfo &MF,
-                                      int &MinCSFrameIndex,
-                                      int &MaxCSFrameIndex) const;
+  int64_t determineSVEStackSize(MachineFrameInfo &MF, unsigned &MaxAlign) const;
 };
 
 } // End llvm namespace

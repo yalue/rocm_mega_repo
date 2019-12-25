@@ -17,7 +17,6 @@
 #include "llvm/CodeGen/MachineInstr.h"
 #include "llvm/IR/DiagnosticInfo.h"
 #include "llvm/IR/LLVMContext.h"
-#include "llvm/InitializePasses.h"
 
 using namespace llvm;
 

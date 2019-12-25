@@ -205,8 +205,7 @@ public:
   void relocateOne(uint8_t *loc, RelType type, uint64_t val) const override;
   void writeGotHeader(uint8_t *buf) const override;
   bool needsThunk(RelExpr expr, RelType type, const InputFile *file,
-                  uint64_t branchAddr, const Symbol &s,
-                  int64_t a) const override;
+                  uint64_t branchAddr, const Symbol &s) const override;
   uint32_t getThunkSectionSpacing() const override;
   bool inBranchRange(RelType type, uint64_t src, uint64_t dst) const override;
   RelExpr adjustRelaxExpr(RelType type, const uint8_t *data,
@@ -828,7 +827,7 @@ void PPC64::relocateOne(uint8_t *loc, RelType type, uint64_t val) const {
   case R_PPC64_ADDR16_LO:
   case R_PPC64_REL16_LO:
   case R_PPC64_TPREL16_LO:
-    // When the high-adjusted part of a toc relocation evaluates to 0, it is
+    // When the high-adjusted part of a toc relocation evalutes to 0, it is
     // changed into a nop. The lo part then needs to be updated to use the
     // toc-pointer register r2, as the base register.
     if (config->tocOptimize && shouldTocOptimize && ha(val) == 0) {
@@ -850,7 +849,7 @@ void PPC64::relocateOne(uint8_t *loc, RelType type, uint64_t val) const {
     uint16_t mask = isDQFormInstruction(insn) ? 0xf : 0x3;
     checkAlignment(loc, lo(val), mask + 1, originalType);
     if (config->tocOptimize && shouldTocOptimize && ha(val) == 0) {
-      // When the high-adjusted part of a toc relocation evaluates to 0, it is
+      // When the high-adjusted part of a toc relocation evalutes to 0, it is
       // changed into a nop. The lo part then needs to be updated to use the toc
       // pointer register r2, as the base register.
       if (isInstructionUpdateForm(insn))
@@ -899,7 +898,7 @@ void PPC64::relocateOne(uint8_t *loc, RelType type, uint64_t val) const {
 }
 
 bool PPC64::needsThunk(RelExpr expr, RelType type, const InputFile *file,
-                       uint64_t branchAddr, const Symbol &s, int64_t a) const {
+                       uint64_t branchAddr, const Symbol &s) const {
   if (type != R_PPC64_REL14 && type != R_PPC64_REL24)
     return false;
 
@@ -916,7 +915,7 @@ bool PPC64::needsThunk(RelExpr expr, RelType type, const InputFile *file,
   // a range-extending thunk.
   // See the comment in getRelocTargetVA() about R_PPC64_CALL.
   return !inBranchRange(type, branchAddr,
-                        s.getVA(a) +
+                        s.getVA() +
                             getPPC64GlobalEntryToLocalEntryOffset(s.stOther));
 }
 
@@ -991,7 +990,7 @@ void PPC64::relaxTlsGdToIe(uint8_t *loc, RelType type, uint64_t val) const {
 // The prologue for a split-stack function is expected to look roughly
 // like this:
 //    .Lglobal_entry_point:
-//      # TOC pointer initialization.
+//      # TOC pointer initalization.
 //      ...
 //    .Llocal_entry_point:
 //      # load the __private_ss member of the threads tcbhead.

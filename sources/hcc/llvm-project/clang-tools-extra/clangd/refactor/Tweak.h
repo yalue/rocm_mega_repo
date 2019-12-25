@@ -24,7 +24,6 @@
 #include "Protocol.h"
 #include "Selection.h"
 #include "SourceCode.h"
-#include "index/Index.h"
 #include "clang/Tooling/Core/Replacement.h"
 #include "llvm/ADT/Optional.h"
 #include "llvm/ADT/StringMap.h"
@@ -47,12 +46,9 @@ class Tweak {
 public:
   /// Input to prepare and apply tweaks.
   struct Selection {
-    Selection(const SymbolIndex *Index, ParsedAST &AST, unsigned RangeBegin,
-              unsigned RangeEnd);
+    Selection(ParsedAST &AST, unsigned RangeBegin, unsigned RangeEnd);
     /// The text of the active document.
     llvm::StringRef Code;
-    /// The Index for handling codebase related queries.
-    const SymbolIndex *Index = nullptr;
     /// Parsed AST of the active file.
     ParsedAST &AST;
     /// A location of the cursor in the editor.
@@ -77,7 +73,9 @@ public:
   struct Effect {
     /// A message to be displayed to the user.
     llvm::Optional<std::string> ShowMessage;
-    FileEdits ApplyEdits;
+    /// A mapping from file path(the one used for accessing the underlying VFS)
+    /// to edits.
+    llvm::StringMap<Edit> ApplyEdits;
 
     static Effect showMessage(StringRef S) {
       Effect E;

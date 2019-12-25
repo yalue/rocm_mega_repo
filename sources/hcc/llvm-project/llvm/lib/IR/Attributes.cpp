@@ -241,16 +241,16 @@ bool Attribute::hasAttribute(StringRef Kind) const {
   return pImpl && pImpl->hasAttribute(Kind);
 }
 
-MaybeAlign Attribute::getAlignment() const {
+unsigned Attribute::getAlignment() const {
   assert(hasAttribute(Attribute::Alignment) &&
          "Trying to get alignment from non-alignment attribute!");
-  return MaybeAlign(pImpl->getValueAsInt());
+  return pImpl->getValueAsInt();
 }
 
-MaybeAlign Attribute::getStackAlignment() const {
+unsigned Attribute::getStackAlignment() const {
   assert(hasAttribute(Attribute::StackAlignment) &&
          "Trying to get alignment from non-alignment attribute!");
-  return MaybeAlign(pImpl->getValueAsInt());
+  return pImpl->getValueAsInt();
 }
 
 uint64_t Attribute::getDereferenceableBytes() const {
@@ -667,12 +667,12 @@ Attribute AttributeSet::getAttribute(StringRef Kind) const {
   return SetNode ? SetNode->getAttribute(Kind) : Attribute();
 }
 
-MaybeAlign AttributeSet::getAlignment() const {
-  return SetNode ? SetNode->getAlignment() : None;
+unsigned AttributeSet::getAlignment() const {
+  return SetNode ? SetNode->getAlignment() : 0;
 }
 
-MaybeAlign AttributeSet::getStackAlignment() const {
-  return SetNode ? SetNode->getStackAlignment() : None;
+unsigned AttributeSet::getStackAlignment() const {
+  return SetNode ? SetNode->getStackAlignment() : 0;
 }
 
 uint64_t AttributeSet::getDereferenceableBytes() const {
@@ -779,12 +779,10 @@ AttributeSetNode *AttributeSetNode::get(LLVMContext &C, const AttrBuilder &B) {
       Attr = Attribute::getWithByValType(C, B.getByValType());
       break;
     case Attribute::Alignment:
-      assert(B.getAlignment() && "Alignment must be set");
-      Attr = Attribute::getWithAlignment(C, *B.getAlignment());
+      Attr = Attribute::getWithAlignment(C, Align(B.getAlignment()));
       break;
     case Attribute::StackAlignment:
-      assert(B.getStackAlignment() && "StackAlignment must be set");
-      Attr = Attribute::getWithStackAlignment(C, *B.getStackAlignment());
+      Attr = Attribute::getWithStackAlignment(C, Align(B.getStackAlignment()));
       break;
     case Attribute::Dereferenceable:
       Attr = Attribute::getWithDereferenceableBytes(
@@ -835,18 +833,18 @@ Attribute AttributeSetNode::getAttribute(StringRef Kind) const {
   return {};
 }
 
-MaybeAlign AttributeSetNode::getAlignment() const {
+unsigned AttributeSetNode::getAlignment() const {
   for (const auto I : *this)
     if (I.hasAttribute(Attribute::Alignment))
       return I.getAlignment();
-  return None;
+  return 0;
 }
 
-MaybeAlign AttributeSetNode::getStackAlignment() const {
+unsigned AttributeSetNode::getStackAlignment() const {
   for (const auto I : *this)
     if (I.hasAttribute(Attribute::StackAlignment))
       return I.getStackAlignment();
-  return None;
+  return 0;
 }
 
 Type *AttributeSetNode::getByValType() const {
@@ -1163,8 +1161,8 @@ AttributeList AttributeList::addAttributes(LLVMContext &C, unsigned Index,
 #ifndef NDEBUG
   // FIXME it is not obvious how this should work for alignment. For now, say
   // we can't change a known alignment.
-  const MaybeAlign OldAlign = getAttributes(Index).getAlignment();
-  const MaybeAlign NewAlign = B.getAlignment();
+  unsigned OldAlign = getAttributes(Index).getAlignment();
+  unsigned NewAlign = B.getAlignment();
   assert((!OldAlign || !NewAlign || OldAlign == NewAlign) &&
          "Attempt to change alignment!");
 #endif
@@ -1348,11 +1346,11 @@ Attribute AttributeList::getAttribute(unsigned Index, StringRef Kind) const {
   return getAttributes(Index).getAttribute(Kind);
 }
 
-MaybeAlign AttributeList::getRetAlignment() const {
+unsigned AttributeList::getRetAlignment() const {
   return getAttributes(ReturnIndex).getAlignment();
 }
 
-MaybeAlign AttributeList::getParamAlignment(unsigned ArgNo) const {
+unsigned AttributeList::getParamAlignment(unsigned ArgNo) const {
   return getAttributes(ArgNo + FirstArgIndex).getAlignment();
 }
 
@@ -1360,7 +1358,8 @@ Type *AttributeList::getParamByValType(unsigned Index) const {
   return getAttributes(Index+FirstArgIndex).getByValType();
 }
 
-MaybeAlign AttributeList::getStackAlignment(unsigned Index) const {
+
+unsigned AttributeList::getStackAlignment(unsigned Index) const {
   return getAttributes(Index).getStackAlignment();
 }
 
@@ -1462,9 +1461,9 @@ AttrBuilder &AttrBuilder::addAttribute(Attribute Attr) {
   Attrs[Kind] = true;
 
   if (Kind == Attribute::Alignment)
-    Alignment = Attr.getAlignment();
+    Alignment = MaybeAlign(Attr.getAlignment());
   else if (Kind == Attribute::StackAlignment)
-    StackAlignment = Attr.getStackAlignment();
+    StackAlignment = MaybeAlign(Attr.getStackAlignment());
   else if (Kind == Attribute::ByVal)
     ByValType = Attr.getValueAsType();
   else if (Kind == Attribute::Dereferenceable)
@@ -1517,7 +1516,8 @@ std::pair<unsigned, Optional<unsigned>> AttrBuilder::getAllocSizeArgs() const {
   return unpackAllocSizeArgs(AllocSizeArgs);
 }
 
-AttrBuilder &AttrBuilder::addAlignmentAttr(MaybeAlign Align) {
+AttrBuilder &AttrBuilder::addAlignmentAttr(unsigned A) {
+  MaybeAlign Align(A);
   if (!Align)
     return *this;
 
@@ -1528,7 +1528,8 @@ AttrBuilder &AttrBuilder::addAlignmentAttr(MaybeAlign Align) {
   return *this;
 }
 
-AttrBuilder &AttrBuilder::addStackAlignmentAttr(MaybeAlign Align) {
+AttrBuilder &AttrBuilder::addStackAlignmentAttr(unsigned A) {
+  MaybeAlign Align(A);
   // Default alignment, allow the target to define how to align it.
   if (!Align)
     return *this;

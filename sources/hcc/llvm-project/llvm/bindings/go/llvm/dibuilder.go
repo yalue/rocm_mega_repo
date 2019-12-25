@@ -54,6 +54,7 @@ const (
 	FlagVector
 	FlagStaticMember
 	FlagIndirectVariable
+	FlagArgumentNotModified
 )
 
 type DwarfLang uint32
@@ -504,7 +505,6 @@ type DITypedef struct {
 	File    Metadata
 	Line    int
 	Context Metadata
-  AlignInBits uint32
 }
 
 // CreateTypedef creates typedef type debug metadata.
@@ -519,7 +519,6 @@ func (d *DIBuilder) CreateTypedef(t DITypedef) Metadata {
 		t.File.C,
 		C.unsigned(t.Line),
 		t.Context.C,
-    C.uint32_t(t.AlignInBits),
 	)
 	return Metadata{C: result}
 }

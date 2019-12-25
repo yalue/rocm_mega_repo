@@ -31,8 +31,8 @@
 #include "llvm/ADT/None.h"
 #include "llvm/ADT/Optional.h"
 #include "llvm/ADT/STLExtras.h"
-#include "llvm/ADT/SmallPtrSet.h"
 #include "llvm/ADT/SmallSet.h"
+#include "llvm/ADT/SmallPtrSet.h"
 #include "llvm/ADT/SmallVector.h"
 #include "llvm/ADT/Statistic.h"
 #include "llvm/ADT/iterator_range.h"
@@ -44,6 +44,7 @@
 #include "llvm/Analysis/TargetLibraryInfo.h"
 #include "llvm/Analysis/TargetTransformInfo.h"
 #include "llvm/Analysis/ValueTracking.h"
+#include "llvm/Transforms/Utils/Local.h"
 #include "llvm/IR/BasicBlock.h"
 #include "llvm/IR/Constant.h"
 #include "llvm/IR/ConstantRange.h"
@@ -67,7 +68,6 @@
 #include "llvm/IR/User.h"
 #include "llvm/IR/Value.h"
 #include "llvm/IR/ValueHandle.h"
-#include "llvm/InitializePasses.h"
 #include "llvm/Pass.h"
 #include "llvm/Support/Casting.h"
 #include "llvm/Support/CommandLine.h"
@@ -79,7 +79,6 @@
 #include "llvm/Transforms/Scalar.h"
 #include "llvm/Transforms/Scalar/LoopPassManager.h"
 #include "llvm/Transforms/Utils/BasicBlockUtils.h"
-#include "llvm/Transforms/Utils/Local.h"
 #include "llvm/Transforms/Utils/LoopUtils.h"
 #include "llvm/Transforms/Utils/SimplifyIndVar.h"
 #include <cassert>
@@ -126,8 +125,9 @@ DisableLFTR("disable-lftr", cl::Hidden, cl::init(false),
             cl::desc("Disable Linear Function Test Replace optimization"));
 
 static cl::opt<bool>
-LoopPredication("indvars-predicate-loops", cl::Hidden, cl::init(true),
+LoopPredication("indvars-predicate-loops", cl::Hidden, cl::init(false),
                 cl::desc("Predicate conditions in read only loops"));
+
 
 namespace {
 
@@ -2663,11 +2663,11 @@ static const SCEV* getMaxBackedgeTakenCount(ScalarEvolution &SE,
   // merge the max and exact information to approximate a version of
   // getConstantMaxBackedgeTakenCount which isn't restricted to just constants.
   SmallVector<const SCEV*, 4> ExitCounts;
+  const SCEV *MaxConstEC = SE.getConstantMaxBackedgeTakenCount(L);
+  if (!isa<SCEVCouldNotCompute>(MaxConstEC))
+    ExitCounts.push_back(MaxConstEC);
   for (BasicBlock *ExitingBB : ExitingBlocks) {
     const SCEV *ExitCount = SE.getExitCount(L, ExitingBB);
-    if (isa<SCEVCouldNotCompute>(ExitCount))
-      ExitCount = SE.getExitCount(L, ExitingBB,
-                                  ScalarEvolution::ConstantMaximum);
     if (!isa<SCEVCouldNotCompute>(ExitCount)) {
       assert(DT.dominates(ExitingBB, L->getLoopLatch()) &&
              "We should only have known counts for exiting blocks that "
@@ -2835,10 +2835,6 @@ bool IndVarSimplify::predicateLoopExits(Loop *L, SCEVExpander &Rewriter) {
       !isSafeToExpand(ExactBTC, *SE))
     return Changed;
 
-  // If we end up with a pointer exit count, bail.  It may be unsized.
-  if (!ExactBTC->getType()->isIntegerTy())
-    return Changed;
-
   auto BadExit = [&](BasicBlock *ExitingBB) {
     // If our exiting block exits multiple loops, we can only rewrite the
     // innermost one.  Otherwise, we're changing how many times the innermost
@@ -2867,10 +2863,6 @@ bool IndVarSimplify::predicateLoopExits(Loop *L, SCEVExpander &Rewriter) {
     assert(!isa<SCEVCouldNotCompute>(ExactBTC) && "implied by having exact trip count");
     if (!SE->isLoopInvariant(ExitCount, L) ||
         !isSafeToExpand(ExitCount, *SE))
-      return true;
-
-    // If we end up with a pointer exit count, bail.  It may be unsized.
-    if (!ExitCount->getType()->isIntegerTy())
       return true;
 
     return false;
@@ -2944,7 +2936,7 @@ bool IndVarSimplify::predicateLoopExits(Loop *L, SCEVExpander &Rewriter) {
   //    varying check.
   Rewriter.setInsertPoint(L->getLoopPreheader()->getTerminator());
   IRBuilder<> B(L->getLoopPreheader()->getTerminator());
-  Value *ExactBTCV = nullptr; // Lazily generated if needed.
+  Value *ExactBTCV = nullptr; //lazy generated if needed
   for (BasicBlock *ExitingBB : ExitingBlocks) {
     const SCEV *ExitCount = SE->getExitCount(L, ExitingBB);
 
@@ -2999,14 +2991,14 @@ bool IndVarSimplify::run(Loop *L) {
   if (!L->isLoopSimplifyForm())
     return false;
 
+  // If there are any floating-point recurrences, attempt to
+  // transform them to use integer recurrences.
+  Changed |= rewriteNonIntegerIVs(L);
+
 #ifndef NDEBUG
   // Used below for a consistency check only
   const SCEV *BackedgeTakenCount = SE->getBackedgeTakenCount(L);
 #endif
-
-  // If there are any floating-point recurrences, attempt to
-  // transform them to use integer recurrences.
-  Changed |= rewriteNonIntegerIVs(L);
 
   // Create a rewriter object which we'll use to transform the code with.
   SCEVExpander Rewriter(*SE, DL, "indvars");
@@ -3034,19 +3026,11 @@ bool IndVarSimplify::run(Loop *L) {
   NumElimIV += Rewriter.replaceCongruentIVs(L, DT, DeadInsts);
 
   // Try to eliminate loop exits based on analyzeable exit counts
-  if (optimizeLoopExits(L, Rewriter))  {
-    Changed = true;
-    // Given we've changed exit counts, notify SCEV
-    SE->forgetLoop(L);
-  }
+  Changed |= optimizeLoopExits(L, Rewriter);
   
   // Try to form loop invariant tests for loop exits by changing how many
   // iterations of the loop run when that is unobservable.
-  if (predicateLoopExits(L, Rewriter)) {
-    Changed = true;
-    // Given we've changed exit counts, notify SCEV
-    SE->forgetLoop(L);
-  }
+  Changed |= predicateLoopExits(L, Rewriter);
 
   // If we have a trip count expression, rewrite the loop's exit condition
   // using it.  
@@ -3134,8 +3118,7 @@ bool IndVarSimplify::run(Loop *L) {
          "Indvars did not preserve LCSSA!");
 
   // Verify that LFTR, and any other change have not interfered with SCEV's
-  // ability to compute trip count.  We may have *changed* the exit count, but
-  // only by reducing it.
+  // ability to compute trip count.
 #ifndef NDEBUG
   if (VerifyIndvars && !isa<SCEVCouldNotCompute>(BackedgeTakenCount)) {
     SE->forgetLoop(L);
@@ -3147,8 +3130,7 @@ bool IndVarSimplify::run(Loop *L) {
     else
       BackedgeTakenCount = SE->getTruncateOrNoop(BackedgeTakenCount,
                                                  NewBECount->getType());
-    assert(!SE->isKnownPredicate(ICmpInst::ICMP_ULT, BackedgeTakenCount,
-                                 NewBECount) && "indvars must preserve SCEV");
+    assert(BackedgeTakenCount == NewBECount && "indvars must preserve SCEV");
   }
 #endif
 

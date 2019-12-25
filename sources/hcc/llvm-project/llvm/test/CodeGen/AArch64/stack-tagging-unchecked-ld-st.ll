@@ -3,32 +3,12 @@
 ; RUN: llc < %s -mtriple=aarch64 -mattr=+mte -stack-tagging-unchecked-ld-st=always | FileCheck %s --check-prefixes=ALWAYS,COMMON
 
 declare void @use8(i8*)
-declare void @use16(i16*)
 declare void @use32(i32*)
-declare void @use64(i64*)
 declare void @use2x64([2 x i64]*)
 declare void @llvm.lifetime.start.p0i8(i64, i8* nocapture)
 declare void @llvm.lifetime.end.p0i8(i64, i8* nocapture)
 
-define i64 @CallLd64() sanitize_memtag {
-entry:
-  %x = alloca i64, align 4
-  call void @use64(i64* %x)
-  %a = load i64, i64* %x
-  ret i64 %a
-}
-
-; COMMON:  CallLd64:
-; COMMON:  bl  use64
-
-; ALWAYS:  ldr x0, [sp]
-; DEFAULT: ldr x0, [sp]
-; NEVER:   ldr x0, [x{{.*}}]
-
-; COMMON:  ret
-
-
-define i32 @CallLd32() sanitize_memtag {
+define i32 @CallLd() sanitize_memtag {
 entry:
   %x = alloca i32, align 4
   call void @use32(i32* %x)
@@ -36,7 +16,7 @@ entry:
   ret i32 %a
 }
 
-; COMMON:  CallLd32:
+; COMMON:  CallLd:
 ; COMMON:  bl  use32
 
 ; ALWAYS:  ldr w0, [sp]
@@ -45,64 +25,7 @@ entry:
 
 ; COMMON:  ret
 
-
-define i16 @CallLd16() sanitize_memtag {
-entry:
-  %x = alloca i16, align 4
-  call void @use16(i16* %x)
-  %a = load i16, i16* %x
-  ret i16 %a
-}
-
-; COMMON:  CallLd16:
-; COMMON:  bl  use16
-
-; ALWAYS:  ldrh w0, [sp]
-; DEFAULT: ldrh w0, [sp]
-; NEVER:   ldrh w0, [x{{.*}}]
-
-; COMMON:  ret
-
-
-define i8 @CallLd8() sanitize_memtag {
-entry:
-  %x = alloca i8, align 4
-  call void @use8(i8* %x)
-  %a = load i8, i8* %x
-  ret i8 %a
-}
-
-; COMMON:  CallLd8:
-; COMMON:  bl  use8
-
-; ALWAYS:  ldrb w0, [sp]
-; DEFAULT: ldrb w0, [sp]
-; NEVER:   ldrb w0, [x{{.*}}]
-
-; COMMON:  ret
-
-
-define void @CallSt64Call() sanitize_memtag {
-entry:
-  %x = alloca i64, align 4
-  call void @use64(i64* %x)
-  store i64 42, i64* %x
-  call void @use64(i64* %x)
-  ret void
-}
-
-; COMMON:  CallSt64Call:
-; COMMON:  bl  use64
-
-; ALWAYS:  str x{{.*}}, [sp]
-; DEFAULT: str x{{.*}}, [sp]
-; NEVER:   str x{{.*}}, [x{{.*}}]
-
-; COMMON:  bl  use64
-; COMMON:  ret
-
-
-define void @CallSt32Call() sanitize_memtag {
+define void @CallStCall() sanitize_memtag {
 entry:
   %x = alloca i32, align 4
   call void @use32(i32* %x)
@@ -111,7 +34,7 @@ entry:
   ret void
 }
 
-; COMMON:  CallSt32Call:
+; COMMON:  CallStCall:
 ; COMMON:  bl  use32
 
 ; ALWAYS:  str w{{.*}}, [sp]
@@ -120,48 +43,6 @@ entry:
 
 ; COMMON:  bl  use32
 ; COMMON:  ret
-
-
-define void @CallSt16Call() sanitize_memtag {
-entry:
-  %x = alloca i16, align 4
-  call void @use16(i16* %x)
-  store i16 42, i16* %x
-  call void @use16(i16* %x)
-  ret void
-}
-
-
-; COMMON:  CallSt16Call:
-; COMMON:  bl  use16
-
-; ALWAYS:  strh w{{.*}}, [sp]
-; DEFAULT: strh w{{.*}}, [sp]
-; NEVER:   strh w{{.*}}, [x{{.*}}]
-
-; COMMON:  bl  use16
-; COMMON:  ret
-
-
-define void @CallSt8Call() sanitize_memtag {
-entry:
-  %x = alloca i8, align 4
-  call void @use8(i8* %x)
-  store i8 42, i8* %x
-  call void @use8(i8* %x)
-  ret void
-}
-
-; COMMON:  CallSt8Call:
-; COMMON:  bl  use8
-
-; ALWAYS:  strb w{{.*}}, [sp]
-; DEFAULT: strb w{{.*}}, [sp]
-; NEVER:   strb w{{.*}}, [x{{.*}}]
-
-; COMMON:  bl  use8
-; COMMON:  ret
-
 
 define void @CallStPair(i64 %z) sanitize_memtag {
 entry:

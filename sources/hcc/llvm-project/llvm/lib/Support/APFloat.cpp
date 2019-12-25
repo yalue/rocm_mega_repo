@@ -1484,19 +1484,22 @@ lostFraction IEEEFloat::addOrSubtractSignificand(const IEEEFloat &rhs,
   /* Subtraction is more subtle than one might naively expect.  */
   if (subtract) {
     IEEEFloat temp_rhs(rhs);
+    bool reverse;
 
-    if (bits == 0)
+    if (bits == 0) {
+      reverse = compareAbsoluteValue(temp_rhs) == cmpLessThan;
       lost_fraction = lfExactlyZero;
-    else if (bits > 0) {
+    } else if (bits > 0) {
       lost_fraction = temp_rhs.shiftSignificandRight(bits - 1);
       shiftSignificandLeft(1);
+      reverse = false;
     } else {
       lost_fraction = shiftSignificandRight(-bits - 1);
       temp_rhs.shiftSignificandLeft(1);
+      reverse = true;
     }
 
-    // Should we reverse the subtraction.
-    if (compareAbsoluteValue(temp_rhs) == cmpLessThan) {
+    if (reverse) {
       carry = temp_rhs.subtractSignificand
         (*this, lost_fraction != lfExactlyZero);
       copySignificand(temp_rhs);

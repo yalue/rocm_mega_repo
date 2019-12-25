@@ -12,7 +12,6 @@
 //===----------------------------------------------------------------------===//
 
 #include "clang/Serialization/ASTReader.h"
-#include "clang/AST/ASTConcept.h"
 #include "clang/AST/ASTContext.h"
 #include "clang/AST/AttrIterator.h"
 #include "clang/AST/Decl.h"
@@ -743,33 +742,14 @@ void ASTStmtReader::VisitConceptSpecializationExpr(
   E->TemplateKWLoc = Record.readSourceLocation();
   E->ConceptNameLoc = Record.readSourceLocation();
   E->FoundDecl = ReadDeclAs<NamedDecl>();
-  E->NamedConcept = ReadDeclAs<ConceptDecl>();
+  E->NamedConcept.setPointer(ReadDeclAs<ConceptDecl>());
   const ASTTemplateArgumentListInfo *ArgsAsWritten =
       Record.readASTTemplateArgumentListInfo();
   llvm::SmallVector<TemplateArgument, 4> Args;
   for (unsigned I = 0; I < NumTemplateArgs; ++I)
     Args.push_back(Record.readTemplateArgument());
   E->setTemplateArguments(ArgsAsWritten, Args);
-  ConstraintSatisfaction Satisfaction;
-  Satisfaction.IsSatisfied = Record.readInt();
-  if (!Satisfaction.IsSatisfied) {
-    unsigned NumDetailRecords = Record.readInt();
-    for (unsigned i = 0; i != NumDetailRecords; ++i) {
-      Expr *ConstraintExpr = Record.readExpr();
-      bool IsDiagnostic = Record.readInt();
-      if (IsDiagnostic) {
-        SourceLocation DiagLocation = Record.readSourceLocation();
-        std::string DiagMessage = Record.readString();
-        Satisfaction.Details.emplace_back(
-            ConstraintExpr, new (Record.getContext())
-                                ConstraintSatisfaction::SubstitutionDiagnostic{
-                                    DiagLocation, DiagMessage});
-      } else
-        Satisfaction.Details.emplace_back(ConstraintExpr, Record.readExpr());
-    }
-  }
-  E->Satisfaction = ASTConstraintSatisfaction::Create(Record.getContext(),
-                                                      Satisfaction);
+  E->NamedConcept.setInt(Record.readInt() == 1);
 }
 
 void ASTStmtReader::VisitArraySubscriptExpr(ArraySubscriptExpr *E) {
@@ -1920,11 +1900,10 @@ void ASTStmtReader::VisitFunctionParmPackExpr(FunctionParmPackExpr *E) {
 
 void ASTStmtReader::VisitMaterializeTemporaryExpr(MaterializeTemporaryExpr *E) {
   VisitExpr(E);
-  bool HasMaterialzedDecl = Record.readInt();
-  if (HasMaterialzedDecl)
-    E->State = cast<LifetimeExtendedTemporaryDecl>(Record.readDecl());
-  else
-    E->State = Record.readSubExpr();
+  E->State = Record.readSubExpr();
+  auto *VD = ReadDeclAs<ValueDecl>();
+  unsigned ManglingNumber = Record.readInt();
+  E->setExtendingDecl(VD, ManglingNumber);
 }
 
 void ASTStmtReader::VisitCXXFoldExpr(CXXFoldExpr *E) {
@@ -2185,14 +2164,6 @@ void ASTStmtReader::VisitOMPParallelForSimdDirective(
   VisitOMPLoopDirective(D);
 }
 
-void ASTStmtReader::VisitOMPParallelMasterDirective(
-    OMPParallelMasterDirective *D) {
-  VisitStmt(D);
-  // The NumClauses field was read in ReadStmtFromStream.
-  Record.skipInts(1);
-  VisitOMPExecutableDirective(D);
-}
-
 void ASTStmtReader::VisitOMPParallelSectionsDirective(
     OMPParallelSectionsDirective *D) {
   VisitStmt(D);
@@ -2342,11 +2313,6 @@ void ASTStmtReader::VisitOMPMasterTaskLoopSimdDirective(
 
 void ASTStmtReader::VisitOMPParallelMasterTaskLoopDirective(
     OMPParallelMasterTaskLoopDirective *D) {
-  VisitOMPLoopDirective(D);
-}
-
-void ASTStmtReader::VisitOMPParallelMasterTaskLoopSimdDirective(
-    OMPParallelMasterTaskLoopSimdDirective *D) {
   VisitOMPLoopDirective(D);
 }
 
@@ -3031,11 +2997,6 @@ Stmt *ASTReader::ReadStmtFromStream(ModuleFile &F) {
       break;
     }
 
-    case STMT_OMP_PARALLEL_MASTER_DIRECTIVE:
-      S = OMPParallelMasterDirective::CreateEmpty(
-          Context, Record[ASTStmtReader::NumStmtFields], Empty);
-      break;
-
     case STMT_OMP_PARALLEL_SECTIONS_DIRECTIVE:
       S = OMPParallelSectionsDirective::CreateEmpty(
           Context, Record[ASTStmtReader::NumStmtFields], Empty);
@@ -3167,14 +3128,6 @@ Stmt *ASTReader::ReadStmtFromStream(ModuleFile &F) {
       unsigned CollapsedNum = Record[ASTStmtReader::NumStmtFields + 1];
       S = OMPParallelMasterTaskLoopDirective::CreateEmpty(Context, NumClauses,
                                                           CollapsedNum, Empty);
-      break;
-    }
-
-    case STMT_OMP_PARALLEL_MASTER_TASKLOOP_SIMD_DIRECTIVE: {
-      unsigned NumClauses = Record[ASTStmtReader::NumStmtFields];
-      unsigned CollapsedNum = Record[ASTStmtReader::NumStmtFields + 1];
-      S = OMPParallelMasterTaskLoopSimdDirective::CreateEmpty(
-          Context, NumClauses, CollapsedNum, Empty);
       break;
     }
 

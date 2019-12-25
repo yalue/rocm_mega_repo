@@ -34,7 +34,6 @@ namespace llvm {
 class Function;
 class LoopInfo;
 class raw_ostream;
-class PostDominatorTree;
 class TargetLibraryInfo;
 class Value;
 
@@ -180,7 +179,7 @@ private:
   DenseMap<Edge, BranchProbability> Probs;
 
   /// Track the last function we run over for printing.
-  const Function *LastF = nullptr;
+  const Function *LastF;
 
   /// Track the set of blocks directly succeeded by a returning block.
   SmallPtrSet<const BasicBlock *, 16> PostDominatedByUnreachable;
@@ -188,10 +187,8 @@ private:
   /// Track the set of blocks that always lead to a cold call.
   SmallPtrSet<const BasicBlock *, 16> PostDominatedByColdCall;
 
-  void computePostDominatedByUnreachable(const Function &F,
-                                         PostDominatorTree *PDT);
-  void computePostDominatedByColdCall(const Function &F,
-                                      PostDominatorTree *PDT);
+  void updatePostDominatedByUnreachable(const BasicBlock *BB);
+  void updatePostDominatedByColdCall(const BasicBlock *BB);
   bool calcUnreachableHeuristics(const BasicBlock *BB);
   bool calcMetadataWeights(const BasicBlock *BB);
   bool calcColdCallHeuristics(const BasicBlock *BB);
@@ -236,7 +233,10 @@ class BranchProbabilityInfoWrapperPass : public FunctionPass {
 public:
   static char ID;
 
-  BranchProbabilityInfoWrapperPass();
+  BranchProbabilityInfoWrapperPass() : FunctionPass(ID) {
+    initializeBranchProbabilityInfoWrapperPassPass(
+        *PassRegistry::getPassRegistry());
+  }
 
   BranchProbabilityInfo &getBPI() { return BPI; }
   const BranchProbabilityInfo &getBPI() const { return BPI; }

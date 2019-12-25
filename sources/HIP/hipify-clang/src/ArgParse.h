@@ -30,8 +30,7 @@ namespace ct = clang::tooling;
 
 extern cl::OptionCategory ToolTemplateCategory;
 extern cl::opt<std::string> OutputFilename;
-extern cl::opt<std::string> OutputPerlMapFilename;
-extern cl::opt<std::string> OutputPerlMapDir;
+extern cl::opt<std::string> OutputHipifyPerlDir;
 extern cl::opt<std::string> OutputPythonMapDir;
 extern cl::opt<std::string> OutputDir;
 extern cl::opt<std::string> TemporaryDir;
@@ -53,3 +52,4 @@ extern cl::extrahelp CommonHelp;
 extern cl::opt<bool> TranslateToRoc;
 extern cl::opt<bool> DashDash;
 extern cl::opt<bool> SkipExcludedPPConditionalBlocks;
+extern cl::opt<std::string> CudaGpuArch;

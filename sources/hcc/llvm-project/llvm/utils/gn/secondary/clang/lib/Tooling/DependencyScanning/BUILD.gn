@@ -19,6 +19,5 @@ static_library("DependencyScanning") {
     "DependencyScanningService.cpp",
     "DependencyScanningTool.cpp",
     "DependencyScanningWorker.cpp",
-    "ModuleDepCollector.cpp",
   ]
 }

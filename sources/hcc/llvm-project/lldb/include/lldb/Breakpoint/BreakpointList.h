@@ -67,10 +67,8 @@ public:
   ///   The breakpoint name for which to search.
   ///
   /// \result
-  ///   error if the input name was not a legal breakpoint name, vector
-  ///   of breakpoints otherwise.
-  llvm::Expected<std::vector<lldb::BreakpointSP>>
-  FindBreakpointsByName(const char *name);
+  ///   \bfalse if the input name was not a legal breakpoint name.
+  bool FindBreakpointsByName(const char *name, BreakpointList &matching_bps);
 
   /// Returns the number of elements in this breakpoint list.
   ///
@@ -140,7 +138,7 @@ public:
 
   /// Sets the passed in Locker to hold the Breakpoint List mutex.
   ///
-  /// \param[in] lock
+  /// \param[in] locker
   ///   The locker object that is set.
   void GetListMutex(std::unique_lock<std::recursive_mutex> &lock);
 

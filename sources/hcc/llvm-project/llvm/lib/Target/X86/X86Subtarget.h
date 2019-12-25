@@ -40,7 +40,7 @@ class GlobalValue;
 ///
 namespace PICStyles {
 
-enum class Style {
+enum Style {
   StubPIC,          // Used on i386-darwin in pic mode.
   GOT,              // Used on 32 bit elf on when in pic mode.
   RIPRel,           // Used on X86-64 when in pic mode.
@@ -56,7 +56,10 @@ public:
   enum X86ProcFamilyEnum {
     Others,
     IntelAtom,
-    IntelSLM
+    IntelSLM,
+    IntelGLM,
+    IntelGLP,
+    IntelTRM
   };
 
 protected:
@@ -253,9 +256,9 @@ protected:
   /// mask over multiple fixed shuffles.
   bool HasFastVariableShuffle = false;
 
-  /// True if vzeroupper instructions should be inserted after code that uses
-  /// ymm or zmm registers.
-  bool InsertVZEROUPPER = false;
+  /// True if there is no performance penalty to writing only the lower parts
+  /// of a YMM or ZMM register without clearing the upper part.
+  bool HasFastPartialYMMorZMMWrite = false;
 
   /// True if there is no performance penalty for writing NOPs with up to
   /// 11 bytes.
@@ -442,14 +445,8 @@ protected:
   /// Indicates target prefers 256 bit instructions.
   bool Prefer256Bit = false;
 
-  /// Indicates target prefers AVX512 mask registers.
-  bool PreferMaskRegisters = false;
-
   /// Threeway branch is profitable in this subtarget.
   bool ThreewayBranchProfitable = false;
-
-  /// Use Goldmont specific floating point div/sqrt costs.
-  bool UseGLMDivSqrtCosts = false;
 
   /// What processor and OS we're targeting.
   Triple TargetTriple;
@@ -658,7 +655,9 @@ public:
   bool hasFastVariableShuffle() const {
     return HasFastVariableShuffle;
   }
-  bool insertVZEROUPPER() const { return InsertVZEROUPPER; }
+  bool hasFastPartialYMMorZMMWrite() const {
+    return HasFastPartialYMMorZMMWrite;
+  }
   bool hasFastGather() const { return HasFastGather; }
   bool hasFastScalarFSQRT() const { return HasFastScalarFSQRT; }
   bool hasFastVectorFSQRT() const { return HasFastVectorFSQRT; }
@@ -707,8 +706,6 @@ public:
     return UseRetpolineIndirectBranches;
   }
   bool useRetpolineExternalThunk() const { return UseRetpolineExternalThunk; }
-  bool preferMaskRegisters() const { return PreferMaskRegisters; }
-  bool useGLMDivSqrtCosts() const { return UseGLMDivSqrtCosts; }
 
   unsigned getPreferVectorWidth() const { return PreferVectorWidth; }
   unsigned getRequiredVectorWidth() const { return RequiredVectorWidth; }
@@ -741,6 +738,11 @@ public:
   /// TODO: to be removed later and replaced with suitable properties
   bool isAtom() const { return X86ProcFamily == IntelAtom; }
   bool isSLM() const { return X86ProcFamily == IntelSLM; }
+  bool isGLM() const {
+    return X86ProcFamily == IntelGLM ||
+           X86ProcFamily == IntelGLP ||
+           X86ProcFamily == IntelTRM;
+  }
   bool useSoftFloat() const { return UseSoftFloat; }
   bool useAA() const override { return UseAA; }
 
@@ -799,11 +801,11 @@ public:
 
   bool isTargetWin32() const { return !In64BitMode && isOSWindows(); }
 
-  bool isPICStyleGOT() const { return PICStyle == PICStyles::Style::GOT; }
-  bool isPICStyleRIPRel() const { return PICStyle == PICStyles::Style::RIPRel; }
+  bool isPICStyleGOT() const { return PICStyle == PICStyles::GOT; }
+  bool isPICStyleRIPRel() const { return PICStyle == PICStyles::RIPRel; }
 
   bool isPICStyleStubPIC() const {
-    return PICStyle == PICStyles::Style::StubPIC;
+    return PICStyle == PICStyles::StubPIC;
   }
 
   bool isPositionIndependent() const { return TM.isPositionIndependent(); }

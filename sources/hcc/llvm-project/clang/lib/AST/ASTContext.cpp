@@ -14,7 +14,6 @@
 #include "CXXABI.h"
 #include "Interp/Context.h"
 #include "clang/AST/APValue.h"
-#include "clang/AST/ASTConcept.h"
 #include "clang/AST/ASTMutationListener.h"
 #include "clang/AST/ASTTypeTraits.h"
 #include "clang/AST/Attr.h"
@@ -99,30 +98,6 @@ using namespace clang;
 enum FloatingRank {
   Float16Rank, HalfRank, FloatRank, DoubleRank, LongDoubleRank, Float128Rank
 };
-const Expr *ASTContext::traverseIgnored(const Expr *E) const {
-  return traverseIgnored(const_cast<Expr *>(E));
-}
-
-Expr *ASTContext::traverseIgnored(Expr *E) const {
-  if (!E)
-    return nullptr;
-
-  switch (Traversal) {
-  case ast_type_traits::TK_AsIs:
-    return E;
-  case ast_type_traits::TK_IgnoreImplicitCastsAndParentheses:
-    return E->IgnoreParenImpCasts();
-  }
-  llvm_unreachable("Invalid Traversal type!");
-}
-
-ast_type_traits::DynTypedNode
-ASTContext::traverseIgnored(const ast_type_traits::DynTypedNode &N) const {
-  if (const auto *E = N.get<Expr>()) {
-    return ast_type_traits::DynTypedNode::create(*traverseIgnored(E));
-  }
-  return N;
-}
 
 /// \returns location that is relevant when searching for Doc comments related
 /// to \p D.
@@ -188,9 +163,7 @@ static SourceLocation getDeclLocForCommentSearch(const Decl *D,
   if (isa<ObjCMethodDecl>(D) || isa<ObjCContainerDecl>(D) ||
       isa<ObjCPropertyDecl>(D) ||
       isa<RedeclarableTemplateDecl>(D) ||
-      isa<ClassTemplateSpecializationDecl>(D) ||
-      // Allow association with Y across {} in `typedef struct X {} Y`.
-      isa<TypedefDecl>(D))
+      isa<ClassTemplateSpecializationDecl>(D))
     return D->getBeginLoc();
   else {
     const SourceLocation DeclLoc = D->getLocation();
@@ -796,7 +769,6 @@ CXXABI *ASTContext::createCXXABI(const TargetInfo &T) {
   if (!LangOpts.CPlusPlus) return nullptr;
 
   switch (T.getCXXABI().getKind()) {
-  case TargetCXXABI::Fuchsia:
   case TargetCXXABI::GenericARM: // Same as Itanium at this level
   case TargetCXXABI::iOS:
   case TargetCXXABI::iOS64:
@@ -906,6 +878,10 @@ ASTContext::~ASTContext() {
        A != AEnd; ++A)
     A->second->~AttrVec();
 
+  for (std::pair<const MaterializeTemporaryExpr *, APValue *> &MTVPair :
+       MaterializedTemporaryValues)
+    MTVPair.second->~APValue();
+
   for (const auto &Value : ModuleInitializers)
     Value.second->~PerModuleInitializers();
 
@@ -986,7 +962,7 @@ public:
 
 void ASTContext::setTraversalScope(const std::vector<Decl *> &TopLevelDecls) {
   TraversalScope = TopLevelDecls;
-  Parents.clear();
+  Parents.reset();
 }
 
 void ASTContext::AddDeallocation(void (*Callback)(void *), void *Data) const {
@@ -2681,7 +2657,8 @@ const ObjCInterfaceDecl *ASTContext::getObjContainingInterface(
 
 /// Get the copy initialization expression of VarDecl, or nullptr if
 /// none exists.
-BlockVarCopyInit ASTContext::getBlockVarCopyInit(const VarDecl *VD) const {
+ASTContext::BlockVarCopyInit
+ASTContext::getBlockVarCopyInit(const VarDecl*VD) const {
   assert(VD && "Passed null params");
   assert(VD->hasAttr<BlocksAttr>() &&
          "getBlockVarCopyInits - not __block var");
@@ -3904,11 +3881,10 @@ QualType ASTContext::getFunctionTypeInternal(
   auto ESH = FunctionProtoType::getExceptionSpecSize(
       EPI.ExceptionSpec.Type, EPI.ExceptionSpec.Exceptions.size());
   size_t Size = FunctionProtoType::totalSizeToAlloc<
-      QualType, SourceLocation, FunctionType::FunctionTypeExtraBitfields,
+      QualType, FunctionType::FunctionTypeExtraBitfields,
       FunctionType::ExceptionType, Expr *, FunctionDecl *,
       FunctionProtoType::ExtParameterInfo, Qualifiers>(
-      NumArgs, EPI.Variadic,
-      FunctionProtoType::hasExtraBitfields(EPI.ExceptionSpec.Type),
+      NumArgs, FunctionProtoType::hasExtraBitfields(EPI.ExceptionSpec.Type),
       ESH.NumExceptionType, ESH.NumExprPtr, ESH.NumFunctionDeclPtr,
       EPI.ExtParameterInfos ? NumArgs : 0,
       EPI.TypeQuals.hasNonFastQualifiers() ? 1 : 0);
@@ -10200,7 +10176,6 @@ MangleContext *ASTContext::createMangleContext(const TargetInfo *T) {
   if (!T)
     T = Target;
   switch (T->getCXXABI().getKind()) {
-  case TargetCXXABI::Fuchsia:
   case TargetCXXABI::GenericAArch64:
   case TargetCXXABI::GenericItanium:
   case TargetCXXABI::GenericARM:
@@ -10355,6 +10330,21 @@ unsigned ASTContext::getParameterIndex(const ParmVarDecl *D) const {
   return I->second;
 }
 
+APValue *
+ASTContext::getMaterializedTemporaryValue(const MaterializeTemporaryExpr *E,
+                                          bool MayCreate) {
+  assert(E && E->getStorageDuration() == SD_Static &&
+         "don't need to cache the computed value for this temporary");
+  if (MayCreate) {
+    APValue *&MTVI = MaterializedTemporaryValues[E];
+    if (!MTVI)
+      MTVI = new (*this) APValue;
+    return MTVI;
+  }
+
+  return MaterializedTemporaryValues.lookup(E);
+}
+
 QualType ASTContext::getStringLiteralArrayType(QualType EltTy,
                                                unsigned Length) const {
   // A C++ string literal has a const-qualified element type (C++ 2.13.4p1).
@@ -10426,8 +10416,7 @@ createDynTypedNode(const NestedNameSpecifierLoc &Node) {
 class ASTContext::ParentMap::ASTVisitor
     : public RecursiveASTVisitor<ASTVisitor> {
 public:
-  ASTVisitor(ParentMap &Map, ASTContext &Context)
-      : Map(Map), Context(Context) {}
+  ASTVisitor(ParentMap &Map) : Map(Map) {}
 
 private:
   friend class RecursiveASTVisitor<ASTVisitor>;
@@ -10497,12 +10486,9 @@ private:
   }
 
   bool TraverseStmt(Stmt *StmtNode) {
-    Stmt *FilteredNode = StmtNode;
-    if (auto *ExprNode = dyn_cast_or_null<Expr>(FilteredNode))
-      FilteredNode = Context.traverseIgnored(ExprNode);
-    return TraverseNode(FilteredNode, FilteredNode,
-                        [&] { return VisitorBase::TraverseStmt(FilteredNode); },
-                        &Map.PointerParents);
+    return TraverseNode(
+        StmtNode, StmtNode, [&] { return VisitorBase::TraverseStmt(StmtNode); },
+        &Map.PointerParents);
   }
 
   bool TraverseTypeLoc(TypeLoc TypeLocNode) {
@@ -10520,22 +10506,20 @@ private:
   }
 
   ParentMap &Map;
-  ASTContext &Context;
   llvm::SmallVector<ast_type_traits::DynTypedNode, 16> ParentStack;
 };
 
 ASTContext::ParentMap::ParentMap(ASTContext &Ctx) {
-  ASTVisitor(*this, Ctx).TraverseAST(Ctx);
+  ASTVisitor(*this).TraverseAST(Ctx);
 }
 
 ASTContext::DynTypedNodeList
 ASTContext::getParents(const ast_type_traits::DynTypedNode &Node) {
-  std::unique_ptr<ParentMap> &P = Parents[Traversal];
-  if (!P)
+  if (!Parents)
     // We build the parent map for the traversal scope (usually whole TU), as
     // hasAncestor can escape any subtree.
-    P = std::make_unique<ParentMap>(*this);
-  return P->getParents(Node);
+    Parents = std::make_unique<ParentMap>(*this);
+  return Parents->getParents(Node);
 }
 
 bool

@@ -249,21 +249,18 @@ void Dex::lookup(const LookupRequest &Req,
   }
 }
 
-bool Dex::refs(const RefsRequest &Req,
+void Dex::refs(const RefsRequest &Req,
                llvm::function_ref<void(const Ref &)> Callback) const {
   trace::Span Tracer("Dex refs");
   uint32_t Remaining =
       Req.Limit.getValueOr(std::numeric_limits<uint32_t>::max());
   for (const auto &ID : Req.IDs)
     for (const auto &Ref : Refs.lookup(ID)) {
-      if (!static_cast<int>(Req.Filter & Ref.Kind))
-        continue;
-      if (Remaining == 0)
-        return true; // More refs were available.
-      --Remaining;
-      Callback(Ref);
+      if (Remaining > 0 && static_cast<int>(Req.Filter & Ref.Kind)) {
+        --Remaining;
+        Callback(Ref);
+      }
     }
-  return false; // We reported all refs.
 }
 
 void Dex::relations(

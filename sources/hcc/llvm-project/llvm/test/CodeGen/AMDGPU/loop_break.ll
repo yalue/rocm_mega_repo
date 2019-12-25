@@ -39,17 +39,10 @@
 ; GCN:      s_or_b64          [[INNER_MASK]], [[INNER_MASK]], [[TMP0]]
 
 ; GCN: [[FLOW]]: ; %Flow
-<<<<<<< HEAD
-; GCN:           ;   in Loop: Header=BB0_1 Depth=1
-; GCN:      s_and_b64         [[AND_MASK:s\[[0-9]+:[0-9]+\]]], exec, [[INNER_MASK]]
-; GCN-NEXT: s_or_b64          [[ACCUM_MASK]], [[AND_MASK]], [[ACCUM_MASK]]
-; GCN-NEXT: s_andn2_b64       exec, exec, [[ACCUM_MASK]]
-=======
 ; GCN:      s_and_b64         [[TMP1:s\[[0-9]+:[0-9]+\]]], exec, [[INNER_MASK]]
 ; GCN:      s_or_b64          [[TMP1]], [[TMP1]], [[OUTER_MASK]]
 ; GCN:      s_mov_b64         [[OUTER_MASK]], [[TMP1]]
 ; GCN:      s_andn2_b64       exec, exec, [[TMP1]]
->>>>>>> c624027d08d... Revert "[AMDGPU] Come back patch for the 'Assign register class for cross block values according to the divergence.'"
 ; GCN-NEXT: s_cbranch_execnz  [[LOOP_ENTRY]]
 
 ; GCN: ; %bb.4: ; %bb9

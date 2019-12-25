@@ -61,8 +61,6 @@ static const CoreDefinition g_core_definitions[] = {
      "armv6m"},
     {eByteOrderLittle, 4, 2, 4, llvm::Triple::arm, ArchSpec::eCore_arm_armv7,
      "armv7"},
-    {eByteOrderLittle, 4, 2, 4, llvm::Triple::arm, ArchSpec::eCore_arm_armv7l,
-     "armv7l"},
     {eByteOrderLittle, 4, 2, 4, llvm::Triple::arm, ArchSpec::eCore_arm_armv7f,
      "armv7f"},
     {eByteOrderLittle, 4, 2, 4, llvm::Triple::arm, ArchSpec::eCore_arm_armv7s,
@@ -103,8 +101,6 @@ static const CoreDefinition g_core_definitions[] = {
      ArchSpec::eCore_arm_arm64, "arm64"},
     {eByteOrderLittle, 8, 4, 4, llvm::Triple::aarch64,
      ArchSpec::eCore_arm_armv8, "armv8"},
-    {eByteOrderLittle, 4, 2, 4, llvm::Triple::arm,
-      ArchSpec::eCore_arm_armv8l, "armv8l"},
     {eByteOrderLittle, 4, 4, 4, llvm::Triple::aarch64_32,
       ArchSpec::eCore_arm_arm64_32, "arm64_32"},
     {eByteOrderLittle, 8, 4, 4, llvm::Triple::aarch64,
@@ -568,6 +564,20 @@ ArchSpec::ArchSpec(ArchitectureType arch_type, uint32_t cpu, uint32_t subtype) {
 
 ArchSpec::~ArchSpec() = default;
 
+//===----------------------------------------------------------------------===//
+// Assignment and initialization.
+
+const ArchSpec &ArchSpec::operator=(const ArchSpec &rhs) {
+  if (this != &rhs) {
+    m_triple = rhs.m_triple;
+    m_core = rhs.m_core;
+    m_byte_order = rhs.m_byte_order;
+    m_distribution_id = rhs.m_distribution_id;
+    m_flags = rhs.m_flags;
+  }
+  return *this;
+}
+
 void ArchSpec::Clear() {
   m_triple = llvm::Triple();
   m_core = kCore_invalid;
@@ -868,7 +878,7 @@ void ArchSpec::MergeFrom(const ArchSpec &other) {
       IsCompatibleMatch(other) && GetCore() == ArchSpec::eCore_arm_generic &&
       other.GetCore() != ArchSpec::eCore_arm_generic) {
     m_core = other.GetCore();
-    CoreUpdated(false);
+    CoreUpdated(true);
   }
   if (GetFlags() == 0) {
     SetFlags(other.GetFlags());
@@ -1192,8 +1202,6 @@ static bool cores_match(const ArchSpec::Core core1, const ArchSpec::Core core2,
   case ArchSpec::eCore_arm_armv7f:
   case ArchSpec::eCore_arm_armv7k:
   case ArchSpec::eCore_arm_armv7s:
-  case ArchSpec::eCore_arm_armv7l:
-  case ArchSpec::eCore_arm_armv8l:
     if (!enforce_exact_match) {
       if (core2 == ArchSpec::eCore_arm_generic)
         return true;
@@ -1443,24 +1451,21 @@ bool ArchSpec::IsAlwaysThumbInstructions() const {
         GetCore() == ArchSpec::Core::eCore_thumbv6m) {
       return true;
     }
-    // Windows on ARM is always thumb.
-    if (GetTriple().isOSWindows())
-      return true;
   }
   return false;
 }
 
-void ArchSpec::DumpTriple(llvm::raw_ostream &s) const {
+void ArchSpec::DumpTriple(Stream &s) const {
   const llvm::Triple &triple = GetTriple();
   llvm::StringRef arch_str = triple.getArchName();
   llvm::StringRef vendor_str = triple.getVendorName();
   llvm::StringRef os_str = triple.getOSName();
   llvm::StringRef environ_str = triple.getEnvironmentName();
 
-  s << llvm::formatv("{0}-{1}-{2}", arch_str.empty() ? "*" : arch_str,
-                     vendor_str.empty() ? "*" : vendor_str,
-                     os_str.empty() ? "*" : os_str);
+  s.Printf("%s-%s-%s", arch_str.empty() ? "*" : arch_str.str().c_str(),
+           vendor_str.empty() ? "*" : vendor_str.str().c_str(),
+           os_str.empty() ? "*" : os_str.str().c_str());
 
   if (!environ_str.empty())
-    s << "-" << environ_str;
+    s.Printf("-%s", environ_str.str().c_str());
 }

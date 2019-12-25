@@ -75,17 +75,14 @@ LinkerDriver *driver;
 static void setConfigs(opt::InputArgList &args);
 static void readConfigs(opt::InputArgList &args);
 
-bool link(ArrayRef<const char *> args, bool canExitEarly, raw_ostream &stdoutOS,
-          raw_ostream &stderrOS) {
-  lld::stdoutOS = &stdoutOS;
-  lld::stderrOS = &stderrOS;
-
+bool link(ArrayRef<const char *> args, bool canExitEarly, raw_ostream &error) {
   errorHandler().logName = args::getFilenameWithoutExe(args[0]);
   errorHandler().errorLimitExceededMsg =
       "too many errors emitted, stopping now (use "
       "-error-limit=0 to see all errors)";
+  errorHandler().errorOS = &error;
   errorHandler().exitEarly = canExitEarly;
-  stderrOS.enable_colors(stderrOS.has_colors());
+  enableColors(error.has_colors());
 
   inputSections.clear();
   outputSections.clear();
@@ -397,19 +394,6 @@ static SeparateSegmentKind getZSeparate(opt::InputArgList &args) {
   return SeparateSegmentKind::None;
 }
 
-static GnuStackKind getZGnuStack(opt::InputArgList &args) {
-  for (auto *arg : args.filtered_reverse(OPT_z)) {
-    if (StringRef("execstack") == arg->getValue())
-      return GnuStackKind::Exec;
-    if (StringRef("noexecstack") == arg->getValue())
-      return GnuStackKind::NoExec;
-    if (StringRef("nognustack") == arg->getValue())
-      return GnuStackKind::None;
-  }
-
-  return GnuStackKind::NoExec;
-}
-
 static bool isKnownZFlag(StringRef s) {
   return s == "combreloc" || s == "copyreloc" || s == "defs" ||
          s == "execstack" || s == "global" || s == "hazardplt" ||
@@ -418,7 +402,6 @@ static bool isKnownZFlag(StringRef s) {
          s == "separate-code" || s == "separate-loadable-segments" ||
          s == "nocombreloc" || s == "nocopyreloc" || s == "nodefaultlib" ||
          s == "nodelete" || s == "nodlopen" || s == "noexecstack" ||
-         s == "nognustack" ||
          s == "nokeep-text-section-prefix" || s == "norelro" ||
          s == "noseparate-code" || s == "notext" || s == "now" ||
          s == "origin" || s == "relro" || s == "retpolineplt" ||
@@ -903,8 +886,6 @@ static void readConfigs(opt::InputArgList &args) {
   config->mipsGotSize = args::getInteger(args, OPT_mips_got_size, 0xfff0);
   config->mergeArmExidx =
       args.hasFlag(OPT_merge_exidx_entries, OPT_no_merge_exidx_entries, true);
-  config->mmapOutputFile =
-      args.hasFlag(OPT_mmap_output_file, OPT_no_mmap_output_file, true);
   config->nmagic = args.hasFlag(OPT_nmagic, OPT_no_nmagic, false);
   config->noinhibitExec = args.hasArg(OPT_noinhibit_exec);
   config->nostdlib = args.hasArg(OPT_nostdlib);
@@ -968,8 +949,8 @@ static void readConfigs(opt::InputArgList &args) {
       args.hasFlag(OPT_warn_symbol_ordering, OPT_no_warn_symbol_ordering, true);
   config->zCombreloc = getZFlag(args, "combreloc", "nocombreloc", true);
   config->zCopyreloc = getZFlag(args, "copyreloc", "nocopyreloc", true);
+  config->zExecstack = getZFlag(args, "execstack", "noexecstack", false);
   config->zGlobal = hasZOption(args, "global");
-  config->zGnustack = getZGnuStack(args);
   config->zHazardplt = hasZOption(args, "hazardplt");
   config->zIfuncNoplt = hasZOption(args, "ifunc-noplt");
   config->zInitfirst = hasZOption(args, "initfirst");
@@ -1010,14 +991,6 @@ static void readConfigs(opt::InputArgList &args) {
 
   if (config->splitStackAdjustSize < 0)
     error("--split-stack-adjust-size: size must be >= 0");
-
-  // The text segment is traditionally the first segment, whose address equals
-  // the base address. However, lld places the R PT_LOAD first. -Ttext-segment
-  // is an old-fashioned option that does not play well with lld's layout.
-  // Suggest --image-base as a likely alternative.
-  if (args.hasArg(OPT_Ttext_segment))
-    error("-Ttext-segment is not supported. Use --image-base if you "
-          "intend to set the base address");
 
   // Parse ELF{32,64}{LE,BE} and CPU type.
   if (auto *arg = args.getLastArg(OPT_m)) {
@@ -1397,7 +1370,7 @@ static void handleUndefined(Symbol *sym) {
     sym->fetch();
 }
 
-// As an extension to GNU linkers, lld supports a variant of `-u`
+// As an extention to GNU linkers, lld supports a variant of `-u`
 // which accepts wildcard patterns. All symbols that match a given
 // pattern are handled as if they were given by `-u`.
 static void handleUndefinedGlob(StringRef arg) {
@@ -1408,13 +1381,13 @@ static void handleUndefinedGlob(StringRef arg) {
   }
 
   std::vector<Symbol *> syms;
-  for (Symbol *sym : symtab->symbols()) {
+  symtab->forEachSymbol([&](Symbol *sym) {
     // Calling Sym->fetch() from here is not safe because it may
     // add new symbols to the symbol table, invalidating the
     // current iterator. So we just keep a note.
     if (pat->match(sym->getName()))
       syms.push_back(sym);
-  }
+  });
 
   for (Symbol *sym : syms)
     handleUndefined(sym);
@@ -1440,10 +1413,10 @@ static void handleLibcall(StringRef name) {
 // result, the passes after the symbol resolution won't see any
 // symbols of type CommonSymbol.
 static void replaceCommonSymbols() {
-  for (Symbol *sym : symtab->symbols()) {
+  symtab->forEachSymbol([](Symbol *sym) {
     auto *s = dyn_cast<CommonSymbol>(sym);
     if (!s)
-      continue;
+      return;
 
     auto *bss = make<BssSection>("COMMON", s->size, s->alignment);
     bss->file = s->file;
@@ -1451,7 +1424,7 @@ static void replaceCommonSymbols() {
     inputSections.push_back(bss);
     s->replace(Defined{s->file, s->getName(), s->binding, s->stOther, s->type,
                        /*value=*/0, s->size, bss});
-  }
+  });
 }
 
 // If all references to a DSO happen to be weak, the DSO is not added
@@ -1459,15 +1432,15 @@ static void replaceCommonSymbols() {
 // created from the DSO. Otherwise, they become dangling references
 // that point to a non-existent DSO.
 static void demoteSharedSymbols() {
-  for (Symbol *sym : symtab->symbols()) {
+  symtab->forEachSymbol([](Symbol *sym) {
     auto *s = dyn_cast<SharedSymbol>(sym);
     if (!s || s->getFile().isNeeded)
-      continue;
+      return;
 
     bool used = s->used;
     s->replace(Undefined{nullptr, s->getName(), STB_WEAK, s->stOther, s->type});
     s->used = used;
-  }
+  });
 }
 
 // The section referred to by `s` is considered address-significant. Set the
@@ -1503,9 +1476,10 @@ static void findKeepUniqueSections(opt::InputArgList &args) {
 
   // Symbols in the dynsym could be address-significant in other executables
   // or DSOs, so we conservatively mark them as address-significant.
-  for (Symbol *sym : symtab->symbols())
+  symtab->forEachSymbol([&](Symbol *sym) {
     if (sym->includeInDynsym())
       markAddrsig(sym);
+  });
 
   // Visit the address-significance table in each object file and mark each
   // referenced symbol as address-significant.
@@ -1790,12 +1764,6 @@ template <class ELFT> void LinkerDriver::link(opt::InputArgList &args) {
   // Handle the `--undefined-glob <pattern>` options.
   for (StringRef pat : args::getStrings(args, OPT_undefined_glob))
     handleUndefinedGlob(pat);
-
-  // Mark -init and -fini symbols so that the LTO doesn't eliminate them.
-  if (Symbol *sym = symtab->find(config->init))
-    sym->isUsedInRegularObj = true;
-  if (Symbol *sym = symtab->find(config->fini))
-    sym->isUsedInRegularObj = true;
 
   // If any of our inputs are bitcode files, the LTO code generator may create
   // references to certain library functions that might not be explicit in the

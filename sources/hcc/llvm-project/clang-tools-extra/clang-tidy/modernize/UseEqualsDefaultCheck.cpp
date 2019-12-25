@@ -10,7 +10,6 @@
 #include "clang/AST/ASTContext.h"
 #include "clang/ASTMatchers/ASTMatchFinder.h"
 #include "clang/Lex/Lexer.h"
-#include "../utils/LexerUtils.h"
 
 using namespace clang::ast_matchers;
 
@@ -303,16 +302,9 @@ void UseEqualsDefaultCheck::check(const MatchFinder::MatchResult &Result) {
   auto Diag = diag(Location, "use '= default' to define a trivial " +
                                  SpecialFunctionName);
 
-  if (ApplyFix) {
-    // Skipping comments, check for a semicolon after Body->getSourceRange()
-    Optional<Token> Token = utils::lexer::findNextTokenSkippingComments(
-        Body->getSourceRange().getEnd().getLocWithOffset(1),
-        Result.Context->getSourceManager(), Result.Context->getLangOpts());
-    StringRef Replacement =
-        Token && Token->is(tok::semi) ? "= default" : "= default;";
-    Diag << FixItHint::CreateReplacement(Body->getSourceRange(), Replacement)
+  if (ApplyFix)
+    Diag << FixItHint::CreateReplacement(Body->getSourceRange(), "= default;")
          << RemoveInitializers;
-  }
 }
 
 } // namespace modernize

@@ -32,15 +32,11 @@ using namespace llvm;
 namespace {
 // Represents information about a comparison.
 struct Comparison {
-  Comparison(SDValue Op0In, SDValue Op1In, SDValue ChainIn)
-    : Op0(Op0In), Op1(Op1In), Chain(ChainIn),
-      Opcode(0), ICmpType(0), CCValid(0), CCMask(0) {}
+  Comparison(SDValue Op0In, SDValue Op1In)
+    : Op0(Op0In), Op1(Op1In), Opcode(0), ICmpType(0), CCValid(0), CCMask(0) {}
 
   // The operands to the comparison.
   SDValue Op0, Op1;
-
-  // Chain if this is a strict floating-point comparison.
-  SDValue Chain;
 
   // The opcode that should be used to compare Op0 and Op1.
   unsigned Opcode;
@@ -136,8 +132,6 @@ SystemZTargetLowering::SystemZTargetLowering(const TargetMachine &TM,
     if (isTypeLegal(VT)) {
       // Lower SET_CC into an IPM-based sequence.
       setOperationAction(ISD::SETCC, VT, Custom);
-      setOperationAction(ISD::STRICT_FSETCC, VT, Custom);
-      setOperationAction(ISD::STRICT_FSETCCS, VT, Custom);
 
       // Expand SELECT(C, A, B) into SELECT_CC(X, 0, A, B, NE).
       setOperationAction(ISD::SELECT, VT, Expand);
@@ -379,9 +373,6 @@ SystemZTargetLowering::SystemZTargetLowering(const TargetMachine &TM,
       // Map SETCCs onto one of VCE, VCH or VCHL, swapping the operands
       // and inverting the result as necessary.
       setOperationAction(ISD::SETCC, VT, Custom);
-      setOperationAction(ISD::STRICT_FSETCC, VT, Custom);
-      if (Subtarget.hasVectorEnhancements1())
-        setOperationAction(ISD::STRICT_FSETCCS, VT, Custom);
     }
   }
 
@@ -643,9 +634,6 @@ SystemZTargetLowering::SystemZTargetLowering(const TargetMachine &TM,
   // than "STC;MVC".  Handle the choice in target-specific code instead.
   MaxStoresPerMemset = 0;
   MaxStoresPerMemsetOptSize = 0;
-
-  // Default to having -disable-strictnode-mutation on
-  IsStrictFPEnabled = true;
 }
 
 EVT SystemZTargetLowering::getSetCCResultType(const DataLayout &DL,
@@ -655,8 +643,7 @@ EVT SystemZTargetLowering::getSetCCResultType(const DataLayout &DL,
   return VT.changeVectorElementTypeToInteger();
 }
 
-bool SystemZTargetLowering::isFMAFasterThanFMulAndFAdd(
-    const MachineFunction &MF, EVT VT) const {
+bool SystemZTargetLowering::isFMAFasterThanFMulAndFAdd(EVT VT) const {
   VT = VT.getScalarType();
 
   if (!VT.isSimple())
@@ -1688,9 +1675,6 @@ SystemZTargetLowering::LowerReturn(SDValue Chain, CallingConv::ID CallConv,
   if (RetLocs.empty())
     return DAG.getNode(SystemZISD::RET_FLAG, DL, MVT::Other, Chain);
 
-  if (CallConv == CallingConv::GHC)
-    report_fatal_error("GHC functions return void only");
-
   // Copy the result values into the output registers.
   SDValue Glue;
   SmallVector<SDValue, 4> RetOps;
@@ -2177,10 +2161,6 @@ static void adjustForSubtraction(SelectionDAG &DAG, const SDLoc &DL,
 // negation to set CC, so avoiding separate LOAD AND TEST and
 // LOAD (NEGATIVE/COMPLEMENT) instructions.
 static void adjustForFNeg(Comparison &C) {
-  // This optimization is invalid for strict comparisons, since FNEG
-  // does not raise any exceptions.
-  if (C.Chain)
-    return;
   auto *C1 = dyn_cast<ConstantFPSDNode>(C.Op1);
   if (C1 && C1->isZero()) {
     for (auto I = C.Op0->use_begin(), E = C.Op0->use_end(); I != E; ++I) {
@@ -2468,7 +2448,7 @@ static void adjustForRedundantAnd(SelectionDAG &DAG, const SDLoc &DL,
 static Comparison getIntrinsicCmp(SelectionDAG &DAG, unsigned Opcode,
                                   SDValue Call, unsigned CCValid, uint64_t CC,
                                   ISD::CondCode Cond) {
-  Comparison C(Call, SDValue(), SDValue());
+  Comparison C(Call, SDValue());
   C.Opcode = Opcode;
   C.CCValid = CCValid;
   if (Cond == ISD::SETEQ)
@@ -2499,11 +2479,8 @@ static Comparison getIntrinsicCmp(SelectionDAG &DAG, unsigned Opcode,
 
 // Decide how to implement a comparison of type Cond between CmpOp0 with CmpOp1.
 static Comparison getCmp(SelectionDAG &DAG, SDValue CmpOp0, SDValue CmpOp1,
-                         ISD::CondCode Cond, const SDLoc &DL,
-                         SDValue Chain = SDValue(),
-                         bool IsSignaling = false) {
+                         ISD::CondCode Cond, const SDLoc &DL) {
   if (CmpOp1.getOpcode() == ISD::Constant) {
-    assert(!Chain);
     uint64_t Constant = cast<ConstantSDNode>(CmpOp1)->getZExtValue();
     unsigned Opcode, CCValid;
     if (CmpOp0.getOpcode() == ISD::INTRINSIC_W_CHAIN &&
@@ -2515,19 +2492,13 @@ static Comparison getCmp(SelectionDAG &DAG, SDValue CmpOp0, SDValue CmpOp1,
         isIntrinsicWithCC(CmpOp0, Opcode, CCValid))
       return getIntrinsicCmp(DAG, Opcode, CmpOp0, CCValid, Constant, Cond);
   }
-  Comparison C(CmpOp0, CmpOp1, Chain);
+  Comparison C(CmpOp0, CmpOp1);
   C.CCMask = CCMaskForCondCode(Cond);
   if (C.Op0.getValueType().isFloatingPoint()) {
     C.CCValid = SystemZ::CCMASK_FCMP;
-    if (!C.Chain)
-      C.Opcode = SystemZISD::FCMP;
-    else if (!IsSignaling)
-      C.Opcode = SystemZISD::STRICT_FCMP;
-    else
-      C.Opcode = SystemZISD::STRICT_FCMPS;
+    C.Opcode = SystemZISD::FCMP;
     adjustForFNeg(C);
   } else {
-    assert(!C.Chain);
     C.CCValid = SystemZ::CCMASK_ICMP;
     C.Opcode = SystemZISD::ICMP;
     // Choose the type of comparison.  Equality and inequality tests can
@@ -2585,10 +2556,6 @@ static SDValue emitCmp(SelectionDAG &DAG, const SDLoc &DL, Comparison &C) {
     return DAG.getNode(SystemZISD::TM, DL, MVT::i32, C.Op0, C.Op1,
                        DAG.getTargetConstant(RegisterOnly, DL, MVT::i32));
   }
-  if (C.Chain) {
-    SDVTList VTs = DAG.getVTList(MVT::i32, MVT::Other);
-    return DAG.getNode(C.Opcode, DL, VTs, C.Chain, C.Op0, C.Op1);
-  }
   return DAG.getNode(C.Opcode, DL, MVT::i32, C.Op0, C.Op1);
 }
 
@@ -2633,51 +2600,24 @@ static SDValue emitSETCC(SelectionDAG &DAG, const SDLoc &DL, SDValue CCReg,
 }
 
 // Return the SystemISD vector comparison operation for CC, or 0 if it cannot
-// be done directly.  Mode is CmpMode::Int for integer comparisons, CmpMode::FP
-// for regular floating-point comparisons, CmpMode::StrictFP for strict (quiet)
-// floating-point comparisons, and CmpMode::SignalingFP for strict signaling
-// floating-point comparisons.
-enum class CmpMode { Int, FP, StrictFP, SignalingFP };
-static unsigned getVectorComparison(ISD::CondCode CC, CmpMode Mode) {
+// be done directly.  IsFP is true if CC is for a floating-point rather than
+// integer comparison.
+static unsigned getVectorComparison(ISD::CondCode CC, bool IsFP) {
   switch (CC) {
   case ISD::SETOEQ:
   case ISD::SETEQ:
-    switch (Mode) {
-    case CmpMode::Int:         return SystemZISD::VICMPE;
-    case CmpMode::FP:          return SystemZISD::VFCMPE;
-    case CmpMode::StrictFP:    return SystemZISD::STRICT_VFCMPE;
-    case CmpMode::SignalingFP: return SystemZISD::STRICT_VFCMPES;
-    }
-    llvm_unreachable("Bad mode");
+    return IsFP ? SystemZISD::VFCMPE : SystemZISD::VICMPE;
 
   case ISD::SETOGE:
   case ISD::SETGE:
-    switch (Mode) {
-    case CmpMode::Int:         return 0;
-    case CmpMode::FP:          return SystemZISD::VFCMPHE;
-    case CmpMode::StrictFP:    return SystemZISD::STRICT_VFCMPHE;
-    case CmpMode::SignalingFP: return SystemZISD::STRICT_VFCMPHES;
-    }
-    llvm_unreachable("Bad mode");
+    return IsFP ? SystemZISD::VFCMPHE : static_cast<SystemZISD::NodeType>(0);
 
   case ISD::SETOGT:
   case ISD::SETGT:
-    switch (Mode) {
-    case CmpMode::Int:         return SystemZISD::VICMPH;
-    case CmpMode::FP:          return SystemZISD::VFCMPH;
-    case CmpMode::StrictFP:    return SystemZISD::STRICT_VFCMPH;
-    case CmpMode::SignalingFP: return SystemZISD::STRICT_VFCMPHS;
-    }
-    llvm_unreachable("Bad mode");
+    return IsFP ? SystemZISD::VFCMPH : SystemZISD::VICMPH;
 
   case ISD::SETUGT:
-    switch (Mode) {
-    case CmpMode::Int:         return SystemZISD::VICMPHL;
-    case CmpMode::FP:          return 0;
-    case CmpMode::StrictFP:    return 0;
-    case CmpMode::SignalingFP: return 0;
-    }
-    llvm_unreachable("Bad mode");
+    return IsFP ? static_cast<SystemZISD::NodeType>(0) : SystemZISD::VICMPHL;
 
   default:
     return 0;
@@ -2686,16 +2626,17 @@ static unsigned getVectorComparison(ISD::CondCode CC, CmpMode Mode) {
 
 // Return the SystemZISD vector comparison operation for CC or its inverse,
 // or 0 if neither can be done directly.  Indicate in Invert whether the
-// result is for the inverse of CC.  Mode is as above.
-static unsigned getVectorComparisonOrInvert(ISD::CondCode CC, CmpMode Mode,
+// result is for the inverse of CC.  IsFP is true if CC is for a
+// floating-point rather than integer comparison.
+static unsigned getVectorComparisonOrInvert(ISD::CondCode CC, bool IsFP,
                                             bool &Invert) {
-  if (unsigned Opcode = getVectorComparison(CC, Mode)) {
+  if (unsigned Opcode = getVectorComparison(CC, IsFP)) {
     Invert = false;
     return Opcode;
   }
 
-  CC = ISD::getSetCCInverse(CC, Mode == CmpMode::Int);
-  if (unsigned Opcode = getVectorComparison(CC, Mode)) {
+  CC = ISD::getSetCCInverse(CC, !IsFP);
+  if (unsigned Opcode = getVectorComparison(CC, IsFP)) {
     Invert = true;
     return Opcode;
   }
@@ -2704,73 +2645,44 @@ static unsigned getVectorComparisonOrInvert(ISD::CondCode CC, CmpMode Mode,
 }
 
 // Return a v2f64 that contains the extended form of elements Start and Start+1
-// of v4f32 value Op.  If Chain is nonnull, return the strict form.
+// of v4f32 value Op.
 static SDValue expandV4F32ToV2F64(SelectionDAG &DAG, int Start, const SDLoc &DL,
-                                  SDValue Op, SDValue Chain) {
+                                  SDValue Op) {
   int Mask[] = { Start, -1, Start + 1, -1 };
   Op = DAG.getVectorShuffle(MVT::v4f32, DL, Op, DAG.getUNDEF(MVT::v4f32), Mask);
-  if (Chain) {
-    SDVTList VTs = DAG.getVTList(MVT::v2f64, MVT::Other);
-    return DAG.getNode(SystemZISD::STRICT_VEXTEND, DL, VTs, Chain, Op);
-  }
   return DAG.getNode(SystemZISD::VEXTEND, DL, MVT::v2f64, Op);
 }
 
 // Build a comparison of vectors CmpOp0 and CmpOp1 using opcode Opcode,
-// producing a result of type VT.  If Chain is nonnull, return the strict form.
+// producing a result of type VT.
 SDValue SystemZTargetLowering::getVectorCmp(SelectionDAG &DAG, unsigned Opcode,
                                             const SDLoc &DL, EVT VT,
                                             SDValue CmpOp0,
-                                            SDValue CmpOp1,
-                                            SDValue Chain) const {
+                                            SDValue CmpOp1) const {
   // There is no hardware support for v4f32 (unless we have the vector
   // enhancements facility 1), so extend the vector into two v2f64s
   // and compare those.
   if (CmpOp0.getValueType() == MVT::v4f32 &&
       !Subtarget.hasVectorEnhancements1()) {
-    SDValue H0 = expandV4F32ToV2F64(DAG, 0, DL, CmpOp0, Chain);
-    SDValue L0 = expandV4F32ToV2F64(DAG, 2, DL, CmpOp0, Chain);
-    SDValue H1 = expandV4F32ToV2F64(DAG, 0, DL, CmpOp1, Chain);
-    SDValue L1 = expandV4F32ToV2F64(DAG, 2, DL, CmpOp1, Chain);
-    if (Chain) {
-      SDVTList VTs = DAG.getVTList(MVT::v2i64, MVT::Other);
-      SDValue HRes = DAG.getNode(Opcode, DL, VTs, Chain, H0, H1);
-      SDValue LRes = DAG.getNode(Opcode, DL, VTs, Chain, L0, L1);
-      SDValue Res = DAG.getNode(SystemZISD::PACK, DL, VT, HRes, LRes);
-      SDValue Chains[6] = { H0.getValue(1), L0.getValue(1),
-                            H1.getValue(1), L1.getValue(1),
-                            HRes.getValue(1), LRes.getValue(1) };
-      SDValue NewChain = DAG.getNode(ISD::TokenFactor, DL, MVT::Other, Chains);
-      SDValue Ops[2] = { Res, NewChain };
-      return DAG.getMergeValues(Ops, DL);
-    }
+    SDValue H0 = expandV4F32ToV2F64(DAG, 0, DL, CmpOp0);
+    SDValue L0 = expandV4F32ToV2F64(DAG, 2, DL, CmpOp0);
+    SDValue H1 = expandV4F32ToV2F64(DAG, 0, DL, CmpOp1);
+    SDValue L1 = expandV4F32ToV2F64(DAG, 2, DL, CmpOp1);
     SDValue HRes = DAG.getNode(Opcode, DL, MVT::v2i64, H0, H1);
     SDValue LRes = DAG.getNode(Opcode, DL, MVT::v2i64, L0, L1);
     return DAG.getNode(SystemZISD::PACK, DL, VT, HRes, LRes);
-  }
-  if (Chain) {
-    SDVTList VTs = DAG.getVTList(VT, MVT::Other);
-    return DAG.getNode(Opcode, DL, VTs, Chain, CmpOp0, CmpOp1);
   }
   return DAG.getNode(Opcode, DL, VT, CmpOp0, CmpOp1);
 }
 
 // Lower a vector comparison of type CC between CmpOp0 and CmpOp1, producing
-// an integer mask of type VT.  If Chain is nonnull, we have a strict
-// floating-point comparison.  If in addition IsSignaling is true, we have
-// a strict signaling floating-point comparison.
+// an integer mask of type VT.
 SDValue SystemZTargetLowering::lowerVectorSETCC(SelectionDAG &DAG,
                                                 const SDLoc &DL, EVT VT,
                                                 ISD::CondCode CC,
                                                 SDValue CmpOp0,
-                                                SDValue CmpOp1,
-                                                SDValue Chain,
-                                                bool IsSignaling) const {
+                                                SDValue CmpOp1) const {
   bool IsFP = CmpOp0.getValueType().isFloatingPoint();
-  assert (!Chain || IsFP);
-  assert (!IsSignaling || Chain);
-  CmpMode Mode = IsSignaling ? CmpMode::SignalingFP :
-                 Chain ? CmpMode::StrictFP : IsFP ? CmpMode::FP : CmpMode::Int;
   bool Invert = false;
   SDValue Cmp;
   switch (CC) {
@@ -2780,14 +2692,9 @@ SDValue SystemZTargetLowering::lowerVectorSETCC(SelectionDAG &DAG,
     LLVM_FALLTHROUGH;
   case ISD::SETO: {
     assert(IsFP && "Unexpected integer comparison");
-    SDValue LT = getVectorCmp(DAG, getVectorComparison(ISD::SETOGT, Mode),
-                              DL, VT, CmpOp1, CmpOp0, Chain);
-    SDValue GE = getVectorCmp(DAG, getVectorComparison(ISD::SETOGE, Mode),
-                              DL, VT, CmpOp0, CmpOp1, Chain);
+    SDValue LT = getVectorCmp(DAG, SystemZISD::VFCMPH, DL, VT, CmpOp1, CmpOp0);
+    SDValue GE = getVectorCmp(DAG, SystemZISD::VFCMPHE, DL, VT, CmpOp0, CmpOp1);
     Cmp = DAG.getNode(ISD::OR, DL, VT, LT, GE);
-    if (Chain)
-      Chain = DAG.getNode(ISD::TokenFactor, DL, MVT::Other,
-                          LT.getValue(1), GE.getValue(1));
     break;
   }
 
@@ -2797,14 +2704,9 @@ SDValue SystemZTargetLowering::lowerVectorSETCC(SelectionDAG &DAG,
     LLVM_FALLTHROUGH;
   case ISD::SETONE: {
     assert(IsFP && "Unexpected integer comparison");
-    SDValue LT = getVectorCmp(DAG, getVectorComparison(ISD::SETOGT, Mode),
-                              DL, VT, CmpOp1, CmpOp0, Chain);
-    SDValue GT = getVectorCmp(DAG, getVectorComparison(ISD::SETOGT, Mode),
-                              DL, VT, CmpOp0, CmpOp1, Chain);
+    SDValue LT = getVectorCmp(DAG, SystemZISD::VFCMPH, DL, VT, CmpOp1, CmpOp0);
+    SDValue GT = getVectorCmp(DAG, SystemZISD::VFCMPH, DL, VT, CmpOp0, CmpOp1);
     Cmp = DAG.getNode(ISD::OR, DL, VT, LT, GT);
-    if (Chain)
-      Chain = DAG.getNode(ISD::TokenFactor, DL, MVT::Other,
-                          LT.getValue(1), GT.getValue(1));
     break;
   }
 
@@ -2812,27 +2714,21 @@ SDValue SystemZTargetLowering::lowerVectorSETCC(SelectionDAG &DAG,
     // matter whether we try the inversion or the swap first, since
     // there are no cases where both work.
   default:
-    if (unsigned Opcode = getVectorComparisonOrInvert(CC, Mode, Invert))
-      Cmp = getVectorCmp(DAG, Opcode, DL, VT, CmpOp0, CmpOp1, Chain);
+    if (unsigned Opcode = getVectorComparisonOrInvert(CC, IsFP, Invert))
+      Cmp = getVectorCmp(DAG, Opcode, DL, VT, CmpOp0, CmpOp1);
     else {
       CC = ISD::getSetCCSwappedOperands(CC);
-      if (unsigned Opcode = getVectorComparisonOrInvert(CC, Mode, Invert))
-        Cmp = getVectorCmp(DAG, Opcode, DL, VT, CmpOp1, CmpOp0, Chain);
+      if (unsigned Opcode = getVectorComparisonOrInvert(CC, IsFP, Invert))
+        Cmp = getVectorCmp(DAG, Opcode, DL, VT, CmpOp1, CmpOp0);
       else
         llvm_unreachable("Unhandled comparison");
     }
-    if (Chain)
-      Chain = Cmp.getValue(1);
     break;
   }
   if (Invert) {
     SDValue Mask =
       DAG.getSplatBuildVector(VT, DL, DAG.getConstant(-1, DL, MVT::i64));
     Cmp = DAG.getNode(ISD::XOR, DL, VT, Cmp, Mask);
-  }
-  if (Chain && Chain.getNode() != Cmp.getNode()) {
-    SDValue Ops[2] = { Cmp, Chain };
-    Cmp = DAG.getMergeValues(Ops, DL);
   }
   return Cmp;
 }
@@ -2850,29 +2746,6 @@ SDValue SystemZTargetLowering::lowerSETCC(SDValue Op,
   Comparison C(getCmp(DAG, CmpOp0, CmpOp1, CC, DL));
   SDValue CCReg = emitCmp(DAG, DL, C);
   return emitSETCC(DAG, DL, CCReg, C.CCValid, C.CCMask);
-}
-
-SDValue SystemZTargetLowering::lowerSTRICT_FSETCC(SDValue Op,
-                                                  SelectionDAG &DAG,
-                                                  bool IsSignaling) const {
-  SDValue Chain    = Op.getOperand(0);
-  SDValue CmpOp0   = Op.getOperand(1);
-  SDValue CmpOp1   = Op.getOperand(2);
-  ISD::CondCode CC = cast<CondCodeSDNode>(Op.getOperand(3))->get();
-  SDLoc DL(Op);
-  EVT VT = Op.getNode()->getValueType(0);
-  if (VT.isVector()) {
-    SDValue Res = lowerVectorSETCC(DAG, DL, VT, CC, CmpOp0, CmpOp1,
-                                   Chain, IsSignaling);
-    return Res.getValue(Op.getResNo());
-  }
-
-  Comparison C(getCmp(DAG, CmpOp0, CmpOp1, CC, DL, Chain, IsSignaling));
-  SDValue CCReg = emitCmp(DAG, DL, C);
-  CCReg->setFlags(Op->getFlags());
-  SDValue Result = emitSETCC(DAG, DL, CCReg, C.CCValid, C.CCMask);
-  SDValue Ops[2] = { Result, CCReg.getValue(1) };
-  return DAG.getMergeValues(Ops, DL);
 }
 
 SDValue SystemZTargetLowering::lowerBR_CC(SDValue Op, SelectionDAG &DAG) const {
@@ -2955,26 +2828,17 @@ SDValue SystemZTargetLowering::lowerGlobalAddress(GlobalAddressSDNode *Node,
 
   SDValue Result;
   if (Subtarget.isPC32DBLSymbol(GV, CM)) {
-    if (isInt<32>(Offset)) {
-      // Assign anchors at 1<<12 byte boundaries.
-      uint64_t Anchor = Offset & ~uint64_t(0xfff);
-      Result = DAG.getTargetGlobalAddress(GV, DL, PtrVT, Anchor);
-      Result = DAG.getNode(SystemZISD::PCREL_WRAPPER, DL, PtrVT, Result);
+    // Assign anchors at 1<<12 byte boundaries.
+    uint64_t Anchor = Offset & ~uint64_t(0xfff);
+    Result = DAG.getTargetGlobalAddress(GV, DL, PtrVT, Anchor);
+    Result = DAG.getNode(SystemZISD::PCREL_WRAPPER, DL, PtrVT, Result);
 
-      // The offset can be folded into the address if it is aligned to a
-      // halfword.
-      Offset -= Anchor;
-      if (Offset != 0 && (Offset & 1) == 0) {
-        SDValue Full =
-          DAG.getTargetGlobalAddress(GV, DL, PtrVT, Anchor + Offset);
-        Result = DAG.getNode(SystemZISD::PCREL_OFFSET, DL, PtrVT, Full, Result);
-        Offset = 0;
-      }
-    } else {
-      // Conservatively load a constant offset greater than 32 bits into a
-      // register below.
-      Result = DAG.getTargetGlobalAddress(GV, DL, PtrVT);
-      Result = DAG.getNode(SystemZISD::PCREL_WRAPPER, DL, PtrVT, Result);
+    // The offset can be folded into the address if it is aligned to a halfword.
+    Offset -= Anchor;
+    if (Offset != 0 && (Offset & 1) == 0) {
+      SDValue Full = DAG.getTargetGlobalAddress(GV, DL, PtrVT, Anchor + Offset);
+      Result = DAG.getNode(SystemZISD::PCREL_OFFSET, DL, PtrVT, Full, Result);
+      Offset = 0;
     }
   } else {
     Result = DAG.getTargetGlobalAddress(GV, DL, PtrVT, 0, SystemZII::MO_GOT);
@@ -3000,10 +2864,6 @@ SDValue SystemZTargetLowering::lowerTLSGetOffset(GlobalAddressSDNode *Node,
   EVT PtrVT = getPointerTy(DAG.getDataLayout());
   SDValue Chain = DAG.getEntryNode();
   SDValue Glue;
-
-  if (DAG.getMachineFunction().getFunction().getCallingConv() ==
-      CallingConv::GHC)
-    report_fatal_error("In GHC calling convention TLS is not supported");
 
   // __tls_get_offset takes the GOT offset in %r2 and the GOT in %r12.
   SDValue GOT = DAG.getGLOBAL_OFFSET_TABLE(PtrVT);
@@ -3070,10 +2930,6 @@ SDValue SystemZTargetLowering::lowerGlobalTLSAddress(GlobalAddressSDNode *Node,
   const GlobalValue *GV = Node->getGlobal();
   EVT PtrVT = getPointerTy(DAG.getDataLayout());
   TLSModel::Model model = DAG.getTarget().getTLSModel(GV);
-
-  if (DAG.getMachineFunction().getFunction().getCallingConv() ==
-      CallingConv::GHC)
-    report_fatal_error("In GHC calling convention TLS is not supported");
 
   SDValue TP = lowerThreadPointer(DL, DAG);
 
@@ -3729,7 +3585,7 @@ SDValue SystemZTargetLowering::lowerCTPOP(SDValue Op,
 
   // Get the known-zero mask for the operand.
   KnownBits Known = DAG.computeKnownBits(Op);
-  unsigned NumSignificantBits = Known.getMaxValue().getActiveBits();
+  unsigned NumSignificantBits = (~Known.Zero).getActiveBits();
   if (NumSignificantBits == 0)
     return DAG.getConstant(0, DL, VT);
 
@@ -4005,9 +3861,6 @@ SDValue SystemZTargetLowering::lowerSTACKSAVE(SDValue Op,
                                               SelectionDAG &DAG) const {
   MachineFunction &MF = DAG.getMachineFunction();
   MF.getInfo<SystemZMachineFunctionInfo>()->setManipulatesSP(true);
-  if (MF.getFunction().getCallingConv() == CallingConv::GHC)
-    report_fatal_error("Variable-sized stack allocations are not supported "
-                       "in GHC calling convention");
   return DAG.getCopyFromReg(Op.getOperand(0), SDLoc(Op),
                             SystemZ::R15D, Op.getValueType());
 }
@@ -4017,10 +3870,6 @@ SDValue SystemZTargetLowering::lowerSTACKRESTORE(SDValue Op,
   MachineFunction &MF = DAG.getMachineFunction();
   MF.getInfo<SystemZMachineFunctionInfo>()->setManipulatesSP(true);
   bool StoreBackchain = MF.getFunction().hasFnAttribute("backchain");
-
-  if (MF.getFunction().getCallingConv() == CallingConv::GHC)
-    report_fatal_error("Variable-sized stack allocations are not supported "
-                       "in GHC calling convention");
 
   SDValue Chain = Op.getOperand(0);
   SDValue NewSP = Op.getOperand(1);
@@ -5086,10 +4935,6 @@ SDValue SystemZTargetLowering::LowerOperation(SDValue Op,
     return lowerSELECT_CC(Op, DAG);
   case ISD::SETCC:
     return lowerSETCC(Op, DAG);
-  case ISD::STRICT_FSETCC:
-    return lowerSTRICT_FSETCC(Op, DAG, false);
-  case ISD::STRICT_FSETCCS:
-    return lowerSTRICT_FSETCC(Op, DAG, true);
   case ISD::GlobalAddress:
     return lowerGlobalAddress(cast<GlobalAddressSDNode>(Op), DAG);
   case ISD::GlobalTLSAddress:
@@ -5295,8 +5140,6 @@ const char *SystemZTargetLowering::getTargetNodeName(unsigned Opcode) const {
     OPCODE(IABS);
     OPCODE(ICMP);
     OPCODE(FCMP);
-    OPCODE(STRICT_FCMP);
-    OPCODE(STRICT_FCMPS);
     OPCODE(TM);
     OPCODE(BR_CCMASK);
     OPCODE(SELECT_CCMASK);
@@ -5359,20 +5202,13 @@ const char *SystemZTargetLowering::getTargetNodeName(unsigned Opcode) const {
     OPCODE(VICMPHS);
     OPCODE(VICMPHLS);
     OPCODE(VFCMPE);
-    OPCODE(STRICT_VFCMPE);
-    OPCODE(STRICT_VFCMPES);
     OPCODE(VFCMPH);
-    OPCODE(STRICT_VFCMPH);
-    OPCODE(STRICT_VFCMPHS);
     OPCODE(VFCMPHE);
-    OPCODE(STRICT_VFCMPHE);
-    OPCODE(STRICT_VFCMPHES);
     OPCODE(VFCMPES);
     OPCODE(VFCMPHS);
     OPCODE(VFCMPHES);
     OPCODE(VFTCI);
     OPCODE(VEXTEND);
-    OPCODE(STRICT_VEXTEND);
     OPCODE(VROUND);
     OPCODE(VTM);
     OPCODE(VFAE_CC);
@@ -7687,8 +7523,7 @@ MachineBasicBlock *SystemZTargetLowering::emitLoadAndTestCmp0(
   // Replace pseudo with a normal load-and-test that models the def as
   // well.
   BuildMI(*MBB, MI, DL, TII->get(Opcode), DstReg)
-    .addReg(SrcReg)
-    .setMIFlags(MI.getFlags());
+    .addReg(SrcReg);
   MI.eraseFromParent();
 
   return MBB;

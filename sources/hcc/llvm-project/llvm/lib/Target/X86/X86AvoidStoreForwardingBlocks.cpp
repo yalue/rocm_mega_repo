@@ -46,7 +46,6 @@
 #include "llvm/IR/DebugInfoMetadata.h"
 #include "llvm/IR/DebugLoc.h"
 #include "llvm/IR/Function.h"
-#include "llvm/InitializePasses.h"
 #include "llvm/MC/MCInstrDesc.h"
 
 using namespace llvm;
@@ -84,13 +83,13 @@ public:
   }
 
 private:
-  MachineRegisterInfo *MRI = nullptr;
-  const X86InstrInfo *TII = nullptr;
-  const X86RegisterInfo *TRI = nullptr;
+  MachineRegisterInfo *MRI;
+  const X86InstrInfo *TII;
+  const X86RegisterInfo *TRI;
   SmallVector<std::pair<MachineInstr *, MachineInstr *>, 2>
       BlockedLoadsStoresPairs;
   SmallVector<MachineInstr *, 2> ForRemoval;
-  AliasAnalysis *AA = nullptr;
+  AliasAnalysis *AA;
 
   /// Returns couples of Load then Store to memory which look
   ///  like a memcpy.

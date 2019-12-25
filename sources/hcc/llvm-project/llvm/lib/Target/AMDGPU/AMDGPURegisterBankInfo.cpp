@@ -106,14 +106,6 @@ AMDGPURegisterBankInfo::AMDGPURegisterBankInfo(const GCNSubtarget &ST)
   (void)RBVGPR;
   assert(&RBVGPR == &AMDGPU::VGPRRegBank);
 
-  const RegisterBank &RBAGPR = getRegBank(AMDGPU::AGPRRegBankID);
-  (void)RBAGPR;
-  assert(&RBAGPR == &AMDGPU::AGPRRegBank);
-}
-
-static bool isVectorRegisterBank(const RegisterBank &Bank) {
-  unsigned BankID = Bank.getID();
-  return BankID == AMDGPU::VGPRRegBankID || BankID == AMDGPU::AGPRRegBankID;
 }
 
 unsigned AMDGPURegisterBankInfo::copyCost(const RegisterBank &Dst,
@@ -121,7 +113,7 @@ unsigned AMDGPURegisterBankInfo::copyCost(const RegisterBank &Dst,
                                           unsigned Size) const {
   // TODO: Should there be a UniformVGPRRegBank which can use readfirstlane?
   if (Dst.getID() == AMDGPU::SGPRRegBankID &&
-      isVectorRegisterBank(Src)) {
+      Src.getID() == AMDGPU::VGPRRegBankID) {
     return std::numeric_limits<unsigned>::max();
   }
 
@@ -135,19 +127,14 @@ unsigned AMDGPURegisterBankInfo::copyCost(const RegisterBank &Dst,
   if (Size == 1 &&
       (Dst.getID() == AMDGPU::SCCRegBankID ||
        Dst.getID() == AMDGPU::SGPRRegBankID) &&
-      (isVectorRegisterBank(Src) ||
-       Src.getID() == AMDGPU::SGPRRegBankID ||
+      (Src.getID() == AMDGPU::SGPRRegBankID ||
+       Src.getID() == AMDGPU::VGPRRegBankID ||
        Src.getID() == AMDGPU::VCCRegBankID))
     return std::numeric_limits<unsigned>::max();
 
   if (Dst.getID() == AMDGPU::SCCRegBankID &&
       Src.getID() == AMDGPU::VCCRegBankID)
     return std::numeric_limits<unsigned>::max();
-
-  // There is no direct copy between AGPRs.
-  if (Dst.getID() == AMDGPU::AGPRRegBankID &&
-      Src.getID() == AMDGPU::AGPRRegBankID)
-    return 4;
 
   return RegisterBankInfo::copyCost(Dst, Src, Size);
 }
@@ -182,12 +169,7 @@ const RegisterBank &AMDGPURegisterBankInfo::getRegBankFromRegClass(
   if (&RC == &AMDGPU::SReg_1RegClass)
     return AMDGPU::VCCRegBank;
 
-  if (TRI->isSGPRClass(&RC))
-    return AMDGPU::SGPRRegBank;
-  if (TRI->isAGPRClass(&RC))
-    return AMDGPU::AGPRRegBank;
-
-  return AMDGPU::VGPRRegBank;
+  return TRI->isSGPRClass(&RC) ? AMDGPU::SGPRRegBank : AMDGPU::VGPRRegBank;
 }
 
 template <unsigned NumOps>
@@ -1926,7 +1908,7 @@ bool AMDGPURegisterBankInfo::isSALUMapping(const MachineInstr &MI) const {
       continue;
     Register Reg = MI.getOperand(i).getReg();
     if (const RegisterBank *Bank = getRegBank(Reg, MRI, *TRI)) {
-      if (isVectorRegisterBank(*Bank))
+      if (Bank->getID() == AMDGPU::VGPRRegBankID)
         return false;
 
       assert(Bank->getID() == AMDGPU::SGPRRegBankID ||
@@ -2090,6 +2072,7 @@ AMDGPURegisterBankInfo::getRegBankID(Register Reg,
                                      const MachineRegisterInfo &MRI,
                                      const TargetRegisterInfo &TRI,
                                      unsigned Default) const {
+
   const RegisterBank *Bank = getRegBank(Reg, MRI, TRI);
   return Bank ? Bank->getID() : Default;
 }
@@ -2117,14 +2100,6 @@ AMDGPURegisterBankInfo::getVGPROpMapping(Register Reg,
                                          const TargetRegisterInfo &TRI) const {
   unsigned Size = getSizeInBits(Reg, MRI, TRI);
   return AMDGPU::getValueMapping(AMDGPU::VGPRRegBankID, Size);
-}
-
-const RegisterBankInfo::ValueMapping *
-AMDGPURegisterBankInfo::getAGPROpMapping(Register Reg,
-                                         const MachineRegisterInfo &MRI,
-                                         const TargetRegisterInfo &TRI) const {
-  unsigned Size = getSizeInBits(Reg, MRI, TRI);
-  return AMDGPU::getValueMapping(AMDGPU::AGPRRegBankID, Size);
 }
 
 ///
@@ -2293,7 +2268,7 @@ AMDGPURegisterBankInfo::getInstrMapping(const MachineInstr &MI) const {
 
     LLVM_FALLTHROUGH;
   }
-  case AMDGPU::G_PTR_ADD:
+  case AMDGPU::G_GEP:
   case AMDGPU::G_ADD:
   case AMDGPU::G_SUB:
   case AMDGPU::G_MUL:
@@ -2750,38 +2725,6 @@ AMDGPURegisterBankInfo::getInstrMapping(const MachineInstr &MI) const {
       OpdsMapping[3] = AMDGPU::getValueMapping(AMDGPU::SGPRRegBankID, Size);
       break;
     }
-    case Intrinsic::amdgcn_mfma_f32_4x4x1f32:
-    case Intrinsic::amdgcn_mfma_f32_4x4x4f16:
-    case Intrinsic::amdgcn_mfma_i32_4x4x4i8:
-    case Intrinsic::amdgcn_mfma_f32_4x4x2bf16:
-    case Intrinsic::amdgcn_mfma_f32_16x16x1f32:
-    case Intrinsic::amdgcn_mfma_f32_16x16x4f32:
-    case Intrinsic::amdgcn_mfma_f32_16x16x4f16:
-    case Intrinsic::amdgcn_mfma_f32_16x16x16f16:
-    case Intrinsic::amdgcn_mfma_i32_16x16x4i8:
-    case Intrinsic::amdgcn_mfma_i32_16x16x16i8:
-    case Intrinsic::amdgcn_mfma_f32_16x16x2bf16:
-    case Intrinsic::amdgcn_mfma_f32_16x16x8bf16:
-    case Intrinsic::amdgcn_mfma_f32_32x32x1f32:
-    case Intrinsic::amdgcn_mfma_f32_32x32x2f32:
-    case Intrinsic::amdgcn_mfma_f32_32x32x4f16:
-    case Intrinsic::amdgcn_mfma_f32_32x32x8f16:
-    case Intrinsic::amdgcn_mfma_i32_32x32x4i8:
-    case Intrinsic::amdgcn_mfma_i32_32x32x8i8:
-    case Intrinsic::amdgcn_mfma_f32_32x32x2bf16:
-    case Intrinsic::amdgcn_mfma_f32_32x32x4bf16: {
-      // Default for MAI intrinsics.
-      // srcC can also be an immediate which can be folded later.
-      // FIXME: Should we eventually add an alternative mapping with AGPR src
-      // for srcA/srcB?
-      //
-      // vdst, srcA, srcB, srcC
-      OpdsMapping[0] = getAGPROpMapping(MI.getOperand(0).getReg(), MRI, *TRI);
-      OpdsMapping[2] = getVGPROpMapping(MI.getOperand(2).getReg(), MRI, *TRI);
-      OpdsMapping[3] = getVGPROpMapping(MI.getOperand(3).getReg(), MRI, *TRI);
-      OpdsMapping[4] = getAGPROpMapping(MI.getOperand(4).getReg(), MRI, *TRI);
-      break;
-    }
     }
     break;
   }
@@ -3014,8 +2957,7 @@ AMDGPURegisterBankInfo::getInstrMapping(const MachineInstr &MI) const {
   case AMDGPU::G_ATOMICRMW_UMAX:
   case AMDGPU::G_ATOMICRMW_UMIN:
   case AMDGPU::G_ATOMICRMW_FADD:
-  case AMDGPU::G_ATOMIC_CMPXCHG:
-  case AMDGPU::G_AMDGPU_ATOMIC_CMPXCHG: {
+  case AMDGPU::G_ATOMIC_CMPXCHG: {
     return getDefaultMappingAllVGPR(MI);
   }
   case AMDGPU::G_BRCOND: {

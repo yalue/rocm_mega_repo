@@ -25,6 +25,8 @@
 namespace clang {
 class TargetInfo;
 class IdentifierTable;
+class ASTContext;
+class QualType;
 class LangOptions;
 
 enum LanguageID {
@@ -222,7 +224,7 @@ public:
 
   /// Returns true if this is a libc/libm function without the '__builtin_'
   /// prefix.
-  static bool isBuiltinFunc(llvm::StringRef Name);
+  static bool isBuiltinFunc(const char *Name);
 
   /// Returns true if this is a builtin that can be redeclared.  Returns true
   /// for non-builtins.

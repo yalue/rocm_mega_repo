@@ -9,10 +9,11 @@
 ; RUN:   | FileCheck -check-prefixes=CHECK,RV64IM %s
 
 
-define <4 x i16> @fold_urem_vec_1(<4 x i16> %x) nounwind {
+define <4 x i16> @fold_urem_vec_1(<4 x i16> %x) {
 ; RV32I-LABEL: fold_urem_vec_1:
 ; RV32I:       # %bb.0:
 ; RV32I-NEXT:    addi sp, sp, -32
+; RV32I-NEXT:    .cfi_def_cfa_offset 32
 ; RV32I-NEXT:    sw ra, 28(sp)
 ; RV32I-NEXT:    sw s0, 24(sp)
 ; RV32I-NEXT:    sw s1, 20(sp)
@@ -20,6 +21,13 @@ define <4 x i16> @fold_urem_vec_1(<4 x i16> %x) nounwind {
 ; RV32I-NEXT:    sw s3, 12(sp)
 ; RV32I-NEXT:    sw s4, 8(sp)
 ; RV32I-NEXT:    sw s5, 4(sp)
+; RV32I-NEXT:    .cfi_offset ra, -4
+; RV32I-NEXT:    .cfi_offset s0, -8
+; RV32I-NEXT:    .cfi_offset s1, -12
+; RV32I-NEXT:    .cfi_offset s2, -16
+; RV32I-NEXT:    .cfi_offset s3, -20
+; RV32I-NEXT:    .cfi_offset s4, -24
+; RV32I-NEXT:    .cfi_offset s5, -28
 ; RV32I-NEXT:    lhu s2, 12(a1)
 ; RV32I-NEXT:    lhu s3, 8(a1)
 ; RV32I-NEXT:    lhu s0, 4(a1)
@@ -51,7 +59,15 @@ define <4 x i16> @fold_urem_vec_1(<4 x i16> %x) nounwind {
 ; RV32I-NEXT:    lw s1, 20(sp)
 ; RV32I-NEXT:    lw s0, 24(sp)
 ; RV32I-NEXT:    lw ra, 28(sp)
+; RV32I-NEXT:    .cfi_restore ra
+; RV32I-NEXT:    .cfi_restore s0
+; RV32I-NEXT:    .cfi_restore s1
+; RV32I-NEXT:    .cfi_restore s2
+; RV32I-NEXT:    .cfi_restore s3
+; RV32I-NEXT:    .cfi_restore s4
+; RV32I-NEXT:    .cfi_restore s5
 ; RV32I-NEXT:    addi sp, sp, 32
+; RV32I-NEXT:    .cfi_def_cfa_offset 0
 ; RV32I-NEXT:    ret
 ;
 ; RV32IM-LABEL: fold_urem_vec_1:
@@ -96,11 +112,13 @@ define <4 x i16> @fold_urem_vec_1(<4 x i16> %x) nounwind {
 ; RV32IM-NEXT:    sh a3, 4(a0)
 ; RV32IM-NEXT:    sh a1, 2(a0)
 ; RV32IM-NEXT:    sh a2, 0(a0)
+; RV32IM-NEXT:    .cfi_def_cfa_offset 0
 ; RV32IM-NEXT:    ret
 ;
 ; RV64I-LABEL: fold_urem_vec_1:
 ; RV64I:       # %bb.0:
 ; RV64I-NEXT:    addi sp, sp, -64
+; RV64I-NEXT:    .cfi_def_cfa_offset 64
 ; RV64I-NEXT:    sd ra, 56(sp)
 ; RV64I-NEXT:    sd s0, 48(sp)
 ; RV64I-NEXT:    sd s1, 40(sp)
@@ -108,6 +126,13 @@ define <4 x i16> @fold_urem_vec_1(<4 x i16> %x) nounwind {
 ; RV64I-NEXT:    sd s3, 24(sp)
 ; RV64I-NEXT:    sd s4, 16(sp)
 ; RV64I-NEXT:    sd s5, 8(sp)
+; RV64I-NEXT:    .cfi_offset ra, -8
+; RV64I-NEXT:    .cfi_offset s0, -16
+; RV64I-NEXT:    .cfi_offset s1, -24
+; RV64I-NEXT:    .cfi_offset s2, -32
+; RV64I-NEXT:    .cfi_offset s3, -40
+; RV64I-NEXT:    .cfi_offset s4, -48
+; RV64I-NEXT:    .cfi_offset s5, -56
 ; RV64I-NEXT:    lhu s2, 24(a1)
 ; RV64I-NEXT:    lhu s3, 16(a1)
 ; RV64I-NEXT:    lhu s0, 8(a1)
@@ -139,7 +164,15 @@ define <4 x i16> @fold_urem_vec_1(<4 x i16> %x) nounwind {
 ; RV64I-NEXT:    ld s1, 40(sp)
 ; RV64I-NEXT:    ld s0, 48(sp)
 ; RV64I-NEXT:    ld ra, 56(sp)
+; RV64I-NEXT:    .cfi_restore ra
+; RV64I-NEXT:    .cfi_restore s0
+; RV64I-NEXT:    .cfi_restore s1
+; RV64I-NEXT:    .cfi_restore s2
+; RV64I-NEXT:    .cfi_restore s3
+; RV64I-NEXT:    .cfi_restore s4
+; RV64I-NEXT:    .cfi_restore s5
 ; RV64I-NEXT:    addi sp, sp, 64
+; RV64I-NEXT:    .cfi_def_cfa_offset 0
 ; RV64I-NEXT:    ret
 ;
 ; RV64IM-LABEL: fold_urem_vec_1:
@@ -209,15 +242,17 @@ define <4 x i16> @fold_urem_vec_1(<4 x i16> %x) nounwind {
 ; RV64IM-NEXT:    sh a3, 4(a0)
 ; RV64IM-NEXT:    sh a2, 2(a0)
 ; RV64IM-NEXT:    sh a1, 0(a0)
+; RV64IM-NEXT:    .cfi_def_cfa_offset 0
 ; RV64IM-NEXT:    ret
   %1 = urem <4 x i16> %x, <i16 95, i16 124, i16 98, i16 1003>
   ret <4 x i16> %1
 }
 
-define <4 x i16> @fold_urem_vec_2(<4 x i16> %x) nounwind {
+define <4 x i16> @fold_urem_vec_2(<4 x i16> %x) {
 ; RV32I-LABEL: fold_urem_vec_2:
 ; RV32I:       # %bb.0:
 ; RV32I-NEXT:    addi sp, sp, -32
+; RV32I-NEXT:    .cfi_def_cfa_offset 32
 ; RV32I-NEXT:    sw ra, 28(sp)
 ; RV32I-NEXT:    sw s0, 24(sp)
 ; RV32I-NEXT:    sw s1, 20(sp)
@@ -225,6 +260,13 @@ define <4 x i16> @fold_urem_vec_2(<4 x i16> %x) nounwind {
 ; RV32I-NEXT:    sw s3, 12(sp)
 ; RV32I-NEXT:    sw s4, 8(sp)
 ; RV32I-NEXT:    sw s5, 4(sp)
+; RV32I-NEXT:    .cfi_offset ra, -4
+; RV32I-NEXT:    .cfi_offset s0, -8
+; RV32I-NEXT:    .cfi_offset s1, -12
+; RV32I-NEXT:    .cfi_offset s2, -16
+; RV32I-NEXT:    .cfi_offset s3, -20
+; RV32I-NEXT:    .cfi_offset s4, -24
+; RV32I-NEXT:    .cfi_offset s5, -28
 ; RV32I-NEXT:    lhu s2, 12(a1)
 ; RV32I-NEXT:    lhu s3, 8(a1)
 ; RV32I-NEXT:    lhu s0, 4(a1)
@@ -256,7 +298,15 @@ define <4 x i16> @fold_urem_vec_2(<4 x i16> %x) nounwind {
 ; RV32I-NEXT:    lw s1, 20(sp)
 ; RV32I-NEXT:    lw s0, 24(sp)
 ; RV32I-NEXT:    lw ra, 28(sp)
+; RV32I-NEXT:    .cfi_restore ra
+; RV32I-NEXT:    .cfi_restore s0
+; RV32I-NEXT:    .cfi_restore s1
+; RV32I-NEXT:    .cfi_restore s2
+; RV32I-NEXT:    .cfi_restore s3
+; RV32I-NEXT:    .cfi_restore s4
+; RV32I-NEXT:    .cfi_restore s5
 ; RV32I-NEXT:    addi sp, sp, 32
+; RV32I-NEXT:    .cfi_def_cfa_offset 0
 ; RV32I-NEXT:    ret
 ;
 ; RV32IM-LABEL: fold_urem_vec_2:
@@ -300,11 +350,13 @@ define <4 x i16> @fold_urem_vec_2(<4 x i16> %x) nounwind {
 ; RV32IM-NEXT:    sh a2, 4(a0)
 ; RV32IM-NEXT:    sh a1, 2(a0)
 ; RV32IM-NEXT:    sh t0, 0(a0)
+; RV32IM-NEXT:    .cfi_def_cfa_offset 0
 ; RV32IM-NEXT:    ret
 ;
 ; RV64I-LABEL: fold_urem_vec_2:
 ; RV64I:       # %bb.0:
 ; RV64I-NEXT:    addi sp, sp, -64
+; RV64I-NEXT:    .cfi_def_cfa_offset 64
 ; RV64I-NEXT:    sd ra, 56(sp)
 ; RV64I-NEXT:    sd s0, 48(sp)
 ; RV64I-NEXT:    sd s1, 40(sp)
@@ -312,6 +364,13 @@ define <4 x i16> @fold_urem_vec_2(<4 x i16> %x) nounwind {
 ; RV64I-NEXT:    sd s3, 24(sp)
 ; RV64I-NEXT:    sd s4, 16(sp)
 ; RV64I-NEXT:    sd s5, 8(sp)
+; RV64I-NEXT:    .cfi_offset ra, -8
+; RV64I-NEXT:    .cfi_offset s0, -16
+; RV64I-NEXT:    .cfi_offset s1, -24
+; RV64I-NEXT:    .cfi_offset s2, -32
+; RV64I-NEXT:    .cfi_offset s3, -40
+; RV64I-NEXT:    .cfi_offset s4, -48
+; RV64I-NEXT:    .cfi_offset s5, -56
 ; RV64I-NEXT:    lhu s2, 24(a1)
 ; RV64I-NEXT:    lhu s3, 16(a1)
 ; RV64I-NEXT:    lhu s0, 8(a1)
@@ -343,7 +402,15 @@ define <4 x i16> @fold_urem_vec_2(<4 x i16> %x) nounwind {
 ; RV64I-NEXT:    ld s1, 40(sp)
 ; RV64I-NEXT:    ld s0, 48(sp)
 ; RV64I-NEXT:    ld ra, 56(sp)
+; RV64I-NEXT:    .cfi_restore ra
+; RV64I-NEXT:    .cfi_restore s0
+; RV64I-NEXT:    .cfi_restore s1
+; RV64I-NEXT:    .cfi_restore s2
+; RV64I-NEXT:    .cfi_restore s3
+; RV64I-NEXT:    .cfi_restore s4
+; RV64I-NEXT:    .cfi_restore s5
 ; RV64I-NEXT:    addi sp, sp, 64
+; RV64I-NEXT:    .cfi_def_cfa_offset 0
 ; RV64I-NEXT:    ret
 ;
 ; RV64IM-LABEL: fold_urem_vec_2:
@@ -393,6 +460,7 @@ define <4 x i16> @fold_urem_vec_2(<4 x i16> %x) nounwind {
 ; RV64IM-NEXT:    sh a2, 4(a0)
 ; RV64IM-NEXT:    sh a1, 2(a0)
 ; RV64IM-NEXT:    sh t0, 0(a0)
+; RV64IM-NEXT:    .cfi_def_cfa_offset 0
 ; RV64IM-NEXT:    ret
   %1 = urem <4 x i16> %x, <i16 95, i16 95, i16 95, i16 95>
   ret <4 x i16> %1
@@ -400,10 +468,11 @@ define <4 x i16> @fold_urem_vec_2(<4 x i16> %x) nounwind {
 
 
 ; Don't fold if we can combine urem with udiv.
-define <4 x i16> @combine_urem_udiv(<4 x i16> %x) nounwind {
+define <4 x i16> @combine_urem_udiv(<4 x i16> %x) {
 ; RV32I-LABEL: combine_urem_udiv:
 ; RV32I:       # %bb.0:
 ; RV32I-NEXT:    addi sp, sp, -48
+; RV32I-NEXT:    .cfi_def_cfa_offset 48
 ; RV32I-NEXT:    sw ra, 44(sp)
 ; RV32I-NEXT:    sw s0, 40(sp)
 ; RV32I-NEXT:    sw s1, 36(sp)
@@ -415,6 +484,17 @@ define <4 x i16> @combine_urem_udiv(<4 x i16> %x) nounwind {
 ; RV32I-NEXT:    sw s7, 12(sp)
 ; RV32I-NEXT:    sw s8, 8(sp)
 ; RV32I-NEXT:    sw s9, 4(sp)
+; RV32I-NEXT:    .cfi_offset ra, -4
+; RV32I-NEXT:    .cfi_offset s0, -8
+; RV32I-NEXT:    .cfi_offset s1, -12
+; RV32I-NEXT:    .cfi_offset s2, -16
+; RV32I-NEXT:    .cfi_offset s3, -20
+; RV32I-NEXT:    .cfi_offset s4, -24
+; RV32I-NEXT:    .cfi_offset s5, -28
+; RV32I-NEXT:    .cfi_offset s6, -32
+; RV32I-NEXT:    .cfi_offset s7, -36
+; RV32I-NEXT:    .cfi_offset s8, -40
+; RV32I-NEXT:    .cfi_offset s9, -44
 ; RV32I-NEXT:    lhu s2, 0(a1)
 ; RV32I-NEXT:    lhu s3, 4(a1)
 ; RV32I-NEXT:    lhu s4, 8(a1)
@@ -470,7 +550,19 @@ define <4 x i16> @combine_urem_udiv(<4 x i16> %x) nounwind {
 ; RV32I-NEXT:    lw s1, 36(sp)
 ; RV32I-NEXT:    lw s0, 40(sp)
 ; RV32I-NEXT:    lw ra, 44(sp)
+; RV32I-NEXT:    .cfi_restore ra
+; RV32I-NEXT:    .cfi_restore s0
+; RV32I-NEXT:    .cfi_restore s1
+; RV32I-NEXT:    .cfi_restore s2
+; RV32I-NEXT:    .cfi_restore s3
+; RV32I-NEXT:    .cfi_restore s4
+; RV32I-NEXT:    .cfi_restore s5
+; RV32I-NEXT:    .cfi_restore s6
+; RV32I-NEXT:    .cfi_restore s7
+; RV32I-NEXT:    .cfi_restore s8
+; RV32I-NEXT:    .cfi_restore s9
 ; RV32I-NEXT:    addi sp, sp, 48
+; RV32I-NEXT:    .cfi_def_cfa_offset 0
 ; RV32I-NEXT:    ret
 ;
 ; RV32IM-LABEL: combine_urem_udiv:
@@ -518,11 +610,13 @@ define <4 x i16> @combine_urem_udiv(<4 x i16> %x) nounwind {
 ; RV32IM-NEXT:    sh a3, 4(a0)
 ; RV32IM-NEXT:    sh a1, 2(a0)
 ; RV32IM-NEXT:    sh a2, 0(a0)
+; RV32IM-NEXT:    .cfi_def_cfa_offset 0
 ; RV32IM-NEXT:    ret
 ;
 ; RV64I-LABEL: combine_urem_udiv:
 ; RV64I:       # %bb.0:
 ; RV64I-NEXT:    addi sp, sp, -96
+; RV64I-NEXT:    .cfi_def_cfa_offset 96
 ; RV64I-NEXT:    sd ra, 88(sp)
 ; RV64I-NEXT:    sd s0, 80(sp)
 ; RV64I-NEXT:    sd s1, 72(sp)
@@ -534,6 +628,17 @@ define <4 x i16> @combine_urem_udiv(<4 x i16> %x) nounwind {
 ; RV64I-NEXT:    sd s7, 24(sp)
 ; RV64I-NEXT:    sd s8, 16(sp)
 ; RV64I-NEXT:    sd s9, 8(sp)
+; RV64I-NEXT:    .cfi_offset ra, -8
+; RV64I-NEXT:    .cfi_offset s0, -16
+; RV64I-NEXT:    .cfi_offset s1, -24
+; RV64I-NEXT:    .cfi_offset s2, -32
+; RV64I-NEXT:    .cfi_offset s3, -40
+; RV64I-NEXT:    .cfi_offset s4, -48
+; RV64I-NEXT:    .cfi_offset s5, -56
+; RV64I-NEXT:    .cfi_offset s6, -64
+; RV64I-NEXT:    .cfi_offset s7, -72
+; RV64I-NEXT:    .cfi_offset s8, -80
+; RV64I-NEXT:    .cfi_offset s9, -88
 ; RV64I-NEXT:    lhu s2, 0(a1)
 ; RV64I-NEXT:    lhu s3, 8(a1)
 ; RV64I-NEXT:    lhu s4, 16(a1)
@@ -589,7 +694,19 @@ define <4 x i16> @combine_urem_udiv(<4 x i16> %x) nounwind {
 ; RV64I-NEXT:    ld s1, 72(sp)
 ; RV64I-NEXT:    ld s0, 80(sp)
 ; RV64I-NEXT:    ld ra, 88(sp)
+; RV64I-NEXT:    .cfi_restore ra
+; RV64I-NEXT:    .cfi_restore s0
+; RV64I-NEXT:    .cfi_restore s1
+; RV64I-NEXT:    .cfi_restore s2
+; RV64I-NEXT:    .cfi_restore s3
+; RV64I-NEXT:    .cfi_restore s4
+; RV64I-NEXT:    .cfi_restore s5
+; RV64I-NEXT:    .cfi_restore s6
+; RV64I-NEXT:    .cfi_restore s7
+; RV64I-NEXT:    .cfi_restore s8
+; RV64I-NEXT:    .cfi_restore s9
 ; RV64I-NEXT:    addi sp, sp, 96
+; RV64I-NEXT:    .cfi_def_cfa_offset 0
 ; RV64I-NEXT:    ret
 ;
 ; RV64IM-LABEL: combine_urem_udiv:
@@ -643,6 +760,7 @@ define <4 x i16> @combine_urem_udiv(<4 x i16> %x) nounwind {
 ; RV64IM-NEXT:    sh a1, 4(a0)
 ; RV64IM-NEXT:    sh a3, 2(a0)
 ; RV64IM-NEXT:    sh a2, 0(a0)
+; RV64IM-NEXT:    .cfi_def_cfa_offset 0
 ; RV64IM-NEXT:    ret
   %1 = urem <4 x i16> %x, <i16 95, i16 95, i16 95, i16 95>
   %2 = udiv <4 x i16> %x, <i16 95, i16 95, i16 95, i16 95>
@@ -651,15 +769,21 @@ define <4 x i16> @combine_urem_udiv(<4 x i16> %x) nounwind {
 }
 
 ; Don't fold for divisors that are a power of two.
-define <4 x i16> @dont_fold_urem_power_of_two(<4 x i16> %x) nounwind {
+define <4 x i16> @dont_fold_urem_power_of_two(<4 x i16> %x) {
 ; RV32I-LABEL: dont_fold_urem_power_of_two:
 ; RV32I:       # %bb.0:
 ; RV32I-NEXT:    addi sp, sp, -32
+; RV32I-NEXT:    .cfi_def_cfa_offset 32
 ; RV32I-NEXT:    sw ra, 28(sp)
 ; RV32I-NEXT:    sw s0, 24(sp)
 ; RV32I-NEXT:    sw s1, 20(sp)
 ; RV32I-NEXT:    sw s2, 16(sp)
 ; RV32I-NEXT:    sw s3, 12(sp)
+; RV32I-NEXT:    .cfi_offset ra, -4
+; RV32I-NEXT:    .cfi_offset s0, -8
+; RV32I-NEXT:    .cfi_offset s1, -12
+; RV32I-NEXT:    .cfi_offset s2, -16
+; RV32I-NEXT:    .cfi_offset s3, -20
 ; RV32I-NEXT:    lhu s2, 8(a1)
 ; RV32I-NEXT:    lhu s3, 4(a1)
 ; RV32I-NEXT:    lhu s1, 0(a1)
@@ -680,7 +804,13 @@ define <4 x i16> @dont_fold_urem_power_of_two(<4 x i16> %x) nounwind {
 ; RV32I-NEXT:    lw s1, 20(sp)
 ; RV32I-NEXT:    lw s0, 24(sp)
 ; RV32I-NEXT:    lw ra, 28(sp)
+; RV32I-NEXT:    .cfi_restore ra
+; RV32I-NEXT:    .cfi_restore s0
+; RV32I-NEXT:    .cfi_restore s1
+; RV32I-NEXT:    .cfi_restore s2
+; RV32I-NEXT:    .cfi_restore s3
 ; RV32I-NEXT:    addi sp, sp, 32
+; RV32I-NEXT:    .cfi_def_cfa_offset 0
 ; RV32I-NEXT:    ret
 ;
 ; RV32IM-LABEL: dont_fold_urem_power_of_two:
@@ -706,16 +836,23 @@ define <4 x i16> @dont_fold_urem_power_of_two(<4 x i16> %x) nounwind {
 ; RV32IM-NEXT:    sh a3, 2(a0)
 ; RV32IM-NEXT:    sh a1, 0(a0)
 ; RV32IM-NEXT:    sh a2, 6(a0)
+; RV32IM-NEXT:    .cfi_def_cfa_offset 0
 ; RV32IM-NEXT:    ret
 ;
 ; RV64I-LABEL: dont_fold_urem_power_of_two:
 ; RV64I:       # %bb.0:
 ; RV64I-NEXT:    addi sp, sp, -48
+; RV64I-NEXT:    .cfi_def_cfa_offset 48
 ; RV64I-NEXT:    sd ra, 40(sp)
 ; RV64I-NEXT:    sd s0, 32(sp)
 ; RV64I-NEXT:    sd s1, 24(sp)
 ; RV64I-NEXT:    sd s2, 16(sp)
 ; RV64I-NEXT:    sd s3, 8(sp)
+; RV64I-NEXT:    .cfi_offset ra, -8
+; RV64I-NEXT:    .cfi_offset s0, -16
+; RV64I-NEXT:    .cfi_offset s1, -24
+; RV64I-NEXT:    .cfi_offset s2, -32
+; RV64I-NEXT:    .cfi_offset s3, -40
 ; RV64I-NEXT:    lhu s2, 16(a1)
 ; RV64I-NEXT:    lhu s3, 8(a1)
 ; RV64I-NEXT:    lhu s1, 0(a1)
@@ -736,7 +873,13 @@ define <4 x i16> @dont_fold_urem_power_of_two(<4 x i16> %x) nounwind {
 ; RV64I-NEXT:    ld s1, 24(sp)
 ; RV64I-NEXT:    ld s0, 32(sp)
 ; RV64I-NEXT:    ld ra, 40(sp)
+; RV64I-NEXT:    .cfi_restore ra
+; RV64I-NEXT:    .cfi_restore s0
+; RV64I-NEXT:    .cfi_restore s1
+; RV64I-NEXT:    .cfi_restore s2
+; RV64I-NEXT:    .cfi_restore s3
 ; RV64I-NEXT:    addi sp, sp, 48
+; RV64I-NEXT:    .cfi_def_cfa_offset 0
 ; RV64I-NEXT:    ret
 ;
 ; RV64IM-LABEL: dont_fold_urem_power_of_two:
@@ -768,21 +911,28 @@ define <4 x i16> @dont_fold_urem_power_of_two(<4 x i16> %x) nounwind {
 ; RV64IM-NEXT:    sh a3, 2(a0)
 ; RV64IM-NEXT:    sh a2, 0(a0)
 ; RV64IM-NEXT:    sh a1, 6(a0)
+; RV64IM-NEXT:    .cfi_def_cfa_offset 0
 ; RV64IM-NEXT:    ret
   %1 = urem <4 x i16> %x, <i16 64, i16 32, i16 8, i16 95>
   ret <4 x i16> %1
 }
 
 ; Don't fold if the divisor is one.
-define <4 x i16> @dont_fold_urem_one(<4 x i16> %x) nounwind {
+define <4 x i16> @dont_fold_urem_one(<4 x i16> %x) {
 ; RV32I-LABEL: dont_fold_urem_one:
 ; RV32I:       # %bb.0:
 ; RV32I-NEXT:    addi sp, sp, -32
+; RV32I-NEXT:    .cfi_def_cfa_offset 32
 ; RV32I-NEXT:    sw ra, 28(sp)
 ; RV32I-NEXT:    sw s0, 24(sp)
 ; RV32I-NEXT:    sw s1, 20(sp)
 ; RV32I-NEXT:    sw s2, 16(sp)
 ; RV32I-NEXT:    sw s3, 12(sp)
+; RV32I-NEXT:    .cfi_offset ra, -4
+; RV32I-NEXT:    .cfi_offset s0, -8
+; RV32I-NEXT:    .cfi_offset s1, -12
+; RV32I-NEXT:    .cfi_offset s2, -16
+; RV32I-NEXT:    .cfi_offset s3, -20
 ; RV32I-NEXT:    lhu s2, 12(a1)
 ; RV32I-NEXT:    lhu s1, 8(a1)
 ; RV32I-NEXT:    lhu a2, 4(a1)
@@ -808,7 +958,13 @@ define <4 x i16> @dont_fold_urem_one(<4 x i16> %x) nounwind {
 ; RV32I-NEXT:    lw s1, 20(sp)
 ; RV32I-NEXT:    lw s0, 24(sp)
 ; RV32I-NEXT:    lw ra, 28(sp)
+; RV32I-NEXT:    .cfi_restore ra
+; RV32I-NEXT:    .cfi_restore s0
+; RV32I-NEXT:    .cfi_restore s1
+; RV32I-NEXT:    .cfi_restore s2
+; RV32I-NEXT:    .cfi_restore s3
 ; RV32I-NEXT:    addi sp, sp, 32
+; RV32I-NEXT:    .cfi_def_cfa_offset 0
 ; RV32I-NEXT:    ret
 ;
 ; RV32IM-LABEL: dont_fold_urem_one:
@@ -843,16 +999,23 @@ define <4 x i16> @dont_fold_urem_one(<4 x i16> %x) nounwind {
 ; RV32IM-NEXT:    sh a3, 6(a0)
 ; RV32IM-NEXT:    sh a1, 4(a0)
 ; RV32IM-NEXT:    sh a2, 2(a0)
+; RV32IM-NEXT:    .cfi_def_cfa_offset 0
 ; RV32IM-NEXT:    ret
 ;
 ; RV64I-LABEL: dont_fold_urem_one:
 ; RV64I:       # %bb.0:
 ; RV64I-NEXT:    addi sp, sp, -48
+; RV64I-NEXT:    .cfi_def_cfa_offset 48
 ; RV64I-NEXT:    sd ra, 40(sp)
 ; RV64I-NEXT:    sd s0, 32(sp)
 ; RV64I-NEXT:    sd s1, 24(sp)
 ; RV64I-NEXT:    sd s2, 16(sp)
 ; RV64I-NEXT:    sd s3, 8(sp)
+; RV64I-NEXT:    .cfi_offset ra, -8
+; RV64I-NEXT:    .cfi_offset s0, -16
+; RV64I-NEXT:    .cfi_offset s1, -24
+; RV64I-NEXT:    .cfi_offset s2, -32
+; RV64I-NEXT:    .cfi_offset s3, -40
 ; RV64I-NEXT:    lhu s2, 24(a1)
 ; RV64I-NEXT:    lhu s1, 16(a1)
 ; RV64I-NEXT:    lhu a2, 8(a1)
@@ -878,7 +1041,13 @@ define <4 x i16> @dont_fold_urem_one(<4 x i16> %x) nounwind {
 ; RV64I-NEXT:    ld s1, 24(sp)
 ; RV64I-NEXT:    ld s0, 32(sp)
 ; RV64I-NEXT:    ld ra, 40(sp)
+; RV64I-NEXT:    .cfi_restore ra
+; RV64I-NEXT:    .cfi_restore s0
+; RV64I-NEXT:    .cfi_restore s1
+; RV64I-NEXT:    .cfi_restore s2
+; RV64I-NEXT:    .cfi_restore s3
 ; RV64I-NEXT:    addi sp, sp, 48
+; RV64I-NEXT:    .cfi_def_cfa_offset 0
 ; RV64I-NEXT:    ret
 ;
 ; RV64IM-LABEL: dont_fold_urem_one:
@@ -934,25 +1103,28 @@ define <4 x i16> @dont_fold_urem_one(<4 x i16> %x) nounwind {
 ; RV64IM-NEXT:    sh a2, 6(a0)
 ; RV64IM-NEXT:    sh a3, 2(a0)
 ; RV64IM-NEXT:    sh a1, 4(a0)
+; RV64IM-NEXT:    .cfi_def_cfa_offset 0
 ; RV64IM-NEXT:    ret
   %1 = urem <4 x i16> %x, <i16 1, i16 654, i16 23, i16 5423>
   ret <4 x i16> %1
 }
 
 ; Don't fold if the divisor is 2^16.
-define <4 x i16> @dont_fold_urem_i16_smax(<4 x i16> %x) nounwind {
+define <4 x i16> @dont_fold_urem_i16_smax(<4 x i16> %x) {
 ; CHECK-LABEL: dont_fold_urem_i16_smax:
 ; CHECK:       # %bb.0:
+; CHECK-NEXT:    .cfi_def_cfa_offset 0
 ; CHECK-NEXT:    ret
   %1 = urem <4 x i16> %x, <i16 1, i16 65536, i16 23, i16 5423>
   ret <4 x i16> %1
 }
 
 ; Don't fold i64 urem.
-define <4 x i64> @dont_fold_urem_i64(<4 x i64> %x) nounwind {
+define <4 x i64> @dont_fold_urem_i64(<4 x i64> %x) {
 ; RV32I-LABEL: dont_fold_urem_i64:
 ; RV32I:       # %bb.0:
 ; RV32I-NEXT:    addi sp, sp, -48
+; RV32I-NEXT:    .cfi_def_cfa_offset 48
 ; RV32I-NEXT:    sw ra, 44(sp)
 ; RV32I-NEXT:    sw s0, 40(sp)
 ; RV32I-NEXT:    sw s1, 36(sp)
@@ -964,6 +1136,17 @@ define <4 x i64> @dont_fold_urem_i64(<4 x i64> %x) nounwind {
 ; RV32I-NEXT:    sw s7, 12(sp)
 ; RV32I-NEXT:    sw s8, 8(sp)
 ; RV32I-NEXT:    sw s9, 4(sp)
+; RV32I-NEXT:    .cfi_offset ra, -4
+; RV32I-NEXT:    .cfi_offset s0, -8
+; RV32I-NEXT:    .cfi_offset s1, -12
+; RV32I-NEXT:    .cfi_offset s2, -16
+; RV32I-NEXT:    .cfi_offset s3, -20
+; RV32I-NEXT:    .cfi_offset s4, -24
+; RV32I-NEXT:    .cfi_offset s5, -28
+; RV32I-NEXT:    .cfi_offset s6, -32
+; RV32I-NEXT:    .cfi_offset s7, -36
+; RV32I-NEXT:    .cfi_offset s8, -40
+; RV32I-NEXT:    .cfi_offset s9, -44
 ; RV32I-NEXT:    lw s2, 24(a1)
 ; RV32I-NEXT:    lw s3, 28(a1)
 ; RV32I-NEXT:    lw s4, 16(a1)
@@ -1018,12 +1201,25 @@ define <4 x i64> @dont_fold_urem_i64(<4 x i64> %x) nounwind {
 ; RV32I-NEXT:    lw s1, 36(sp)
 ; RV32I-NEXT:    lw s0, 40(sp)
 ; RV32I-NEXT:    lw ra, 44(sp)
+; RV32I-NEXT:    .cfi_restore ra
+; RV32I-NEXT:    .cfi_restore s0
+; RV32I-NEXT:    .cfi_restore s1
+; RV32I-NEXT:    .cfi_restore s2
+; RV32I-NEXT:    .cfi_restore s3
+; RV32I-NEXT:    .cfi_restore s4
+; RV32I-NEXT:    .cfi_restore s5
+; RV32I-NEXT:    .cfi_restore s6
+; RV32I-NEXT:    .cfi_restore s7
+; RV32I-NEXT:    .cfi_restore s8
+; RV32I-NEXT:    .cfi_restore s9
 ; RV32I-NEXT:    addi sp, sp, 48
+; RV32I-NEXT:    .cfi_def_cfa_offset 0
 ; RV32I-NEXT:    ret
 ;
 ; RV32IM-LABEL: dont_fold_urem_i64:
 ; RV32IM:       # %bb.0:
 ; RV32IM-NEXT:    addi sp, sp, -48
+; RV32IM-NEXT:    .cfi_def_cfa_offset 48
 ; RV32IM-NEXT:    sw ra, 44(sp)
 ; RV32IM-NEXT:    sw s0, 40(sp)
 ; RV32IM-NEXT:    sw s1, 36(sp)
@@ -1035,6 +1231,17 @@ define <4 x i64> @dont_fold_urem_i64(<4 x i64> %x) nounwind {
 ; RV32IM-NEXT:    sw s7, 12(sp)
 ; RV32IM-NEXT:    sw s8, 8(sp)
 ; RV32IM-NEXT:    sw s9, 4(sp)
+; RV32IM-NEXT:    .cfi_offset ra, -4
+; RV32IM-NEXT:    .cfi_offset s0, -8
+; RV32IM-NEXT:    .cfi_offset s1, -12
+; RV32IM-NEXT:    .cfi_offset s2, -16
+; RV32IM-NEXT:    .cfi_offset s3, -20
+; RV32IM-NEXT:    .cfi_offset s4, -24
+; RV32IM-NEXT:    .cfi_offset s5, -28
+; RV32IM-NEXT:    .cfi_offset s6, -32
+; RV32IM-NEXT:    .cfi_offset s7, -36
+; RV32IM-NEXT:    .cfi_offset s8, -40
+; RV32IM-NEXT:    .cfi_offset s9, -44
 ; RV32IM-NEXT:    lw s2, 24(a1)
 ; RV32IM-NEXT:    lw s3, 28(a1)
 ; RV32IM-NEXT:    lw s4, 16(a1)
@@ -1089,17 +1296,35 @@ define <4 x i64> @dont_fold_urem_i64(<4 x i64> %x) nounwind {
 ; RV32IM-NEXT:    lw s1, 36(sp)
 ; RV32IM-NEXT:    lw s0, 40(sp)
 ; RV32IM-NEXT:    lw ra, 44(sp)
+; RV32IM-NEXT:    .cfi_restore ra
+; RV32IM-NEXT:    .cfi_restore s0
+; RV32IM-NEXT:    .cfi_restore s1
+; RV32IM-NEXT:    .cfi_restore s2
+; RV32IM-NEXT:    .cfi_restore s3
+; RV32IM-NEXT:    .cfi_restore s4
+; RV32IM-NEXT:    .cfi_restore s5
+; RV32IM-NEXT:    .cfi_restore s6
+; RV32IM-NEXT:    .cfi_restore s7
+; RV32IM-NEXT:    .cfi_restore s8
+; RV32IM-NEXT:    .cfi_restore s9
 ; RV32IM-NEXT:    addi sp, sp, 48
+; RV32IM-NEXT:    .cfi_def_cfa_offset 0
 ; RV32IM-NEXT:    ret
 ;
 ; RV64I-LABEL: dont_fold_urem_i64:
 ; RV64I:       # %bb.0:
 ; RV64I-NEXT:    addi sp, sp, -48
+; RV64I-NEXT:    .cfi_def_cfa_offset 48
 ; RV64I-NEXT:    sd ra, 40(sp)
 ; RV64I-NEXT:    sd s0, 32(sp)
 ; RV64I-NEXT:    sd s1, 24(sp)
 ; RV64I-NEXT:    sd s2, 16(sp)
 ; RV64I-NEXT:    sd s3, 8(sp)
+; RV64I-NEXT:    .cfi_offset ra, -8
+; RV64I-NEXT:    .cfi_offset s0, -16
+; RV64I-NEXT:    .cfi_offset s1, -24
+; RV64I-NEXT:    .cfi_offset s2, -32
+; RV64I-NEXT:    .cfi_offset s3, -40
 ; RV64I-NEXT:    ld s2, 24(a1)
 ; RV64I-NEXT:    ld s1, 16(a1)
 ; RV64I-NEXT:    ld a2, 8(a1)
@@ -1125,7 +1350,13 @@ define <4 x i64> @dont_fold_urem_i64(<4 x i64> %x) nounwind {
 ; RV64I-NEXT:    ld s1, 24(sp)
 ; RV64I-NEXT:    ld s0, 32(sp)
 ; RV64I-NEXT:    ld ra, 40(sp)
+; RV64I-NEXT:    .cfi_restore ra
+; RV64I-NEXT:    .cfi_restore s0
+; RV64I-NEXT:    .cfi_restore s1
+; RV64I-NEXT:    .cfi_restore s2
+; RV64I-NEXT:    .cfi_restore s3
 ; RV64I-NEXT:    addi sp, sp, 48
+; RV64I-NEXT:    .cfi_def_cfa_offset 0
 ; RV64I-NEXT:    ret
 ;
 ; RV64IM-LABEL: dont_fold_urem_i64:
@@ -1181,6 +1412,7 @@ define <4 x i64> @dont_fold_urem_i64(<4 x i64> %x) nounwind {
 ; RV64IM-NEXT:    sd a2, 24(a0)
 ; RV64IM-NEXT:    sd a3, 8(a0)
 ; RV64IM-NEXT:    sd a1, 16(a0)
+; RV64IM-NEXT:    .cfi_def_cfa_offset 0
 ; RV64IM-NEXT:    ret
   %1 = urem <4 x i64> %x, <i64 1, i64 654, i64 23, i64 5423>
   ret <4 x i64> %1

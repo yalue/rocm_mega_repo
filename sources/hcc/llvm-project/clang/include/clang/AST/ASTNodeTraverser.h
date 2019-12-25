@@ -65,9 +65,6 @@ class ASTNodeTraverser
   /// not already been loaded.
   bool Deserialize = false;
 
-  ast_type_traits::TraversalKind Traversal =
-      ast_type_traits::TraversalKind::TK_AsIs;
-
   NodeDelegateType &getNodeDelegate() {
     return getDerived().doGetNodeDelegate();
   }
@@ -76,8 +73,6 @@ class ASTNodeTraverser
 public:
   void setDeserialize(bool D) { Deserialize = D; }
   bool getDeserialize() const { return Deserialize; }
-
-  void SetTraversalKind(ast_type_traits::TraversalKind TK) { Traversal = TK; }
 
   void Visit(const Decl *D) {
     getNodeDelegate().AddChild([=] {
@@ -102,20 +97,8 @@ public:
     });
   }
 
-  void Visit(const Stmt *Node, StringRef Label = {}) {
+  void Visit(const Stmt *S, StringRef Label = {}) {
     getNodeDelegate().AddChild(Label, [=] {
-      const Stmt *S = Node;
-
-      if (auto *E = dyn_cast_or_null<Expr>(S)) {
-        switch (Traversal) {
-        case ast_type_traits::TK_AsIs:
-          break;
-        case ast_type_traits::TK_IgnoreImplicitCastsAndParentheses:
-          S = E->IgnoreParenImpCasts();
-          break;
-        }
-      }
-
       getNodeDelegate().Visit(S);
 
       if (!S) {
@@ -637,7 +620,7 @@ public:
     Visit(E->getControllingExpr());
     Visit(E->getControllingExpr()->getType()); // FIXME: remove
 
-    for (const auto Assoc : E->associations()) {
+    for (const auto &Assoc : E->associations()) {
       Visit(Assoc);
     }
   }

@@ -48,6 +48,7 @@ public:
     CortexA75,
     CortexA76,
     Cyclone,
+    ExynosM1,
     ExynosM3,
     Falkor,
     Kryo,
@@ -474,8 +475,6 @@ public:
                            unsigned NumRegionInstrs) const override;
 
   bool enableEarlyIfConversion() const override;
-
-  bool enableAdvancedRASplitCost() const override { return true; }
 
   std::unique_ptr<PBQPRAConstraint> getCustomPBQPConstraints() const override;
 

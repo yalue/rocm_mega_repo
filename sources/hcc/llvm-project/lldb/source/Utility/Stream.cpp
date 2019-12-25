@@ -11,7 +11,6 @@
 #include "lldb/Utility/Endian.h"
 #include "lldb/Utility/VASPrintf.h"
 #include "llvm/ADT/SmallString.h"
-#include "llvm/Support/Format.h"
 #include "llvm/Support/LEB128.h"
 
 #include <string>
@@ -77,27 +76,28 @@ void Stream::QuotedCString(const char *cstr, const char *format) {
 
 // Put an address "addr" out to the stream with optional prefix and suffix
 // strings.
-void lldb_private::DumpAddress(llvm::raw_ostream &s, uint64_t addr,
-                               uint32_t addr_size, const char *prefix,
-                               const char *suffix) {
+void Stream::Address(uint64_t addr, uint32_t addr_size, const char *prefix,
+                     const char *suffix) {
   if (prefix == nullptr)
     prefix = "";
   if (suffix == nullptr)
     suffix = "";
-  s << prefix << llvm::format_hex(addr, 2 + 2 * addr_size) << suffix;
+  //    int addr_width = m_addr_size << 1;
+  //    Printf ("%s0x%0*" PRIx64 "%s", prefix, addr_width, addr, suffix);
+  Printf("%s0x%0*" PRIx64 "%s", prefix, addr_size * 2, addr, suffix);
 }
 
 // Put an address range out to the stream with optional prefix and suffix
 // strings.
-void lldb_private::DumpAddressRange(llvm::raw_ostream &s, uint64_t lo_addr,
-                                    uint64_t hi_addr, uint32_t addr_size,
-                                    const char *prefix, const char *suffix) {
+void Stream::AddressRange(uint64_t lo_addr, uint64_t hi_addr,
+                          uint32_t addr_size, const char *prefix,
+                          const char *suffix) {
   if (prefix && prefix[0])
-    s << prefix;
-  DumpAddress(s, lo_addr, addr_size, "[");
-  DumpAddress(s, hi_addr, addr_size, "-", ")");
+    PutCString(prefix);
+  Address(lo_addr, addr_size, "[");
+  Address(hi_addr, addr_size, "-", ")");
   if (suffix && suffix[0])
-    s << suffix;
+    PutCString(suffix);
 }
 
 size_t Stream::PutChar(char ch) { return Write(&ch, 1); }
@@ -160,19 +160,65 @@ Stream &Stream::operator<<(const void *p) {
   return *this;
 }
 
-// Get the current indentation level
-unsigned Stream::GetIndentLevel() const { return m_indent_level; }
-
-// Set the current indentation level
-void Stream::SetIndentLevel(unsigned indent_level) {
-  m_indent_level = indent_level;
+// Stream a uint8_t "uval" out to this stream.
+Stream &Stream::operator<<(uint8_t uval) {
+  PutHex8(uval);
+  return *this;
 }
 
+// Stream a uint16_t "uval" out to this stream.
+Stream &Stream::operator<<(uint16_t uval) {
+  PutHex16(uval, m_byte_order);
+  return *this;
+}
+
+// Stream a uint32_t "uval" out to this stream.
+Stream &Stream::operator<<(uint32_t uval) {
+  PutHex32(uval, m_byte_order);
+  return *this;
+}
+
+// Stream a uint64_t "uval" out to this stream.
+Stream &Stream::operator<<(uint64_t uval) {
+  PutHex64(uval, m_byte_order);
+  return *this;
+}
+
+// Stream a int8_t "sval" out to this stream.
+Stream &Stream::operator<<(int8_t sval) {
+  Printf("%i", static_cast<int>(sval));
+  return *this;
+}
+
+// Stream a int16_t "sval" out to this stream.
+Stream &Stream::operator<<(int16_t sval) {
+  Printf("%i", static_cast<int>(sval));
+  return *this;
+}
+
+// Stream a int32_t "sval" out to this stream.
+Stream &Stream::operator<<(int32_t sval) {
+  Printf("%i", static_cast<int>(sval));
+  return *this;
+}
+
+// Stream a int64_t "sval" out to this stream.
+Stream &Stream::operator<<(int64_t sval) {
+  Printf("%" PRIi64, sval);
+  return *this;
+}
+
+// Get the current indentation level
+int Stream::GetIndentLevel() const { return m_indent_level; }
+
+// Set the current indentation level
+void Stream::SetIndentLevel(int indent_level) { m_indent_level = indent_level; }
+
 // Increment the current indentation level
-void Stream::IndentMore(unsigned amount) { m_indent_level += amount; }
+void Stream::IndentMore(int amount) { m_indent_level += amount; }
 
 // Decrement the current indentation level
-void Stream::IndentLess(unsigned amount) {
+void Stream::IndentLess(int amount) {
   if (m_indent_level >= amount)
     m_indent_level -= amount;
   else

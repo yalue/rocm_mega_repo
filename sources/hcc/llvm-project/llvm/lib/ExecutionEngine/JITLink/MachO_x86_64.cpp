@@ -26,7 +26,19 @@ namespace {
 class MachOLinkGraphBuilder_x86_64 : public MachOLinkGraphBuilder {
 public:
   MachOLinkGraphBuilder_x86_64(const object::MachOObjectFile &Obj)
-      : MachOLinkGraphBuilder(Obj) {}
+      : MachOLinkGraphBuilder(Obj) {
+    addCustomSectionParser(
+        "__eh_frame", [this](NormalizedSection &EHFrameSection) {
+          if (!EHFrameSection.Data)
+            return make_error<JITLinkError>(
+                "__eh_frame section is marked zero-fill");
+          return MachOEHFrameBinaryParser(
+                     *this, EHFrameSection.Address,
+                     StringRef(EHFrameSection.Data, EHFrameSection.Size),
+                     *EHFrameSection.GraphSection, 8, 4, NegDelta32, Delta64)
+              .addToGraph();
+        });
+  }
 
 private:
   static Expected<MachOX86RelocationKind>
@@ -252,7 +264,7 @@ private:
             TargetSymbol = TargetSymbolOrErr->GraphSymbol;
           else
             return TargetSymbolOrErr.takeError();
-          Addend = *(const little32_t *)FixupContent;
+          Addend = *(const ulittle32_t *)FixupContent;
           break;
         case Pointer32:
           if (auto TargetSymbolOrErr = findSymbolByIndex(RI.r_symbolnum))
@@ -284,12 +296,12 @@ private:
             TargetSymbol = TargetSymbolOrErr->GraphSymbol;
           else
             return TargetSymbolOrErr.takeError();
-          Addend = *(const little32_t *)FixupContent +
+          Addend = *(const ulittle32_t *)FixupContent +
                    (1 << (*Kind - PCRel32Minus1));
           break;
         case PCRel32Anon: {
           JITTargetAddress TargetAddress =
-              FixupAddress + 4 + *(const little32_t *)FixupContent;
+              FixupAddress + 4 + *(const ulittle32_t *)FixupContent;
           if (auto TargetSymbolOrErr = findSymbolByAddress(TargetAddress))
             TargetSymbol = &*TargetSymbolOrErr;
           else
@@ -303,7 +315,7 @@ private:
           JITTargetAddress Delta =
               static_cast<JITTargetAddress>(1ULL << (*Kind - PCRel32Minus1Anon));
           JITTargetAddress TargetAddress =
-              FixupAddress + 4 + Delta + *(const little32_t *)FixupContent;
+              FixupAddress + 4 + Delta + *(const ulittle32_t *)FixupContent;
           if (auto TargetSymbolOrErr = findSymbolByAddress(TargetAddress))
             TargetSymbol = &*TargetSymbolOrErr;
           else
@@ -554,11 +566,6 @@ void jitLink_MachO_x86_64(std::unique_ptr<JITLinkContext> Ctx) {
   Triple TT("x86_64-apple-macosx");
 
   if (Ctx->shouldAddDefaultTargetPasses(TT)) {
-    // Add eh-frame passses.
-    Config.PrePrunePasses.push_back(EHFrameSplitter("__eh_frame"));
-    Config.PrePrunePasses.push_back(
-        EHFrameEdgeFixer("__eh_frame", NegDelta32, Delta64, Delta64));
-
     // Add a mark-live pass.
     if (auto MarkLive = Ctx->getMarkLivePass(TT))
       Config.PrePrunePasses.push_back(std::move(MarkLive));

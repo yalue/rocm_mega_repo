@@ -689,31 +689,6 @@ AST_POLYMORPHIC_MATCHER_P(
                              Builder);
 }
 
-/// Causes all nested matchers to be matched with the specified traversal kind.
-///
-/// Given
-/// \code
-///   void foo()
-///   {
-///       int i = 3.0;
-///   }
-/// \endcode
-/// The matcher
-/// \code
-///   traverse(ast_type_traits::TK_IgnoreImplicitCastsAndParentheses,
-///     varDecl(hasInitializer(floatLiteral().bind("init")))
-///   )
-/// \endcode
-/// matches the variable declaration with "init" bound to the "3.0".
-template <typename T>
-internal::Matcher<T> traverse(ast_type_traits::TraversalKind TK,
-                              const internal::Matcher<T> &InnerMatcher) {
-  return internal::DynTypedMatcher::constructRestrictedWrapper(
-             new internal::TraversalMatcher<T>(TK, InnerMatcher),
-             InnerMatcher.getID().first)
-      .template unconditionalConvertTo<T>();
-}
-
 /// Matches expressions that match InnerMatcher after any implicit AST
 /// nodes are stripped off.
 ///
@@ -6566,7 +6541,7 @@ AST_MATCHER(CXXNewExpr, isArray) {
 /// \code
 ///   MyClass *p1 = new MyClass[10];
 /// \endcode
-/// cxxNewExpr(hasArraySize(integerLiteral(equals(10))))
+/// cxxNewExpr(hasArraySize(intgerLiteral(equals(10))))
 ///   matches the expression 'new MyClass[10]'.
 AST_MATCHER_P(CXXNewExpr, hasArraySize, internal::Matcher<Expr>, InnerMatcher) {
   return Node.isArray() && *Node.getArraySize() &&
@@ -6646,8 +6621,8 @@ AST_MATCHER_P(Expr, ignoringElidableConstructorCall,
     if (CtorExpr->isElidable()) {
       if (const auto *MaterializeTemp =
               dyn_cast<MaterializeTemporaryExpr>(CtorExpr->getArg(0))) {
-        return InnerMatcher.matches(*MaterializeTemp->getSubExpr(), Finder,
-                                    Builder);
+        return InnerMatcher.matches(*MaterializeTemp->GetTemporaryExpr(),
+                                    Finder, Builder);
       }
     }
   }
@@ -6806,9 +6781,7 @@ AST_MATCHER(OMPDefaultClause, isSharedKind) {
 /// ``isAllowedToContainClauseKind("OMPC_default").``
 AST_MATCHER_P(OMPExecutableDirective, isAllowedToContainClauseKind,
               OpenMPClauseKind, CKind) {
-  return isAllowedClauseForDirective(
-      Node.getDirectiveKind(), CKind,
-      Finder->getASTContext().getLangOpts().OpenMP);
+  return isAllowedClauseForDirective(Node.getDirectiveKind(), CKind);
 }
 
 //----------------------------------------------------------------------------//

@@ -883,8 +883,7 @@ void LiveInterval::clearSubRanges() {
 static void stripValuesNotDefiningMask(unsigned Reg, LiveInterval::SubRange &SR,
                                        LaneBitmask LaneMask,
                                        const SlotIndexes &Indexes,
-                                       const TargetRegisterInfo &TRI,
-                                       unsigned ComposeSubRegIdx) {
+                                       const TargetRegisterInfo &TRI) {
   // Phys reg should not be tracked at subreg level.
   // Same for noreg (Reg == 0).
   if (!Register::isVirtualRegister(Reg) || !Reg)
@@ -906,12 +905,7 @@ static void stripValuesNotDefiningMask(unsigned Reg, LiveInterval::SubRange &SR,
         continue;
       if (MOI->getReg() != Reg)
         continue;
-      LaneBitmask OrigMask = TRI.getSubRegIndexLaneMask(MOI->getSubReg());
-      LaneBitmask ExpectedDefMask =
-          ComposeSubRegIdx
-              ? TRI.composeSubRegIndexLaneMask(ComposeSubRegIdx, OrigMask)
-              : OrigMask;
-      if ((ExpectedDefMask & LaneMask).none())
+      if ((TRI.getSubRegIndexLaneMask(MOI->getSubReg()) & LaneMask).none())
         continue;
       hasDef = true;
       break;
@@ -930,8 +924,7 @@ static void stripValuesNotDefiningMask(unsigned Reg, LiveInterval::SubRange &SR,
 void LiveInterval::refineSubRanges(
     BumpPtrAllocator &Allocator, LaneBitmask LaneMask,
     std::function<void(LiveInterval::SubRange &)> Apply,
-    const SlotIndexes &Indexes, const TargetRegisterInfo &TRI,
-    unsigned ComposeSubRegIdx) {
+    const SlotIndexes &Indexes, const TargetRegisterInfo &TRI) {
   LaneBitmask ToApply = LaneMask;
   for (SubRange &SR : subranges()) {
     LaneBitmask SRMask = SR.LaneMask;
@@ -951,10 +944,8 @@ void LiveInterval::refineSubRanges(
       MatchingRange = createSubRangeFrom(Allocator, Matching, SR);
       // Now that the subrange is split in half, make sure we
       // only keep in the subranges the VNIs that touch the related half.
-      stripValuesNotDefiningMask(reg, *MatchingRange, Matching, Indexes, TRI,
-                                 ComposeSubRegIdx);
-      stripValuesNotDefiningMask(reg, SR, SR.LaneMask, Indexes, TRI,
-                                 ComposeSubRegIdx);
+      stripValuesNotDefiningMask(reg, *MatchingRange, Matching, Indexes, TRI);
+      stripValuesNotDefiningMask(reg, SR, SR.LaneMask, Indexes, TRI);
     }
     Apply(*MatchingRange);
     ToApply &= ~Matching;

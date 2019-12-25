@@ -1055,23 +1055,21 @@ public:
 };
 
 // This section is used to store the addresses of functions that are called
-// in range-extending thunks on PowerPC64. When producing position dependent
+// in range-extending thunks on PowerPC64. When producing position dependant
 // code the addresses are link-time constants and the table is written out to
-// the binary. When producing position-dependent code the table is allocated and
+// the binary. When producing position-dependant code the table is allocated and
 // filled in by the dynamic linker.
 class PPC64LongBranchTargetSection final : public SyntheticSection {
 public:
   PPC64LongBranchTargetSection();
-  uint64_t getEntryVA(const Symbol *sym, int64_t addend);
-  llvm::Optional<uint32_t> addEntry(const Symbol *sym, int64_t addend);
+  void addEntry(Symbol &sym);
   size_t getSize() const override;
   void writeTo(uint8_t *buf) override;
   bool isNeeded() const override;
   void finalizeContents() override { finalized = true; }
 
 private:
-  std::vector<std::pair<const Symbol *, int64_t>> entries;
-  llvm::DenseMap<std::pair<const Symbol *, int64_t>, uint32_t> entry_index;
+  std::vector<const Symbol *> entries;
   bool finalized = false;
 };
 

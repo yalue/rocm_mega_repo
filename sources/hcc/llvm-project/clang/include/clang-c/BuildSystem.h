@@ -14,12 +14,13 @@
 #ifndef LLVM_CLANG_C_BUILDSYSTEM_H
 #define LLVM_CLANG_C_BUILDSYSTEM_H
 
+#include "clang-c/Platform.h"
 #include "clang-c/CXErrorCode.h"
 #include "clang-c/CXString.h"
-#include "clang-c/ExternC.h"
-#include "clang-c/Platform.h"
 
-LLVM_CLANG_C_EXTERN_C_BEGIN
+#ifdef __cplusplus
+extern "C" {
+#endif
 
 /**
  * \defgroup BUILD_SYSTEM Build system utilities
@@ -147,7 +148,9 @@ CINDEX_LINKAGE void clang_ModuleMapDescriptor_dispose(CXModuleMapDescriptor);
  * @}
  */
 
-LLVM_CLANG_C_EXTERN_C_END
+#ifdef __cplusplus
+}
+#endif
 
 #endif /* CLANG_C_BUILD_SYSTEM_H */
 

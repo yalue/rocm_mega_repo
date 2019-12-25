@@ -129,7 +129,6 @@ class TestGdbRemoteAuxvSupport(gdbremote_testcase.GdbRemoteTestCaseBase):
         self.auxv_data_is_correct_size()
 
     @skipIfWindows
-    @expectedFailureNetBSD
     @llgs_test
     def test_auxv_data_is_correct_size_llgs(self):
         self.init_llgs_test()
@@ -169,7 +168,6 @@ class TestGdbRemoteAuxvSupport(gdbremote_testcase.GdbRemoteTestCaseBase):
         self.auxv_keys_look_valid()
 
     @skipIfWindows
-    @expectedFailureNetBSD
     @llgs_test
     def test_auxv_keys_look_valid_llgs(self):
         self.init_llgs_test()
@@ -218,7 +216,6 @@ class TestGdbRemoteAuxvSupport(gdbremote_testcase.GdbRemoteTestCaseBase):
         self.auxv_chunked_reads_work()
 
     @skipIfWindows
-    @expectedFailureNetBSD
     @llgs_test
     def test_auxv_chunked_reads_work_llgs(self):
         self.init_llgs_test()

@@ -135,14 +135,14 @@ __global__ void csrilu0_hash_kernel(rocsparse_int m,
             if(lid == 0)
             {
                 // We are looking for the first zero pivot
-                atomicMin(zero_pivot, local_col);
+                atomicMin(zero_pivot, local_col + idx_base);
             }
 
             // Skip this row if it has a zero pivot
             break;
         }
 
-        csr_val[j] = local_val /= diag_val;
+        csr_val[j] = local_val = local_val / diag_val;
 
         // Loop over the row the current column index depends on
         // Each lane processes one entry
@@ -165,7 +165,7 @@ __global__ void csrilu0_hash_kernel(rocsparse_int m,
                 {
                     // Entry found, do ILU computation
                     rocsparse_int idx = data[hash];
-                    csr_val[idx]      = rocsparse_fma(-local_val, csr_val[k], csr_val[idx]);
+                    csr_val[idx]      = fma(-local_val, csr_val[k], csr_val[idx]);
                     break;
                 }
                 else
@@ -244,14 +244,14 @@ __global__ void csrilu0_binsearch_kernel(rocsparse_int m,
             if(lid == 0)
             {
                 // We are looking for the first zero pivot
-                atomicMin(zero_pivot, local_col);
+                atomicMin(zero_pivot, local_col + idx_base);
             }
 
             // Skip this row if it has a zero pivot
             break;
         }
 
-        csr_val[j] = local_val /= diag_val;
+        csr_val[j] = local_val = local_val / diag_val;
 
         // Loop over the row the current column index depends on
         // Each lane processes one entry
@@ -285,7 +285,7 @@ __global__ void csrilu0_binsearch_kernel(rocsparse_int m,
             if(col_j == col_k)
             {
                 // If a match has been found, do ILU computation
-                csr_val[l] = rocsparse_fma(-local_val, csr_val[k], csr_val[l]);
+                csr_val[l] = fma(-local_val, csr_val[k], csr_val[l]);
             }
         }
     }

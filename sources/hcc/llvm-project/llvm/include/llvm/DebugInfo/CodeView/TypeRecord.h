@@ -144,7 +144,7 @@ public:
   ModifierOptions getModifiers() const { return Modifiers; }
 
   TypeIndex ModifiedType;
-  ModifierOptions Modifiers = ModifierOptions::None;
+  ModifierOptions Modifiers;
 };
 
 // LF_PROCEDURE
@@ -168,7 +168,7 @@ public:
   TypeIndex ReturnType;
   CallingConvention CallConv;
   FunctionOptions Options;
-  uint16_t ParameterCount = 0;
+  uint16_t ParameterCount;
   TypeIndex ArgumentList;
 };
 
@@ -202,9 +202,9 @@ public:
   TypeIndex ThisType;
   CallingConvention CallConv;
   FunctionOptions Options;
-  uint16_t ParameterCount = 0;
+  uint16_t ParameterCount;
   TypeIndex ArgumentList;
-  int32_t ThisPointerAdjustment = 0;
+  int32_t ThisPointerAdjustment;
 };
 
 // LF_LABEL
@@ -351,7 +351,7 @@ public:
   }
 
   TypeIndex ReferentType;
-  uint32_t Attrs = 0;
+  uint32_t Attrs;
   Optional<MemberPointerInfo> MemberInfo;
 
   void setAttrs(PointerKind PK, PointerMode PM, PointerOptions PO,
@@ -414,7 +414,7 @@ public:
 
   TypeIndex ElementType;
   TypeIndex IndexType;
-  uint64_t Size = 0;
+  uint64_t Size;
   StringRef Name;
 };
 
@@ -459,7 +459,7 @@ public:
   StringRef getName() const { return Name; }
   StringRef getUniqueName() const { return UniqueName; }
 
-  uint16_t MemberCount = 0;
+  uint16_t MemberCount;
   ClassOptions Options;
   TypeIndex FieldList;
   StringRef Name;
@@ -496,7 +496,7 @@ public:
 
   TypeIndex DerivationList;
   TypeIndex VTableShape;
-  uint64_t Size = 0;
+  uint64_t Size;
 };
 
 // LF_UNION
@@ -517,7 +517,7 @@ struct UnionRecord : public TagRecord {
 
   uint64_t getSize() const { return Size; }
 
-  uint64_t Size = 0;
+  uint64_t Size;
 };
 
 // LF_ENUM
@@ -550,8 +550,8 @@ public:
   uint8_t getBitSize() const { return BitSize; }
 
   TypeIndex Type;
-  uint8_t BitSize = 0;
-  uint8_t BitOffset = 0;
+  uint8_t BitSize;
+  uint8_t BitOffset;
 };
 
 // LF_VTSHAPE
@@ -592,7 +592,7 @@ public:
   StringRef getName() const { return Name; }
 
   GUID Guid;
-  uint32_t Age = 0;
+  uint32_t Age;
   StringRef Name;
 };
 
@@ -644,7 +644,7 @@ public:
 
   TypeIndex UDT;
   TypeIndex SourceFile;
-  uint32_t LineNumber = 0;
+  uint32_t LineNumber;
 };
 
 // LF_UDT_MOD_SRC_LINE
@@ -664,8 +664,8 @@ public:
 
   TypeIndex UDT;
   TypeIndex SourceFile;
-  uint32_t LineNumber = 0;
-  uint16_t Module = 0;
+  uint32_t LineNumber;
+  uint16_t Module;
 };
 
 // LF_BUILDINFO
@@ -717,7 +717,7 @@ public:
 
   TypeIndex CompleteClass;
   TypeIndex OverriddenVFTable;
-  uint32_t VFPtrOffset = 0;
+  uint32_t VFPtrOffset;
   std::vector<StringRef> MethodNames;
 };
 
@@ -749,7 +749,7 @@ public:
 
   TypeIndex Type;
   MemberAttributes Attrs;
-  int32_t VFTableOffset = 0;
+  int32_t VFTableOffset;
   StringRef Name;
 };
 
@@ -780,7 +780,7 @@ public:
   TypeIndex getMethodList() const { return MethodList; }
   StringRef getName() const { return Name; }
 
-  uint16_t NumOverloads = 0;
+  uint16_t NumOverloads;
   TypeIndex MethodList;
   StringRef Name;
 };
@@ -806,7 +806,7 @@ public:
 
   MemberAttributes Attrs;
   TypeIndex Type;
-  uint64_t FieldOffset = 0;
+  uint64_t FieldOffset;
   StringRef Name;
 };
 
@@ -883,7 +883,7 @@ public:
 
   MemberAttributes Attrs;
   TypeIndex Type;
-  uint64_t Offset = 0;
+  uint64_t Offset;
 };
 
 // LF_VBCLASS, LF_IVBCLASS
@@ -911,8 +911,8 @@ public:
   MemberAttributes Attrs;
   TypeIndex BaseType;
   TypeIndex VBPtrType;
-  uint64_t VBPtrOffset = 0;
-  uint64_t VTableIndex = 0;
+  uint64_t VBPtrOffset;
+  uint64_t VTableIndex;
 };
 
 /// LF_INDEX - Used to chain two large LF_FIELDLIST or LF_METHODLIST records
@@ -941,9 +941,9 @@ public:
   uint32_t getSignature() const { return Signature; }
   StringRef getPrecompFilePath() const { return PrecompFilePath; }
 
-  uint32_t StartTypeIndex = 0;
-  uint32_t TypesCount = 0;
-  uint32_t Signature = 0;
+  uint32_t StartTypeIndex;
+  uint32_t TypesCount;
+  uint32_t Signature;
   StringRef PrecompFilePath;
 };
 
@@ -955,7 +955,7 @@ public:
 
   uint32_t getSignature() const { return Signature; }
 
-  uint32_t Signature = 0;
+  uint32_t Signature;
 };
 
 } // end namespace codeview

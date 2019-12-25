@@ -57,8 +57,6 @@ static_library("LLVMARMCodeGen") {
     "//llvm/lib/MC",
     "//llvm/lib/Support",
     "//llvm/lib/Target",
-    "//llvm/lib/Transforms/CFGuard",
-    "//llvm/lib/Transforms/Utils",
   ]
   include_dirs = [ "." ]
   sources = [
@@ -69,6 +67,7 @@ static_library("LLVMARMCodeGen") {
     "ARMBasicBlockInfo.cpp",
     "ARMCallLowering.cpp",
     "ARMCallingConv.cpp",
+    "ARMCodeGenPrepare.cpp",
     "ARMConstantIslandPass.cpp",
     "ARMConstantPoolValue.cpp",
     "ARMExpandPseudoInsts.cpp",

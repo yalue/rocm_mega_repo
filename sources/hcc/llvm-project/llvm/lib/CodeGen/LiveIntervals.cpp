@@ -191,12 +191,12 @@ LiveInterval* LiveIntervals::createInterval(unsigned reg) {
 }
 
 /// Compute the live interval of a virtual register, based on defs and uses.
-bool LiveIntervals::computeVirtRegInterval(LiveInterval &LI) {
+void LiveIntervals::computeVirtRegInterval(LiveInterval &LI) {
   assert(LRCalc && "LRCalc not initialized.");
   assert(LI.empty() && "Should only compute empty intervals.");
   LRCalc->reset(MF, getSlotIndexes(), DomTree, &getVNInfoAllocator());
   LRCalc->calculate(LI, MRI->shouldTrackSubRegLiveness(LI.reg));
-  return computeDeadValues(LI, nullptr);
+  computeDeadValues(LI, nullptr);
 }
 
 void LiveIntervals::computeVirtRegs() {
@@ -204,12 +204,7 @@ void LiveIntervals::computeVirtRegs() {
     unsigned Reg = Register::index2VirtReg(i);
     if (MRI->reg_nodbg_empty(Reg))
       continue;
-    LiveInterval &LI = createEmptyInterval(Reg);
-    bool NeedSplit = computeVirtRegInterval(LI);
-    if (NeedSplit) {
-      SmallVector<LiveInterval*, 8> SplitLIs;
-      splitSeparateComponents(LI, SplitLIs);
-    }
+    createAndComputeVirtRegInterval(Reg);
   }
 }
 
@@ -505,8 +500,6 @@ bool LiveIntervals::shrinkToUses(LiveInterval *li,
 bool LiveIntervals::computeDeadValues(LiveInterval &LI,
                                       SmallVectorImpl<MachineInstr*> *dead) {
   bool MayHaveSplitComponents = false;
-  bool HaveDeadDef = false;
-
   for (VNInfo *VNI : LI.valnos) {
     if (VNI->isUnused())
       continue;
@@ -537,10 +530,6 @@ bool LiveIntervals::computeDeadValues(LiveInterval &LI,
       MachineInstr *MI = getInstructionFromIndex(Def);
       assert(MI && "No instruction defining live value");
       MI->addRegisterDead(LI.reg, TRI);
-      if (HaveDeadDef)
-        MayHaveSplitComponents = true;
-      HaveDeadDef = true;
-
       if (dead && MI->allDefsAreDead()) {
         LLVM_DEBUG(dbgs() << "All defs dead: " << Def << '\t' << *MI);
         dead->push_back(MI);
@@ -1072,9 +1061,9 @@ private:
       // Kill flags shouldn't be used while live intervals exist, they will be
       // reinserted by VirtRegRewriter.
       if (MachineInstr *KillMI = LIS.getInstructionFromIndex(OldIdxIn->end))
-        for (MachineOperand &MOP : mi_bundle_ops(*KillMI))
-          if (MOP.isReg() && MOP.isUse())
-            MOP.setIsKill(false);
+        for (MIBundleOperands MO(*KillMI); MO.isValid(); ++MO)
+          if (MO->isReg() && MO->isUse())
+            MO->setIsKill(false);
 
       // Is there a def before NewIdx which is not OldIdx?
       LiveRange::iterator Next = std::next(OldIdxIn);

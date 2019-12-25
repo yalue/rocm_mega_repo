@@ -2,19 +2,11 @@
 # - Change 'binary' if clang-format is not on the path (see below).
 # - Add to your .vimrc:
 #
-#   if has('python')
-#     map <C-I> :pyf <path-to-this-file>/clang-format.py<cr>
-#     imap <C-I> <c-o>:pyf <path-to-this-file>/clang-format.py<cr>
-#   elseif has('python3')
-#     map <C-I> :py3f <path-to-this-file>/clang-format.py<cr>
-#     imap <C-I> <c-o>:py3f <path-to-this-file>/clang-format.py<cr>
-#   endif
+#   map <C-I> :pyf <path-to-this-file>/clang-format.py<cr>
+#   imap <C-I> <c-o>:pyf <path-to-this-file>/clang-format.py<cr>
 #
-# The if-elseif-endif conditional should pick either the python3 or python2 
-# integration depending on your vim setup.
-# 
-# The first mapping enables clang-format for NORMAL and VISUAL mode, the second
-# mapping adds support for INSERT mode. Change "C-I" to another binding if you
+# The first line enables clang-format for NORMAL and VISUAL mode, the second
+# line adds support for INSERT mode. Change "C-I" to another binding if you
 # need clang-format on a different key (C-I stands for Ctrl+i).
 #
 # With this integration you can press the bound key and clang-format will
@@ -28,11 +20,7 @@
 # like:
 # :function FormatFile()
 # :  let l:lines="all"
-# :  if has('python')
-# :    pyf <path-to-this-file>/clang-format.py
-# :  elseif has('python3')
-# :    py3f <path-to-this-file>/clang-format.py
-# :  endif
+# :  pyf <path-to-this-file>/clang-format.py
 # :endfunction
 #
 # It operates on the current, potentially unsaved buffer and does not create
@@ -70,8 +58,7 @@ def main():
   # Get the current text.
   encoding = vim.eval("&encoding")
   buf = get_buffer(encoding)
-  # Join the buffer into a single string with a terminating newline
-  text = '\n'.join(buf) + '\n'
+  text = '\n'.join(buf)
 
   # Determine range to format.
   if vim.eval('exists("l:lines")') == '1':
@@ -130,13 +117,10 @@ def main():
   else:
     lines = stdout.decode(encoding).split('\n')
     output = json.loads(lines[0])
-    # Strip off the trailing newline (added above).
-    # This maintains trailing empty lines present in the buffer if
-    # the -lines specification requests them to remain unchanged.
-    lines = lines[1:-1]
+    lines = lines[1:]
     sequence = difflib.SequenceMatcher(None, buf, lines)
     for op in reversed(sequence.get_opcodes()):
-      if op[0] != 'equal':
+      if op[0] is not 'equal':
         vim.current.buffer[op[1]:op[2]] = lines[op[3]:op[4]]
     if output.get('IncompleteFormat'):
       print('clang-format: incomplete (syntax errors)')

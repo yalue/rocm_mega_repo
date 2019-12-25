@@ -48,12 +48,12 @@ private:
   static char ID;
 
   /// Machine instruction info used throughout the class.
-  const X86InstrInfo *TII = nullptr;
+  const X86InstrInfo *TII;
 
   /// Endbr opcode for the current machine function.
-  unsigned int EndbrOpcode = 0;
+  unsigned int EndbrOpcode;
 
-  /// Adds a new ENDBR instruction to the beginning of the MBB.
+  /// Adds a new ENDBR instruction to the begining of the MBB.
   /// The function will not add it if already exists.
   /// It will add ENDBR32 or ENDBR64 opcode, depending on the target.
   /// \returns true if the ENDBR was added and false otherwise.

@@ -49,7 +49,7 @@ public:
   static const uptr MaxSize = 1UL << MaxSizeLog;
   static const uptr NumClasses =
       MidClass + ((MaxSizeLog - MidSizeLog) << S) + 1;
-  static_assert(NumClasses <= 256, "");
+  COMPILER_CHECK(NumClasses <= 256);
   static const uptr LargestClassId = NumClasses - 1;
   static const uptr BatchClassId = 0;
 
@@ -120,8 +120,7 @@ public:
       if (C < LargestClassId)
         CHECK_EQ(getClassIdBySize(S + 1), C + 1);
       CHECK_EQ(getClassIdBySize(S - 1), C);
-      if (C - 1 != BatchClassId)
-        CHECK_GT(getSizeByClassId(C), getSizeByClassId(C - 1));
+      CHECK_GT(getSizeByClassId(C), getSizeByClassId(C - 1));
     }
     // Do not perform the loop if the maximum size is too large.
     if (MaxSizeLog > 19)
@@ -130,7 +129,7 @@ public:
       const uptr C = getClassIdBySize(S);
       CHECK_LT(C, NumClasses);
       CHECK_GE(getSizeByClassId(C), S);
-      if (C - 1 != BatchClassId)
+      if (C > 0)
         CHECK_LT(getSizeByClassId(C - 1), S);
     }
   }

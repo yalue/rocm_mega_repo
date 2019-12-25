@@ -37,10 +37,8 @@ ArgVector getBasicRunOptionsForLanguage(Language Lang) {
   case Lang_CXX2a:
     BasicArgs = {"-std=c++2a", "-frtti"};
     break;
-  case Lang_OBJCXX:
-    BasicArgs = {"-x", "objective-c++", "-frtti"};
-    break;
   case Lang_OpenCL:
+  case Lang_OBJCXX:
     llvm_unreachable("Not implemented yet!");
   }
   return BasicArgs;

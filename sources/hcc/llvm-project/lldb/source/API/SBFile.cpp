@@ -100,27 +100,24 @@ SBError SBFile::Close() {
 
 SBFile::operator bool() const {
   LLDB_RECORD_METHOD_CONST_NO_ARGS(bool, SBFile, operator bool);
-  return IsValid();
+  return LLDB_RECORD_RESULT(IsValid());
 }
 
 bool SBFile::operator!() const {
   LLDB_RECORD_METHOD_CONST_NO_ARGS(bool, SBFile, operator!);
-  return !IsValid();
+  return LLDB_RECORD_RESULT(!IsValid());
 }
 
 FileSP SBFile::GetFile() const {
   LLDB_RECORD_METHOD_CONST_NO_ARGS(FileSP, SBFile, GetFile);
-  return LLDB_RECORD_RESULT(m_opaque_sp);
+  return m_opaque_sp;
 }
 
 namespace lldb_private {
 namespace repro {
 
 template <> void RegisterMethods<SBFile>(Registry &R) {
-  LLDB_REGISTER_CONSTRUCTOR(SBFile, ());
-  LLDB_REGISTER_CONSTRUCTOR(SBFile, (FileSP));
-  LLDB_REGISTER_CONSTRUCTOR(SBFile, (FILE *, bool));
-  LLDB_REGISTER_CONSTRUCTOR(SBFile, (int, const char *, bool));
+
   LLDB_REGISTER_METHOD(lldb::SBError, SBFile, Flush, ());
   LLDB_REGISTER_METHOD_CONST(bool, SBFile, IsValid, ());
   LLDB_REGISTER_METHOD_CONST(bool, SBFile, operator bool,());

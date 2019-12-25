@@ -39,6 +39,7 @@
 #include "comgr-compiler.h"
 #include "comgr-env.h"
 #include "lld/Common/Driver.h"
+#include "clang/Basic/Version.h"
 #include "clang/CodeGen/CodeGenAction.h"
 #include "clang/Driver/Compilation.h"
 #include "clang/Driver/DriverDiagnostic.h"
@@ -186,11 +187,11 @@ bool AssemblerInvocation::CreateFromArgs(AssemblerInvocation &Opts,
   bool Success = true;
 
   // Parse the arguments.
-  std::unique_ptr<OptTable> OptTbl(createDriverOptTable());
+  const OptTable &OptTbl = getDriverOptTable();
 
   const unsigned IncludedFlagsBitmask = options::CC1AsOption;
   unsigned MissingArgIndex, MissingArgCount;
-  InputArgList Args = OptTbl->ParseArgs(Argv, MissingArgIndex, MissingArgCount,
+  InputArgList Args = OptTbl.ParseArgs(Argv, MissingArgIndex, MissingArgCount,
                                         IncludedFlagsBitmask);
 
   // Check for missing argument error.
@@ -204,7 +205,7 @@ bool AssemblerInvocation::CreateFromArgs(AssemblerInvocation &Opts,
   for (const Arg *A : Args.filtered(OPT_UNKNOWN)) {
     auto ArgString = A->getAsString(Args);
     std::string Nearest;
-    if (OptTbl->findNearest(ArgString, Nearest, IncludedFlagsBitmask) > 1)
+    if (OptTbl.findNearest(ArgString, Nearest, IncludedFlagsBitmask) > 1)
       Diags.Report(diag::err_drv_unknown_argument) << ArgString;
     else
       Diags.Report(diag::err_drv_unknown_argument_with_suggestion)
@@ -313,7 +314,7 @@ getOutputStream(AssemblerInvocation &Opts, DiagnosticsEngine &Diags,
     sys::RemoveFileOnSignal(Opts.OutputPath);
 
   std::error_code EC;
-  auto Out = llvm::make_unique<raw_fd_ostream>(
+  auto Out = std::make_unique<raw_fd_ostream>(
       Opts.OutputPath, EC, (Binary ? sys::fs::F_None : sys::fs::F_Text));
   if (EC) {
     Diags.Report(diag::err_fe_unable_to_open_output)
@@ -357,7 +358,9 @@ static bool ExecuteAssembler(AssemblerInvocation &Opts,
   std::unique_ptr<MCRegisterInfo> MRI(TheTarget->createMCRegInfo(Opts.Triple));
   assert(MRI && "Unable to create target register info!");
 
-  std::unique_ptr<MCAsmInfo> MAI(TheTarget->createMCAsmInfo(*MRI, Opts.Triple));
+  llvm::MCTargetOptions MCOptions;
+  std::unique_ptr<MCAsmInfo> MAI(
+      TheTarget->createMCAsmInfo(*MRI, Opts.Triple, MCOptions));
   assert(MAI && "Unable to create target asm info!");
 
   // Ensure MCAsmInfo initialization occurs before any use, otherwise sections
@@ -430,7 +433,7 @@ static bool ExecuteAssembler(AssemblerInvocation &Opts,
       MCTargetOptions Options;
       MAB.reset(TheTarget->createMCAsmBackend(*STI, *MRI, Options));
     }
-    auto FOut = llvm::make_unique<formatted_raw_ostream>(*Out);
+    auto FOut = std::make_unique<formatted_raw_ostream>(*Out);
     Str.reset(TheTarget->createAsmStreamer(
         Ctx, std::move(FOut), /*asmverbose*/ true,
         /*useDwarfDirectory*/ true, IP, std::move(MCE), std::move(MAB),
@@ -441,7 +444,7 @@ static bool ExecuteAssembler(AssemblerInvocation &Opts,
     assert(Opts.OutputType == AssemblerInvocation::FT_Obj &&
            "Invalid file type!");
     if (!FDOS->supportsSeeking()) {
-      BOS = make_unique<buffer_ostream>(*FDOS);
+      BOS = std::make_unique<buffer_ostream>(*FDOS);
       Out = BOS.get();
     }
 
@@ -552,14 +555,16 @@ parseLLVMOptions(const std::vector<std::string> &Options) {
 }
 
 static amd_comgr_status_t linkWithLLD(llvm::ArrayRef<const char *> Args,
-                                      llvm::raw_ostream &LogS) {
+                                      llvm::raw_ostream &LogS,
+                                      llvm::raw_ostream &LogE) {
   ArgStringList LLDArgs(llvm::iterator_range<ArrayRef<const char *>::iterator>(
       Args.begin(), Args.end()));
   LLDArgs.insert(LLDArgs.begin(), "lld");
+  LLDArgs.push_back("--no-threads");
   ArrayRef<const char *> ArgRefs = llvm::makeArrayRef(LLDArgs);
   static std::mutex MScreen;
   MScreen.lock();
-  bool LLDRet = lld::elf::link(ArgRefs, false, LogS);
+  bool LLDRet = lld::elf::link(ArgRefs, false, LogS, LogE);
   MScreen.unlock();
   if (!LLDRet)
     return AMD_COMGR_STATUS_ERROR;
@@ -610,10 +615,11 @@ amd_comgr_status_t InProcessDriver::execute(ArrayRef<const char *> Args) {
         logArgv(DiagOS, "clang", Argv);
       std::unique_ptr<CompilerInstance> Clang(new CompilerInstance());
       Clang->createDiagnostics(DiagClient, /* ShouldOwnClient */ false);
+      Clang->setVerboseOutputStream(DiagOS);
       if (!Clang->hasDiagnostics())
         return AMD_COMGR_STATUS_ERROR;
       if (!CompilerInvocation::CreateFromArgs(
-              Clang->getInvocation(), Argv.data(), Argv.data() + Argv.size(),
+              Clang->getInvocation(), Argv,
               Clang->getDiagnostics()))
         return AMD_COMGR_STATUS_ERROR;
       if (!ExecuteCompilerInvocation(Clang.get()))
@@ -632,7 +638,7 @@ amd_comgr_status_t InProcessDriver::execute(ArrayRef<const char *> Args) {
     } else if (Job.getCreator().getName() == LinkerJobName) {
       if (env::shouldEmitVerboseLogs())
         logArgv(DiagOS, "lld", Argv);
-      if (auto Status = linkWithLLD(Arguments, DiagOS))
+      if (auto Status = linkWithLLD(Arguments, DiagOS, DiagOS))
         return Status;
     } else {
       return AMD_COMGR_STATUS_ERROR;
@@ -671,6 +677,35 @@ amd_comgr_status_t AMDGPUCompiler::removeTmpDirs() {
   return AMD_COMGR_STATUS_SUCCESS;
 }
 
+amd_comgr_status_t AMDGPUCompiler::executeOutOfProcessHIPCompilation(
+    llvm::ArrayRef<const char *> Args) {
+  std::string Exec = (Twine(env::getHIPPath()) + "/bin/hipcc").str();
+  std::vector<StringRef> ArgsV;
+  ArgsV.push_back(Exec);
+  for (unsigned I = 0, E = Args.size(); I != E; ++I) {
+    if (strcmp(Args[I], "-hip-path") == 0) {
+      ++I;
+      if (I == E) {
+        LogS << "Error: -hip-path option misses argument.\n";
+        return AMD_COMGR_STATUS_ERROR;
+      } else {
+        Exec = (Twine(Args[I]) + "/bin/hipcc").str();
+        ArgsV[0] = Exec;
+      }
+    } else
+      ArgsV.push_back(Args[I]);
+  }
+
+  ArgsV.push_back("--genco");
+  std::vector<Optional<StringRef>> Redirects;
+  std::string ErrMsg;
+  int RC = sys::ExecuteAndWait(Exec, ArgsV,
+                               /*env=*/None, Redirects, /*secondsToWait=*/0,
+                               /*memoryLimit=*/0, &ErrMsg);
+  LogS << ErrMsg;
+  return RC ? AMD_COMGR_STATUS_ERROR : AMD_COMGR_STATUS_SUCCESS;
+}
+
 amd_comgr_status_t AMDGPUCompiler::processFile(const char *InputFilePath,
                                                const char *OutputFilePath) {
   SmallVector<const char *, 128> Argv;
@@ -685,6 +720,10 @@ amd_comgr_status_t AMDGPUCompiler::processFile(const char *InputFilePath,
 
   Argv.push_back("-o");
   Argv.push_back(OutputFilePath);
+
+  // For HIP OOP compilation, we launch a process.
+  if (CompileOOP && getLanguage() == AMD_COMGR_LANGUAGE_HIP)
+    return executeOutOfProcessHIPCompilation(Argv);
 
   InProcessDriver TheDriver(LogS);
 
@@ -763,17 +802,25 @@ amd_comgr_status_t AMDGPUCompiler::addIncludeFlags() {
 }
 
 amd_comgr_status_t
-AMDGPUCompiler::addTargetIdentifierFlags(llvm::StringRef IdentStr) {
+AMDGPUCompiler::addTargetIdentifierFlags(llvm::StringRef IdentStr,
+                                         bool SrcToBC = false) {
   TargetIdentifier Ident;
   if (auto Status = parseTargetIdentifier(IdentStr, Ident))
     return Status;
   Triple = (Twine(Ident.Arch) + "-" + Ident.Vendor + "-" + Ident.OS).str();
-  CPU = (Twine("-mcpu=") + Ident.Processor).str();
+  GPUArch = Twine(Ident.Processor).str();
+  CPU = (Twine("-mcpu=") + GPUArch).str();
 
-  Args.push_back("-target");
-  Args.push_back(Triple.c_str());
+  if (SrcToBC && getLanguage() == AMD_COMGR_LANGUAGE_HIP) {
+    CUDAGPUArch = (Twine("--cuda-gpu-arch=") + GPUArch).str();
+    Args.push_back(CUDAGPUArch.c_str());
+  }
+  else {
+    Args.push_back("-target");
+    Args.push_back(Triple.c_str());
 
-  Args.push_back(CPU.c_str());
+    Args.push_back(CPU.c_str());
+  }
 
   bool EnableXNACK = false;
   bool EnableSRAMECC = false;
@@ -792,6 +839,40 @@ AMDGPUCompiler::addTargetIdentifierFlags(llvm::StringRef IdentStr) {
   return AMD_COMGR_STATUS_SUCCESS;
 }
 
+amd_comgr_status_t
+AMDGPUCompiler::addCompilationFlags() {
+  HIPIncludePath = (Twine(env::getHIPPath()) + "/include").str();
+  ClangIncludePath = (Twine(env::getLLVMPath()) + "/lib/clang/"+CLANG_VERSION_STRING+"/include").str();
+
+  Args.push_back("-x");
+
+  switch (ActionInfo->Language) {
+  case AMD_COMGR_LANGUAGE_OPENCL_1_2:
+    Args.push_back("cl");
+    Args.push_back("-std=cl1.2");
+    break;
+  case AMD_COMGR_LANGUAGE_OPENCL_2_0:
+    Args.push_back("cl");
+    Args.push_back("-std=cl2.0");
+    break;
+  case AMD_COMGR_LANGUAGE_HIP:
+    Args.push_back("hip");
+    Args.push_back("-std=c++11");
+    Args.push_back("-target");
+    Args.push_back("x86_64-unknown-linux-gnu");
+    Args.push_back("--cuda-device-only");
+    Args.push_back("-nogpulib");
+    Args.push_back("-isystem");
+    Args.push_back(HIPIncludePath.c_str());
+    Args.push_back("-isystem");
+    Args.push_back(ClangIncludePath.c_str());
+    break;
+  default:
+    return AMD_COMGR_STATUS_ERROR_INVALID_ARGUMENT;
+  }
+  return AMD_COMGR_STATUS_SUCCESS;
+}
+
 amd_comgr_status_t AMDGPUCompiler::preprocessToSource() {
   if (auto Status = createTmpDirs())
     return Status;
@@ -803,19 +884,8 @@ amd_comgr_status_t AMDGPUCompiler::preprocessToSource() {
   if (auto Status = addIncludeFlags())
     return Status;
 
-  Args.push_back("-x");
-  Args.push_back("cl");
-
-  switch (ActionInfo->Language) {
-  case AMD_COMGR_LANGUAGE_OPENCL_1_2:
-    Args.push_back("-std=cl1.2");
-    break;
-  case AMD_COMGR_LANGUAGE_OPENCL_2_0:
-    Args.push_back("-std=cl2.0");
-    break;
-  default:
-    return AMD_COMGR_STATUS_ERROR_INVALID_ARGUMENT;
-  }
+  if (auto Status = addCompilationFlags())
+    return Status;
 
   Args.push_back("-E");
 
@@ -827,30 +897,38 @@ amd_comgr_status_t AMDGPUCompiler::compileToBitcode() {
     return Status;
 
   if (ActionInfo->IsaName)
-    if (auto Status = addTargetIdentifierFlags(ActionInfo->IsaName))
+    if (auto Status = addTargetIdentifierFlags(ActionInfo->IsaName, true))
       return Status;
 
   if (auto Status = addIncludeFlags())
     return Status;
 
-  Args.push_back("-x");
-  Args.push_back("cl");
-
-  switch (ActionInfo->Language) {
-  case AMD_COMGR_LANGUAGE_OPENCL_1_2:
-    Args.push_back("-std=cl1.2");
-    break;
-  case AMD_COMGR_LANGUAGE_OPENCL_2_0:
-    Args.push_back("-std=cl2.0");
-    break;
-  default:
-    return AMD_COMGR_STATUS_ERROR_INVALID_ARGUMENT;
-  }
+  if (auto Status = addCompilationFlags())
+    return Status;
 
   Args.push_back("-c");
   Args.push_back("-emit-llvm");
 
+#if _WIN32
+  Args.push_back("-fshort-wchar");
+#endif
+
   return processFiles(AMD_COMGR_DATA_KIND_BC, ".bc");
+}
+
+amd_comgr_status_t AMDGPUCompiler::compileToFatBin() {
+  if (auto Status = createTmpDirs())
+    return Status;
+
+  if (ActionInfo->Language != AMD_COMGR_LANGUAGE_HIP)
+    return AMD_COMGR_STATUS_ERROR_INVALID_ARGUMENT;
+
+  // This is a workaround to support HIP OOP Fatbin Compilation
+  CompileOOP = true;
+  auto Status = processFiles(AMD_COMGR_DATA_KIND_FATBIN, ".fatbin");
+  CompileOOP = false;
+
+  return Status;
 }
 
 amd_comgr_status_t AMDGPUCompiler::linkBitcodeToBitcode() {
@@ -859,9 +937,9 @@ amd_comgr_status_t AMDGPUCompiler::linkBitcodeToBitcode() {
 
   LLVMContext Context;
   Context.setDiagnosticHandler(
-      llvm::make_unique<AMDGPUCompilerDiagnosticHandler>(this), true);
+      std::make_unique<AMDGPUCompilerDiagnosticHandler>(this), true);
 
-  auto Composite = make_unique<llvm::Module>("linked", Context);
+  auto Composite = std::make_unique<llvm::Module>("linked", Context);
   Linker L(*Composite);
   unsigned ApplicableFlags = Linker::Flags::None;
 
@@ -981,7 +1059,7 @@ amd_comgr_status_t AMDGPUCompiler::linkToRelocatable() {
 
   Args.push_back("-r");
 
-  if (auto Status = linkWithLLD(Args, LogS))
+  if (auto Status = linkWithLLD(Args, LogS, LogS))
     return Status;
 
   if (auto Status = inputFromFile(Output, OutputFilePath))

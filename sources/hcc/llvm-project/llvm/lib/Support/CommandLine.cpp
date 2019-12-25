@@ -24,13 +24,11 @@
 #include "llvm/ADT/SmallString.h"
 #include "llvm/ADT/StringExtras.h"
 #include "llvm/ADT/StringMap.h"
-#include "llvm/ADT/StringRef.h"
 #include "llvm/ADT/Triple.h"
 #include "llvm/ADT/Twine.h"
 #include "llvm/Config/config.h"
 #include "llvm/Support/ConvertUTF.h"
 #include "llvm/Support/Debug.h"
-#include "llvm/Support/Error.h"
 #include "llvm/Support/ErrorHandling.h"
 #include "llvm/Support/FileSystem.h"
 #include "llvm/Support/Host.h"
@@ -39,11 +37,9 @@
 #include "llvm/Support/Path.h"
 #include "llvm/Support/Process.h"
 #include "llvm/Support/StringSaver.h"
-#include "llvm/Support/VirtualFileSystem.h"
 #include "llvm/Support/raw_ostream.h"
 #include <cstdlib>
 #include <map>
-#include <string>
 using namespace llvm;
 using namespace cl;
 
@@ -92,26 +88,21 @@ void parser<char>::anchor() {}
 
 //===----------------------------------------------------------------------===//
 
-const static size_t DefaultPad = 2;
-
-static StringRef ArgPrefix = "-";
-static StringRef ArgPrefixLong = "--";
+static StringRef ArgPrefix = "  -";
+static StringRef ArgPrefixLong = "  --";
 static StringRef ArgHelpPrefix = " - ";
 
-static size_t argPlusPrefixesSize(StringRef ArgName, size_t Pad = DefaultPad) {
+static size_t argPlusPrefixesSize(StringRef ArgName) {
   size_t Len = ArgName.size();
   if (Len == 1)
-    return Len + Pad + ArgPrefix.size() + ArgHelpPrefix.size();
-  return Len + Pad + ArgPrefixLong.size() + ArgHelpPrefix.size();
+    return Len + ArgPrefix.size() + ArgHelpPrefix.size();
+  return Len + ArgPrefixLong.size() + ArgHelpPrefix.size();
 }
 
-static SmallString<8> argPrefix(StringRef ArgName, size_t Pad = DefaultPad) {
-  SmallString<8> Prefix;
-  for (size_t I = 0; I < Pad; ++I) {
-    Prefix.push_back(' ');
-  }
-  Prefix.append(ArgName.size() > 1 ? ArgPrefixLong : ArgPrefix);
-  return Prefix;
+static StringRef argPrefix(StringRef ArgName) {
+  if (ArgName.size() == 1)
+    return ArgPrefix;
+  return ArgPrefixLong;
 }
 
 // Option predicates...
@@ -128,14 +119,13 @@ namespace {
 
 class PrintArg {
   StringRef ArgName;
-  size_t Pad;
 public:
-  PrintArg(StringRef ArgName, size_t Pad = DefaultPad) : ArgName(ArgName), Pad(Pad) {}
-  friend raw_ostream &operator<<(raw_ostream &OS, const PrintArg &);
+  PrintArg(StringRef ArgName) : ArgName(ArgName) {}
+  friend raw_ostream &operator<<(raw_ostream &OS, const PrintArg&);
 };
 
 raw_ostream &operator<<(raw_ostream &OS, const PrintArg& Arg) {
-  OS << argPrefix(Arg.ArgName, Arg.Pad) << Arg.ArgName;
+  OS << argPrefix(Arg.ArgName) << Arg.ArgName;
   return OS;
 }
 
@@ -1047,16 +1037,14 @@ static bool hasUTF8ByteOrderMark(ArrayRef<char> S) {
   return (S.size() >= 3 && S[0] == '\xef' && S[1] == '\xbb' && S[2] == '\xbf');
 }
 
-// FName must be an absolute path.
-static llvm::Error ExpandResponseFile(
-    StringRef FName, StringSaver &Saver, TokenizerCallback Tokenizer,
-    SmallVectorImpl<const char *> &NewArgv, bool MarkEOLs, bool RelativeNames,
-    llvm::vfs::FileSystem &FS) {
-  assert(sys::path::is_absolute(FName));
-  llvm::ErrorOr<std::unique_ptr<MemoryBuffer>> MemBufOrErr =
-      FS.getBufferForFile(FName);
+static bool ExpandResponseFile(StringRef FName, StringSaver &Saver,
+                               TokenizerCallback Tokenizer,
+                               SmallVectorImpl<const char *> &NewArgv,
+                               bool MarkEOLs, bool RelativeNames) {
+  ErrorOr<std::unique_ptr<MemoryBuffer>> MemBufOrErr =
+      MemoryBuffer::getFile(FName);
   if (!MemBufOrErr)
-    return llvm::errorCodeToError(MemBufOrErr.getError());
+    return false;
   MemoryBuffer &MemBuf = *MemBufOrErr.get();
   StringRef Str(MemBuf.getBufferStart(), MemBuf.getBufferSize());
 
@@ -1065,8 +1053,7 @@ static llvm::Error ExpandResponseFile(
   std::string UTF8Buf;
   if (hasUTF16ByteOrderMark(BufRef)) {
     if (!convertUTF16ToUTF8String(BufRef, UTF8Buf))
-      return llvm::createStringError(std::errc::illegal_byte_sequence,
-                                     "Could not convert UTF16 to UTF8");
+      return false;
     Str = StringRef(UTF8Buf);
   }
   // If we see UTF-8 BOM sequence at the beginning of a file, we shall remove
@@ -1078,40 +1065,41 @@ static llvm::Error ExpandResponseFile(
   // Tokenize the contents into NewArgv.
   Tokenizer(Str, Saver, NewArgv, MarkEOLs);
 
-  if (!RelativeNames)
-    return Error::success();
-  llvm::StringRef BasePath = llvm::sys::path::parent_path(FName);
   // If names of nested response files should be resolved relative to including
   // file, replace the included response file names with their full paths
   // obtained by required resolution.
-  for (auto &Arg : NewArgv) {
-    // Skip non-rsp file arguments.
-    if (!Arg || Arg[0] != '@')
-      continue;
+  if (RelativeNames)
+    for (unsigned I = 0; I < NewArgv.size(); ++I)
+      if (NewArgv[I]) {
+        StringRef Arg = NewArgv[I];
+        if (Arg.front() == '@') {
+          StringRef FileName = Arg.drop_front();
+          if (llvm::sys::path::is_relative(FileName)) {
+            SmallString<128> ResponseFile;
+            ResponseFile.append(1, '@');
+            if (llvm::sys::path::is_relative(FName)) {
+              SmallString<128> curr_dir;
+              llvm::sys::fs::current_path(curr_dir);
+              ResponseFile.append(curr_dir.str());
+            }
+            llvm::sys::path::append(
+                ResponseFile, llvm::sys::path::parent_path(FName), FileName);
+            NewArgv[I] = Saver.save(ResponseFile.c_str()).data();
+          }
+        }
+      }
 
-    StringRef FileName(Arg + 1);
-    // Skip if non-relative.
-    if (!llvm::sys::path::is_relative(FileName))
-      continue;
-
-    SmallString<128> ResponseFile;
-    ResponseFile.push_back('@');
-    ResponseFile.append(BasePath);
-    llvm::sys::path::append(ResponseFile, FileName);
-    Arg = Saver.save(ResponseFile.c_str()).data();
-  }
-  return Error::success();
+  return true;
 }
 
 /// Expand response files on a command line recursively using the given
 /// StringSaver and tokenization strategy.
 bool cl::ExpandResponseFiles(StringSaver &Saver, TokenizerCallback Tokenizer,
-                             SmallVectorImpl<const char *> &Argv, bool MarkEOLs,
-                             bool RelativeNames, llvm::vfs::FileSystem &FS,
-                             llvm::Optional<llvm::StringRef> CurrentDir) {
+                             SmallVectorImpl<const char *> &Argv,
+                             bool MarkEOLs, bool RelativeNames) {
   bool AllExpanded = true;
   struct ResponseFileRecord {
-    std::string File;
+    const char *File;
     size_t End;
   };
 
@@ -1145,31 +1133,8 @@ bool cl::ExpandResponseFiles(StringSaver &Saver, TokenizerCallback Tokenizer,
     }
 
     const char *FName = Arg + 1;
-    // Note that CurrentDir is only used for top-level rsp files, the rest will
-    // always have an absolute path deduced from the containing file.
-    SmallString<128> CurrDir;
-    if (llvm::sys::path::is_relative(FName)) {
-      if (!CurrentDir)
-        llvm::sys::fs::current_path(CurrDir);
-      else
-        CurrDir = *CurrentDir;
-      llvm::sys::path::append(CurrDir, FName);
-      FName = CurrDir.c_str();
-    }
-    auto IsEquivalent = [FName, &FS](const ResponseFileRecord &RFile) {
-      llvm::ErrorOr<llvm::vfs::Status> LHS = FS.status(FName);
-      if (!LHS) {
-        // TODO: The error should be propagated up the stack.
-        llvm::consumeError(llvm::errorCodeToError(LHS.getError()));
-        return false;
-      }
-      llvm::ErrorOr<llvm::vfs::Status> RHS = FS.status(RFile.File);
-      if (!RHS) {
-        // TODO: The error should be propagated up the stack.
-        llvm::consumeError(llvm::errorCodeToError(RHS.getError()));
-        return false;
-      }
-      return LHS->equivalent(*RHS);
+    auto IsEquivalent = [FName](const ResponseFileRecord &RFile) {
+      return sys::fs::equivalent(RFile.File, FName);
     };
 
     // Check for recursive response files.
@@ -1184,13 +1149,10 @@ bool cl::ExpandResponseFiles(StringSaver &Saver, TokenizerCallback Tokenizer,
     // Replace this response file argument with the tokenization of its
     // contents.  Nested response files are expanded in subsequent iterations.
     SmallVector<const char *, 0> ExpandedArgv;
-    if (llvm::Error Err =
-            ExpandResponseFile(FName, Saver, Tokenizer, ExpandedArgv, MarkEOLs,
-                               RelativeNames, FS)) {
+    if (!ExpandResponseFile(FName, Saver, Tokenizer, ExpandedArgv, MarkEOLs,
+                            RelativeNames)) {
       // We couldn't read this file, so we leave it in the argument stream and
       // move on.
-      // TODO: The error should be propagated up the stack.
-      llvm::consumeError(std::move(Err));
       AllExpanded = false;
       ++I;
       continue;
@@ -1218,20 +1180,9 @@ bool cl::ExpandResponseFiles(StringSaver &Saver, TokenizerCallback Tokenizer,
 
 bool cl::readConfigFile(StringRef CfgFile, StringSaver &Saver,
                         SmallVectorImpl<const char *> &Argv) {
-  SmallString<128> AbsPath;
-  if (sys::path::is_relative(CfgFile)) {
-    llvm::sys::fs::current_path(AbsPath);
-    llvm::sys::path::append(AbsPath, CfgFile);
-    CfgFile = AbsPath.str();
-  }
-  if (llvm::Error Err =
-          ExpandResponseFile(CfgFile, Saver, cl::tokenizeConfigFile, Argv,
-                             /*MarkEOLs*/ false, /*RelativeNames*/ true,
-                             *llvm::vfs::getRealFileSystem())) {
-    // TODO: The error should be propagated up the stack.
-    llvm::consumeError(std::move(Err));
+  if (!ExpandResponseFile(CfgFile, Saver, cl::tokenizeConfigFile, Argv,
+                          /*MarkEOLs*/ false, /*RelativeNames*/ true))
     return false;
-  }
   return ExpandResponseFiles(Saver, cl::tokenizeConfigFile, Argv,
                              /*MarkEOLs*/ false, /*RelativeNames*/ true);
 }
@@ -1496,7 +1447,7 @@ bool CommandLineParser::ParseCommandLineOptions(int argc,
         if (NearestHandler) {
           // If we know a near match, report it as well.
           *Errs << ProgramName << ": Did you mean '"
-                << PrintArg(NearestHandlerString, 0) << "'?\n";
+                << PrintArg(NearestHandlerString) << "'?\n";
         }
 
         ErrorParsing = true;
@@ -1650,7 +1601,7 @@ bool Option::error(const Twine &Message, StringRef ArgName, raw_ostream &Errs) {
   if (ArgName.empty())
     Errs << HelpStr; // Be nice for positional arguments
   else
-    Errs << GlobalParser->ProgramName << ": for the " << PrintArg(ArgName, 0);
+    Errs << GlobalParser->ProgramName << ": for the " << PrintArg(ArgName);
 
   Errs << " option: " << Message << "\n";
   return true;

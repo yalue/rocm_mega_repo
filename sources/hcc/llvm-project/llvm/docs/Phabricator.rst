@@ -62,9 +62,6 @@ to upload your patch):
 * ``git format-patch -U999999 @{u}``
 * ``svn diff --diff-cmd=diff -x -U999999``
 
-Before uploading your patch, please make sure it is formatted properly, as
-described in :ref:`How to Submit a Patch <format patches>`.
-
 To upload a new patch:
 
 * Click *Differential*.

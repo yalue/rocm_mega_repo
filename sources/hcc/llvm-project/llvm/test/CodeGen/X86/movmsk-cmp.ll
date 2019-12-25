@@ -675,6 +675,7 @@ define i1 @allones_v4i32_sign(<4 x i32> %arg) {
 ; SKX:       # %bb.0:
 ; SKX-NEXT:    vpmovd2m %xmm0, %k0
 ; SKX-NEXT:    kmovd %k0, %eax
+; SKX-NEXT:    andb $15, %al
 ; SKX-NEXT:    cmpb $15, %al
 ; SKX-NEXT:    sete %al
 ; SKX-NEXT:    retq
@@ -713,7 +714,8 @@ define i1 @allzeros_v4i32_sign(<4 x i32> %arg) {
 ; SKX-LABEL: allzeros_v4i32_sign:
 ; SKX:       # %bb.0:
 ; SKX-NEXT:    vpmovd2m %xmm0, %k0
-; SKX-NEXT:    kortestb %k0, %k0
+; SKX-NEXT:    kmovd %k0, %eax
+; SKX-NEXT:    testb $15, %al
 ; SKX-NEXT:    sete %al
 ; SKX-NEXT:    retq
   %tmp = icmp slt <4 x i32> %arg, zeroinitializer
@@ -961,6 +963,7 @@ define i1 @allones_v4i64_sign(<4 x i64> %arg) {
 ; SKX:       # %bb.0:
 ; SKX-NEXT:    vpmovq2m %ymm0, %k0
 ; SKX-NEXT:    kmovd %k0, %eax
+; SKX-NEXT:    andb $15, %al
 ; SKX-NEXT:    cmpb $15, %al
 ; SKX-NEXT:    sete %al
 ; SKX-NEXT:    vzeroupper
@@ -1002,7 +1005,8 @@ define i1 @allzeros_v4i64_sign(<4 x i64> %arg) {
 ; SKX-LABEL: allzeros_v4i64_sign:
 ; SKX:       # %bb.0:
 ; SKX-NEXT:    vpmovq2m %ymm0, %k0
-; SKX-NEXT:    kortestb %k0, %k0
+; SKX-NEXT:    kmovd %k0, %eax
+; SKX-NEXT:    testb $15, %al
 ; SKX-NEXT:    sete %al
 ; SKX-NEXT:    vzeroupper
 ; SKX-NEXT:    retq
@@ -1967,6 +1971,7 @@ define i1 @allones_v4i32_and1(<4 x i32> %arg) {
 ; SKX:       # %bb.0:
 ; SKX-NEXT:    vptestmd {{.*}}(%rip){1to4}, %xmm0, %k0
 ; SKX-NEXT:    kmovd %k0, %eax
+; SKX-NEXT:    andb $15, %al
 ; SKX-NEXT:    cmpb $15, %al
 ; SKX-NEXT:    sete %al
 ; SKX-NEXT:    retq
@@ -2007,7 +2012,8 @@ define i1 @allzeros_v4i32_and1(<4 x i32> %arg) {
 ; SKX-LABEL: allzeros_v4i32_and1:
 ; SKX:       # %bb.0:
 ; SKX-NEXT:    vptestmd {{.*}}(%rip){1to4}, %xmm0, %k0
-; SKX-NEXT:    kortestb %k0, %k0
+; SKX-NEXT:    kmovd %k0, %eax
+; SKX-NEXT:    testb $15, %al
 ; SKX-NEXT:    sete %al
 ; SKX-NEXT:    retq
   %tmp = and <4 x i32> %arg, <i32 1, i32 1, i32 1, i32 1>
@@ -2304,6 +2310,7 @@ define i1 @allones_v2i64_and1(<2 x i64> %arg) {
 ; SKX:       # %bb.0:
 ; SKX-NEXT:    vptestmq {{.*}}(%rip), %xmm0, %k0
 ; SKX-NEXT:    kmovd %k0, %eax
+; SKX-NEXT:    andb $3, %al
 ; SKX-NEXT:    cmpb $3, %al
 ; SKX-NEXT:    sete %al
 ; SKX-NEXT:    retq
@@ -2345,7 +2352,8 @@ define i1 @allzeros_v2i64_and1(<2 x i64> %arg) {
 ; SKX-LABEL: allzeros_v2i64_and1:
 ; SKX:       # %bb.0:
 ; SKX-NEXT:    vptestmq {{.*}}(%rip), %xmm0, %k0
-; SKX-NEXT:    kortestb %k0, %k0
+; SKX-NEXT:    kmovd %k0, %eax
+; SKX-NEXT:    testb $3, %al
 ; SKX-NEXT:    sete %al
 ; SKX-NEXT:    retq
   %tmp = and <2 x i64> %arg, <i64 1, i64 1>
@@ -2402,6 +2410,7 @@ define i1 @allones_v4i64_and1(<4 x i64> %arg) {
 ; SKX:       # %bb.0:
 ; SKX-NEXT:    vptestmq {{.*}}(%rip){1to4}, %ymm0, %k0
 ; SKX-NEXT:    kmovd %k0, %eax
+; SKX-NEXT:    andb $15, %al
 ; SKX-NEXT:    cmpb $15, %al
 ; SKX-NEXT:    sete %al
 ; SKX-NEXT:    vzeroupper
@@ -2458,7 +2467,8 @@ define i1 @allzeros_v4i64_and1(<4 x i64> %arg) {
 ; SKX-LABEL: allzeros_v4i64_and1:
 ; SKX:       # %bb.0:
 ; SKX-NEXT:    vptestmq {{.*}}(%rip){1to4}, %ymm0, %k0
-; SKX-NEXT:    kortestb %k0, %k0
+; SKX-NEXT:    kmovd %k0, %eax
+; SKX-NEXT:    testb $15, %al
 ; SKX-NEXT:    sete %al
 ; SKX-NEXT:    vzeroupper
 ; SKX-NEXT:    retq
@@ -3370,6 +3380,7 @@ define i1 @allones_v4i32_and4(<4 x i32> %arg) {
 ; SKX:       # %bb.0:
 ; SKX-NEXT:    vptestmd {{.*}}(%rip){1to4}, %xmm0, %k0
 ; SKX-NEXT:    kmovd %k0, %eax
+; SKX-NEXT:    andb $15, %al
 ; SKX-NEXT:    cmpb $15, %al
 ; SKX-NEXT:    sete %al
 ; SKX-NEXT:    retq
@@ -3410,7 +3421,8 @@ define i1 @allzeros_v4i32_and4(<4 x i32> %arg) {
 ; SKX-LABEL: allzeros_v4i32_and4:
 ; SKX:       # %bb.0:
 ; SKX-NEXT:    vptestmd {{.*}}(%rip){1to4}, %xmm0, %k0
-; SKX-NEXT:    kortestb %k0, %k0
+; SKX-NEXT:    kmovd %k0, %eax
+; SKX-NEXT:    testb $15, %al
 ; SKX-NEXT:    sete %al
 ; SKX-NEXT:    retq
   %tmp = and <4 x i32> %arg, <i32 4, i32 4, i32 4, i32 4>
@@ -3707,6 +3719,7 @@ define i1 @allones_v2i64_and4(<2 x i64> %arg) {
 ; SKX:       # %bb.0:
 ; SKX-NEXT:    vptestmq {{.*}}(%rip), %xmm0, %k0
 ; SKX-NEXT:    kmovd %k0, %eax
+; SKX-NEXT:    andb $3, %al
 ; SKX-NEXT:    cmpb $3, %al
 ; SKX-NEXT:    sete %al
 ; SKX-NEXT:    retq
@@ -3748,7 +3761,8 @@ define i1 @allzeros_v2i64_and4(<2 x i64> %arg) {
 ; SKX-LABEL: allzeros_v2i64_and4:
 ; SKX:       # %bb.0:
 ; SKX-NEXT:    vptestmq {{.*}}(%rip), %xmm0, %k0
-; SKX-NEXT:    kortestb %k0, %k0
+; SKX-NEXT:    kmovd %k0, %eax
+; SKX-NEXT:    testb $3, %al
 ; SKX-NEXT:    sete %al
 ; SKX-NEXT:    retq
   %tmp = and <2 x i64> %arg, <i64 4, i64 4>
@@ -3805,6 +3819,7 @@ define i1 @allones_v4i64_and4(<4 x i64> %arg) {
 ; SKX:       # %bb.0:
 ; SKX-NEXT:    vptestmq {{.*}}(%rip){1to4}, %ymm0, %k0
 ; SKX-NEXT:    kmovd %k0, %eax
+; SKX-NEXT:    andb $15, %al
 ; SKX-NEXT:    cmpb $15, %al
 ; SKX-NEXT:    sete %al
 ; SKX-NEXT:    vzeroupper
@@ -3861,7 +3876,8 @@ define i1 @allzeros_v4i64_and4(<4 x i64> %arg) {
 ; SKX-LABEL: allzeros_v4i64_and4:
 ; SKX:       # %bb.0:
 ; SKX-NEXT:    vptestmq {{.*}}(%rip){1to4}, %ymm0, %k0
-; SKX-NEXT:    kortestb %k0, %k0
+; SKX-NEXT:    kmovd %k0, %eax
+; SKX-NEXT:    testb $15, %al
 ; SKX-NEXT:    sete %al
 ; SKX-NEXT:    vzeroupper
 ; SKX-NEXT:    retq
@@ -4467,19 +4483,22 @@ define i1 @movmsk_and_v2i64(<2 x i64> %x, <2 x i64> %y) {
 ; KNL-NEXT:    # kill: def $xmm1 killed $xmm1 def $zmm1
 ; KNL-NEXT:    # kill: def $xmm0 killed $xmm0 def $zmm0
 ; KNL-NEXT:    vpcmpneqq %zmm1, %zmm0, %k0
+; KNL-NEXT:    kshiftrw $1, %k0, %k1
+; KNL-NEXT:    kmovw %k1, %ecx
 ; KNL-NEXT:    kmovw %k0, %eax
-; KNL-NEXT:    andb $3, %al
-; KNL-NEXT:    cmpb $3, %al
-; KNL-NEXT:    sete %al
+; KNL-NEXT:    andb %cl, %al
+; KNL-NEXT:    # kill: def $al killed $al killed $eax
 ; KNL-NEXT:    vzeroupper
 ; KNL-NEXT:    retq
 ;
 ; SKX-LABEL: movmsk_and_v2i64:
 ; SKX:       # %bb.0:
 ; SKX-NEXT:    vpcmpneqq %xmm1, %xmm0, %k0
+; SKX-NEXT:    kshiftrb $1, %k0, %k1
+; SKX-NEXT:    kmovd %k1, %ecx
 ; SKX-NEXT:    kmovd %k0, %eax
-; SKX-NEXT:    cmpb $3, %al
-; SKX-NEXT:    sete %al
+; SKX-NEXT:    andb %cl, %al
+; SKX-NEXT:    # kill: def $al killed $al killed $eax
 ; SKX-NEXT:    retq
   %cmp = icmp ne <2 x i64> %x, %y
   %e1 = extractelement <2 x i1> %cmp, i32 0
@@ -4512,17 +4531,22 @@ define i1 @movmsk_or_v2i64(<2 x i64> %x, <2 x i64> %y) {
 ; KNL-NEXT:    # kill: def $xmm1 killed $xmm1 def $zmm1
 ; KNL-NEXT:    # kill: def $xmm0 killed $xmm0 def $zmm0
 ; KNL-NEXT:    vpcmpneqq %zmm1, %zmm0, %k0
+; KNL-NEXT:    kshiftrw $1, %k0, %k1
+; KNL-NEXT:    kmovw %k1, %ecx
 ; KNL-NEXT:    kmovw %k0, %eax
-; KNL-NEXT:    testb $3, %al
-; KNL-NEXT:    setne %al
+; KNL-NEXT:    orb %cl, %al
+; KNL-NEXT:    # kill: def $al killed $al killed $eax
 ; KNL-NEXT:    vzeroupper
 ; KNL-NEXT:    retq
 ;
 ; SKX-LABEL: movmsk_or_v2i64:
 ; SKX:       # %bb.0:
 ; SKX-NEXT:    vpcmpneqq %xmm1, %xmm0, %k0
-; SKX-NEXT:    kortestb %k0, %k0
-; SKX-NEXT:    setne %al
+; SKX-NEXT:    kshiftrb $1, %k0, %k1
+; SKX-NEXT:    kmovd %k1, %ecx
+; SKX-NEXT:    kmovd %k0, %eax
+; SKX-NEXT:    orb %cl, %al
+; SKX-NEXT:    # kill: def $al killed $al killed $eax
 ; SKX-NEXT:    retq
   %cmp = icmp ne <2 x i64> %x, %y
   %e1 = extractelement <2 x i1> %cmp, i32 0
@@ -4612,19 +4636,22 @@ define i1 @movmsk_and_v2f64(<2 x double> %x, <2 x double> %y) {
 ; KNL-NEXT:    # kill: def $xmm1 killed $xmm1 def $zmm1
 ; KNL-NEXT:    # kill: def $xmm0 killed $xmm0 def $zmm0
 ; KNL-NEXT:    vcmplepd %zmm0, %zmm1, %k0
+; KNL-NEXT:    kshiftrw $1, %k0, %k1
+; KNL-NEXT:    kmovw %k1, %ecx
 ; KNL-NEXT:    kmovw %k0, %eax
-; KNL-NEXT:    andb $3, %al
-; KNL-NEXT:    cmpb $3, %al
-; KNL-NEXT:    sete %al
+; KNL-NEXT:    andb %cl, %al
+; KNL-NEXT:    # kill: def $al killed $al killed $eax
 ; KNL-NEXT:    vzeroupper
 ; KNL-NEXT:    retq
 ;
 ; SKX-LABEL: movmsk_and_v2f64:
 ; SKX:       # %bb.0:
 ; SKX-NEXT:    vcmplepd %xmm0, %xmm1, %k0
+; SKX-NEXT:    kshiftrb $1, %k0, %k1
+; SKX-NEXT:    kmovd %k1, %ecx
 ; SKX-NEXT:    kmovd %k0, %eax
-; SKX-NEXT:    cmpb $3, %al
-; SKX-NEXT:    sete %al
+; SKX-NEXT:    andb %cl, %al
+; SKX-NEXT:    # kill: def $al killed $al killed $eax
 ; SKX-NEXT:    retq
   %cmp = fcmp oge <2 x double> %x, %y
   %e1 = extractelement <2 x i1> %cmp, i32 0
@@ -4655,17 +4682,22 @@ define i1 @movmsk_or_v2f64(<2 x double> %x, <2 x double> %y) {
 ; KNL-NEXT:    # kill: def $xmm1 killed $xmm1 def $zmm1
 ; KNL-NEXT:    # kill: def $xmm0 killed $xmm0 def $zmm0
 ; KNL-NEXT:    vcmplepd %zmm0, %zmm1, %k0
+; KNL-NEXT:    kshiftrw $1, %k0, %k1
+; KNL-NEXT:    kmovw %k1, %ecx
 ; KNL-NEXT:    kmovw %k0, %eax
-; KNL-NEXT:    testb $3, %al
-; KNL-NEXT:    setne %al
+; KNL-NEXT:    orb %cl, %al
+; KNL-NEXT:    # kill: def $al killed $al killed $eax
 ; KNL-NEXT:    vzeroupper
 ; KNL-NEXT:    retq
 ;
 ; SKX-LABEL: movmsk_or_v2f64:
 ; SKX:       # %bb.0:
 ; SKX-NEXT:    vcmplepd %xmm0, %xmm1, %k0
-; SKX-NEXT:    kortestb %k0, %k0
-; SKX-NEXT:    setne %al
+; SKX-NEXT:    kshiftrb $1, %k0, %k1
+; SKX-NEXT:    kmovd %k1, %ecx
+; SKX-NEXT:    kmovd %k0, %eax
+; SKX-NEXT:    orb %cl, %al
+; SKX-NEXT:    # kill: def $al killed $al killed $eax
 ; SKX-NEXT:    retq
   %cmp = fcmp oge <2 x double> %x, %y
   %e1 = extractelement <2 x i1> %cmp, i32 0

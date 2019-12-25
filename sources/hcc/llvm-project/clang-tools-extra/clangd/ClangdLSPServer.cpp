@@ -103,13 +103,13 @@ std::vector<std::vector<std::string>> buildHighlightScopeLookupTable() {
   return LookupTable;
 }
 
-// Makes sure edits in \p FE are applicable to latest file contents reported by
+// Makes sure edits in \p E are applicable to latest file contents reported by
 // editor. If not generates an error message containing information about files
 // that needs to be saved.
-llvm::Error validateEdits(const DraftStore &DraftMgr, const FileEdits &FE) {
+llvm::Error validateEdits(const DraftStore &DraftMgr, const Tweak::Effect &E) {
   size_t InvalidFileCount = 0;
   llvm::StringRef LastInvalidFile;
-  for (const auto &It : FE) {
+  for (const auto &It : E.ApplyEdits) {
     if (auto Draft = DraftMgr.getDraft(It.first())) {
       // If the file is open in user's editor, make sure the version we
       // saw and current version are compatible as this is the text that
@@ -485,11 +485,8 @@ void ClangdLSPServer::onInitialize(const InitializeParams &Params,
         llvm::makeArrayRef(ClangdServerOpts.QueryDriverGlobs),
         std::move(BaseCDB));
   }
-  auto Mangler = CommandMangler::detect();
-  if (ClangdServerOpts.ResourceDir)
-    Mangler.ResourceDir = *ClangdServerOpts.ResourceDir;
   CDB.emplace(BaseCDB.get(), Params.initializationOptions.fallbackFlags,
-              tooling::ArgumentsAdjuster(Mangler));
+              ClangdServerOpts.ResourceDir);
   {
     // Switch caller's context with LSPServer's background context. Since we
     // rather want to propagate information from LSPServer's context into the
@@ -707,7 +704,7 @@ void ClangdLSPServer::onCommand(const ExecuteCommandParams &Params,
       if (R->ApplyEdits.empty())
         return Reply("Tweak applied.");
 
-      if (auto Err = validateEdits(DraftMgr, R->ApplyEdits))
+      if (auto Err = validateEdits(DraftMgr, *R))
         return Reply(std::move(Err));
 
       WorkspaceEdit WE;
@@ -761,23 +758,17 @@ void ClangdLSPServer::onRename(const RenameParams &Params,
   if (!Code)
     return Reply(llvm::make_error<LSPError>(
         "onRename called for non-added file", ErrorCode::InvalidParams));
-  Server->rename(
-      File, Params.position, Params.newName,
-      /*WantFormat=*/true,
-      [File, Params, Reply = std::move(Reply),
-       this](llvm::Expected<FileEdits> Edits) mutable {
-        if (!Edits)
-          return Reply(Edits.takeError());
-        if (auto Err = validateEdits(DraftMgr, *Edits))
-          return Reply(std::move(Err));
-        WorkspaceEdit Result;
-        Result.changes.emplace();
-        for (const auto &Rep : *Edits) {
-          (*Result.changes)[URI::createFile(Rep.first()).toString()] =
-              Rep.second.asTextEdits();
-        }
-        Reply(Result);
-      });
+
+  Server->rename(File, Params.position, Params.newName, /*WantFormat=*/true,
+                 [File, Code, Params, Reply = std::move(Reply)](
+                     llvm::Expected<std::vector<TextEdit>> Edits) mutable {
+                   if (!Edits)
+                     return Reply(Edits.takeError());
+
+                   WorkspaceEdit WE;
+                   WE.changes = {{Params.textDocument.uri.uri(), *Edits}};
+                   Reply(WE);
+                 });
 }
 
 void ClangdLSPServer::onDocumentDidClose(
@@ -1161,13 +1152,7 @@ void ClangdLSPServer::onChangeConfiguration(
 void ClangdLSPServer::onReference(const ReferenceParams &Params,
                                   Callback<std::vector<Location>> Reply) {
   Server->findReferences(Params.textDocument.uri.file(), Params.position,
-                         CCOpts.Limit,
-                         [Reply = std::move(Reply)](
-                             llvm::Expected<ReferencesResult> Refs) mutable {
-                           if (!Refs)
-                             return Reply(Refs.takeError());
-                           return Reply(std::move(Refs->References));
-                         });
+                         CCOpts.Limit, std::move(Reply));
 }
 
 void ClangdLSPServer::onSymbolInfo(const TextDocumentPositionParams &Params,
@@ -1246,11 +1231,7 @@ ClangdLSPServer::ClangdLSPServer(
   // clang-format on
 }
 
-ClangdLSPServer::~ClangdLSPServer() { IsBeingDestroyed = true;
-  // Explicitly destroy ClangdServer first, blocking on threads it owns.
-  // This ensures they don't access any other members.
-  Server.reset();
-}
+ClangdLSPServer::~ClangdLSPServer() { IsBeingDestroyed = true; }
 
 bool ClangdLSPServer::run() {
   // Run the Language Server loop.
@@ -1260,6 +1241,8 @@ bool ClangdLSPServer::run() {
     CleanExit = false;
   }
 
+  // Destroy ClangdServer to ensure all worker threads finish.
+  Server.reset();
   return CleanExit && ShutdownRequestReceived;
 }
 

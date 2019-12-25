@@ -17,23 +17,21 @@ All of the code in the LLDB project is available under the
 
 .. _"Apache 2.0 License with LLVM exceptions": https://llvm.org/docs/DeveloperPolicy.html#new-llvm-project-license-framework
 
-Using LLDB
-----------
+Why a New Debugger?
+-------------------
 
-For an introduction into the LLDB command language, head over to the `LLDB
-Tutorial <https://lldb.llvm.org/use/tutorial.html>`_. For users already familiar
-with GDB there is a cheat sheet listing common tasks and their LLDB equivalent
-in the `GDB to LLDB command map <https://lldb.llvm.org/use/map.html>`_.
-
-There are also multiple resources on how to script LLDB using Python `Python
-Reference <https://lldb.llvm.org/use/python-reference.html>`_ is a great
-starting point for that.
+In order to achieve our goals we decided to start with a fresh architecture
+that would support modern multi-threaded programs, handle debugging symbols in
+an efficient manner, use compiler based code knowledge and have plug-in support
+for functionality and extensions. Additionally we want the debugger
+capabilities to be available to other analysis tools, be they scripts or
+compiled programs, without requiring them to be GPL.
 
 Compiler Integration Benefits
 -----------------------------
 
-LLDB converts debug information into Clang types so that it can
-leverage the Clang compiler infrastructure. This allows LLDB to support the
+LLDB currently converts debug information into clang types so that it can
+leverage the clang compiler infrastructure. This allows LLDB to support the
 latest C, C++, Objective-C and Objective-C++ language features and runtimes in
 expressions without having to reimplement any of this functionality. It also
 leverages the compiler to take care of all ABI details when making functions
@@ -53,7 +51,7 @@ Reusability
 The LLDB debugger APIs are exposed as a C++ object oriented interface in a
 shared library. The lldb command line tool links to, and uses this public API.
 On macOS the shared library is exposed as a framework named LLDB.framework,
-and Unix systems expose it as lldb.so. The entire API is also then exposed
+and unix systems expose it as lldb.so. The entire API is also then exposed
 through Python script bindings which allow the API to be used within the LLDB
 embedded script interpreter, and also in any python script that loads the
 lldb.py module in standard python script files. See the Python Reference page
@@ -70,8 +68,8 @@ LLDB is known to work on the following platforms, but ports to new platforms
 are welcome:
 
 * macOS desktop user space debugging for i386 and x86_64
-* iOS, tvOS, and watchOS simulator debugging on i386 and x86_64
-* iOS, tvOS, and watchOS device debugging on ARM and AArch64
+* iOS simulator debugging on i386 and x86_64
+* iOS device debugging on ARM and AArch64
 * Linux local user-space debugging for i386, x86_64 and PPC64le
 * FreeBSD local user-space debugging for i386 and x86_64
 * Windows local user-space debugging for i386 (*)
@@ -93,8 +91,8 @@ Note that LLDB generally builds from top-of-trunk using CMake and Ninja.
 Additionally it builds:
 
 * on macOS with a :ref:`generated Xcode project <CMakeGeneratedXcodeProject>`
-* on Linux and FreeBSD with Clang and libstdc++/libc++
-* on NetBSD with GCC/Clang and libstdc++/libc++
+* on Linux and FreeBSD with clang and libstdc++/libc++
+* on NetBSD with GCC/clang and libstdc++/libc++
 * on Windows with a generated project for VS 2017 or higher
 
 See the :doc:`LLDB Build Page <resources/build>` for build instructions.
@@ -111,13 +109,12 @@ interesting areas to contribute to lldb.
 .. toctree::
    :hidden:
    :maxdepth: 1
-   :caption: Project
+   :caption: Goals & Status
 
    status/goals
    status/features
    status/status
    status/projects
-   status/releases
 
 .. toctree::
    :hidden:
@@ -134,20 +131,19 @@ interesting areas to contribute to lldb.
    use/python-reference
    use/remote
    use/troubleshooting
+   use/architecture
 
 .. toctree::
    :hidden:
    :maxdepth: 1
-   :caption: Development
+   :caption: Resources
 
-   resources/architecture
-   resources/contributing
+   resources/download
+   resources/source
    resources/build
    resources/test
    resources/bots
-   resources/reproducers
    resources/sbapi
-   resources/caveats
 
 .. toctree::
    :hidden:
@@ -163,6 +159,6 @@ interesting areas to contribute to lldb.
    :maxdepth: 1
    :caption: External Links
 
-   Source Code <https://github.com/llvm/llvm-project>
+   Source Code <https://llvm.org/viewvc/llvm-project/lldb/trunk/>
    Code Reviews <https://reviews.llvm.org>
    Bug Reports <https://bugs.llvm.org/>

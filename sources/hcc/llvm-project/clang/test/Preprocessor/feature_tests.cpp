@@ -29,7 +29,6 @@
     !__has_builtin(__array_rank) || \
     !__has_builtin(__underlying_type) || \
     !__has_builtin(__is_trivial) || \
-    !__has_builtin(__is_same_as) || \
     !__has_builtin(__has_unique_object_representations)
 #error Clang should have these
 #endif

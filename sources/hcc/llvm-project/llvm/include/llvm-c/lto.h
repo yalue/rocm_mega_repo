@@ -16,8 +16,6 @@
 #ifndef LLVM_C_LTO_H
 #define LLVM_C_LTO_H
 
-#include "llvm-c/ExternC.h"
-
 #ifdef __cplusplus
 #include <cstddef>
 #else
@@ -46,7 +44,7 @@ typedef bool lto_bool_t;
  * @{
  */
 
-#define LTO_API_VERSION 26
+#define LTO_API_VERSION 25
 
 /**
  * \since prior to LTO_API_VERSION=3
@@ -100,7 +98,9 @@ typedef struct LLVMOpaqueLTOCodeGenerator *lto_code_gen_t;
 /** opaque reference to a thin code generator */
 typedef struct LLVMOpaqueThinLTOCodeGenerator *thinlto_code_gen_t;
 
-LLVM_C_EXTERN_C_BEGIN
+#ifdef __cplusplus
+extern "C" {
+#endif
 
 /**
  * Returns a printable string.
@@ -514,23 +514,10 @@ lto_api_version(void);
 /**
  * Sets options to help debug codegen bugs.
  *
- * This function takes one or more options separated by spaces.
- * Warning: passing file paths through this function may confuse the argument
- * parser if the paths contain spaces.
- *
  * \since prior to LTO_API_VERSION=3
  */
 extern void
 lto_codegen_debug_options(lto_code_gen_t cg, const char *);
-
-/**
- * Same as the previous function, but takes every option separately through an
- * array.
- *
- * \since prior to LTO_API_VERSION=26
- */
-extern void lto_codegen_debug_options_array(lto_code_gen_t cg,
-                                            const char *const *, int number);
 
 /**
  * Initializes LLVM disassemblers.
@@ -913,6 +900,8 @@ extern void thinlto_codegen_set_cache_size_files(thinlto_code_gen_t cg,
  * @} // endgroup LLVMCTLTO_CACHING
  */
 
-LLVM_C_EXTERN_C_END
+#ifdef __cplusplus
+}
+#endif
 
 #endif /* LLVM_C_LTO_H */

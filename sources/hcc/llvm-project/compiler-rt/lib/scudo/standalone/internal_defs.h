@@ -30,6 +30,7 @@
 
 #define INTERFACE __attribute__((visibility("default")))
 #define WEAK __attribute__((weak))
+#define INLINE inline
 #define ALWAYS_INLINE inline __attribute__((always_inline))
 #define ALIAS(X) __attribute__((alias(X)))
 // Please only use the ALIGNED macro before the type. Using ALIGNED after the
@@ -83,12 +84,12 @@ void NORETURN reportCheckFailed(const char *File, int Line,
 
 #define CHECK_IMPL(C1, Op, C2)                                                 \
   do {                                                                         \
-    scudo::u64 V1 = (scudo::u64)(C1);                                          \
-    scudo::u64 V2 = (scudo::u64)(C2);                                          \
+    u64 V1 = (u64)(C1);                                                        \
+    u64 V2 = (u64)(C2);                                                        \
     if (UNLIKELY(!(V1 Op V2))) {                                               \
-      scudo::reportCheckFailed(__FILE__, __LINE__,                             \
-                               "(" #C1 ") " #Op " (" #C2 ")", V1, V2);         \
-      scudo::die();                                                            \
+      reportCheckFailed(__FILE__, __LINE__, "(" #C1 ") " #Op " (" #C2 ")", V1, \
+                        V2);                                                   \
+      die();                                                                   \
     }                                                                          \
   } while (false)
 
@@ -124,6 +125,8 @@ void NORETURN reportCheckFailed(const char *File, int Line,
     CHECK(0 && Msg);                                                           \
     die();                                                                     \
   } while (0)
+
+#define COMPILER_CHECK(Pred) static_assert(Pred, "")
 
 } // namespace scudo
 

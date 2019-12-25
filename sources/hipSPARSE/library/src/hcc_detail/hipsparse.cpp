@@ -26,6 +26,7 @@
 #include <hip/hip_runtime_api.h>
 #include <rocsparse.h>
 #include <stdio.h>
+#include <stdlib.h>
 
 #define TO_STR2(x) #x
 #define TO_STR(x) TO_STR2(x)
@@ -2266,6 +2267,39 @@ hipsparseStatus_t hipsparseXcsrsort(hipsparseHandle_t         handle,
                                                         (rocsparse_mat_descr)descrA,
                                                         csrRowPtr,
                                                         csrColInd,
+                                                        P,
+                                                        pBuffer));
+}
+
+hipsparseStatus_t hipsparseXcscsort_bufferSizeExt(hipsparseHandle_t handle,
+                                                  int               m,
+                                                  int               n,
+                                                  int               nnz,
+                                                  const int*        cscColPtr,
+                                                  const int*        cscRowInd,
+                                                  size_t*           pBufferSizeInBytes)
+{
+    return rocSPARSEStatusToHIPStatus(rocsparse_cscsort_buffer_size(
+        (rocsparse_handle)handle, m, n, nnz, cscColPtr, cscRowInd, pBufferSizeInBytes));
+}
+
+hipsparseStatus_t hipsparseXcscsort(hipsparseHandle_t         handle,
+                                    int                       m,
+                                    int                       n,
+                                    int                       nnz,
+                                    const hipsparseMatDescr_t descrA,
+                                    const int*                cscColPtr,
+                                    int*                      cscRowInd,
+                                    int*                      P,
+                                    void*                     pBuffer)
+{
+    return rocSPARSEStatusToHIPStatus(rocsparse_cscsort((rocsparse_handle)handle,
+                                                        m,
+                                                        n,
+                                                        nnz,
+                                                        (rocsparse_mat_descr)descrA,
+                                                        cscColPtr,
+                                                        cscRowInd,
                                                         P,
                                                         pBuffer));
 }

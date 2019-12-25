@@ -23,7 +23,7 @@ namespace CodeGen {
 class ConstantEmitter {
 public:
   CodeGenModule &CGM;
-  CodeGenFunction *const CGF;
+  CodeGenFunction *CGF;
 
 private:
   bool Abstract = false;

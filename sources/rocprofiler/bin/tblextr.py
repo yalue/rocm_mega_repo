@@ -32,13 +32,19 @@ import dform
 #  SQ_WAVES (4096)
 #  SQ_INSTS_VMEM_RD (36864)
 
-COPY_PID = 0
-OPS_PID = 1
-HSA_PID = 2
-HIP_PID = 3
-GPU_BASE_PID = 4
+EXT_PID = 0
+COPY_PID = 1
+HIP_PID = 2
+HSA_PID = 3
+KFD_PID = 4
+OPS_PID = 5
+GPU_BASE_PID = 6
+NONE_PID = -1
+
 max_gpu_id = -1
 START_US = 0
+
+hsa_activity_found = 0
 
 # dependencies dictionary
 dep_dict = {}
@@ -165,6 +171,8 @@ def dump_csv(file_name):
       if ind != dispatch_number: fatal("Dispatch #" + ind + " index mismatch (" + dispatch_number + ")\n")
       val_list = [entry[var] for var in var_list]
       fd.write(','.join(val_list) + '\n');
+
+  print("File '" + file_name + "' is generating")
 #############################################################
 
 # fill kernels DB
@@ -186,12 +194,74 @@ def fill_kernel_db(table_name, db):
     db.insert_entry(table_handle, val_list)
 #############################################################
 
-# fill HSA DB
-hsa_table_descr = [
+# Fill Ext DB
+ext_table_descr = [
+  ['BeginNs', 'EndNs', 'pid', 'tid', 'Name', 'Index'],
+  {'BeginNs':'INTEGER', 'EndNs':'INTEGER', 'pid':'INTEGER', 'tid':'INTEGER', 'Name':'TEXT', 'Index':'INTEGER'}
+]
+def fill_ext_db(table_name, db, indir, trace_name, api_pid):
+  file_name = indir + '/' + trace_name + '_trace.txt'
+  ptrn_val = re.compile(r'(\d+) (\d+):(\d+) (\d+):(.*)$')
+
+  if not os.path.isfile(file_name): return 0
+
+  range_stack = {}
+
+  record_id = 0
+  table_handle = db.add_table(table_name, ext_table_descr)
+  with open(file_name, mode='r') as fd:
+    for line in fd.readlines():
+      record = line[:-1]
+      m = ptrn_val.match(record)
+      if m:
+        tms = int(m.group(1))
+        pid = m.group(2)
+        tid = m.group(3)
+        cid = int(m.group(4))
+        msg = m.group(5)
+
+        rec_vals = []
+
+        if cid != 2:
+          rec_vals.append(tms)
+          rec_vals.append(tms + 1)
+          rec_vals.append(api_pid)
+          rec_vals.append(tid)
+          rec_vals.append(msg)
+          rec_vals.append(record_id)
+
+        if cid == 1:
+          if not pid in range_stack: range_stack[pid] = {}
+          pid_stack = range_stack[pid]
+          if not tid in pid_stack: pid_stack[tid] = []
+          rec_stack = pid_stack[tid]
+          rec_stack.append(rec_vals)
+          continue
+
+        if cid == 2:
+          pid_stack = range_stack[pid]
+          rec_stack = pid_stack[tid]
+          rec_vals = rec_stack.pop()
+          rec_vals[1] = tms
+
+        db.insert_entry(table_handle, rec_vals)
+        record_id += 1
+
+  return 1
+#############################################################
+
+# Fill API DB
+api_table_descr = [
   ['BeginNs', 'EndNs', 'pid', 'tid', 'Name', 'args', 'Index'],
-  {'Index':'INTEGER', 'Name':'TEXT', 'args':'TEXT', 'BeginNs':'INTEGER', 'EndNs':'INTEGER', 'pid':'INTEGER', 'tid':'INTEGER'}
+  {'BeginNs':'INTEGER', 'EndNs':'INTEGER', 'pid':'INTEGER', 'tid':'INTEGER', 'Name':'TEXT', 'args':'TEXT', 'Index':'INTEGER'}
 ]
 def fill_api_db(table_name, db, indir, api_name, api_pid, dep_pid, dep_list, dep_filtr, expl_id):
+  global hsa_activity_found
+  copy_raws = []
+  if (hsa_activity_found): copy_raws = db.table_get_raws('COPY')
+  copy_csv = ''
+  copy_index = 0
+
   file_name = indir + '/' + api_name + '_api_trace.txt'
   ptrn_val = re.compile(r'(\d+):(\d+) (\d+):(\d+) ([^\(]+)(\(.*)$')
   ptrn_ac = re.compile(r'hsa_amd_memory_async_copy')
@@ -211,14 +281,15 @@ def fill_api_db(table_name, db, indir, api_name, api_pid, dep_pid, dep_list, dep
     START_US = 0
 
   record_id = 0
-  table_handle = db.add_table(table_name, hsa_table_descr)
+  table_handle = db.add_table(table_name, api_table_descr)
   with open(file_name, mode='r') as fd:
     for line in fd.readlines():
       record = line[:-1]
       m = ptrn_val.match(record)
       if m:
         rec_vals = []
-        for ind in range(1,7):
+        rec_len = len(api_table_descr[0])
+        for ind in range(1,rec_len):
           rec_vals.append(m.group(ind))
         rec_vals[2] = api_pid
         rec_vals.append(record_id)
@@ -230,6 +301,16 @@ def fill_api_db(table_name, db, indir, api_name, api_pid, dep_pid, dep_list, dep
           dep_from_us_list.append(from_us)
           dep_tid_list.append(int(rec_vals[3]))
           dep_id_list.append(record_id) 
+
+          if len(copy_raws) != 0:
+            copy_data = list(copy_raws[copy_index])
+            args_str = rec_vals[5]
+            args_str = re.sub(r'\(', r'', args_str)
+            args_str = re.sub(r'\).*$', r'', args_str)
+            copy_line = str(copy_data[0]) + ', ' + str(copy_data[1]) + ', ' + rec_vals[4] + ', ' + args_str
+            copy_csv += str(copy_index) + ', ' + copy_line + '\n'
+            copy_index += 1
+
         record_id += 1
       else: fatal(api_name + " bad record: '" + record + "'")
 
@@ -237,11 +318,18 @@ def fill_api_db(table_name, db, indir, api_name, api_pid, dep_pid, dep_list, dep
     db.insert_entry(table_handle, [from_ns, from_ns, api_pid, tid, 'hsa_dispatch', '', record_id])
     record_id += 1
 
-  if not dep_pid in dep_dict: dep_dict[dep_pid] = {}
-  dep_dict[dep_pid]['pid'] = api_pid
-  dep_dict[dep_pid]['tid'] = dep_tid_list
-  dep_dict[dep_pid]['from'] = dep_from_us_list
-  if expl_id: dep_dict[dep_pid]['id'] = dep_id_list
+  if dep_pid != NONE_PID:
+    if not dep_pid in dep_dict: dep_dict[dep_pid] = {}
+    dep_dict[dep_pid]['pid'] = api_pid
+    dep_dict[dep_pid]['tid'] = dep_tid_list
+    dep_dict[dep_pid]['from'] = dep_from_us_list
+    if expl_id: dep_dict[dep_pid]['id'] = dep_id_list
+
+  if copy_csv != '':
+    file_name = os.environ['PWD'] + '/results_mcopy.csv'
+    with open(file_name, mode='w') as fd:
+      print("File '" + file_name + "' is generating")
+      fd.write(copy_csv)
 
   return 1
 #############################################################
@@ -279,6 +367,8 @@ def fill_copy_db(table_name, db, indir):
       else: fatal("async-copy bad record: '" + record + "'")
 
   dep_dict[COPY_PID]['to'] = dep_to_us_dict
+
+  return 1
 #############################################################
 
 # fill HCC ops DB
@@ -332,7 +422,8 @@ if (len(sys.argv) < 2): fatal("Usage: " + sys.argv[0] + " <output CSV file> <inp
 outfile = sys.argv[1]
 infiles = sys.argv[2:]
 indir = re.sub(r'\/[^\/]*$', r'', infiles[0])
-inext = re.sub(r'^[^\.]*', r'', infiles[0])
+inext = re.sub(r'\s+$', r'', infiles[0])
+inext = re.sub(r'^.*(\.[^\.]+)$', r'\1', inext)
 
 dbfile = ''
 csvfile = ''
@@ -358,29 +449,43 @@ else:
   with open(dbfile, mode='w') as fd: fd.truncate()
   db = SQLiteDB(dbfile)
 
-  hsa_trace_found = fill_api_db('HSA', db, indir, 'hsa', HSA_PID, COPY_PID, kern_dep_list, {}, 0)
+  ext_trace_found = fill_ext_db('rocTX', db, indir, 'roctx', EXT_PID)
+
+  kfd_trace_found = fill_api_db('KFD', db, indir, 'kfd', KFD_PID, NONE_PID, [], {}, 0)
+
   hsa_activity_found = fill_copy_db('COPY', db, indir)
+  hsa_trace_found = fill_api_db('HSA', db, indir, 'hsa', HSA_PID, COPY_PID, kern_dep_list, {}, 0)
 
   ops_filtr = fill_ops_db('OPS', db, indir)
   hip_trace_found = fill_api_db('HIP', db, indir, 'hip', HIP_PID, OPS_PID, [], ops_filtr, 1)
 
   fill_kernel_db('A', db)
 
-  any_trace_found = hsa_trace_found | hip_trace_found
+  any_trace_found = ext_trace_found | kfd_trace_found | hsa_trace_found | hip_trace_found
   if any_trace_found:
     db.open_json(jsonfile)
 
-  if hsa_trace_found:
-    db.label_json(HSA_PID, "CPU HSA API", jsonfile)
-  if hsa_activity_found:
-    db.label_json(COPY_PID, "COPY", jsonfile)
+  if ext_trace_found:
+    db.label_json(EXT_PID, "Markers and Ranges", jsonfile)
 
   if hip_trace_found:
     db.label_json(HIP_PID, "CPU HIP API", jsonfile)
 
+  if hsa_trace_found:
+    db.label_json(HSA_PID, "CPU HSA API", jsonfile)
+
+  if kfd_trace_found:
+    db.label_json(KFD_PID, "CPU KFD API", jsonfile)
+
+  if hsa_activity_found:
+    db.label_json(COPY_PID, "COPY", jsonfile)
+
   if any_trace_found and max_gpu_id >= 0:
     for ind in range(0, int(max_gpu_id) + 1):
       db.label_json(int(ind) + int(GPU_BASE_PID), "GPU" + str(ind), jsonfile)
+
+  if ext_trace_found:
+    dform.gen_ext_json_trace(db, 'rocTX', START_US, jsonfile)
 
   if len(var_table) != 0:
     dform.post_process_data(db, 'A', csvfile)
@@ -406,6 +511,12 @@ else:
 
     dform.post_process_data(db, 'OPS')
     dform.gen_ops_json_trace(db, 'OPS', GPU_BASE_PID, START_US, jsonfile)
+
+  if kfd_trace_found:
+    statfile = re.sub(r'stats', r'kfd_stats', statfile)
+    dform.post_process_data(db, 'KFD')
+    dform.gen_table_bins(db, 'KFD', statfile, 'Name', 'DurationNs')
+    dform.gen_api_json_trace(db, 'KFD', START_US, jsonfile)
 
   if any_trace_found:
     for (to_pid, dep_str) in dep_dict.items():

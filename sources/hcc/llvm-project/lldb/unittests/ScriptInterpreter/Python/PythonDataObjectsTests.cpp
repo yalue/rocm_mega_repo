@@ -640,7 +640,9 @@ TEST_F(PythonDataObjectsTest, TestCallable) {
     auto lambda = Take<PythonCallable>(o);
     auto arginfo = lambda.GetArgInfo();
     ASSERT_THAT_EXPECTED(arginfo, llvm::Succeeded());
+    EXPECT_EQ(arginfo.get().count, 1);
     EXPECT_EQ(arginfo.get().max_positional_args, 1u);
+    EXPECT_EQ(arginfo.get().has_varargs, false);
   }
 
   {
@@ -650,7 +652,9 @@ TEST_F(PythonDataObjectsTest, TestCallable) {
     auto lambda = Take<PythonCallable>(o);
     auto arginfo = lambda.GetArgInfo();
     ASSERT_THAT_EXPECTED(arginfo, llvm::Succeeded());
+    EXPECT_EQ(arginfo.get().count, 2);
     EXPECT_EQ(arginfo.get().max_positional_args, 2u);
+    EXPECT_EQ(arginfo.get().has_varargs, false);
   }
 
   {
@@ -660,7 +664,9 @@ TEST_F(PythonDataObjectsTest, TestCallable) {
     auto lambda = Take<PythonCallable>(o);
     auto arginfo = lambda.GetArgInfo();
     ASSERT_THAT_EXPECTED(arginfo, llvm::Succeeded());
+    EXPECT_EQ(arginfo.get().count, 2);
     EXPECT_EQ(arginfo.get().max_positional_args, 2u);
+    EXPECT_EQ(arginfo.get().has_varargs, false);
   }
 
   {
@@ -670,8 +676,10 @@ TEST_F(PythonDataObjectsTest, TestCallable) {
     auto lambda = Take<PythonCallable>(o);
     auto arginfo = lambda.GetArgInfo();
     ASSERT_THAT_EXPECTED(arginfo, llvm::Succeeded());
+    EXPECT_EQ(arginfo.get().count, 2);
     EXPECT_EQ(arginfo.get().max_positional_args,
               PythonCallable::ArgInfo::UNBOUNDED);
+    EXPECT_EQ(arginfo.get().has_varargs, true);
   }
 
   {
@@ -681,8 +689,10 @@ TEST_F(PythonDataObjectsTest, TestCallable) {
     auto lambda = Take<PythonCallable>(o);
     auto arginfo = lambda.GetArgInfo();
     ASSERT_THAT_EXPECTED(arginfo, llvm::Succeeded());
+    EXPECT_EQ(arginfo.get().count, 2);
     EXPECT_EQ(arginfo.get().max_positional_args,
               PythonCallable::ArgInfo::UNBOUNDED);
+    EXPECT_EQ(arginfo.get().has_varargs, true);
   }
 
   {
@@ -703,16 +713,6 @@ bar_bound   = Foo().bar
 bar_class   = Foo().classbar
 bar_static  = Foo().staticbar
 bar_unbound = Foo.bar
-
-
-class OldStyle:
-  def __init__(self, one, two, three):
-    pass
-
-class NewStyle(object):
-  def __init__(self, one, two, three):
-    pass
-
 )";
     PyObject *o =
         PyRun_String(script, Py_file_input, globals.get(), globals.get());
@@ -723,43 +723,38 @@ class NewStyle(object):
     ASSERT_THAT_EXPECTED(bar_bound, llvm::Succeeded());
     auto arginfo = bar_bound.get().GetArgInfo();
     ASSERT_THAT_EXPECTED(arginfo, llvm::Succeeded());
+    EXPECT_EQ(arginfo.get().count, 2); // FIXME, wrong
     EXPECT_EQ(arginfo.get().max_positional_args, 1u);
+    EXPECT_EQ(arginfo.get().has_varargs, false);
 
     auto bar_unbound = As<PythonCallable>(globals.GetItem("bar_unbound"));
     ASSERT_THAT_EXPECTED(bar_unbound, llvm::Succeeded());
     arginfo = bar_unbound.get().GetArgInfo();
     ASSERT_THAT_EXPECTED(arginfo, llvm::Succeeded());
+    EXPECT_EQ(arginfo.get().count, 2);
     EXPECT_EQ(arginfo.get().max_positional_args, 2u);
+    EXPECT_EQ(arginfo.get().has_varargs, false);
 
     auto bar_class = As<PythonCallable>(globals.GetItem("bar_class"));
     ASSERT_THAT_EXPECTED(bar_class, llvm::Succeeded());
     arginfo = bar_class.get().GetArgInfo();
     ASSERT_THAT_EXPECTED(arginfo, llvm::Succeeded());
     EXPECT_EQ(arginfo.get().max_positional_args, 1u);
+    EXPECT_EQ(arginfo.get().has_varargs, false);
 
     auto bar_static = As<PythonCallable>(globals.GetItem("bar_static"));
     ASSERT_THAT_EXPECTED(bar_static, llvm::Succeeded());
     arginfo = bar_static.get().GetArgInfo();
     ASSERT_THAT_EXPECTED(arginfo, llvm::Succeeded());
     EXPECT_EQ(arginfo.get().max_positional_args, 1u);
+    EXPECT_EQ(arginfo.get().has_varargs, false);
 
     auto obj = As<PythonCallable>(globals.GetItem("obj"));
     ASSERT_THAT_EXPECTED(obj, llvm::Succeeded());
     arginfo = obj.get().GetArgInfo();
     ASSERT_THAT_EXPECTED(arginfo, llvm::Succeeded());
     EXPECT_EQ(arginfo.get().max_positional_args, 1u);
-
-    auto oldstyle = As<PythonCallable>(globals.GetItem("OldStyle"));
-    ASSERT_THAT_EXPECTED(oldstyle, llvm::Succeeded());
-    arginfo = oldstyle.get().GetArgInfo();
-    ASSERT_THAT_EXPECTED(arginfo, llvm::Succeeded());
-    EXPECT_EQ(arginfo.get().max_positional_args, 3u);
-
-    auto newstyle = As<PythonCallable>(globals.GetItem("NewStyle"));
-    ASSERT_THAT_EXPECTED(newstyle, llvm::Succeeded());
-    arginfo = newstyle.get().GetArgInfo();
-    ASSERT_THAT_EXPECTED(arginfo, llvm::Succeeded());
-    EXPECT_EQ(arginfo.get().max_positional_args, 3u);
+    EXPECT_EQ(arginfo.get().has_varargs, false);
   }
 
 #if PY_MAJOR_VERSION >= 3 && PY_MINOR_VERSION >= 3
@@ -772,7 +767,9 @@ class NewStyle(object):
     ASSERT_THAT_EXPECTED(hex, llvm::Succeeded());
     auto arginfo = hex.get().GetArgInfo();
     ASSERT_THAT_EXPECTED(arginfo, llvm::Succeeded());
+    EXPECT_EQ(arginfo.get().count, 1);
     EXPECT_EQ(arginfo.get().max_positional_args, 1u);
+    EXPECT_EQ(arginfo.get().has_varargs, false);
   }
 
 #endif

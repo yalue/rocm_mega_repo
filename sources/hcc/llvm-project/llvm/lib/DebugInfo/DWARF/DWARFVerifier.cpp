@@ -468,21 +468,27 @@ unsigned DWARFVerifier::verifyDebugInfoAttribute(const DWARFDie &Die,
     ReportError("DIE has invalid DW_AT_stmt_list encoding:");
     break;
   case DW_AT_location: {
-    if (Expected<std::vector<DWARFLocationExpression>> Loc =
-            Die.getLocations(DW_AT_location)) {
+    auto VerifyLocationExpr = [&](ArrayRef<uint8_t> D) {
       DWARFUnit *U = Die.getDwarfUnit();
-      for (const auto &Entry : *Loc) {
-        DataExtractor Data(toStringRef(Entry.Expr), DCtx.isLittleEndian(), 0);
-        DWARFExpression Expression(Data, U->getVersion(),
-                                   U->getAddressByteSize());
-        bool Error = any_of(Expression, [](DWARFExpression::Operation &Op) {
-          return Op.isError();
-        });
-        if (Error || !Expression.verify(U))
-          ReportError("DIE contains invalid DWARF expression:");
-      }
-    } else
-      ReportError(toString(Loc.takeError()));
+      DataExtractor Data(toStringRef(D), DCtx.isLittleEndian(), 0);
+      DWARFExpression Expression(Data, U->getVersion(),
+                                 U->getAddressByteSize());
+      bool Error = llvm::any_of(Expression, [](DWARFExpression::Operation &Op) {
+        return Op.isError();
+      });
+      if (Error || !Expression.verify(U))
+        ReportError("DIE contains invalid DWARF expression:");
+    };
+    if (Optional<ArrayRef<uint8_t>> Expr = AttrValue.Value.getAsBlock()) {
+      // Verify inlined location.
+      VerifyLocationExpr(*Expr);
+    } else if (auto LocOffset = AttrValue.Value.getAsSectionOffset()) {
+      // Verify location list.
+      if (auto DebugLoc = DCtx.getDebugLoc())
+        if (auto LocList = DebugLoc->getLocationListAtOffset(*LocOffset))
+          for (const auto &Entry : LocList->Entries)
+            VerifyLocationExpr(Entry.Loc);
+    }
     break;
   }
   case DW_AT_specification:
@@ -962,7 +968,7 @@ DWARFVerifier::verifyNameIndexBuckets(const DWARFDebugNames::NameIndex &NI,
 
     constexpr BucketInfo(uint32_t Bucket, uint32_t Index)
         : Bucket(Bucket), Index(Index) {}
-    bool operator<(const BucketInfo &RHS) const { return Index < RHS.Index; }
+    bool operator<(const BucketInfo &RHS) const { return Index < RHS.Index; };
   };
 
   uint32_t NumErrors = 0;
@@ -1272,24 +1278,36 @@ unsigned DWARFVerifier::verifyNameIndexEntries(
 }
 
 static bool isVariableIndexable(const DWARFDie &Die, DWARFContext &DCtx) {
-  Expected<std::vector<DWARFLocationExpression>> Loc =
-      Die.getLocations(DW_AT_location);
-  if (!Loc) {
-    consumeError(Loc.takeError());
+  Optional<DWARFFormValue> Location = Die.findRecursively(DW_AT_location);
+  if (!Location)
     return false;
-  }
-  DWARFUnit *U = Die.getDwarfUnit();
-  for (const auto &Entry : *Loc) {
-    DataExtractor Data(toStringRef(Entry.Expr), DCtx.isLittleEndian(),
-                       U->getAddressByteSize());
+
+  auto ContainsInterestingOperators = [&](ArrayRef<uint8_t> D) {
+    DWARFUnit *U = Die.getDwarfUnit();
+    DataExtractor Data(toStringRef(D), DCtx.isLittleEndian(), U->getAddressByteSize());
     DWARFExpression Expression(Data, U->getVersion(), U->getAddressByteSize());
-    bool IsInteresting = any_of(Expression, [](DWARFExpression::Operation &Op) {
+    return any_of(Expression, [](DWARFExpression::Operation &Op) {
       return !Op.isError() && (Op.getCode() == DW_OP_addr ||
                                Op.getCode() == DW_OP_form_tls_address ||
                                Op.getCode() == DW_OP_GNU_push_tls_address);
     });
-    if (IsInteresting)
+  };
+
+  if (Optional<ArrayRef<uint8_t>> Expr = Location->getAsBlock()) {
+    // Inlined location.
+    if (ContainsInterestingOperators(*Expr))
       return true;
+  } else if (Optional<uint64_t> Offset = Location->getAsSectionOffset()) {
+    // Location list.
+    if (const DWARFDebugLoc *DebugLoc = DCtx.getDebugLoc()) {
+      if (const DWARFDebugLoc::LocationList *LocList =
+              DebugLoc->getLocationListAtOffset(*Offset)) {
+        if (any_of(LocList->Entries, [&](const DWARFDebugLoc::Entry &E) {
+              return ContainsInterestingOperators(E.Loc);
+            }))
+          return true;
+      }
+    }
   }
   return false;
 }

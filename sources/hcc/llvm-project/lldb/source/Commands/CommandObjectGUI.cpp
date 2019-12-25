@@ -8,7 +8,6 @@
 
 #include "CommandObjectGUI.h"
 
-#include "lldb/Core/IOHandlerCursesGUI.h"
 #include "lldb/Interpreter/CommandInterpreter.h"
 #include "lldb/Interpreter/CommandReturnObject.h"
 #include "lldb/lldb-private.h"

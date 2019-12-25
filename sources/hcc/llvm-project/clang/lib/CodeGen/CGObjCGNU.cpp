@@ -13,20 +13,19 @@
 //
 //===----------------------------------------------------------------------===//
 
-#include "CGCXXABI.h"
-#include "CGCleanup.h"
 #include "CGObjCRuntime.h"
+#include "CGCleanup.h"
 #include "CodeGenFunction.h"
 #include "CodeGenModule.h"
+#include "CGCXXABI.h"
+#include "clang/CodeGen/ConstantInitBuilder.h"
 #include "clang/AST/ASTContext.h"
-#include "clang/AST/Attr.h"
 #include "clang/AST/Decl.h"
 #include "clang/AST/DeclObjC.h"
 #include "clang/AST/RecordLayout.h"
 #include "clang/AST/StmtObjC.h"
 #include "clang/Basic/FileManager.h"
 #include "clang/Basic/SourceManager.h"
-#include "clang/CodeGen/ConstantInitBuilder.h"
 #include "llvm/ADT/SmallVector.h"
 #include "llvm/ADT/StringMap.h"
 #include "llvm/IR/DataLayout.h"
@@ -607,9 +606,6 @@ public:
 
   llvm::Function *GenerateMethod(const ObjCMethodDecl *OMD,
                                  const ObjCContainerDecl *CD) override;
-  void GenerateDirectMethodPrologue(CodeGenFunction &CGF, llvm::Function *Fn,
-                                    const ObjCMethodDecl *OMD,
-                                    const ObjCContainerDecl *CD) override;
   void GenerateCategory(const ObjCCategoryImplDecl *CMD) override;
   void GenerateClass(const ObjCImplementationDecl *ClassDecl) override;
   void RegisterAlias(const ObjCCompatibleAliasDecl *OAD) override;
@@ -1884,12 +1880,13 @@ class CGObjCGNUstep2 : public CGObjCGNUstep {
     for (auto *propImpl : OID->property_impls())
       if (propImpl->getPropertyImplementation() ==
           ObjCPropertyImplDecl::Synthesize) {
-        auto addIfExists = [&](const ObjCMethodDecl *OMD) {
-          if (OMD && OMD->hasBody())
+        ObjCPropertyDecl *prop = propImpl->getPropertyDecl();
+        auto addIfExists = [&](const ObjCMethodDecl* OMD) {
+          if (OMD)
             InstanceMethods.push_back(OMD);
         };
-        addIfExists(propImpl->getGetterMethodDecl());
-        addIfExists(propImpl->getSetterMethodDecl());
+        addIfExists(prop->getGetterMethodDecl());
+        addIfExists(prop->getSetterMethodDecl());
       }
 
     if (InstanceMethods.size() == 0)
@@ -3497,12 +3494,13 @@ void CGObjCGNU::GenerateClass(const ObjCImplementationDecl *OID) {
   for (auto *propertyImpl : OID->property_impls())
     if (propertyImpl->getPropertyImplementation() ==
         ObjCPropertyImplDecl::Synthesize) {
+      ObjCPropertyDecl *property = propertyImpl->getPropertyDecl();
       auto addPropertyMethod = [&](const ObjCMethodDecl *accessor) {
         if (accessor)
           InstanceMethods.push_back(accessor);
       };
-      addPropertyMethod(propertyImpl->getGetterMethodDecl());
-      addPropertyMethod(propertyImpl->getSetterMethodDecl());
+      addPropertyMethod(property->getGetterMethodDecl());
+      addPropertyMethod(property->getSetterMethodDecl());
     }
 
   llvm::Constant *Properties = GeneratePropertyList(OID, ClassDecl);
@@ -3873,13 +3871,6 @@ llvm::Function *CGObjCGNU::GenerateMethod(const ObjCMethodDecl *OMD,
                              FunctionName,
                              &TheModule);
   return Method;
-}
-
-void CGObjCGNU::GenerateDirectMethodPrologue(CodeGenFunction &CGF,
-                                             llvm::Function *Fn,
-                                             const ObjCMethodDecl *OMD,
-                                             const ObjCContainerDecl *CD) {
-  // GNU runtime doesn't support direct calls at this time
 }
 
 llvm::FunctionCallee CGObjCGNU::GetPropertyGetFunction() {

@@ -342,20 +342,16 @@ public:
   virtual ~ELFWriter() {}
   bool WriteSectionHeaders;
 
-  // For --only-keep-debug, select an alternative section/segment layout
-  // algorithm.
-  bool OnlyKeepDebug;
-
   Error finalize() override;
   Error write() override;
-  ELFWriter(Object &Obj, Buffer &Buf, bool WSH, bool OnlyKeepDebug);
+  ELFWriter(Object &Obj, Buffer &Buf, bool WSH);
 };
 
 class BinaryWriter : public Writer {
 private:
   std::unique_ptr<BinarySectionWriter> SecWriter;
 
-  uint64_t TotalSize = 0;
+  uint64_t TotalSize;
 
 public:
   ~BinaryWriter() {}
@@ -370,7 +366,7 @@ class IHexWriter : public Writer {
   };
 
   std::set<const SectionBase *, SectionCompare> Sections;
-  size_t TotalSize = 0;
+  size_t TotalSize;
 
   Error checkSection(const SectionBase &Sec);
   uint64_t writeEntryPointRecord(uint8_t *Buf);
@@ -387,13 +383,10 @@ class SectionBase {
 public:
   std::string Name;
   Segment *ParentSegment = nullptr;
-  uint64_t HeaderOffset = 0;
-  uint32_t Index = 0;
-  bool HasSymbol = false;
-
-  uint64_t OriginalFlags = 0;
-  uint64_t OriginalType = ELF::SHT_NULL;
+  uint64_t HeaderOffset;
   uint64_t OriginalOffset = std::numeric_limits<uint64_t>::max();
+  uint32_t Index;
+  bool HasSymbol = false;
 
   uint64_t Addr = 0;
   uint64_t Align = 1;
@@ -439,24 +432,25 @@ private:
     }
   };
 
-public:
-  uint32_t Type = 0;
-  uint32_t Flags = 0;
-  uint64_t Offset = 0;
-  uint64_t VAddr = 0;
-  uint64_t PAddr = 0;
-  uint64_t FileSize = 0;
-  uint64_t MemSize = 0;
-  uint64_t Align = 0;
-
-  uint32_t Index = 0;
-  uint64_t OriginalOffset = 0;
-  Segment *ParentSegment = nullptr;
-  ArrayRef<uint8_t> Contents;
   std::set<const SectionBase *, SectionCompare> Sections;
 
+public:
+  uint32_t Type;
+  uint32_t Flags;
+  uint64_t Offset;
+  uint64_t VAddr;
+  uint64_t PAddr;
+  uint64_t FileSize;
+  uint64_t MemSize;
+  uint64_t Align;
+
+  uint32_t Index;
+  uint64_t OriginalOffset;
+  Segment *ParentSegment = nullptr;
+  ArrayRef<uint8_t> Contents;
+
   explicit Segment(ArrayRef<uint8_t> Data) : Contents(Data) {}
-  Segment() = default;
+  Segment() {}
 
   const SectionBase *firstSection() const {
     if (!Sections.empty())
@@ -496,7 +490,7 @@ public:
   OwnedDataSection(StringRef SecName, ArrayRef<uint8_t> Data)
       : Data(std::begin(Data), std::end(Data)) {
     Name = SecName.str();
-    Type = OriginalType = ELF::SHT_PROGBITS;
+    Type = ELF::SHT_PROGBITS;
     Size = Data.size();
     OriginalOffset = std::numeric_limits<uint64_t>::max();
   }
@@ -504,9 +498,9 @@ public:
   OwnedDataSection(const Twine &SecName, uint64_t SecAddr, uint64_t SecFlags,
                    uint64_t SecOff) {
     Name = SecName.str();
-    Type = OriginalType = ELF::SHT_PROGBITS;
+    Type = ELF::SHT_PROGBITS;
     Addr = SecAddr;
-    Flags = OriginalFlags = SecFlags;
+    Flags = SecFlags;
     OriginalOffset = SecOff;
   }
 
@@ -536,7 +530,7 @@ public:
   void accept(MutableSectionVisitor &Visitor) override;
 
   static bool classof(const SectionBase *S) {
-    return (S->OriginalFlags & ELF::SHF_COMPRESSED) ||
+    return (S->Flags & ELF::SHF_COMPRESSED) ||
            (StringRef(S->Name).startswith(".zdebug"));
   }
 };
@@ -549,7 +543,7 @@ public:
       : SectionBase(Sec) {
     Size = Sec.getDecompressedSize();
     Align = Sec.getDecompressedAlign();
-    Flags = OriginalFlags = (Flags & ~ELF::SHF_COMPRESSED);
+    Flags = (Flags & ~ELF::SHF_COMPRESSED);
     if (StringRef(Name).startswith(".zdebug"))
       Name = "." + Name.substr(2);
   }
@@ -573,7 +567,7 @@ class StringTableSection : public SectionBase {
 
 public:
   StringTableSection() : StrTabBuilder(StringTableBuilder::ELF) {
-    Type = OriginalType = ELF::SHT_STRTAB;
+    Type = ELF::SHT_STRTAB;
   }
 
   void addString(StringRef Name);
@@ -583,9 +577,9 @@ public:
   void accept(MutableSectionVisitor &Visitor) override;
 
   static bool classof(const SectionBase *S) {
-    if (S->OriginalFlags & ELF::SHF_ALLOC)
+    if (S->Flags & ELF::SHF_ALLOC)
       return false;
-    return S->OriginalType == ELF::SHT_STRTAB;
+    return S->Type == ELF::SHT_STRTAB;
   }
 };
 
@@ -654,7 +648,7 @@ public:
     Name = ".symtab_shndx";
     Align = 4;
     EntrySize = 4;
-    Type = OriginalType = ELF::SHT_SYMTAB_SHNDX;
+    Type = ELF::SHT_SYMTAB_SHNDX;
   }
 };
 
@@ -672,7 +666,7 @@ protected:
   using SymPtr = std::unique_ptr<Symbol>;
 
 public:
-  SymbolTableSection() { Type = OriginalType = ELF::SHT_SYMTAB; }
+  SymbolTableSection() { Type = ELF::SHT_SYMTAB; }
 
   void addSymbol(Twine Name, uint8_t Bind, uint8_t Type, SectionBase *DefinedIn,
                  uint64_t Value, uint8_t Visibility, uint16_t Shndx,
@@ -701,7 +695,7 @@ public:
       const DenseMap<SectionBase *, SectionBase *> &FromTo) override;
 
   static bool classof(const SectionBase *S) {
-    return S->OriginalType == ELF::SHT_SYMTAB;
+    return S->Type == ELF::SHT_SYMTAB;
   }
 };
 
@@ -730,7 +724,7 @@ public:
   void setSection(SectionBase *Sec) { SecToApplyRel = Sec; }
 
   static bool classof(const SectionBase *S) {
-    return S->OriginalType == ELF::SHT_REL || S->OriginalType == ELF::SHT_RELA;
+    return S->Type == ELF::SHT_REL || S->Type == ELF::SHT_RELA;
   }
 };
 
@@ -768,9 +762,9 @@ public:
       const DenseMap<SectionBase *, SectionBase *> &FromTo) override;
 
   static bool classof(const SectionBase *S) {
-    if (S->OriginalFlags & ELF::SHF_ALLOC)
+    if (S->Flags & ELF::SHF_ALLOC)
       return false;
-    return S->OriginalType == ELF::SHT_REL || S->OriginalType == ELF::SHT_RELA;
+    return S->Type == ELF::SHT_REL || S->Type == ELF::SHT_RELA;
   }
 };
 
@@ -805,7 +799,7 @@ public:
       const DenseMap<SectionBase *, SectionBase *> &FromTo) override;
 
   static bool classof(const SectionBase *S) {
-    return S->OriginalType == ELF::SHT_GROUP;
+    return S->Type == ELF::SHT_GROUP;
   }
 };
 
@@ -814,7 +808,7 @@ public:
   explicit DynamicSymbolTableSection(ArrayRef<uint8_t> Data) : Section(Data) {}
 
   static bool classof(const SectionBase *S) {
-    return S->OriginalType == ELF::SHT_DYNSYM;
+    return S->Type == ELF::SHT_DYNSYM;
   }
 };
 
@@ -823,7 +817,7 @@ public:
   explicit DynamicSection(ArrayRef<uint8_t> Data) : Section(Data) {}
 
   static bool classof(const SectionBase *S) {
-    return S->OriginalType == ELF::SHT_DYNAMIC;
+    return S->Type == ELF::SHT_DYNAMIC;
   }
 };
 
@@ -844,9 +838,9 @@ public:
       function_ref<bool(const SectionBase *)> ToRemove) override;
 
   static bool classof(const SectionBase *S) {
-    if (!(S->OriginalFlags & ELF::SHF_ALLOC))
+    if (!(S->Flags & ELF::SHF_ALLOC))
       return false;
-    return S->OriginalType == ELF::SHT_REL || S->OriginalType == ELF::SHT_RELA;
+    return S->Type == ELF::SHT_REL || S->Type == ELF::SHT_RELA;
   }
 };
 

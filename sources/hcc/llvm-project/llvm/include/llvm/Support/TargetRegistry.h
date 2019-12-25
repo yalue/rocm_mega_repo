@@ -128,8 +128,7 @@ public:
   using ArchMatchFnTy = bool (*)(Triple::ArchType Arch);
 
   using MCAsmInfoCtorFnTy = MCAsmInfo *(*)(const MCRegisterInfo &MRI,
-                                           const Triple &TT,
-                                           const MCTargetOptions &Options);
+                                           const Triple &TT);
   using MCInstrInfoCtorFnTy = MCInstrInfo *(*)();
   using MCInstrAnalysisCtorFnTy = MCInstrAnalysis *(*)(const MCInstrInfo *Info);
   using MCRegInfoCtorFnTy = MCRegisterInfo *(*)(const Triple &TT);
@@ -336,11 +335,11 @@ public:
   /// feature set; it should always be provided. Generally this should be
   /// either the target triple from the module, or the target triple of the
   /// host if that does not exist.
-  MCAsmInfo *createMCAsmInfo(const MCRegisterInfo &MRI, StringRef TheTriple,
-                             const MCTargetOptions &Options) const {
+  MCAsmInfo *createMCAsmInfo(const MCRegisterInfo &MRI,
+                             StringRef TheTriple) const {
     if (!MCAsmInfoCtorFn)
       return nullptr;
-    return MCAsmInfoCtorFn(MRI, Triple(TheTriple), Options);
+    return MCAsmInfoCtorFn(MRI, Triple(TheTriple));
   }
 
   /// createMCInstrInfo - Create a MCInstrInfo implementation.
@@ -474,7 +473,7 @@ public:
                                      const MCSubtargetInfo &STI, bool RelaxAll,
                                      bool IncrementalLinkerCompatible,
                                      bool DWARFMustBeAtTheEnd) const {
-    MCStreamer *S = nullptr;
+    MCStreamer *S;
     switch (T.getObjectFormat()) {
     case Triple::UnknownObjectFormat:
       llvm_unreachable("Unknown object format");
@@ -949,9 +948,9 @@ template <class MCAsmInfoImpl> struct RegisterMCAsmInfo {
   }
 
 private:
-  static MCAsmInfo *Allocator(const MCRegisterInfo & /*MRI*/, const Triple &TT,
-                              const MCTargetOptions &Options) {
-    return new MCAsmInfoImpl(TT, Options);
+  static MCAsmInfo *Allocator(const MCRegisterInfo & /*MRI*/,
+                              const Triple &TT) {
+    return new MCAsmInfoImpl(TT);
   }
 };
 

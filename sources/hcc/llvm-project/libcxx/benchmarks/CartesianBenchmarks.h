@@ -131,3 +131,4 @@ TEST_ALWAYS_INLINE inline T maybeOpaque(T value, bool opaque) {
   if (opaque) benchmark::DoNotOptimize(value);
   return value;
 }
+

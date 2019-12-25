@@ -368,8 +368,7 @@ class Action {
   explicit Action(ActionInterface<F>* impl) : impl_(impl) {}
 
   // Copy constructor.
-  Action(const Action &action) = default;
-  Action &operator=(const Action &action) = default;
+  Action(const Action& action) : impl_(action.impl_) {}
 
   // This constructor allows us to turn an Action<Func> object into an
   // Action<F>, as long as F's arguments can be implicitly converted

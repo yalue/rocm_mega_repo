@@ -134,7 +134,15 @@ INTERFACE WEAK void *SCUDO_PREFIX(valloc)(size_t size) {
       size, scudo::Chunk::Origin::Memalign, scudo::getPageSizeCached()));
 }
 
-INTERFACE WEAK int SCUDO_PREFIX(malloc_iterate)(
+// Bionic wants a function named PREFIX_iterate and not PREFIX_malloc_iterate
+// which is somewhat inconsistent with the rest, workaround that.
+#if SCUDO_ANDROID && _BIONIC
+#define SCUDO_ITERATE iterate
+#else
+#define SCUDO_ITERATE malloc_iterate
+#endif
+
+INTERFACE WEAK int SCUDO_PREFIX(SCUDO_ITERATE)(
     uintptr_t base, size_t size,
     void (*callback)(uintptr_t base, size_t size, void *arg), void *arg) {
   SCUDO_ALLOCATOR.iterateOverChunks(base, size, callback, arg);

@@ -52,23 +52,10 @@
 
 using namespace llvm;
 
-static dwarf::Tag GetCompileUnitType(UnitKind Kind, DwarfDebug *DW) {
-
-  //  According to DWARF Debugging Information Format Version 5,
-  //  3.1.2 Skeleton Compilation Unit Entries:
-  //  "When generating a split DWARF object file (see Section 7.3.2
-  //  on page 187), the compilation unit in the .debug_info section
-  //  is a "skeleton" compilation unit with the tag DW_TAG_skeleton_unit"
-  if (DW->getDwarfVersion() >= 5 && Kind == UnitKind::Skeleton)
-    return dwarf::DW_TAG_skeleton_unit;
-
-  return dwarf::DW_TAG_compile_unit;
-}
-
 DwarfCompileUnit::DwarfCompileUnit(unsigned UID, const DICompileUnit *Node,
                                    AsmPrinter *A, DwarfDebug *DW,
-                                   DwarfFile *DWU, UnitKind Kind)
-    : DwarfUnit(GetCompileUnitType(Kind, DW), Node, A, DW, DWU), UniqueID(UID) {
+                                   DwarfFile *DWU)
+    : DwarfUnit(dwarf::DW_TAG_compile_unit, Node, A, DW, DWU), UniqueID(UID) {
   insertDIE(Node, &getUnitDie());
   MacroLabelBegin = Asm->createTempSymbol("cu_macro_begin");
 }
@@ -1244,11 +1231,8 @@ void DwarfCompileUnit::addComplexAddress(const DbgVariable &DV, DIE &Die,
 /// Add a Dwarf loclistptr attribute data and value.
 void DwarfCompileUnit::addLocationList(DIE &Die, dwarf::Attribute Attribute,
                                        unsigned Index) {
-  dwarf::Form Form = dwarf::DW_FORM_data4;
-  if (DD->getDwarfVersion() == 4)
-    Form =dwarf::DW_FORM_sec_offset;
-  if (DD->getDwarfVersion() >= 5)
-    Form =dwarf::DW_FORM_loclistx;
+  dwarf::Form Form = DD->getDwarfVersion() >= 4 ? dwarf::DW_FORM_sec_offset
+                                                : dwarf::DW_FORM_data4;
   Die.addValue(DIEValueAllocator, Attribute, Form, DIELocList(Index));
 }
 

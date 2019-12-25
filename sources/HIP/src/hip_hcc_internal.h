@@ -583,8 +583,6 @@ class ihipStream_t {
     void locked_streamWaitEvent(ihipEventData_t& event);
     hc::completion_future locked_recordEvent(hipEvent_t event);
 
-    bool locked_eventIsReady(hipEvent_t event);
-
     ihipStreamCritical_t& criticalData() { return _criticalData; };
 
     //---
@@ -724,8 +722,6 @@ class ihipEvent_t {
     explicit ihipEvent_t(unsigned flags);
     void attachToCompletionFuture(const hc::completion_future* cf, hipStream_t stream,
                                   ihipEventType_t eventType);
-    std::pair<hipEventStatus_t, uint64_t> refreshEventStatus();  // returns pair <state, timestamp>
-
 
     // Return a copy of the critical state. The critical data is locked during the copy.
     ihipEventData_t locked_copyCrit() {
@@ -1019,6 +1015,27 @@ inline std::ostream& operator<<(std::ostream& os, const ihipCtx_t* c) {
 namespace hip_internal {
 hipError_t memcpyAsync(void* dst, const void* src, size_t sizeBytes, hipMemcpyKind kind,
                        hipStream_t stream);
+
+hipError_t ihipHostMalloc(TlsData *tls, void** ptr, size_t sizeBytes, unsigned int flags);
+
+hipError_t ihipHostFree(TlsData *tls, void* ptr);
+
+};
+
+#define MAX_COOPERATIVE_GPUs 255
+
+// do not change these two structs without changing the device library
+struct mg_sync {
+    uint w0;
+    uint w1;
+};
+
+struct mg_info {
+    struct mg_sync *mgs;
+    uint grid_id;
+    uint num_grids;
+    ulong prev_sum;
+    ulong all_sum;
 };
 
 //---

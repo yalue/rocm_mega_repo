@@ -76,7 +76,7 @@
 #endif
 
 #define AMD_COMGR_INTERFACE_VERSION_MAJOR 1
-#define AMD_COMGR_INTERFACE_VERSION_MINOR 3
+#define AMD_COMGR_INTERFACE_VERSION_MINOR 6
 
 #ifdef __cplusplus
 extern "C" {
@@ -184,9 +184,13 @@ typedef enum amd_comgr_language_s {
    */
   AMD_COMGR_LANGUAGE_HC = 0x3,
   /**
+   * HIP.
+   */
+  AMD_COMGR_LANGUAGE_HIP = 0x4,
+  /**
    * Marker for last valid language.
    */
-  AMD_COMGR_LANGUAGE_LAST = AMD_COMGR_LANGUAGE_HC
+  AMD_COMGR_LANGUAGE_LAST = AMD_COMGR_LANGUAGE_HIP
 } amd_comgr_language_t;
 
 /**
@@ -271,9 +275,13 @@ typedef enum amd_comgr_data_kind_s {
    */
   AMD_COMGR_DATA_KIND_BYTES = 0x9,
   /**
+   * The data is a fat binary (clang-offload-bundler output).
+   */
+  AMD_COMGR_DATA_KIND_FATBIN = 0x10,
+  /**
    * Marker for last valid data kind.
    */
-  AMD_COMGR_DATA_KIND_LAST = AMD_COMGR_DATA_KIND_BYTES
+  AMD_COMGR_DATA_KIND_LAST = AMD_COMGR_DATA_KIND_FATBIN
 } amd_comgr_data_kind_t;
 
 /**
@@ -1305,11 +1313,11 @@ typedef enum amd_comgr_action_kind_s {
    * device-specific and language-specific bitcode libraries required for
    * compilation.
    *
-   * Currently the only supported languages are @p AMD_COMGR_LANGUAGE_OPENCL_1_2
-   * and @p AMD_COMGR_LANGUAGE_OPENCL_2_0.
+   * Currently the only supported languages are @p AMD_COMGR_LANGUAGE_OPENCL_1_2,
+   * @p AMD_COMGR_LANGUAGE_OPENCL_2_0, and @p AMD_COMGR_LANGUAGE_HIP.
    *
    * The options in @p info should be set to a set of language-specific flags.
-   * For OpenCL these include:
+   * For OpenCL and HIP these include:
    *
    *    correctly_rounded_sqrt
    *    daz_opt
@@ -1459,9 +1467,24 @@ typedef enum amd_comgr_action_kind_s {
    */
   AMD_COMGR_ACTION_DISASSEMBLE_BYTES_TO_SOURCE = 0xD,
   /**
+   * Compile each source data object in @p input in order. For each
+   * successful compilation add a fat binary to @p result. Resolve
+   * any include source names using the names of include data objects
+   * in @p input. Resolve any include relative path names using the
+   * working directory path in @p info. Produce fat binary for isa name in @p
+   * info. Compile the source for the language in @p info.
+   *
+   * Return @p AMD_COMGR_STATUS_ERROR if any compilation
+   * fails.
+   *
+   * Return @p AMD_COMGR_STATUS_ERROR_INVALID_ARGUMENT
+   * if isa name or language is not set in @p info.
+   */
+  AMD_COMGR_ACTION_COMPILE_SOURCE_TO_FATBIN = 0xE,
+  /**
    * Marker for last valid action kind.
    */
-  AMD_COMGR_ACTION_LAST = AMD_COMGR_ACTION_DISASSEMBLE_BYTES_TO_SOURCE
+  AMD_COMGR_ACTION_LAST = AMD_COMGR_ACTION_COMPILE_SOURCE_TO_FATBIN
 } amd_comgr_action_kind_t;
 
 /**
@@ -1801,6 +1824,15 @@ amd_comgr_symbol_lookup(
  */
 typedef enum amd_comgr_symbol_type_s {
   /**
+   * The symbol's type is unknown.
+   *
+   * The user should not infer any specific type for symbols which return
+   * `AMD_COMGR_SYMBOL_TYPE_UNKNOWN`, and these symbols may return different
+   * types in future releases.
+  */
+  AMD_COMGR_SYMBOL_TYPE_UNKNOWN = -0x1,
+
+  /**
    * The symbol's type is not specified.
   */
   AMD_COMGR_SYMBOL_TYPE_NOTYPE = 0x0,
@@ -1831,7 +1863,12 @@ typedef enum amd_comgr_symbol_type_s {
   /**
    * The symbol labels an uninitialized common block.
   */
-  AMD_COMGR_SYMBOL_TYPE_COMMON
+  AMD_COMGR_SYMBOL_TYPE_COMMON = 0x5,
+
+  /**
+   * The symbol is associated with an AMDGPU Code Object V2 kernel function.
+  */
+  AMD_COMGR_SYMBOL_TYPE_AMDGPU_HSA_KERNEL = 0xa
 } amd_comgr_symbol_type_t;
 
 /**

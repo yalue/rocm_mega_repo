@@ -35,7 +35,6 @@
 #include "llvm/Option/Arg.h"
 #include "llvm/Option/ArgList.h"
 #include "llvm/Option/Option.h"
-#include "llvm/Support/CommandLine.h"
 #include "llvm/Support/Debug.h"
 #include "llvm/Support/LEB128.h"
 #include "llvm/Support/MathExtras.h"
@@ -62,17 +61,14 @@ static Timer inputFileTimer("Input File Reading", Timer::root());
 Configuration *config;
 LinkerDriver *driver;
 
-bool link(ArrayRef<const char *> args, bool canExitEarly, raw_ostream &stdoutOS,
-          raw_ostream &stderrOS) {
-  lld::stdoutOS = &stdoutOS;
-  lld::stderrOS = &stderrOS;
-
+bool link(ArrayRef<const char *> args, bool canExitEarly, raw_ostream &diag) {
   errorHandler().logName = args::getFilenameWithoutExe(args[0]);
+  errorHandler().errorOS = &diag;
   errorHandler().errorLimitExceededMsg =
       "too many errors emitted, stopping now"
       " (use /errorlimit:0 to see all errors)";
   errorHandler().exitEarly = canExitEarly;
-  stderrOS.enable_colors(stderrOS.has_colors());
+  enableColors(diag.has_colors());
 
   config = make<Configuration>();
   symtab = make<SymbolTable>();
@@ -106,16 +102,12 @@ static std::pair<StringRef, StringRef> getOldNewOptions(opt::InputArgList &args,
   return ret;
 }
 
-// Drop directory components and replace extension with
-// ".exe", ".dll" or ".sys".
+// Drop directory components and replace extension with ".exe" or ".dll".
 static std::string getOutputPath(StringRef path) {
-  StringRef ext = ".exe";
-  if (config->dll)
-    ext = ".dll";
-  else if (config->driver)
-    ext = ".sys";
-
-  return (sys::path::stem(path) + ext).str();
+  auto p = path.find_last_of("\\/");
+  StringRef s = (p == StringRef::npos) ? path : path.substr(p + 1);
+  const char* e = config->dll ? ".dll" : ".exe";
+  return (s.substr(0, s.rfind('.')) + e).str();
 }
 
 // Returns true if S matches /crtend.?\.o$/.
@@ -1153,7 +1145,7 @@ void LinkerDriver::link(ArrayRef<const char *> argsArr) {
   // because it doesn't start with "/", but we deliberately chose "--" to
   // avoid conflict with /version and for compatibility with clang-cl.
   if (args.hasArg(OPT_dash_dash_version)) {
-    lld::outs() << getLLDVersion() << "\n";
+    outs() << getLLDVersion() << "\n";
     return;
   }
 
@@ -1174,7 +1166,7 @@ void LinkerDriver::link(ArrayRef<const char *> argsArr) {
     }
   }
 
-  if (!args.hasArg(OPT_INPUT, OPT_wholearchive_file)) {
+  if (!args.hasArg(OPT_INPUT)) {
     if (args.hasArg(OPT_deffile))
       config->noEntry = true;
     else
@@ -1199,8 +1191,6 @@ void LinkerDriver::link(ArrayRef<const char *> argsArr) {
         config->warnDebugInfoUnusable = false;
       else if (s == "4217")
         config->warnLocallyDefinedImported = false;
-      else if (s == "longsections")
-        config->warnLongSectionNames = false;
       // Other warning numbers are ignored.
     }
   }
@@ -1239,16 +1229,6 @@ void LinkerDriver::link(ArrayRef<const char *> argsArr) {
 
   // Handle /debugtype
   config->debugTypes = parseDebugTypes(args);
-
-  // Handle /driver[:uponly|:wdm].
-  config->driverUponly = args.hasArg(OPT_driver_uponly) ||
-                         args.hasArg(OPT_driver_uponly_wdm) ||
-                         args.hasArg(OPT_driver_wdm_uponly);
-  config->driverWdm = args.hasArg(OPT_driver_wdm) ||
-                      args.hasArg(OPT_driver_uponly_wdm) ||
-                      args.hasArg(OPT_driver_wdm_uponly);
-  config->driver =
-      config->driverUponly || config->driverWdm || args.hasArg(OPT_driver);
 
   // Handle /pdb
   bool shouldCreatePDB =
@@ -1483,8 +1463,6 @@ void LinkerDriver::link(ArrayRef<const char *> argsArr) {
     parseNumbers(arg->getValue(), &config->align);
     if (!isPowerOf2_64(config->align))
       error("/align: not a power of two: " + StringRef(arg->getValue()));
-    if (!args.hasArg(OPT_driver))
-      warn("/align specified without /driver; image may not run");
   }
 
   // Handle /aligncomm
@@ -1551,11 +1529,6 @@ void LinkerDriver::link(ArrayRef<const char *> argsArr) {
   config->debugDwarf = debug == DebugKind::Dwarf;
   config->debugGHashes = debug == DebugKind::GHash;
   config->debugSymtab = debug == DebugKind::Symtab;
-
-  // Don't warn about long section names, such as .debug_info, for mingw or when
-  // -debug:dwarf is requested.
-  if (config->mingw || config->debugDwarf)
-    config->warnLongSectionNames = false;
 
   config->mapFile = getMapFile(args);
 
@@ -1703,7 +1676,7 @@ void LinkerDriver::link(ArrayRef<const char *> argsArr) {
   }
 
   // Handle generation of import library from a def file.
-  if (!args.hasArg(OPT_INPUT, OPT_wholearchive_file)) {
+  if (!args.hasArg(OPT_INPUT)) {
     fixupExports();
     createImportLibrary(/*asLib=*/true);
     return;
@@ -1726,9 +1699,6 @@ void LinkerDriver::link(ArrayRef<const char *> argsArr) {
       StringRef s = (config->machine == I386) ? "__DllMainCRTStartup@12"
                                               : "_DllMainCRTStartup";
       config->entry = addUndefined(s);
-    } else if (config->driverWdm) {
-      // /driver:wdm implies /entry:_NtProcessStartup
-      config->entry = addUndefined(mangle("_NtProcessStartup"));
     } else {
       // Windows specific -- If entry point name is not given, we need to
       // infer that from user-defined entry name.
@@ -1752,8 +1722,8 @@ void LinkerDriver::link(ArrayRef<const char *> argsArr) {
 
   // Set default image name if neither /out or /def set it.
   if (config->outputFile.empty()) {
-    config->outputFile = getOutputPath(
-        (*args.filtered(OPT_INPUT, OPT_wholearchive_file).begin())->getValue());
+    config->outputFile =
+        getOutputPath((*args.filtered(OPT_INPUT).begin())->getValue());
   }
 
   // Fail early if an output file is not writable.

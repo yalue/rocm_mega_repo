@@ -1,24 +1,22 @@
-/******************************************************************************
-* Copyright (c) 2016 - present Advanced Micro Devices, Inc. All rights reserved.
-*
-* Permission is hereby granted, free of charge, to any person obtaining a copy
-* of this software and associated documentation files (the "Software"), to deal
-* in the Software without restriction, including without limitation the rights
-* to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-* copies of the Software, and to permit persons to whom the Software is
-* furnished to do so, subject to the following conditions:
-*
-* The above copyright notice and this permission notice shall be included in
-* all copies or substantial portions of the Software.
-*
-* THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-* IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-* FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.  IN NO EVENT SHALL THE
-* AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-* LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-* OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
-* THE SOFTWARE.
-*******************************************************************************/
+// Copyright (c) 2016 - present Advanced Micro Devices, Inc. All rights reserved.
+//
+// Permission is hereby granted, free of charge, to any person obtaining a copy
+// of this software and associated documentation files (the "Software"), to deal
+// in the Software without restriction, including without limitation the rights
+// to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+// copies of the Software, and to permit persons to whom the Software is
+// furnished to do so, subject to the following conditions:
+//
+// The above copyright notice and this permission notice shall be included in
+// all copies or substantial portions of the Software.
+//
+// THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+// IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+// FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.  IN NO EVENT SHALL THE
+// AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+// LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+// OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
+// THE SOFTWARE.
 
 #ifndef PLAN_H
 #define PLAN_H
@@ -35,6 +33,7 @@ static inline bool IsPo2(size_t u)
 }
 
 std::string PrintScheme(ComputeScheme cs);
+std::string PrintArrayType(const rocfft_array_type x);
 
 inline bool SupportedLength(size_t len)
 {
@@ -104,6 +103,7 @@ struct rocfft_plan_t
     rocfft_result_placement placement;
     rocfft_transform_type   transformType;
     rocfft_precision        precision;
+    int                     padding; // it is only for 8 bytes alignment
     size_t                  base_type_size;
 
     rocfft_plan_description_t desc;
@@ -115,6 +115,7 @@ struct rocfft_plan_t
         , transformType(rocfft_transform_type_complex_forward)
         , precision(rocfft_precision_single)
         , base_type_size(sizeof(float))
+        , padding(0)
     {
         lengths.fill(1);
     }
@@ -123,6 +124,10 @@ struct rocfft_plan_t
     {
         const rocfft_plan_t& a = *this;
 
+        assert(sizeof(rocfft_plan_t) % 8 == 0);
+        // The below memcmp() works only with 8 bytes alignment,
+        // and also potentially depends on implementation of std::array.
+        // The better way should be comparison with each attribute.
         return (memcmp(&a, &b, sizeof(rocfft_plan_t)) < 0 ? true : false);
     }
 };

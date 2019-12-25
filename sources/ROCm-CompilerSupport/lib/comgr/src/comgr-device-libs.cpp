@@ -82,12 +82,21 @@ amd_comgr_status_t addPrecompiledHeaders(DataAction *ActionInfo,
 amd_comgr_status_t addDeviceLibraries(DataAction *ActionInfo,
                                       DataSet *ResultSet) {
   if (ActionInfo->Language != AMD_COMGR_LANGUAGE_OPENCL_1_2 &&
-      ActionInfo->Language != AMD_COMGR_LANGUAGE_OPENCL_2_0)
+      ActionInfo->Language != AMD_COMGR_LANGUAGE_OPENCL_2_0 &&
+      ActionInfo->Language != AMD_COMGR_LANGUAGE_HIP)
     return AMD_COMGR_STATUS_ERROR_INVALID_ARGUMENT;
 
-  if (auto Status = addObject(ResultSet, AMD_COMGR_DATA_KIND_BC,
-                              "opencl_lib.bc", opencl_lib, opencl_lib_size))
-    return Status;
+  if (ActionInfo->Language == AMD_COMGR_LANGUAGE_HIP) {
+    if (auto Status = addObject(ResultSet, AMD_COMGR_DATA_KIND_BC,
+                                "hip_lib.bc", hip_lib, hip_lib_size))
+      return Status;
+  }
+  else {
+    if (auto Status = addObject(ResultSet, AMD_COMGR_DATA_KIND_BC,
+                                "opencl_lib.bc", opencl_lib, opencl_lib_size))
+      return Status;
+  }
+
   if (auto Status = addObject(ResultSet, AMD_COMGR_DATA_KIND_BC, "ocml_lib.bc",
                               ocml_lib, ocml_lib_size))
     return Status;
@@ -100,10 +109,7 @@ amd_comgr_status_t addDeviceLibraries(DataAction *ActionInfo,
     return Status;
   if (!Ident.Processor.consume_front("gfx"))
     return AMD_COMGR_STATUS_ERROR_INVALID_ARGUMENT;
-  uint32_t GFXIP;
-  if (Ident.Processor.getAsInteger<uint32_t>(10, GFXIP))
-    return AMD_COMGR_STATUS_ERROR_INVALID_ARGUMENT;
-  if (auto Status = addOCLCObject(ResultSet, get_oclc_isa_version(GFXIP)))
+  if (auto Status = addOCLCObject(ResultSet, get_oclc_isa_version(Ident.Processor)))
     return Status;
 
   bool CorrectlyRoundedSqrt = false, DazOpt = false, FiniteOnly = false,

@@ -120,10 +120,8 @@ public:
     return error;
   }
 
-  virtual Status GenerateBreakpointCommandCallbackData(
-      StringList &input,
-      std::string &output,
-      bool has_extra_args) {
+  virtual Status GenerateBreakpointCommandCallbackData(StringList &input,
+                                                       std::string &output) {
     Status error;
     error.SetErrorString("not implemented");
     return error;
@@ -313,20 +311,14 @@ public:
     return error;
   }
 
-  Status SetBreakpointCommandCallbackFunction(
+  void SetBreakpointCommandCallbackFunction(
       std::vector<BreakpointOptions *> &bp_options_vec,
-      const char *function_name, StructuredData::ObjectSP extra_args_sp);
+      const char *function_name);
 
-  /// Set a script function as the callback for the breakpoint.
-  virtual Status
-  SetBreakpointCommandCallbackFunction(
-      BreakpointOptions *bp_options,
-      const char *function_name,
-      StructuredData::ObjectSP extra_args_sp) {
-    Status error;
-    error.SetErrorString("unimplemented");
-    return error;
-  }
+  /// Set a one-liner as the callback for the breakpoint.
+  virtual void
+  SetBreakpointCommandCallbackFunction(BreakpointOptions *bp_options,
+                                       const char *function_name) {}
 
   /// Set a one-liner as the callback for the watchpoint.
   virtual void SetWatchpointCommandCallback(WatchpointOptions *wp_options,
@@ -471,12 +463,6 @@ public:
   const char *GetScriptInterpreterPtyName();
 
   int GetMasterFileDescriptor();
-
-  virtual llvm::Expected<unsigned>
-  GetMaxPositionalArgumentsForCallable(const llvm::StringRef &callable_name) {
-    return llvm::createStringError(
-    llvm::inconvertibleErrorCode(), "Unimplemented function");
-  }
 
   static std::string LanguageToString(lldb::ScriptLanguage language);
 

@@ -690,12 +690,7 @@ extern "C" uint64_t __clock_u64()  __HC__;
 __device__
 inline  __attribute((always_inline))
 long long int __clock64() {
-// ToDo: Unify HCC and HIP implementation.
-#if __HCC__
-    return (long long int) __clock_u64();
-#else
-    return (long long int) __builtin_amdgcn_s_memrealtime();
-#endif
+return (long long int)  __builtin_readcyclecounter();
 }
 
 __device__
@@ -799,7 +794,7 @@ void *__amdgcn_get_dynamicgroupbaseptr() {
     return __get_dynamicgroupbaseptr();
 }
 
-#if defined(__HCC__) && (__hcc_minor__ < 3)
+#if defined(__HCC__) && (__hcc_major__ < 3) && (__hcc_minor__ < 3)
 // hip.amdgcn.bc - sync threads
 #define __CLK_LOCAL_MEM_FENCE    0x01
 typedef unsigned __cl_mem_fence_flags;

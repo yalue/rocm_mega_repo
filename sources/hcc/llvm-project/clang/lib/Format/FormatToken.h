@@ -60,8 +60,6 @@ namespace format {
   TYPE(JsExponentiationEqual)                                                  \
   TYPE(JsFatArrow)                                                             \
   TYPE(JsNonNullAssertion)                                                     \
-  TYPE(JsNullishCoalescingOperator)                                            \
-  TYPE(JsNullPropagatingOperator)                                              \
   TYPE(JsPrivateIdentifier)                                                    \
   TYPE(JsTypeColon)                                                            \
   TYPE(JsTypeOperator)                                                         \

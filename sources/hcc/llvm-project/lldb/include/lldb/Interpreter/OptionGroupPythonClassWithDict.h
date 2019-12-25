@@ -24,10 +24,13 @@ namespace lldb_private {
 class OptionGroupPythonClassWithDict : public OptionGroup {
 public:
   OptionGroupPythonClassWithDict(const char *class_use,
-                                 bool is_class = true,
-                                 int class_option = 'C',
-                                 int key_option = 'k', 
-                                 int value_option = 'v');
+                      int class_option = 'C',
+                      int key_option = 'k', 
+                      int value_option = 'v',
+                      const char *class_long_option = "python-class",
+                      const char *key_long_option = "python-class-key",
+                      const char *value_long_option = "python-class-value",
+                      bool required = false);
                       
   ~OptionGroupPythonClassWithDict() override;
 
@@ -45,17 +48,16 @@ public:
   const StructuredData::DictionarySP GetStructuredData() {
     return m_dict_sp;
   }
-  const std::string &GetName() {
-    return m_name;
+  const std::string &GetClassName() {
+    return m_class_name;
   }
 
 protected:
-  std::string m_name;
+  std::string m_class_name;
   std::string m_current_key;
   StructuredData::DictionarySP m_dict_sp;
   std::string m_class_usage_text, m_key_usage_text, m_value_usage_text;
-  bool m_is_class;
-  OptionDefinition m_option_definition[4];
+  OptionDefinition m_option_definition[3];
 };
 
 } // namespace lldb_private

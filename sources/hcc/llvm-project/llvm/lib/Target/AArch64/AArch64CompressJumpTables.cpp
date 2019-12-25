@@ -20,7 +20,6 @@
 #include "llvm/CodeGen/TargetInstrInfo.h"
 #include "llvm/CodeGen/TargetSubtargetInfo.h"
 #include "llvm/MC/MCContext.h"
-#include "llvm/Support/Alignment.h"
 #include "llvm/Support/Debug.h"
 
 using namespace llvm;
@@ -75,16 +74,10 @@ void AArch64CompressJumpTables::scanFunction() {
   BlockInfo.clear();
   BlockInfo.resize(MF->getNumBlockIDs());
 
-  unsigned Offset = 0;
+  int Offset = 0;
   for (MachineBasicBlock &MBB : *MF) {
-    const Align Alignment = MBB.getAlignment();
-    unsigned AlignedOffset;
-    if (Alignment == Align::None())
-      AlignedOffset = Offset;
-    else
-      AlignedOffset = alignTo(Offset, Alignment);
-    BlockInfo[MBB.getNumber()] = AlignedOffset;
-    Offset = AlignedOffset + computeBlockSize(MBB);
+    BlockInfo[MBB.getNumber()] = Offset;
+    Offset += computeBlockSize(MBB);
   }
 }
 

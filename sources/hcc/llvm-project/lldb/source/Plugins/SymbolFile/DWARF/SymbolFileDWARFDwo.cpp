@@ -21,8 +21,6 @@
 using namespace lldb;
 using namespace lldb_private;
 
-char SymbolFileDWARFDwo::ID;
-
 SymbolFileDWARFDwo::SymbolFileDWARFDwo(ObjectFileSP objfile,
                                        DWARFCompileUnit &dwarf_cu)
     : SymbolFileDWARF(objfile, objfile->GetSectionList(

@@ -91,12 +91,6 @@ public:
     return *this;
   }
 
-  /// Set subtarget features.
-  JITTargetMachineBuilder &setFeatures(StringRef FeatureString) {
-    Features = SubtargetFeatures(FeatureString);
-    return *this;
-  }
-
   /// Add subtarget features.
   JITTargetMachineBuilder &
   addFeatures(const std::vector<std::string> &FeatureVec);
@@ -106,17 +100,6 @@ public:
 
   /// Access subtarget features.
   const SubtargetFeatures &getFeatures() const { return Features; }
-
-  /// Set TargetOptions.
-  ///
-  /// Note: This operation will overwrite any previously configured options,
-  /// including EmulatedTLS and ExplicitEmulatedTLS which
-  /// the JITTargetMachineBuilder sets by default. Clients are responsible
-  /// for re-enabling these overwritten options.
-  JITTargetMachineBuilder &setOptions(TargetOptions Options) {
-    this->Options = std::move(Options);
-    return *this;
-  }
 
   /// Access TargetOptions.
   TargetOptions &getOptions() { return Options; }

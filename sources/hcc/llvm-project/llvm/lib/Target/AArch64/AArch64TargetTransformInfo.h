@@ -124,8 +124,7 @@ public:
       TTI::OperandValueKind Opd2Info = TTI::OK_AnyValue,
       TTI::OperandValueProperties Opd1PropInfo = TTI::OP_None,
       TTI::OperandValueProperties Opd2PropInfo = TTI::OP_None,
-      ArrayRef<const Value *> Args = ArrayRef<const Value *>(),
-      const Instruction *CxtI = nullptr);
+      ArrayRef<const Value *> Args = ArrayRef<const Value *>());
 
   int getAddressComputationCost(Type *Ty, ScalarEvolution *SE, const SCEV *Ptr);
 
@@ -135,7 +134,7 @@ public:
   TTI::MemCmpExpansionOptions enableMemCmpExpansion(bool OptSize,
                                                     bool IsZeroCmp) const;
 
-  int getMemoryOpCost(unsigned Opcode, Type *Src, MaybeAlign Alignment,
+  int getMemoryOpCost(unsigned Opcode, Type *Src, unsigned Alignment,
                       unsigned AddressSpace, const Instruction *I = nullptr);
 
   int getCostOfKeepingLiveOverCall(ArrayRef<Type *> Tys);
@@ -147,29 +146,6 @@ public:
                                            Type *ExpectedType);
 
   bool getTgtMemIntrinsic(IntrinsicInst *Inst, MemIntrinsicInfo &Info);
-
-  bool isLegalMaskedLoadStore(Type *DataType, MaybeAlign Alignment) {
-    if (!isa<VectorType>(DataType) || !ST->hasSVE())
-      return false;
-
-    Type *Ty = DataType->getVectorElementType();
-    if (Ty->isHalfTy() || Ty->isFloatTy() || Ty->isDoubleTy())
-      return true;
-
-    if (Ty->isIntegerTy(8) || Ty->isIntegerTy(16) ||
-        Ty->isIntegerTy(32) || Ty->isIntegerTy(64))
-      return true;
-
-    return false;
-  }
-
-  bool isLegalMaskedLoad(Type *DataType, MaybeAlign Alignment) {
-    return isLegalMaskedLoadStore(DataType, Alignment);
-  }
-
-  bool isLegalMaskedStore(Type *DataType, MaybeAlign Alignment) {
-    return isLegalMaskedLoadStore(DataType, Alignment);
-  }
 
   int getInterleavedMemoryOpCost(unsigned Opcode, Type *VecTy, unsigned Factor,
                                  ArrayRef<unsigned> Indices, unsigned Alignment,

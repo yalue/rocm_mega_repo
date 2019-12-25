@@ -51,6 +51,14 @@ llvm::Optional<llvm::StringRef> getRedirectLogs();
 /// Return whether the environment requests verbose logging.
 bool shouldEmitVerboseLogs();
 
+/// If environment variable HIP_PATH is set, return the environment variable,
+/// otherwise return the default HIP path.
+llvm::StringRef getHIPPath();
+
+/// If environment variable LLVM_PATH is set, return the environment variable,
+/// otherwise return the default LLVM path.
+llvm::StringRef getLLVMPath();
+
 } // namespace env
 } // namespace COMGR
 

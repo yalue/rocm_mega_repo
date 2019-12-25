@@ -16,7 +16,6 @@
 
 #include "clang/Basic/AddressSpaces.h"
 #include "clang/Basic/LLVM.h"
-#include "clang/Basic/CodeGenOptions.h"
 #include "clang/Basic/Specifiers.h"
 #include "clang/Basic/TargetCXXABI.h"
 #include "clang/Basic/TargetOptions.h"
@@ -1109,23 +1108,6 @@ public:
   /// Determine whether this TargetInfo supports the given feature.
   virtual bool isValidFeatureName(StringRef Feature) const {
     return true;
-  }
-
-  struct BranchProtectionInfo {
-    CodeGenOptions::SignReturnAddressScope SignReturnAddr =
-        CodeGenOptions::SignReturnAddressScope::None;
-    CodeGenOptions::SignReturnAddressKeyValue SignKey =
-        CodeGenOptions::SignReturnAddressKeyValue::AKey;
-    bool BranchTargetEnforcement = false;
-  };
-
-  /// Determine if this TargetInfo supports the given branch protection
-  /// specification
-  virtual bool validateBranchProtection(StringRef Spec,
-                                        BranchProtectionInfo &BPI,
-                                        StringRef &Err) const {
-    Err = "";
-    return false;
   }
 
   /// Perform initialization based on the user configured

@@ -6,9 +6,8 @@
 //
 //===----------------------------------------------------------------------===//
 
-#include "tests/scudo_unit_test.h"
-
-#include "string_utils.h"
+#include "scudo/standalone/string_utils.h"
+#include "gtest/gtest.h"
 
 #include <limits.h>
 

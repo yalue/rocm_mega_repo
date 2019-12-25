@@ -298,8 +298,8 @@ static size_t getHashSize() {
 // sets is empty, or some input files didn't have .note.gnu.property sections),
 // we don't create this section.
 GnuPropertySection::GnuPropertySection()
-    : SyntheticSection(llvm::ELF::SHF_ALLOC, llvm::ELF::SHT_NOTE,
-                       config->wordsize, ".note.gnu.property") {}
+    : SyntheticSection(llvm::ELF::SHF_ALLOC, llvm::ELF::SHT_NOTE, 4,
+                       ".note.gnu.property") {}
 
 void GnuPropertySection::writeTo(uint8_t *buf) {
   uint32_t featureAndType = config->emachine == EM_AARCH64
@@ -893,7 +893,7 @@ void MipsGotSection::build() {
   std::swap(gots, mergedGots);
 
   // Reduce number of "reloc-only" entries in the primary GOT
-  // by subtracting "global" entries in the primary GOT.
+  // by substracting "global" entries exist in the primary GOT.
   primGot = &gots.front();
   primGot->relocs.remove_if([&](const std::pair<Symbol *, size_t> &p) {
     return primGot->global.count(p.first);
@@ -1079,7 +1079,7 @@ void MipsGotSection::writeTo(uint8_t *buf) {
 // On PowerPC the .plt section is used to hold the table of function addresses
 // instead of the .got.plt, and the type is SHT_NOBITS similar to a .bss
 // section. I don't know why we have a BSS style type for the section but it is
-// consistent across both 64-bit PowerPC ABIs as well as the 32-bit PowerPC ABI.
+// consitent across both 64-bit PowerPC ABIs as well as the 32-bit PowerPC ABI.
 GotPltSection::GotPltSection()
     : SyntheticSection(SHF_ALLOC | SHF_WRITE, SHT_PROGBITS, config->wordsize,
                        ".got.plt") {
@@ -1333,7 +1333,7 @@ template <class ELFT> void DynamicSection<ELFT>::finalizeContents() {
   if (dtFlags1)
     addInt(DT_FLAGS_1, dtFlags1);
 
-  // DT_DEBUG is a pointer to debug information used by debuggers at runtime. We
+  // DT_DEBUG is a pointer to debug informaion used by debuggers at runtime. We
   // need it for each process, so we don't write it for DSOs. The loader writes
   // the pointer into this entry.
   //
@@ -1378,7 +1378,7 @@ template <class ELFT> void DynamicSection<ELFT>::finalizeContents() {
   // iplt relocations. It is possible to have only iplt relocations in the
   // output. In that case relaPlt is empty and have zero offset, the same offset
   // as relaIplt has. And we still want to emit proper dynamic tags for that
-  // case, so here we always use relaPlt as marker for the beginning of
+  // case, so here we always use relaPlt as marker for the begining of
   // .rel[a].plt section.
   if (isMain && (in.relaPlt->isNeeded() || in.relaIplt->isNeeded())) {
     addInSec(DT_JMPREL, in.relaPlt);
@@ -2265,7 +2265,7 @@ size_t SymtabShndxSection::getSize() const {
 // .gnu.hash has a bloom filter in addition to a hash table to skip
 // DSOs very quickly. If you are sure that your dynamic linker knows
 // about .gnu.hash, you want to specify -hash-style=gnu. Otherwise, a
-// safe bet is to specify -hash-style=both for backward compatibility.
+// safe bet is to specify -hash-style=both for backward compatibilty.
 GnuHashTableSection::GnuHashTableSection()
     : SyntheticSection(SHF_ALLOC, SHT_GNU_HASH, config->wordsize, ".gnu.hash") {
 }
@@ -3164,10 +3164,12 @@ static bool isValidExidxSectionDep(InputSection *isec) {
 
 bool ARMExidxSyntheticSection::addSection(InputSection *isec) {
   if (isec->type == SHT_ARM_EXIDX) {
-    if (InputSection *dep = isec->getLinkOrderDep())
-      if (isValidExidxSectionDep(dep))
+    if (InputSection* dep = isec->getLinkOrderDep())
+      if (isValidExidxSectionDep(dep)) {
         exidxSections.push_back(isec);
-    return true;
+        return true;
+      }
+    return false;
   }
 
   if (isValidExidxSectionDep(isec)) {
@@ -3426,19 +3428,10 @@ PPC64LongBranchTargetSection::PPC64LongBranchTargetSection()
                        config->isPic ? SHT_NOBITS : SHT_PROGBITS, 8,
                        ".branch_lt") {}
 
-uint64_t PPC64LongBranchTargetSection::getEntryVA(const Symbol *sym,
-                                                  int64_t addend) {
-  return getVA() + entry_index.find({sym, addend})->second * 8;
-}
-
-Optional<uint32_t> PPC64LongBranchTargetSection::addEntry(const Symbol *sym,
-                                                          int64_t addend) {
-  auto res =
-      entry_index.try_emplace(std::make_pair(sym, addend), entries.size());
-  if (!res.second)
-    return None;
-  entries.emplace_back(sym, addend);
-  return res.first->second;
+void PPC64LongBranchTargetSection::addEntry(Symbol &sym) {
+  assert(sym.ppc64BranchltIndex == 0xffff);
+  sym.ppc64BranchltIndex = entries.size();
+  entries.push_back(&sym);
 }
 
 size_t PPC64LongBranchTargetSection::getSize() const {
@@ -3452,14 +3445,12 @@ void PPC64LongBranchTargetSection::writeTo(uint8_t *buf) {
   if (config->isPic)
     return;
 
-  for (auto entry : entries) {
-    const Symbol *sym = entry.first;
-    int64_t addend = entry.second;
+  for (const Symbol *sym : entries) {
     assert(sym->getVA());
     // Need calls to branch to the local entry-point since a long-branch
     // must be a local-call.
-    write64(buf, sym->getVA(addend) +
-                     getPPC64GlobalEntryToLocalEntryOffset(sym->stOther));
+    write64(buf,
+            sym->getVA() + getPPC64GlobalEntryToLocalEntryOffset(sym->stOther));
     buf += 8;
   }
 }
@@ -3469,7 +3460,7 @@ bool PPC64LongBranchTargetSection::isNeeded() const {
   // is too early to determine if this section will be empty or not. We need
   // Finalized to keep the section alive until after thunk creation. Finalized
   // only gets set to true once `finalizeSections()` is called after thunk
-  // creation. Because of this, if we don't create any long-branch thunks we end
+  // creation. Becuase of this, if we don't create any long-branch thunks we end
   // up with an empty .branch_lt section in the binary.
   return !finalized || !entries.empty();
 }

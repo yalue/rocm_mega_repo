@@ -13,15 +13,7 @@
 // RUN:     --gcc-toolchain="" \
 // RUN:   | FileCheck --check-prefix=RTLIB-GCC-UNWINDLIB-COMPILER-RT %s
 // RTLIB-GCC-UNWINDLIB-COMPILER-RT: "{{.*}}lgcc"
-// RTLIB-GCC-UNWINDLIB-COMPILER-RT: "{{.*}}l:libunwind.so"
-//
-// RUN: %clang -no-canonical-prefixes %s -### -o %t.o 2>&1 \
-// RUN:     --target=x86_64-unknown-linux -rtlib=libgcc --unwindlib=libunwind \
-// RUN:     -static-libgcc \
-// RUN:     --gcc-toolchain="" \
-// RUN:   | FileCheck --check-prefix=RTLIB-GCC-STATIC-UNWINDLIB-COMPILER-RT %s
-// RTLIB-GCC-STATIC-UNWINDLIB-COMPILER-RT: "{{.*}}lgcc"
-// RTLIB-GCC-STATIC-UNWINDLIB-COMPILER-RT: "{{.*}}l:libunwind.a"
+// RTLIB-GCC-UNWINDLIB-COMPILER-RT: "{{.*}}lunwind"
 //
 // RUN: %clang -no-canonical-prefixes %s -### -o %t.o 2>&1   \
 // RUN:     --target=x86_64-unknown-linux -rtlib=compiler-rt \

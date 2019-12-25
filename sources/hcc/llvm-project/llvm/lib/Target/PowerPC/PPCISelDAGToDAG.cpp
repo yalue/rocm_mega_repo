@@ -138,9 +138,9 @@ namespace {
   ///
   class PPCDAGToDAGISel : public SelectionDAGISel {
     const PPCTargetMachine &TM;
-    const PPCSubtarget *PPCSubTarget = nullptr;
-    const PPCTargetLowering *PPCLowering = nullptr;
-    unsigned GlobalBaseReg = 0;
+    const PPCSubtarget *PPCSubTarget;
+    const PPCTargetLowering *PPCLowering;
+    unsigned GlobalBaseReg;
 
   public:
     explicit PPCDAGToDAGISel(PPCTargetMachine &tm, CodeGenOpt::Level OptLevel)
@@ -1044,7 +1044,7 @@ static unsigned allUsesTruncate(SelectionDAG *CurDAG, SDNode *N) {
       if (Use->isMachineOpcode())
         return 0;
       MaxTruncation =
-        std::max(MaxTruncation, (unsigned)Use->getValueType(0).getSizeInBits());
+        std::max(MaxTruncation, Use->getValueType(0).getSizeInBits());
       continue;
     case ISD::STORE: {
       if (Use->isMachineOpcode())
@@ -2181,12 +2181,12 @@ class BitPermutationSelector {
 
         SDValue ANDIVal, ANDISVal;
         if (ANDIMask != 0)
-          ANDIVal = SDValue(CurDAG->getMachineNode(PPC::ANDI8o, dl, MVT::i64,
+          ANDIVal = SDValue(CurDAG->getMachineNode(PPC::ANDIo8, dl, MVT::i64,
                                                    ExtendToInt64(VRot, dl),
                                                    getI32Imm(ANDIMask, dl)),
                             0);
         if (ANDISMask != 0)
-          ANDISVal = SDValue(CurDAG->getMachineNode(PPC::ANDIS8o, dl, MVT::i64,
+          ANDISVal = SDValue(CurDAG->getMachineNode(PPC::ANDISo8, dl, MVT::i64,
                                                     ExtendToInt64(VRot, dl),
                                                     getI32Imm(ANDISMask, dl)),
                              0);
@@ -2330,10 +2330,10 @@ class BitPermutationSelector {
 
         SDValue ANDIVal, ANDISVal;
         if (ANDIMask != 0)
-          ANDIVal = SDValue(CurDAG->getMachineNode(PPC::ANDI8o, dl, MVT::i64,
+          ANDIVal = SDValue(CurDAG->getMachineNode(PPC::ANDIo8, dl, MVT::i64,
                               ExtendToInt64(Res, dl), getI32Imm(ANDIMask, dl)), 0);
         if (ANDISMask != 0)
-          ANDISVal = SDValue(CurDAG->getMachineNode(PPC::ANDIS8o, dl, MVT::i64,
+          ANDISVal = SDValue(CurDAG->getMachineNode(PPC::ANDISo8, dl, MVT::i64,
                                ExtendToInt64(Res, dl), getI32Imm(ANDISMask, dl)), 0);
 
         if (!ANDIVal)
@@ -2385,7 +2385,7 @@ class BitPermutationSelector {
 
   SmallVector<ValueBit, 64> Bits;
 
-  bool NeedMask = false;
+  bool NeedMask;
   SmallVector<unsigned, 64> RLAmt;
 
   SmallVector<BitGroup, 16> BitGroups;
@@ -2393,7 +2393,7 @@ class BitPermutationSelector {
   DenseMap<std::pair<SDValue, unsigned>, ValueRotInfo> ValueRots;
   SmallVector<ValueRotInfo, 16> ValueRotsVec;
 
-  SelectionDAG *CurDAG = nullptr;
+  SelectionDAG *CurDAG;
 
 public:
   BitPermutationSelector(SelectionDAG *DAG)
@@ -2623,7 +2623,7 @@ SDNode *IntegerCompareEliminator::tryLogicOpOfCompares(SDNode *N) {
     assert((NewOpc != -1 || !IsBitwiseNegate) &&
            "No record form available for AND8/OR8/XOR8?");
     WideOp =
-      SDValue(CurDAG->getMachineNode(NewOpc == -1 ? PPC::ANDI8o : NewOpc, dl,
+      SDValue(CurDAG->getMachineNode(NewOpc == -1 ? PPC::ANDIo8 : NewOpc, dl,
                                      MVT::i64, MVT::Glue, LHS, RHS), 0);
   }
 
@@ -4790,7 +4790,7 @@ void PPCDAGToDAGISel::Select(SDNode *N) {
     assert((InVT == MVT::i64 || InVT == MVT::i32) &&
            "Invalid input type for ANDIo_1_EQ_BIT");
 
-    unsigned Opcode = (InVT == MVT::i64) ? PPC::ANDI8o : PPC::ANDIo;
+    unsigned Opcode = (InVT == MVT::i64) ? PPC::ANDIo8 : PPC::ANDIo;
     SDValue AndI(CurDAG->getMachineNode(Opcode, dl, InVT, MVT::Glue,
                                         N->getOperand(0),
                                         CurDAG->getTargetConstant(1, dl, InVT)),
@@ -6304,8 +6304,8 @@ void PPCDAGToDAGISel::PeepholePPC64ZExt() {
       case PPC::ORI:       NewOpcode = PPC::ORI8; break;
       case PPC::ORIS:      NewOpcode = PPC::ORIS8; break;
       case PPC::AND:       NewOpcode = PPC::AND8; break;
-      case PPC::ANDIo:     NewOpcode = PPC::ANDI8o; break;
-      case PPC::ANDISo:    NewOpcode = PPC::ANDIS8o; break;
+      case PPC::ANDIo:     NewOpcode = PPC::ANDIo8; break;
+      case PPC::ANDISo:    NewOpcode = PPC::ANDISo8; break;
       }
 
       // Note: During the replacement process, the nodes will be in an

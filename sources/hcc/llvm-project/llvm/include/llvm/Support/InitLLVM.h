@@ -17,8 +17,7 @@
 // the following one-time initializations:
 //
 //  1. Setting up a signal handler so that pretty stack trace is printed out
-//     if a process crashes. A signal handler that exits when a failed write to
-//     a pipe occurs may optionally be installed: this is on-by-default.
+//     if a process crashes.
 //
 //  2. Set up the global new-handler which is called when a memory allocation
 //     attempt fails.
@@ -33,11 +32,9 @@
 namespace llvm {
 class InitLLVM {
 public:
-  InitLLVM(int &Argc, const char **&Argv,
-           bool InstallPipeSignalExitHandler = true);
-  InitLLVM(int &Argc, char **&Argv, bool InstallPipeSignalExitHandler = true)
-      : InitLLVM(Argc, const_cast<const char **&>(Argv),
-                 InstallPipeSignalExitHandler) {}
+  InitLLVM(int &Argc, const char **&Argv);
+  InitLLVM(int &Argc, char **&Argv)
+      : InitLLVM(Argc, const_cast<const char **&>(Argv)) {}
 
   ~InitLLVM();
 

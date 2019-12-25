@@ -1063,8 +1063,7 @@ void MCStreamer::EmitCOFFSymbolStorageClass(int StorageClass) {
 void MCStreamer::EmitCOFFSymbolType(int Type) {
   llvm_unreachable("this directive only supported on COFF targets");
 }
-void MCStreamer::EmitXCOFFLocalCommonSymbol(MCSymbol *LabelSym, uint64_t Size,
-                                            MCSymbol *CsectSym,
+void MCStreamer::EmitXCOFFLocalCommonSymbol(MCSymbol *Symbol, uint64_t Size,
                                             unsigned ByteAlign) {
   llvm_unreachable("this directive only supported on XCOFF targets");
 }

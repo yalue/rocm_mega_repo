@@ -1,4 +1,4 @@
-; RUN: llc -mtriple=thumbv8.1m.main -mattr=+mve -disable-mve-tail-predication=false --verify-machineinstrs %s -o - | FileCheck %s
+; RUN: llc -mtriple=thumbv8.1m.main -mattr=+mve -enable-arm-maskedldst=true -disable-mve-tail-predication=false --verify-machineinstrs %s -o - | FileCheck %s
 
 ; CHECK-LABEL: vpsel_mul_reduce_add
 ; CHECK:      dls lr, lr
@@ -154,11 +154,11 @@ for.cond.cleanup:                                 ; preds = %middle.block, %entr
 ; CHECK-NEXT: vldrwt.u32
 ; CHECK-NEXT: vldrwt.u32
 ; CHECK:      mov [[ELEMS_OUT:r[0-9]+]], [[ELEMS]]
-; CHECK:      sub{{.*}} [[ELEMS]],{{.*}}#4
 ; CHECK:      vpsttt
 ; CHECK-NEXT: vcmpt.i32	eq, {{.*}}, zr
 ; CHECK-NEXT: vldrwt.u32 q{{.*}}, [r3]
 ; CHECK-NEXT: vldrwt.u32 q{{.*}}, [r2]
+; CHECK:      sub{{.*}} [[ELEMS]],{{.*}}#4
 ; CHECK:      le lr, [[LOOP]]
 ; CHECK:      vctp.32 [[ELEMS_OUT]]
 ; CHECK:      vpsel

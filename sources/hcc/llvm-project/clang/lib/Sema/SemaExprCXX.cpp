@@ -921,7 +921,7 @@ bool Sema::CheckCXXThrowOperand(SourceLocation ThrowLoc,
       // cannot be a simple walk of the class's decls.  Instead, we must perform
       // lookup and overload resolution.
       CXXConstructorDecl *CD = LookupCopyingConstructor(Subobject, 0);
-      if (!CD || CD->isDeleted())
+      if (!CD)
         continue;
 
       // Mark the constructor referenced as it is used by this throw expression.
@@ -2323,7 +2323,7 @@ static bool resolveAllocationOverload(
           PartialDiagnosticAt(R.getNameLoc(),
                               S.PDiag(diag::err_ovl_ambiguous_call)
                                   << R.getLookupName() << Range),
-          S, OCD_AmbiguousCandidates, Args);
+          S, OCD_ViableCandidates, Args);
     }
     return true;
 
@@ -3513,7 +3513,7 @@ static bool resolveBuiltinNewDeleteOverload(Sema &S, CallExpr *TheCall,
         PartialDiagnosticAt(R.getNameLoc(),
                             S.PDiag(diag::err_ovl_ambiguous_call)
                                 << R.getLookupName() << Range),
-        S, OCD_AmbiguousCandidates, Args);
+        S, OCD_ViableCandidates, Args);
     return true;
 
   case OR_Deleted: {
@@ -4095,26 +4095,9 @@ Sema::PerformImplicitConversion(Expr *From, QualType ToType,
             << From->getSourceRange();
     }
 
-    // Defer address space conversion to the third conversion.
-    QualType FromPteeType = From->getType()->getPointeeType();
-    QualType ToPteeType = ToType->getPointeeType();
-    QualType NewToType = ToType;
-    if (!FromPteeType.isNull() && !ToPteeType.isNull() &&
-        FromPteeType.getAddressSpace() != ToPteeType.getAddressSpace()) {
-      NewToType = Context.removeAddrSpaceQualType(ToPteeType);
-      NewToType = Context.getAddrSpaceQualType(NewToType,
-                                               FromPteeType.getAddressSpace());
-      if (ToType->isObjCObjectPointerType())
-        NewToType = Context.getObjCObjectPointerType(NewToType);
-      else if (ToType->isBlockPointerType())
-        NewToType = Context.getBlockPointerType(NewToType);
-      else
-        NewToType = Context.getPointerType(NewToType);
-    }
-
     CastKind Kind;
     CXXCastPath BasePath;
-    if (CheckPointerConversion(From, NewToType, Kind, BasePath, CStyle))
+    if (CheckPointerConversion(From, ToType, Kind, BasePath, CStyle))
       return ExprError();
 
     // Make sure we extend blocks if necessary.
@@ -4125,8 +4108,8 @@ Sema::PerformImplicitConversion(Expr *From, QualType ToType,
       From = E.get();
     }
     if (getLangOpts().allowsNonTrivialObjCLifetimeQualifiers())
-      CheckObjCConversion(SourceRange(), NewToType, From, CCK);
-    From = ImpCastExprToType(From, NewToType, Kind, VK_RValue, &BasePath, CCK)
+      CheckObjCConversion(SourceRange(), ToType, From, CCK);
+    From = ImpCastExprToType(From, ToType, Kind, VK_RValue, &BasePath, CCK)
              .get();
     break;
   }
@@ -7803,9 +7786,8 @@ class TransformTypos : public TreeTransform<TransformTypos> {
 
     // If we found a valid result, double check to make sure it's not ambiguous.
     if (!IsAmbiguous && !Res.isInvalid() && !AmbiguousTypoExprs.empty()) {
-      auto SavedTransformCache =
-          llvm::SmallDenseMap<TypoExpr *, ExprResult, 2>(TransformCache);
-
+      auto SavedTransformCache = std::move(TransformCache);
+      TransformCache.clear();
       // Ensure none of the TypoExprs have multiple typo correction candidates
       // with the same edit length that pass all the checks and filters.
       while (!AmbiguousTypoExprs.empty()) {

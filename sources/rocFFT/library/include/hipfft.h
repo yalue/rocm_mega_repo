@@ -26,7 +26,11 @@
 #include <hip/hip_complex.h>
 #include <hip/hip_runtime_api.h>
 
+#ifdef _WIN32
+#define DLL_PUBLIC __declspec(dllexport)
+#else
 #define DLL_PUBLIC __attribute__((visibility("default")))
+#endif
 
 #ifdef __cplusplus
 extern "C" {
@@ -66,9 +70,9 @@ typedef enum hipfftType_t
 
 typedef enum hipfftLibraryPropertyType_t
 {
-    MAJOR_VERSION,
-    MINOR_VERSION,
-    PATCH_LEVEL
+    HIPFFT_MAJOR_VERSION,
+    HIPFFT_MINOR_VERSION,
+    HIPFFT_PATCH_LEVEL
 } hipfftLibraryPropertyType;
 
 #define HIPFFT_FORWARD -1

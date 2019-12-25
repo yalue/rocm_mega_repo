@@ -64,11 +64,9 @@ void MachOLayoutBuilder::updateDySymTab(MachO::macho_load_command &MLC) {
   assert(std::is_sorted(O.SymTable.Symbols.begin(), O.SymTable.Symbols.end(),
                         [](const std::unique_ptr<SymbolEntry> &A,
                            const std::unique_ptr<SymbolEntry> &B) {
-                          bool AL = A->isLocalSymbol(), BL = B->isLocalSymbol();
-                          if (AL != BL)
-                            return AL;
-                          return !AL && !A->isUndefinedSymbol() &&
-                                         B->isUndefinedSymbol();
+                          return (A->isLocalSymbol() && !B->isLocalSymbol()) ||
+                                 (!A->isUndefinedSymbol() &&
+                                  B->isUndefinedSymbol());
                         }) &&
          "Symbols are not sorted by their types.");
 
@@ -320,9 +318,6 @@ Error MachOLayoutBuilder::layoutTail(uint64_t Offset) {
     case MachO::LC_SEGMENT:
     case MachO::LC_SEGMENT_64:
     case MachO::LC_VERSION_MIN_MACOSX:
-    case MachO::LC_VERSION_MIN_IPHONEOS:
-    case MachO::LC_VERSION_MIN_TVOS:
-    case MachO::LC_VERSION_MIN_WATCHOS:
     case MachO::LC_BUILD_VERSION:
     case MachO::LC_ID_DYLIB:
     case MachO::LC_LOAD_DYLIB:

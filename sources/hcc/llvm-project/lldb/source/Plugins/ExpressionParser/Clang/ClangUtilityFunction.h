@@ -33,14 +33,11 @@ namespace lldb_private {
 /// simply provide a way to push a function into the target for the debugger
 /// to call later on.
 class ClangUtilityFunction : public UtilityFunction {
-  // LLVM RTTI support
-  static char ID;
-
 public:
-  bool isA(const void *ClassID) const override {
-    return ClassID == &ID || UtilityFunction::isA(ClassID);
+  /// LLVM-style RTTI support.
+  static bool classof(const Expression *E) {
+    return E->getKind() == eKindClangUtilityFunction;
   }
-  static bool classof(const Expression *obj) { return obj->isA(&ID); }
 
   class ClangUtilityFunctionHelper : public ClangExpressionHelper {
   public:

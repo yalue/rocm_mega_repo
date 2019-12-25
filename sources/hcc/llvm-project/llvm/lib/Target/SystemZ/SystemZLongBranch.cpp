@@ -162,7 +162,7 @@ private:
   void relaxBranches();
 
   const SystemZInstrInfo *TII = nullptr;
-  MachineFunction *MF = nullptr;
+  MachineFunction *MF;
   SmallVector<MBBInfo, 16> MBBs;
   SmallVector<TerminatorInfo, 16> Terminators;
 };

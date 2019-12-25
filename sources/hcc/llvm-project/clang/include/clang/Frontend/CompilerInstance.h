@@ -116,7 +116,7 @@ class CompilerInstance : public ModuleLoader {
   std::unique_ptr<llvm::Timer> FrontendTimer;
 
   /// The ASTReader, if one exists.
-  IntrusiveRefCntPtr<ASTReader> TheASTReader;
+  IntrusiveRefCntPtr<ASTReader> ModuleManager;
 
   /// The module dependency collector for crashdumps
   std::shared_ptr<ModuleDependencyCollector> ModuleDepCollector;
@@ -125,6 +125,10 @@ class CompilerInstance : public ModuleLoader {
   std::shared_ptr<PCHContainerOperations> ThePCHContainerOperations;
 
   std::vector<std::shared_ptr<DependencyCollector>> DependencyCollectors;
+
+  /// The set of top-level modules that has already been loaded,
+  /// along with the module map
+  llvm::DenseMap<const IdentifierInfo *, Module *> KnownModules;
 
   /// The set of top-level modules that has already been built on the
   /// fly as part of this overall compilation action.
@@ -514,7 +518,7 @@ public:
   /// @name Module Management
   /// {
 
-  IntrusiveRefCntPtr<ASTReader> getASTReader() const;
+  IntrusiveRefCntPtr<ASTReader> getModuleManager() const;
   void setModuleManager(IntrusiveRefCntPtr<ASTReader> Reader);
 
   std::shared_ptr<ModuleDependencyCollector> getModuleDepCollector() const;
@@ -782,34 +786,16 @@ public:
   }
 
   // Create module manager.
-  void createASTReader();
+  void createModuleManager();
 
   bool loadModuleFile(StringRef FileName);
 
-private:
-  /// Find a module, potentially compiling it, before reading its AST.  This is
-  /// the guts of loadModule.
-  ///
-  /// For prebuilt modules, the Module is not expected to exist in
-  /// HeaderSearch's ModuleMap.  If a ModuleFile by that name is in the
-  /// ModuleManager, then it will be loaded and looked up.
-  ///
-  /// For implicit modules, the Module is expected to already be in the
-  /// ModuleMap.  First attempt to load it from the given path on disk.  If that
-  /// fails, defer to compileModuleAndReadAST, which will first build and then
-  /// load it.
-  ModuleLoadResult findOrCompileModuleAndReadAST(StringRef ModuleName,
-                                                 SourceLocation ImportLoc,
-                                                 SourceLocation ModuleNameLoc,
-                                                 bool IsInclusionDirective);
-
-public:
   ModuleLoadResult loadModule(SourceLocation ImportLoc, ModuleIdPath Path,
                               Module::NameVisibilityKind Visibility,
                               bool IsInclusionDirective) override;
 
-  void createModuleFromSource(SourceLocation ImportLoc, StringRef ModuleName,
-                              StringRef Source) override;
+  void loadModuleFromSource(SourceLocation ImportLoc, StringRef ModuleName,
+                            StringRef Source) override;
 
   void makeModuleVisible(Module *Mod, Module::NameVisibilityKind Visibility,
                          SourceLocation ImportLoc) override;

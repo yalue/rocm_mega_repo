@@ -72,9 +72,6 @@ public:
   bool legalizeFMad(MachineInstr &MI, MachineRegisterInfo &MRI,
                     MachineIRBuilder &B) const;
 
-  bool legalizeAtomicCmpXChg(MachineInstr &MI, MachineRegisterInfo &MRI,
-                             MachineIRBuilder &B) const;
-
   Register getLiveInRegister(MachineRegisterInfo &MRI,
                              Register Reg, LLT Ty) const;
 
@@ -86,12 +83,6 @@ public:
 
   bool legalizeFDIV(MachineInstr &MI, MachineRegisterInfo &MRI,
                     MachineIRBuilder &B) const;
-  bool legalizeFDIV16(MachineInstr &MI, MachineRegisterInfo &MRI,
-                      MachineIRBuilder &B) const;
-  bool legalizeFDIV32(MachineInstr &MI, MachineRegisterInfo &MRI,
-                      MachineIRBuilder &B) const;
-  bool legalizeFDIV64(MachineInstr &MI, MachineRegisterInfo &MRI,
-                      MachineIRBuilder &B) const;
   bool legalizeFastUnsafeFDIV(MachineInstr &MI, MachineRegisterInfo &MRI,
                               MachineIRBuilder &B) const;
   bool legalizeFDIVFastIntrin(MachineInstr &MI, MachineRegisterInfo &MRI,

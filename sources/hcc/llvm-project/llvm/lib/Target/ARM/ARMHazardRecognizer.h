@@ -27,13 +27,14 @@ class MachineInstr;
 /// ARM preRA scheduler uses an unspecialized instance of the
 /// ScoreboardHazardRecognizer.
 class ARMHazardRecognizer : public ScoreboardHazardRecognizer {
-  MachineInstr *LastMI = nullptr;
-  unsigned FpMLxStalls = 0;
+  MachineInstr *LastMI;
+  unsigned FpMLxStalls;
 
 public:
   ARMHazardRecognizer(const InstrItineraryData *ItinData,
                       const ScheduleDAG *DAG)
-      : ScoreboardHazardRecognizer(ItinData, DAG, "post-RA-sched") {}
+    : ScoreboardHazardRecognizer(ItinData, DAG, "post-RA-sched"),
+      LastMI(nullptr) {}
 
   HazardType getHazardType(SUnit *SU, int Stalls) override;
   void Reset() override;

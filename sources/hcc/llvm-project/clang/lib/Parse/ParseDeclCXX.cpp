@@ -602,10 +602,7 @@ bool Parser::ParseUsingDeclarator(DeclaratorContext Context,
   if (ParseOptionalCXXScopeSpecifier(D.SS, nullptr, /*EnteringContext=*/false,
                                      /*MayBePseudoDtor=*/nullptr,
                                      /*IsTypename=*/false,
-                                     /*LastII=*/&LastII,
-                                     /*OnlyNamespace=*/false,
-                                     /*InUsingDeclaration=*/true))
-
+                                     /*LastII=*/&LastII))
     return true;
   if (D.SS.isInvalid())
     return true;
@@ -2983,8 +2980,7 @@ ExprResult Parser::ParseCXXMemberInitializer(Decl *D, bool IsFunction,
         Diag(Tok, diag::err_default_delete_in_multiple_declaration)
           << 0 /* default */;
       else
-        Diag(ConsumeToken(), diag::err_default_special_members)
-            << getLangOpts().CPlusPlus2a;
+        Diag(ConsumeToken(), diag::err_default_special_members);
       return ExprError();
     }
   }
@@ -3369,7 +3365,7 @@ void Parser::ParseCXXMemberSpecification(SourceLocation RecordLoc,
 
     // We've finished parsing everything, including default argument
     // initializers.
-    Actions.ActOnFinishCXXNonNestedClass();
+    Actions.ActOnFinishCXXNonNestedClass(TagDecl);
   }
 
   if (TagDecl)

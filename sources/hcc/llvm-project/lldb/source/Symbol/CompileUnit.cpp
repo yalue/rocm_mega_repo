@@ -12,7 +12,6 @@
 #include "lldb/Symbol/SymbolFile.h"
 #include "lldb/Symbol/VariableList.h"
 #include "lldb/Target/Language.h"
-#include "lldb/Utility/Timer.h"
 
 using namespace lldb;
 using namespace lldb_private;
@@ -21,20 +20,29 @@ CompileUnit::CompileUnit(const lldb::ModuleSP &module_sp, void *user_data,
                          const char *pathname, const lldb::user_id_t cu_sym_id,
                          lldb::LanguageType language,
                          lldb_private::LazyBool is_optimized)
-    : CompileUnit(module_sp, user_data, FileSpec(pathname), cu_sym_id, language,
-                  is_optimized) {}
-
-CompileUnit::CompileUnit(const lldb::ModuleSP &module_sp, void *user_data,
-                         const FileSpec &fspec, const lldb::user_id_t cu_sym_id,
-                         lldb::LanguageType language,
-                         lldb_private::LazyBool is_optimized)
-    : ModuleChild(module_sp), UserID(cu_sym_id), m_user_data(user_data),
-      m_language(language), m_flags(0), m_file_spec(fspec),
+    : ModuleChild(module_sp), FileSpec(pathname), UserID(cu_sym_id),
+      m_user_data(user_data), m_language(language), m_flags(0),
+      m_support_files(), m_line_table_up(), m_variables(),
       m_is_optimized(is_optimized) {
   if (language != eLanguageTypeUnknown)
     m_flags.Set(flagsParsedLanguage);
   assert(module_sp);
 }
+
+CompileUnit::CompileUnit(const lldb::ModuleSP &module_sp, void *user_data,
+                         const FileSpec &fspec, const lldb::user_id_t cu_sym_id,
+                         lldb::LanguageType language,
+                         lldb_private::LazyBool is_optimized)
+    : ModuleChild(module_sp), FileSpec(fspec), UserID(cu_sym_id),
+      m_user_data(user_data), m_language(language), m_flags(0),
+      m_support_files(), m_line_table_up(), m_variables(),
+      m_is_optimized(is_optimized) {
+  if (language != eLanguageTypeUnknown)
+    m_flags.Set(flagsParsedLanguage);
+  assert(module_sp);
+}
+
+CompileUnit::~CompileUnit() {}
 
 void CompileUnit::CalculateSymbolContext(SymbolContext *sc) {
   sc->comp_unit = this;
@@ -54,7 +62,7 @@ void CompileUnit::GetDescription(Stream *s,
                                  lldb::DescriptionLevel level) const {
   const char *language = Language::GetNameForLanguageType(m_language);
   *s << "id = " << (const UserID &)*this << ", file = \""
-     << this->GetPrimaryFile() << "\", language = \"" << language << '"';
+     << (const FileSpec &)*this << "\", language = \"" << language << '"';
 }
 
 void CompileUnit::ForeachFunction(
@@ -73,31 +81,6 @@ void CompileUnit::ForeachFunction(
       return;
 }
 
-lldb::FunctionSP CompileUnit::FindFunction(
-    llvm::function_ref<bool(const FunctionSP &)> matching_lambda) {
-  static Timer::Category func_cat(LLVM_PRETTY_FUNCTION);
-  Timer scoped_timer(func_cat, "CompileUnit::FindFunction");
-
-  lldb::ModuleSP module = CalculateSymbolContextModule();
-
-  if (!module)
-    return {};
-
-  SymbolFile *symbol_file = module->GetSymbolFile();
-
-  if (!symbol_file)
-    return {};
-
-  // m_functions_by_uid is filled in lazily but we need all the entries.
-  symbol_file->ParseFunctions(*this);
-
-  for (auto &p : m_functions_by_uid) {
-    if (matching_lambda(p.second))
-      return p.second;
-  }
-  return {};
-}
-
 // Dump the current contents of this object. No functions that cause on demand
 // parsing of functions, globals, statics are called, so this is a good
 // function to call to get an idea of the current contents of the CompileUnit
@@ -108,7 +91,8 @@ void CompileUnit::Dump(Stream *s, bool show_context) const {
   s->Printf("%p: ", static_cast<const void *>(this));
   s->Indent();
   *s << "CompileUnit" << static_cast<const UserID &>(*this) << ", language = \""
-     << language << "\", file = '" << GetPrimaryFile() << "'\n";
+     << language << "\", file = '" << static_cast<const FileSpec &>(*this)
+     << "'\n";
 
   //  m_types.Dump(s);
 
@@ -207,50 +191,53 @@ VariableListSP CompileUnit::GetVariableList(bool can_create) {
   return m_variables;
 }
 
-std::vector<uint32_t> FindFileIndexes(const FileSpecList &files, const FileSpec &file) {
-  std::vector<uint32_t> result;
-  uint32_t idx = -1;
-  while ((idx = files.FindFileIndex(idx + 1, file, /*full=*/true)) !=
-         UINT32_MAX)
-    result.push_back(idx);
-  return result;
-}
-
 uint32_t CompileUnit::FindLineEntry(uint32_t start_idx, uint32_t line,
                                     const FileSpec *file_spec_ptr, bool exact,
                                     LineEntry *line_entry_ptr) {
-  if (!file_spec_ptr)
-    file_spec_ptr = &GetPrimaryFile();
-  std::vector<uint32_t> file_indexes = FindFileIndexes(GetSupportFiles(), *file_spec_ptr);
-  if (file_indexes.empty())
-    return UINT32_MAX;
+  uint32_t file_idx = 0;
 
+  if (file_spec_ptr) {
+    file_idx = GetSupportFiles().FindFileIndex(1, *file_spec_ptr, true);
+    if (file_idx == UINT32_MAX)
+      return UINT32_MAX;
+  } else {
+    // All the line table entries actually point to the version of the Compile
+    // Unit that is in the support files (the one at 0 was artificially added.)
+    // So prefer the one further on in the support files if it exists...
+    const FileSpecList &support_files = GetSupportFiles();
+    const bool full = true;
+    file_idx = support_files.FindFileIndex(
+        1, support_files.GetFileSpecAtIndex(0), full);
+    if (file_idx == UINT32_MAX)
+      file_idx = 0;
+  }
   LineTable *line_table = GetLineTable();
   if (line_table)
-    return line_table->FindLineEntryIndexByFileIndex(
-        start_idx, file_indexes, line, exact, line_entry_ptr);
+    return line_table->FindLineEntryIndexByFileIndex(start_idx, file_idx, line,
+                                                     exact, line_entry_ptr);
   return UINT32_MAX;
 }
 
-void CompileUnit::ResolveSymbolContext(const FileSpec &file_spec,
-                                       uint32_t line, bool check_inlines,
-                                       bool exact,
-                                       SymbolContextItem resolve_scope,
-                                       SymbolContextList &sc_list) {
+uint32_t CompileUnit::ResolveSymbolContext(const FileSpec &file_spec,
+                                           uint32_t line, bool check_inlines,
+                                           bool exact,
+                                           SymbolContextItem resolve_scope,
+                                           SymbolContextList &sc_list) {
   // First find all of the file indexes that match our "file_spec". If
   // "file_spec" has an empty directory, then only compare the basenames when
   // finding file indexes
   std::vector<uint32_t> file_indexes;
+  const bool full_match = (bool)file_spec.GetDirectory();
   bool file_spec_matches_cu_file_spec =
-      FileSpec::Match(file_spec, this->GetPrimaryFile());
+      FileSpec::Equal(file_spec, *this, full_match);
 
   // If we are not looking for inlined functions and our file spec doesn't
   // match then we are done...
   if (!file_spec_matches_cu_file_spec && !check_inlines)
-    return;
+    return 0;
 
   uint32_t file_idx =
-      GetSupportFiles().FindFileIndex(0, file_spec, true);
+      GetSupportFiles().FindFileIndex(1, file_spec, true);
   while (file_idx != UINT32_MAX) {
     file_indexes.push_back(file_idx);
     file_idx = GetSupportFiles().FindFileIndex(file_idx + 1, file_spec, true);
@@ -258,67 +245,84 @@ void CompileUnit::ResolveSymbolContext(const FileSpec &file_spec,
 
   const size_t num_file_indexes = file_indexes.size();
   if (num_file_indexes == 0)
-    return;
+    return 0;
+
+  const uint32_t prev_size = sc_list.GetSize();
 
   SymbolContext sc(GetModule());
   sc.comp_unit = this;
 
-  if (line == 0) {
-    if (file_spec_matches_cu_file_spec && !check_inlines) {
-      // only append the context if we aren't looking for inline call sites by
-      // file and line and if the file spec matches that of the compile unit
-      sc_list.Append(sc);
+  if (line != 0) {
+    LineTable *line_table = sc.comp_unit->GetLineTable();
+
+    if (line_table != nullptr) {
+      uint32_t found_line;
+      uint32_t line_idx;
+
+      if (num_file_indexes == 1) {
+        // We only have a single support file that matches, so use the line
+        // table function that searches for a line entries that match a single
+        // support file index
+        LineEntry line_entry;
+        line_idx = line_table->FindLineEntryIndexByFileIndex(
+            0, file_indexes.front(), line, exact, &line_entry);
+
+        // If "exact == true", then "found_line" will be the same as "line". If
+        // "exact == false", the "found_line" will be the closest line entry
+        // with a line number greater than "line" and we will use this for our
+        // subsequent line exact matches below.
+        found_line = line_entry.line;
+
+        while (line_idx != UINT32_MAX) {
+          // If they only asked for the line entry, then we're done, we can
+          // just copy that over. But if they wanted more than just the line
+          // number, fill it in.
+          if (resolve_scope == eSymbolContextLineEntry) {
+            sc.line_entry = line_entry;
+          } else {
+            line_entry.range.GetBaseAddress().CalculateSymbolContext(
+                &sc, resolve_scope);
+          }
+
+          sc_list.Append(sc);
+          line_idx = line_table->FindLineEntryIndexByFileIndex(
+              line_idx + 1, file_indexes.front(), found_line, true,
+              &line_entry);
+        }
+      } else {
+        // We found multiple support files that match "file_spec" so use the
+        // line table function that searches for a line entries that match a
+        // multiple support file indexes.
+        LineEntry line_entry;
+        line_idx = line_table->FindLineEntryIndexByFileIndex(
+            0, file_indexes, line, exact, &line_entry);
+
+        // If "exact == true", then "found_line" will be the same as "line". If
+        // "exact == false", the "found_line" will be the closest line entry
+        // with a line number greater than "line" and we will use this for our
+        // subsequent line exact matches below.
+        found_line = line_entry.line;
+
+        while (line_idx != UINT32_MAX) {
+          if (resolve_scope == eSymbolContextLineEntry) {
+            sc.line_entry = line_entry;
+          } else {
+            line_entry.range.GetBaseAddress().CalculateSymbolContext(
+                &sc, resolve_scope);
+          }
+
+          sc_list.Append(sc);
+          line_idx = line_table->FindLineEntryIndexByFileIndex(
+              line_idx + 1, file_indexes, found_line, true, &line_entry);
+        }
+      }
     }
-    return;
-  }
-
-  LineTable *line_table = sc.comp_unit->GetLineTable();
-
-  if (line_table == nullptr)
-    return;
-
-  uint32_t line_idx;
-  LineEntry line_entry;
-
-  if (num_file_indexes == 1) {
-    // We only have a single support file that matches, so use the line
-    // table function that searches for a line entries that match a single
-    // support file index
-    line_idx = line_table->FindLineEntryIndexByFileIndex(
-        0, file_indexes.front(), line, exact, &line_entry);
-  } else {
-    // We found multiple support files that match "file_spec" so use the
-    // line table function that searches for a line entries that match a
-    // multiple support file indexes.
-    line_idx = line_table->FindLineEntryIndexByFileIndex(0, file_indexes, line,
-                                                         exact, &line_entry);
-  }
-  
-  // If "exact == true", then "found_line" will be the same as "line". If
-  // "exact == false", the "found_line" will be the closest line entry
-  // with a line number greater than "line" and we will use this for our
-  // subsequent line exact matches below.
-  uint32_t found_line = line_entry.line;
-  
-  while (line_idx != UINT32_MAX) {
-    // If they only asked for the line entry, then we're done, we can
-    // just copy that over. But if they wanted more than just the line
-    // number, fill it in.
-    if (resolve_scope == eSymbolContextLineEntry) {
-      sc.line_entry = line_entry;
-    } else {
-      line_entry.range.GetBaseAddress().CalculateSymbolContext(&sc,
-                                                               resolve_scope);
-    }
-
+  } else if (file_spec_matches_cu_file_spec && !check_inlines) {
+    // only append the context if we aren't looking for inline call sites by
+    // file and line and if the file spec matches that of the compile unit
     sc_list.Append(sc);
-    if (num_file_indexes == 1)
-      line_idx = line_table->FindLineEntryIndexByFileIndex(
-          line_idx + 1, file_indexes.front(), found_line, true, &line_entry);
-    else
-      line_idx = line_table->FindLineEntryIndexByFileIndex(
-          line_idx + 1, file_indexes, found_line, true, &line_entry);
   }
+  return sc_list.GetSize() - prev_size;
 }
 
 bool CompileUnit::GetIsOptimized() {
@@ -349,12 +353,9 @@ const std::vector<SourceModule> &CompileUnit::GetImportedModules() {
   return m_imported_modules;
 }
 
-bool CompileUnit::ForEachExternalModule(
-    llvm::DenseSet<SymbolFile *> &visited_symbol_files,
-    llvm::function_ref<bool(Module &)> lambda) {
+void CompileUnit::ForEachExternalModule(llvm::function_ref<void(ModuleSP)> f) {
   if (SymbolFile *symfile = GetModule()->GetSymbolFile())
-    return symfile->ForEachExternalModule(*this, visited_symbol_files, lambda);
-  return false;
+    symfile->ForEachExternalModule(*this, f);
 }
 
 const FileSpecList &CompileUnit::GetSupportFiles() {

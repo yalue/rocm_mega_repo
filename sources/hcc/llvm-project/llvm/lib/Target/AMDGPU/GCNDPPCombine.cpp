@@ -104,9 +104,6 @@ public:
     AU.setPreservesCFG();
     MachineFunctionPass::getAnalysisUsage(AU);
   }
-
-private:
-  int getDPPOp(unsigned Op) const;
 };
 
 } // end anonymous namespace
@@ -121,13 +118,13 @@ FunctionPass *llvm::createGCNDPPCombinePass() {
   return new GCNDPPCombine();
 }
 
-int GCNDPPCombine::getDPPOp(unsigned Op) const {
+static int getDPPOp(unsigned Op) {
   auto DPP32 = AMDGPU::getDPPOp32(Op);
-  if (DPP32 == -1) {
-    auto E32 = AMDGPU::getVOPe32(Op);
-    DPP32 = (E32 == -1)? -1 : AMDGPU::getDPPOp32(E32);
-  }
-  return (DPP32 == -1 || TII->pseudoToMCOpcode(DPP32) == -1) ? -1 : DPP32;
+  if (DPP32 != -1)
+    return DPP32;
+
+  auto E32 = AMDGPU::getVOPe32(Op);
+  return E32 != -1 ? AMDGPU::getDPPOp32(E32) : -1;
 }
 
 // tracks the register operand definition and returns:
@@ -238,8 +235,7 @@ MachineInstr *GCNDPPCombine::createDPPInst(MachineInstr &OrigMI,
     }
 
     if (auto *Src2 = TII->getNamedOperand(OrigMI, AMDGPU::OpName::src2)) {
-      if (!TII->getNamedOperand(*DPPInst.getInstr(), AMDGPU::OpName::src2) ||
-          !TII->isOperandLegal(*DPPInst.getInstr(), NumOperands, Src2)) {
+      if (!TII->isOperandLegal(*DPPInst.getInstr(), NumOperands, Src2)) {
         LLVM_DEBUG(dbgs() << "  failed: src2 is illegal\n");
         Fail = true;
         break;

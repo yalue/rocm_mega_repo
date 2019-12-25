@@ -34,7 +34,7 @@ THE SOFTWARE.
 #include "copy_kernel.h"
 
 #define MAX_GPU 8
-#define MAX_WORKGROUPS 8
+#define MAX_WORKGROUPS 16
 #define THREADS 256
 
 #define COPY_UNROLL       4
@@ -49,11 +49,11 @@ THE SOFTWARE.
 #define FBLU(x) KBLU x RST
 #define BOLD(x) "\x1B[1m" x RST
 
-#define RTC_CLOCK_FREQ_VEGA20 2.7E07
+#define RTC_CLOCK_FREQ_VEGA20 2.5E07
 //Right now kept the MI100 RTC frequency same as Vega20
 //as we are not aware of MI100 frequency, once we we come to know about it
 //we will update it.
-#define RTC_CLOCK_FREQ_MI100 2.7E07
+#define RTC_CLOCK_FREQ_MI100 2.5E07
 #define RTC_CLOCK_FREQ_DEFAULT 2.7E07
 
 struct transfer_data_t {
@@ -243,11 +243,9 @@ static void setupRings(uint32_t *info, int *ring_0, int *ring_1) {
     printf("\n");
   }
   findConnect(info, ring_0, deviceCnt);
-  printRing(0, ring_0, deviceCnt);
   ring_1[0] =0;
   for (int i = 1; i < deviceCnt; i++)
     ring_1[i] = ring_0[deviceCnt-i];
-  printRing(1, ring_1, deviceCnt);
 }
 
 char* getCmdOption(char ** begin, char ** end, const std::string & option) {
@@ -270,7 +268,7 @@ static const char* link_type_name[] = {"HT", "QPI", "PCIE", "IB", "XGMI"};
 int main(int argc,char* argv[])
 {
   if (cmdOptionExists(argv, argv + argc, "-h")) {
-    printf("./rccl_prim_test -w num_workgroups -p copy|localcopy|doublecopy|reduce|reducecopy|all -i iterations -n bytes -s 0|1\n");
+    printf("./rccl_prim_test -w num_workgroups -p copy|localcopy|doublecopy|reduce|reducecopy|all -i iterations -n bytes -s 0|1 -r \"0 1 2 3|3 2 1 0\"\n");
     exit(0);
   }
 
@@ -299,6 +297,9 @@ int main(int argc,char* argv[])
     sync = atol(s);
   if (sync) printf("Sync all GPUs before operation\n");
 
+  char *r = getCmdOption(argv, argv + argc, "-r");
+  if (r) printf("User specified ring topology: %s\n", r);
+
   const char *ops[] = {"copy", "localcopy", "doublecopy", "reduce", "reducecopy", "read", "all"};
   char *prim = getCmdOption(argv, argv + argc, "-p");
   int op = NUM_OPS, begin_op, end_op;
@@ -320,9 +321,34 @@ int main(int argc,char* argv[])
   // Enable peer access
   setupPeers(connection_info);
   // clockwise and counter clockwise rings
-  int ring_0[MAX_GPU] = {-1, -1, -1, -1,-1, -1, -1, -1};
-  int ring_1[MAX_GPU] = {-1, -1, -1, -1,-1, -1, -1, -1};
-  setupRings(connection_info, ring_0, ring_1);
+  int ring[MAX_WORKGROUPS][MAX_GPU];
+  for (int i = 0; i < MAX_WORKGROUPS; i++)
+    for (int j = 0; j <MAX_GPU; j++)
+      ring[i][j] =  -1;
+
+  int num_rings = 0;
+  if (r) {
+    int j = 0, n = 0;
+    do {
+      if (r[n] == ' ') continue;
+      if (r[n] == '|') {
+        num_rings ++;
+        j = 0;
+        continue;
+      }
+      ring[num_rings][j++] = r[n] - '0';
+    } while (r[n++] != 0x0);
+    num_rings ++;
+  } else {
+    setupRings(connection_info, ring[0], ring[1]);
+    num_rings = 2;
+  }
+
+  // duplicate rings
+  for (int i = num_rings; i < MAX_WORKGROUPS; i++) {
+    for (int j = 0; j <MAX_GPU; j++)
+      ring[i][j] =  ring[i%num_rings][j];
+  }
 
   // data buffers
   float *buff[MAX_GPU*MAX_WORKGROUPS], *buff_coarse[MAX_GPU*MAX_WORKGROUPS];
@@ -336,6 +362,10 @@ int main(int argc,char* argv[])
   HIPCHECK(hipHostMalloc((void**)&remOpCount, sizeof(uint64_t)*MAX_GPU, hipHostMallocMapped));
   HIPCHECK(hipHostGetDevicePointer((void**)&d_remOpCount, (void*)remOpCount, 0));
 
+  // print rings
+  for (int i = 0; i < workgroups; i++) {
+    printRing(i, ring[i], nGpu);
+  }
 
   for (int i = 0; i < nGpu; i ++) {
     HIPCHECK(hipSetDevice(i));
@@ -371,10 +401,7 @@ int main(int argc,char* argv[])
   for (int i = 0; i < nGpu; i ++) {
     for (int j = 0; j < workgroups; j++) {
       int next_gpu;
-      if (j%2)
-        next_gpu = findNextGpu(ring_1, i, nGpu);
-      else
-        next_gpu = findNextGpu(ring_0, i, nGpu);
+      next_gpu = findNextGpu(ring[j], i, nGpu);
       //printf("GPU %d Ring %d -> Next GPU %d\n", i, j, next_gpu);
       h_transfer_data[i].dest0[j] = buff[next_gpu*MAX_WORKGROUPS+j] + N;
       h_transfer_data[i].dest1[j] = buff_coarse[i*MAX_WORKGROUPS+j] + N;
@@ -395,22 +422,29 @@ int main(int argc,char* argv[])
     HIPCHECK(hipStreamSynchronize(stream[i]));
   }
 
+  void *args[MAX_GPU*3];
+  hipLaunchParams *launchParamsList= reinterpret_cast<hipLaunchParams *>(
+            malloc(sizeof(hipLaunchParams)*MAX_GPU));
+
   uint64_t opCount = 0;
   for (int op = begin_op; op < end_op; op ++) {
-    const char *OpsName[] = {"Copy", "Local Copy", "Double Copy", "Reduce", "ReduceCopy","read"};
+    const char *OpsName[] = {"Copy", "Local Copy", "Double Copy", "Reduce", "ReduceCopy", "Read"};
     printf("\n[Testing %s]: \n", OpsName[op]);
     // 4 warm up cycles
-    for (int i = 0; i < 4; i ++) {
+    for (int j = 0; j < 4; j ++) {
       for (int i = 0; i < nGpu; i ++) {
-        HIPCHECK(hipSetDevice(i));
-        //launch the kernel
-        hipLaunchKernelGGL(flagSyncKerns[op*2 + sync],
-            /*grid dim x,y,z*/        dim3(workgroups, 1, 1),
-            /*block dim x,y,z*/       dim3(THREADS, 1, 1),
-            /*dynamic shared mem*/    0,
-            /*stream*/                stream[i],
-            /*kernel args*/           transfer_data[i], d_profiling_data[i], opCount);
+        args[i*3] = &transfer_data[i];
+        args[i*3+1] = &d_profiling_data[i];
+        args[i*3+2] = &opCount;
+        launchParamsList[i].func =
+                reinterpret_cast<void *>(flagSyncKerns[op*2 + sync]);
+        launchParamsList[i].gridDim   = dim3(workgroups, 1, 1),
+        launchParamsList[i].blockDim  = dim3(THREADS, 1, 1),
+        launchParamsList[i].sharedMem = 0;
+        launchParamsList[i].stream    = stream[i];
+        launchParamsList[i].args      = args + i*3;
       }
+      hipExtLaunchMultiKernelMultiDevice(launchParamsList, nGpu, 0);
       opCount++;
     }
 
@@ -421,17 +455,20 @@ int main(int argc,char* argv[])
     }
 
     auto start = std::chrono::high_resolution_clock::now();
-    for (int i = 0; i < iters; i ++) {
+    for (int j = 0; j < iters; j ++) {
       for (int i = 0; i < nGpu; i ++) {
-        HIPCHECK(hipSetDevice(i));
-        //launch the kernel
-        hipLaunchKernelGGL(flagSyncKerns[op*2 + sync],
-            /*grid dim x,y,z*/        dim3(workgroups, 1, 1),
-            /*block dim x,y,z*/       dim3(THREADS, 1, 1),
-            /*dynamic shared mem*/    0,
-            /*stream*/                stream[i],
-            /*kernel args*/           transfer_data[i], d_profiling_data[i], opCount);
+        args[i*3] = &transfer_data[i];
+        args[i*3+1] = &d_profiling_data[i];
+        args[i*3+2] = &opCount;
+        launchParamsList[i].func =
+                reinterpret_cast<void *>(flagSyncKerns[op*2 + sync]);
+        launchParamsList[i].gridDim   = dim3(workgroups, 1, 1),
+        launchParamsList[i].blockDim  = dim3(THREADS, 1, 1),
+        launchParamsList[i].sharedMem = 0;
+        launchParamsList[i].stream    = stream[i];
+        launchParamsList[i].args      = args + i*3;
       }
+      hipExtLaunchMultiKernelMultiDevice(launchParamsList, nGpu, 0);
       opCount++;
     }
 
@@ -457,35 +494,32 @@ int main(int argc,char* argv[])
       HIPCHECK(hipGetDeviceProperties(&prop, i));
       for (int j = 0; j < workgroups; j++) {
         int next_gpu;
-        if (j%2)
-          next_gpu = findNextGpu(ring_1, i, nGpu);
-        else
-          next_gpu = findNextGpu(ring_0, i, nGpu);
+        next_gpu = findNextGpu(ring[j], i, nGpu);
 
         uint32_t linktype;
         uint32_t hopcount;
         HIPCHECK(hipExtGetLinkTypeAndHopCount(i, next_gpu , &linktype, &hopcount));
 
 
-        if(prop.gcnArch == 906 ) {
-	  write_cycle = write_cycle + profiling_data[i]->write_cycles[j];
-	  bytes_transferred = bytes_transferred + profiling_data[i]->bytes_transferred[j];
-          double t0 = (double)profiling_data[i]->write_cycles[j]/((double)RTC_CLOCK_FREQ_VEGA20);
-          fprintf(stderr, "%-20d %-d->%-10d %-13d %-13s %-13.4f  %-20lu  %-.2f\n",
-            i,i, next_gpu,j,link_type_name[linktype],t0, profiling_data[i]->bytes_transferred[j], (double)profiling_data[i]->bytes_transferred[j]/(t0*1.0E9));
-        } else if (prop.gcnArch == 908 ){
-	  write_cycle = write_cycle + profiling_data[i]->write_cycles[j];
-	  bytes_transferred = bytes_transferred + profiling_data[i]->bytes_transferred[j];
-          double t0 = (double)profiling_data[i]->write_cycles[j]/((double)RTC_CLOCK_FREQ_MI100);
-          fprintf(stderr, "%-20d %-d->%-10d %-13d %-13s %-13.4f  %-20lu  %-.2f\n",
-            i,i, next_gpu,j,link_type_name[linktype],t0, profiling_data[i]->bytes_transferred[j], (double)profiling_data[i]->bytes_transferred[j]/(t0*1.0E9));
-	} else {
-	  write_cycle = write_cycle + profiling_data[i]->write_cycles[j];
-	  bytes_transferred = bytes_transferred + profiling_data[i]->bytes_transferred[j];
-          double t0 = (double)profiling_data[i]->write_cycles[j]/((double)RTC_CLOCK_FREQ_DEFAULT);
-          fprintf(stderr, "%-20d %-d->%-10d %-13d %-13s %-13.4f  %-20lu  %-.2f\n",
-            i,i, next_gpu,j,link_type_name[linktype],t0, profiling_data[i]->bytes_transferred[j], (double)profiling_data[i]->bytes_transferred[j]/(t0*1.0E9));
-	}
+        if(prop.gcnArch == 906) {
+          write_cycle = write_cycle + profiling_data[i]->write_cycles[j];
+          bytes_transferred = bytes_transferred + profiling_data[i]->bytes_transferred[j];
+                double t0 = (double)profiling_data[i]->write_cycles[j]/((double)RTC_CLOCK_FREQ_VEGA20);
+                fprintf(stderr, "%-20d %-d->%-10d %-13d %-13s %-13.4f  %-20lu  %-.2f\n",
+                  i,i, next_gpu,j,link_type_name[linktype],t0, profiling_data[i]->bytes_transferred[j], (double)profiling_data[i]->bytes_transferred[j]/(t0*1.0E9));
+        } else if (prop.gcnArch == 908) {
+          write_cycle = write_cycle + profiling_data[i]->write_cycles[j];
+          bytes_transferred = bytes_transferred + profiling_data[i]->bytes_transferred[j];
+                double t0 = (double)profiling_data[i]->write_cycles[j]/((double)RTC_CLOCK_FREQ_MI100);
+                fprintf(stderr, "%-20d %-d->%-10d %-13d %-13s %-13.4f  %-20lu  %-.2f\n",
+                  i,i, next_gpu,j,link_type_name[linktype],t0, profiling_data[i]->bytes_transferred[j], (double)profiling_data[i]->bytes_transferred[j]/(t0*1.0E9));
+        } else {
+          write_cycle = write_cycle + profiling_data[i]->write_cycles[j];
+          bytes_transferred = bytes_transferred + profiling_data[i]->bytes_transferred[j];
+                double t0 = (double)profiling_data[i]->write_cycles[j]/((double)RTC_CLOCK_FREQ_DEFAULT);
+                fprintf(stderr, "%-20d %-d->%-10d %-13d %-13s %-13.4f  %-20lu  %-.2f\n",
+                  i,i, next_gpu,j,link_type_name[linktype],t0, profiling_data[i]->bytes_transferred[j], (double)profiling_data[i]->bytes_transferred[j]/(t0*1.0E9));
+        }
       }
       print_table_summary_line();
       double total = 0;

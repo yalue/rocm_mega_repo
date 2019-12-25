@@ -49,7 +49,6 @@
 ; CHECK-NEXT:       ValueType:     I64
 ; CHECK-NEXT:     - Size:          8
 ; CHECK-NEXT:       Align:         8
-; CHECK-NOT:        ValueKind:     HiddenHostcallBuffer
 ; CHECK-NEXT:       ValueKind:     HiddenPrintfBuffer
 ; CHECK-NEXT:       ValueType:     I8
 ; CHECK-NEXT:       AddrSpaceQual: Global

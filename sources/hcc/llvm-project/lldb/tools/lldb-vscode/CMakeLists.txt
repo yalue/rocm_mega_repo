@@ -7,16 +7,6 @@ if (HAVE_LIBPTHREAD)
   list(APPEND extra_libs pthread)
 endif ()
 
-
-if(APPLE)
-  configure_file(
-    ${CMAKE_CURRENT_SOURCE_DIR}/lldb-vscode-Info.plist.in
-    ${CMAKE_CURRENT_BINARY_DIR}/lldb-vscode-Info.plist
-    )
-  # Inline info plist in binary (use target_link_options for this as soon as CMake 3.13 is available)
-  set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -Wl,-sectcreate,__TEXT,__info_plist,${CMAKE_CURRENT_BINARY_DIR}/lldb-vscode-Info.plist")
-endif()
-
 # We need to include the llvm components we depend on manually, as liblldb does
 # not re-export those.
 set(LLVM_LINK_COMPONENTS Support)
@@ -43,9 +33,10 @@ add_lldb_tool(lldb-vscode
 if(LLDB_BUILD_FRAMEWORK)
   # In the build-tree, we know the exact path to the framework directory.
   # The installed framework can be in different locations.
+  get_target_property(framework_build_dir liblldb LIBRARY_OUTPUT_DIRECTORY)
   lldb_setup_rpaths(lldb-vscode
     BUILD_RPATH
-      "${LLDB_FRAMEWORK_ABSOLUTE_BUILD_DIR}"
+      "${framework_build_dir}"
     INSTALL_RPATH
       "@loader_path/../../../SharedFrameworks"
       "@loader_path/../../System/Library/PrivateFrameworks"

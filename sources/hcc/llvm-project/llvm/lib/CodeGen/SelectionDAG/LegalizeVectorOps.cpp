@@ -310,18 +310,43 @@ SDValue VectorLegalizer::LegalizeOp(SDValue Op) {
   switch (Op.getOpcode()) {
   default:
     return TranslateLegalizeResults(Op, Result);
-#define INSTRUCTION(NAME, NARG, ROUND_MODE, INTRINSIC, DAGN)                   \
-  case ISD::STRICT_##DAGN:
-#include "llvm/IR/ConstrainedOps.def"
+  case ISD::STRICT_FADD:
+  case ISD::STRICT_FSUB:
+  case ISD::STRICT_FMUL:
+  case ISD::STRICT_FDIV:
+  case ISD::STRICT_FREM:
+  case ISD::STRICT_FSQRT:
+  case ISD::STRICT_FMA:
+  case ISD::STRICT_FPOW:
+  case ISD::STRICT_FPOWI:
+  case ISD::STRICT_FSIN:
+  case ISD::STRICT_FCOS:
+  case ISD::STRICT_FEXP:
+  case ISD::STRICT_FEXP2:
+  case ISD::STRICT_FLOG:
+  case ISD::STRICT_FLOG10:
+  case ISD::STRICT_FLOG2:
+  case ISD::STRICT_FRINT:
+  case ISD::STRICT_FNEARBYINT:
+  case ISD::STRICT_FMAXNUM:
+  case ISD::STRICT_FMINNUM:
+  case ISD::STRICT_FCEIL:
+  case ISD::STRICT_FFLOOR:
+  case ISD::STRICT_FROUND:
+  case ISD::STRICT_FTRUNC:
+  case ISD::STRICT_FP_TO_SINT:
+  case ISD::STRICT_FP_TO_UINT:
+  case ISD::STRICT_FP_ROUND:
+  case ISD::STRICT_FP_EXTEND:
     Action = TLI.getOperationAction(Node->getOpcode(), Node->getValueType(0));
     // If we're asked to expand a strict vector floating-point operation,
     // by default we're going to simply unroll it.  That is usually the
     // best approach, except in the case where the resulting strict (scalar)
     // operations would themselves use the fallback mutation to non-strict.
     // In that specific case, just do the fallback on the vector op.
-    if (Action == TargetLowering::Expand && !TLI.isStrictFPEnabled() &&
+    if (Action == TargetLowering::Expand &&
         TLI.getStrictFPOperationAction(Node->getOpcode(),
-                                   Node->getValueType(0))
+                                       Node->getValueType(0))
         == TargetLowering::Legal) {
       EVT EltVT = Node->getValueType(0).getVectorElementType();
       if (TLI.getOperationAction(Node->getOpcode(), EltVT)
@@ -813,9 +838,32 @@ SDValue VectorLegalizer::Expand(SDValue Op) {
     // targets? This should probably be investigated. And if we still prefer to
     // unroll an explanation could be helpful.
     return DAG.UnrollVectorOp(Op.getNode());
-#define INSTRUCTION(NAME, NARG, ROUND_MODE, INTRINSIC, DAGN)                   \
-  case ISD::STRICT_##DAGN:
-#include "llvm/IR/ConstrainedOps.def"
+  case ISD::STRICT_FADD:
+  case ISD::STRICT_FSUB:
+  case ISD::STRICT_FMUL:
+  case ISD::STRICT_FDIV:
+  case ISD::STRICT_FREM:
+  case ISD::STRICT_FSQRT:
+  case ISD::STRICT_FMA:
+  case ISD::STRICT_FPOW:
+  case ISD::STRICT_FPOWI:
+  case ISD::STRICT_FSIN:
+  case ISD::STRICT_FCOS:
+  case ISD::STRICT_FEXP:
+  case ISD::STRICT_FEXP2:
+  case ISD::STRICT_FLOG:
+  case ISD::STRICT_FLOG10:
+  case ISD::STRICT_FLOG2:
+  case ISD::STRICT_FRINT:
+  case ISD::STRICT_FNEARBYINT:
+  case ISD::STRICT_FMAXNUM:
+  case ISD::STRICT_FMINNUM:
+  case ISD::STRICT_FCEIL:
+  case ISD::STRICT_FFLOOR:
+  case ISD::STRICT_FROUND:
+  case ISD::STRICT_FTRUNC:
+  case ISD::STRICT_FP_TO_SINT:
+  case ISD::STRICT_FP_TO_UINT:
     return ExpandStrictFPOp(Op);
   case ISD::VECREDUCE_ADD:
   case ISD::VECREDUCE_MUL:
@@ -1323,14 +1371,7 @@ SDValue VectorLegalizer::ExpandStrictFPOp(SDValue Op) {
   unsigned NumElems = VT.getVectorNumElements();
   unsigned NumOpers = Op.getNumOperands();
   const TargetLowering &TLI = DAG.getTargetLoweringInfo();
-
-  EVT TmpEltVT = EltVT;
-  if (Op->getOpcode() == ISD::STRICT_FSETCC ||
-      Op->getOpcode() == ISD::STRICT_FSETCCS)
-    TmpEltVT = TLI.getSetCCResultType(DAG.getDataLayout(),
-                                      *DAG.getContext(), TmpEltVT);
-
-  EVT ValueVTs[] = {TmpEltVT, MVT::Other};
+  EVT ValueVTs[] = {EltVT, MVT::Other};
   SDValue Chain = Op.getOperand(0);
   SDLoc dl(Op);
 
@@ -1357,18 +1398,9 @@ SDValue VectorLegalizer::ExpandStrictFPOp(SDValue Op) {
     }
 
     SDValue ScalarOp = DAG.getNode(Op->getOpcode(), dl, ValueVTs, Opers);
-    SDValue ScalarResult = ScalarOp.getValue(0);
-    SDValue ScalarChain = ScalarOp.getValue(1);
 
-    if (Op->getOpcode() == ISD::STRICT_FSETCC ||
-        Op->getOpcode() == ISD::STRICT_FSETCCS)
-      ScalarResult = DAG.getSelect(dl, EltVT, ScalarResult,
-                           DAG.getConstant(APInt::getAllOnesValue
-                                           (EltVT.getSizeInBits()), dl, EltVT),
-                           DAG.getConstant(0, dl, EltVT));
-
-    OpValues.push_back(ScalarResult);
-    OpChains.push_back(ScalarChain);
+    OpValues.push_back(ScalarOp.getValue(0));
+    OpChains.push_back(ScalarOp.getValue(1));
   }
 
   SDValue Result = DAG.getBuildVector(VT, dl, OpValues);

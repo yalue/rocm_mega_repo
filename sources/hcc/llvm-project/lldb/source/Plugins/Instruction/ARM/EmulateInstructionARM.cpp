@@ -850,7 +850,6 @@ uint32_t EmulateInstructionARM::GetFramePointerRegisterNumber() const {
 
   /* On Apple iOS et al, the frame pointer register is always r7.
    * Typically on other ARM systems, thumb code uses r7; arm code uses r11.
-   * Windows on ARM, which is in thumb mode, uses r11 though.
    */
 
   uint32_t fp_regnum = 11;
@@ -858,7 +857,7 @@ uint32_t EmulateInstructionARM::GetFramePointerRegisterNumber() const {
   if (is_apple)
     fp_regnum = 7;
 
-  if (m_opcode_mode == eModeThumb && !m_arch.GetTriple().isOSWindows())
+  if (m_opcode_mode == eModeThumb)
     fp_regnum = 7;
 
   return fp_regnum;
@@ -880,7 +879,6 @@ uint32_t EmulateInstructionARM::GetFramePointerDWARFRegisterNumber() const {
 
   /* On Apple iOS et al, the frame pointer register is always r7.
    * Typically on other ARM systems, thumb code uses r7; arm code uses r11.
-   * Windows on ARM, which is in thumb mode, uses r11 though.
    */
 
   uint32_t fp_regnum = dwarf_r11;
@@ -888,7 +886,7 @@ uint32_t EmulateInstructionARM::GetFramePointerDWARFRegisterNumber() const {
   if (is_apple)
     fp_regnum = dwarf_r7;
 
-  if (m_opcode_mode == eModeThumb && !m_arch.GetTriple().isOSWindows())
+  if (m_opcode_mode == eModeThumb)
     fp_regnum = dwarf_r7;
 
   return fp_regnum;
@@ -1345,8 +1343,6 @@ bool EmulateInstructionARM::EmulateMOVRdRm(const uint32_t opcode,
     EmulateInstruction::Context context;
     if (Rd == 13)
       context.type = EmulateInstruction::eContextAdjustStackPointer;
-    else if (Rd == GetFramePointerRegisterNumber() && Rm == 13)
-      context.type = EmulateInstruction::eContextSetFramePointer;
     else
       context.type = EmulateInstruction::eContextRegisterPlusOffset;
     RegisterInfo dwarf_reg;

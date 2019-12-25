@@ -163,22 +163,6 @@ int ncclThreadThreshold(int minCompCap, int multiNode) {
   return threshold;
 }
 
-bool useFineGrainVramPcie = false;
-
-void parseHsaForceFineGrainVramPcie() {
-  char* str = getenv("HSA_FORCE_FINE_GRAIN_PCIE");
-  if (str && strlen(str) > 0) {
-    errno = 0;
-    int64_t v = strtoll(str, NULL, 0);
-    if (errno || (v != 0 && v != 1)) {
-      INFO(NCCL_ALL,"Invalid value %s for %s, using default %u.", str, "HSA_FORCE_FINE_GRAIN_PCIE", useFineGrainVramPcie); \
-    } else {
-      useFineGrainVramPcie = v;
-      INFO(NCCL_ALL,"%s set by environment to %u.", "HSA_FORCE_FINE_GRAIN_PCIE", useFineGrainVramPcie);  \
-    }
-  }
-}
-
 pthread_mutex_t initLock = PTHREAD_MUTEX_INITIALIZER;
 static bool initialized = false;
 static ncclResult_t ncclInit() {
@@ -190,8 +174,6 @@ static ncclResult_t ncclInit() {
     initNet();
     initialized = true;
   }
-  // Check if HSA_FORCE_FINE_GRAIN_PCIE is set in env
-  parseHsaForceFineGrainVramPcie();
   pthread_mutex_unlock(&initLock);
   return ncclSuccess;
 }
@@ -227,7 +209,7 @@ static ncclResult_t commFree(ncclComm_t comm) {
     wait_send_cycle += prof->wait_send_cycle[chan];
     wait_recv_cycle += prof->wait_recv_cycle[chan];
   }
-  #define VEGA_GPU_RTC_FREQUENCY 2.7E7
+  #define VEGA_GPU_RTC_FREQUENCY 2.5E7
   if (comm->rank == 0) {
     INFO(NCCL_INIT, "# %4s %6s %6s %6s %6s %6s %7s %6s %6s %6s %6s %6s", "Rank", "total", "w_send", "w_recv", "send", "rcRdS", "dRcRdCS", "dRcCS", "dRc", "cS", "rc", "rcCS");
     INFO(NCCL_INIT, "# %4s %6s %6s %6s %6s %6s %7s %6s %6s %6s %6s %6s", "", "(s)", "(s)", "(s)", "(GB/s)", "(GB/s)", "(GB/s)", "(GB/s)", "(GB/s)", "(GB/s)", "(GB/s)", "(GB/s)", "(GB/s)");

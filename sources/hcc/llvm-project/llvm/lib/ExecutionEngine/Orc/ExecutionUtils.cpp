@@ -19,32 +19,6 @@
 namespace llvm {
 namespace orc {
 
-int runAsMain(int (*Main)(int, char *[]), ArrayRef<std::string> Args,
-              Optional<StringRef> ProgramName) {
-  std::vector<std::unique_ptr<char[]>> ArgVStorage;
-  std::vector<char *> ArgV;
-
-  ArgVStorage.reserve(Args.size() + (ProgramName ? 1 : 0));
-  ArgV.reserve(Args.size() + 1 + (ProgramName ? 1 : 0));
-
-  if (ProgramName) {
-    ArgVStorage.push_back(std::make_unique<char[]>(ProgramName->size() + 1));
-    llvm::copy(*ProgramName, &ArgVStorage.back()[0]);
-    ArgVStorage.back()[ProgramName->size()] = '\0';
-    ArgV.push_back(ArgVStorage.back().get());
-  }
-
-  for (auto &Arg : Args) {
-    ArgVStorage.push_back(std::make_unique<char[]>(Arg.size() + 1));
-    llvm::copy(Arg, &ArgVStorage.back()[0]);
-    ArgVStorage.back()[Arg.size()] = '\0';
-    ArgV.push_back(ArgVStorage.back().get());
-  }
-  ArgV.push_back(nullptr);
-
-  return Main(Args.size(), ArgV.data());
-}
-
 CtorDtorIterator::CtorDtorIterator(const GlobalVariable *GV, bool End)
   : InitList(
       GV ? dyn_cast_or_null<ConstantArray>(GV->getInitializer()) : nullptr),
@@ -144,17 +118,19 @@ void CtorDtorRunner::add(iterator_range<CtorDtorIterator> CtorDtors) {
 Error CtorDtorRunner::run() {
   using CtorDtorTy = void (*)();
 
-  SymbolLookupSet LookupSet;
-  for (auto &KV : CtorDtorsByPriority)
-    for (auto &Name : KV.second)
-      LookupSet.add(Name);
-  assert(!LookupSet.containsDuplicates() &&
-         "Ctor/Dtor list contains duplicates");
+  SymbolNameSet Names;
+
+  for (auto &KV : CtorDtorsByPriority) {
+    for (auto &Name : KV.second) {
+      auto Added = Names.insert(Name).second;
+      (void)Added;
+      assert(Added && "Ctor/Dtor names clashed");
+    }
+  }
 
   auto &ES = JD.getExecutionSession();
-  if (auto CtorDtorMap = ES.lookup(
-          makeJITDylibSearchOrder(&JD, JITDylibLookupFlags::MatchAllSymbols),
-          std::move(LookupSet))) {
+  if (auto CtorDtorMap =
+          ES.lookup(JITDylibSearchList({{&JD, true}}), std::move(Names))) {
     for (auto &KV : CtorDtorsByPriority) {
       for (auto &Name : KV.second) {
         assert(CtorDtorMap->count(Name) && "No entry for Name");
@@ -214,16 +190,15 @@ DynamicLibrarySearchGenerator::Load(const char *FileName, char GlobalPrefix,
       std::move(Lib), GlobalPrefix, std::move(Allow));
 }
 
-Error DynamicLibrarySearchGenerator::tryToGenerate(
-    LookupKind K, JITDylib &JD, JITDylibLookupFlags JDLookupFlags,
-    const SymbolLookupSet &Symbols) {
+Expected<SymbolNameSet>
+DynamicLibrarySearchGenerator::tryToGenerate(JITDylib &JD,
+                                             const SymbolNameSet &Names) {
+  orc::SymbolNameSet Added;
   orc::SymbolMap NewSymbols;
 
   bool HasGlobalPrefix = (GlobalPrefix != '\0');
 
-  for (auto &KV : Symbols) {
-    auto &Name = KV.first;
-
+  for (auto &Name : Names) {
     if ((*Name).empty())
       continue;
 
@@ -236,16 +211,20 @@ Error DynamicLibrarySearchGenerator::tryToGenerate(
     std::string Tmp((*Name).data() + HasGlobalPrefix,
                     (*Name).size() - HasGlobalPrefix);
     if (void *Addr = Dylib.getAddressOfSymbol(Tmp.c_str())) {
+      Added.insert(Name);
       NewSymbols[Name] = JITEvaluatedSymbol(
           static_cast<JITTargetAddress>(reinterpret_cast<uintptr_t>(Addr)),
           JITSymbolFlags::Exported);
     }
   }
 
-  if (NewSymbols.empty())
-    return Error::success();
+  // Add any new symbols to JD. Since the generator is only called for symbols
+  // that are not already defined, this will never trigger a duplicate
+  // definition error, so we can wrap this call in a 'cantFail'.
+  if (!NewSymbols.empty())
+    cantFail(JD.define(absoluteSymbols(std::move(NewSymbols))));
 
-  return JD.define(absoluteSymbols(std::move(NewSymbols)));
+  return Added;
 }
 
 Expected<std::unique_ptr<StaticLibraryDefinitionGenerator>>
@@ -272,24 +251,15 @@ StaticLibraryDefinitionGenerator::Create(
   return std::move(ADG);
 }
 
-Error StaticLibraryDefinitionGenerator::tryToGenerate(
-    LookupKind K, JITDylib &JD, JITDylibLookupFlags JDLookupFlags,
-    const SymbolLookupSet &Symbols) {
-
-  // Don't materialize symbols from static archives unless this is a static
-  // lookup.
-  if (K != LookupKind::Static)
-    return Error::success();
-
-  // Bail out early if we've already freed the archive.
-  if (!Archive)
-    return Error::success();
+Expected<SymbolNameSet>
+StaticLibraryDefinitionGenerator::tryToGenerate(JITDylib &JD,
+                                                const SymbolNameSet &Names) {
 
   DenseSet<std::pair<StringRef, StringRef>> ChildBufferInfos;
+  SymbolNameSet NewDefs;
 
-  for (const auto &KV : Symbols) {
-    const auto &Name = KV.first;
-    auto Child = Archive->findSym(*Name);
+  for (const auto &Name : Names) {
+    auto Child = Archive.findSym(*Name);
     if (!Child)
       return Child.takeError();
     if (*Child == None)
@@ -299,6 +269,7 @@ Error StaticLibraryDefinitionGenerator::tryToGenerate(
       return ChildBuffer.takeError();
     ChildBufferInfos.insert(
         {ChildBuffer->getBuffer(), ChildBuffer->getBufferIdentifier()});
+    NewDefs.insert(Name);
   }
 
   for (auto ChildBufferInfo : ChildBufferInfos) {
@@ -307,16 +278,31 @@ Error StaticLibraryDefinitionGenerator::tryToGenerate(
 
     if (auto Err =
             L.add(JD, MemoryBuffer::getMemBuffer(ChildBufferRef), VModuleKey()))
-      return Err;
+      return std::move(Err);
+
+    --UnrealizedObjects;
   }
 
-  return Error::success();
+  return NewDefs;
 }
 
 StaticLibraryDefinitionGenerator::StaticLibraryDefinitionGenerator(
     ObjectLayer &L, std::unique_ptr<MemoryBuffer> ArchiveBuffer, Error &Err)
     : L(L), ArchiveBuffer(std::move(ArchiveBuffer)),
-      Archive(std::make_unique<object::Archive>(*this->ArchiveBuffer, Err)) {}
+      Archive(*this->ArchiveBuffer, Err) {
+
+  if (Err)
+    return;
+
+  Error Err2 = Error::success();
+  for (auto _ : Archive.children(Err2)) {
+    (void)_;
+    ++UnrealizedObjects;
+  }
+
+  // No need to check this: We will leave it to the caller.
+  Err = std::move(Err2);
+}
 
 } // End namespace orc.
 } // End namespace llvm.

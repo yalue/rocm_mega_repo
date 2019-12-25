@@ -3,18 +3,10 @@
 
 ; SI-LABEL: {{^}}i1_copy_from_loop:
 ;
-<<<<<<< HEAD
-; SI:   ; %Flow
-; SI:  s_or_b64 [[EXIT_MASK:s\[[0-9]+:[0-9]+\]]]
-; SI:  s_and_b64 [[ACCUM_MASK:s\[[0-9]+:[0-9]+\]]], [[CC_MASK:s\[[0-9]+:[0-9]+\]]], exec
-; SI:  s_or_b64  [[I1_VALUE:s\[[0-9]+:[0-9]+\]]], {{s\[[0-9]+:[0-9]+\]}}, [[ACCUM_MASK]]
-; SI:  s_cbranch_execz [[FOR_END_LABEL:BB0_[0-9]+]]
-=======
 ; SI: ; %Flow
 ; SI-DAG:  s_andn2_b64       [[LCSSA_ACCUM:s\[[0-9]+:[0-9]+\]]], [[LCSSA_ACCUM]], exec
 ; SI-DAG:  s_and_b64         [[CC_MASK2:s\[[0-9]+:[0-9]+\]]], [[CC_ACCUM:s\[[0-9]+:[0-9]+\]]], exec
 ; SI:      s_or_b64          [[LCSSA_ACCUM]], [[LCSSA_ACCUM]], [[CC_MASK2]]
->>>>>>> c624027d08d... Revert "[AMDGPU] Come back patch for the 'Assign register class for cross block values according to the divergence.'"
 
 ; SI: ; %for.body
 ; SI:      v_cmp_gt_u32_e64  [[CC_SREG:s\[[0-9]+:[0-9]+\]]], 4,

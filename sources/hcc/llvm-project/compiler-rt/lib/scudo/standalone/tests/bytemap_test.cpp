@@ -6,11 +6,10 @@
 //
 //===----------------------------------------------------------------------===//
 
-#include "tests/scudo_unit_test.h"
-
 #include "bytemap.h"
 
-#include <pthread.h>
+#include "gtest/gtest.h"
+
 #include <string.h>
 
 template <typename T> void testMap(T &Map, scudo::uptr Size) {

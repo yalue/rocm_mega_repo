@@ -6,9 +6,9 @@
 //
 //===----------------------------------------------------------------------===//
 
-#include "tests/scudo_unit_test.h"
-
 #include "chunk.h"
+
+#include "gtest/gtest.h"
 
 #include <stdlib.h>
 

@@ -728,6 +728,11 @@ void NullabilityChecker::checkPreCall(const CallEvent &Call,
       }
       continue;
     }
+    // No tracked nullability yet.
+    if (ArgExprTypeLevelNullability != Nullability::Nullable)
+      continue;
+    State = State->set<NullabilityMap>(
+        Region, NullabilityState(ArgExprTypeLevelNullability, ArgExpr));
   }
   if (State != OrigState)
     C.addTransition(State);

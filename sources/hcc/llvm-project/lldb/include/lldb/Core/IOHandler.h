@@ -456,9 +456,48 @@ protected:
   bool m_user_response;
 };
 
+class IOHandlerCursesGUI : public IOHandler {
+public:
+  IOHandlerCursesGUI(Debugger &debugger);
+
+  ~IOHandlerCursesGUI() override;
+
+  void Run() override;
+
+  void Cancel() override;
+
+  bool Interrupt() override;
+
+  void GotEOF() override;
+
+  void Activate() override;
+
+  void Deactivate() override;
+
+protected:
+  curses::ApplicationAP m_app_ap;
+};
+
+class IOHandlerCursesValueObjectList : public IOHandler {
+public:
+  IOHandlerCursesValueObjectList(Debugger &debugger,
+                                 ValueObjectList &valobj_list);
+
+  ~IOHandlerCursesValueObjectList() override;
+
+  void Run() override;
+
+  void GotEOF() override;
+
+protected:
+  ValueObjectList m_valobj_list;
+};
+
 class IOHandlerStack {
 public:
-  IOHandlerStack() = default;
+  IOHandlerStack() : m_stack(), m_mutex(), m_top(nullptr) {}
+
+  ~IOHandlerStack() = default;
 
   size_t GetSize() const {
     std::lock_guard<std::recursive_mutex> guard(m_mutex);
@@ -535,7 +574,7 @@ protected:
   typedef std::vector<lldb::IOHandlerSP> collection;
   collection m_stack;
   mutable std::recursive_mutex m_mutex;
-  IOHandler *m_top = nullptr;
+  IOHandler *m_top;
 
 private:
   DISALLOW_COPY_AND_ASSIGN(IOHandlerStack);

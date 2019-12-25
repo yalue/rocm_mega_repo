@@ -258,9 +258,6 @@ public:
     return "";
   }
 
-  // Darwin toolchain uses legacy thin LTO API, which is not
-  // capable of unit splitting.
-  bool canSplitThinLTOUnit() const override { return false; }
   /// }
 };
 

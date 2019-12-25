@@ -8,7 +8,6 @@
 
 #include "WebAssembly.h"
 #include "CommonArgs.h"
-#include "clang/Basic/Version.h"
 #include "clang/Config/config.h"
 #include "clang/Driver/Compilation.h"
 #include "clang/Driver/Driver.h"
@@ -91,39 +90,6 @@ void wasm::Linker::ConstructJob(Compilation &C, const JobAction &JA,
   CmdArgs.push_back(Output.getFilename());
 
   C.addCommand(std::make_unique<Command>(JA, *this, Linker, CmdArgs, Inputs));
-
-  // When optimizing, if wasm-opt is available, run it.
-  if (Arg *A = Args.getLastArg(options::OPT_O_Group)) {
-    auto WasmOptPath = getToolChain().GetProgramPath("wasm-opt");
-    if (WasmOptPath != "wasm-opt") {
-      StringRef OOpt = "s";
-      if (A->getOption().matches(options::OPT_O4) ||
-          A->getOption().matches(options::OPT_Ofast))
-        OOpt = "4";
-      else if (A->getOption().matches(options::OPT_O0))
-        OOpt = "0";
-      else if (A->getOption().matches(options::OPT_O))
-        OOpt = A->getValue();
-
-      if (OOpt != "0") {
-        const char *WasmOpt = Args.MakeArgString(WasmOptPath);
-        ArgStringList CmdArgs;
-        CmdArgs.push_back(Output.getFilename());
-        CmdArgs.push_back(Args.MakeArgString(llvm::Twine("-O") + OOpt));
-        CmdArgs.push_back("-o");
-        CmdArgs.push_back(Output.getFilename());
-        C.addCommand(std::make_unique<Command>(JA, *this, WasmOpt, CmdArgs, Inputs));
-      }
-    }
-  }
-}
-
-/// Given a base library directory, append path components to form the
-/// LTO directory.
-static std::string AppendLTOLibDir(const std::string &Dir) {
-    // The version allows the path to be keyed to the specific version of
-    // LLVM in used, as the bitcode format is not stable.
-    return Dir + "/llvm-lto/" LLVM_VERSION_STRING;
 }
 
 WebAssembly::WebAssembly(const Driver &D, const llvm::Triple &Triple,
@@ -134,24 +100,16 @@ WebAssembly::WebAssembly(const Driver &D, const llvm::Triple &Triple,
 
   getProgramPaths().push_back(getDriver().getInstalledDir());
 
-  auto SysRoot = getDriver().SysRoot;
   if (getTriple().getOS() == llvm::Triple::UnknownOS) {
     // Theoretically an "unknown" OS should mean no standard libraries, however
     // it could also mean that a custom set of libraries is in use, so just add
     // /lib to the search path. Disable multiarch in this case, to discourage
     // paths containing "unknown" from acquiring meanings.
-    getFilePaths().push_back(SysRoot + "/lib");
+    getFilePaths().push_back(getDriver().SysRoot + "/lib");
   } else {
     const std::string MultiarchTriple =
-        getMultiarchTriple(getDriver(), Triple, SysRoot);
-    if (D.isUsingLTO()) {
-      // For LTO, enable use of lto-enabled sysroot libraries too, if available.
-      // Note that the directory is keyed to the LLVM revision, as LLVM's
-      // bitcode format is not stable.
-      auto Dir = AppendLTOLibDir(SysRoot + "/lib/" + MultiarchTriple);
-      getFilePaths().push_back(Dir);
-    }
-    getFilePaths().push_back(SysRoot + "/lib/" + MultiarchTriple);
+        getMultiarchTriple(getDriver(), Triple, getDriver().SysRoot);
+    getFilePaths().push_back(getDriver().SysRoot + "/lib/" + MultiarchTriple);
   }
 }
 
@@ -223,12 +181,6 @@ void WebAssembly::addClangTargetOptions(const ArgList &DriverArgs,
       getDriver().Diag(diag::err_drv_argument_not_allowed_with)
           << "-fwasm-exceptions"
           << "-mno-exception-handling";
-    // '-fwasm-exceptions' is not compatible with '-mno-reference-types'
-    if (DriverArgs.hasFlag(options::OPT_mno_reference_types,
-                           options::OPT_mexception_handing, false))
-      getDriver().Diag(diag::err_drv_argument_not_allowed_with)
-          << "-fwasm-exceptions"
-          << "-mno-reference-types";
     // '-fwasm-exceptions' is not compatible with
     // '-mllvm -enable-emscripten-cxx-exceptions'
     for (const Arg *A : DriverArgs.filtered(options::OPT_mllvm)) {
@@ -237,11 +189,9 @@ void WebAssembly::addClangTargetOptions(const ArgList &DriverArgs,
             << "-fwasm-exceptions"
             << "-mllvm -enable-emscripten-cxx-exceptions";
     }
-    // '-fwasm-exceptions' implies exception-handling and reference-types
+    // '-fwasm-exceptions' implies exception-handling
     CC1Args.push_back("-target-feature");
     CC1Args.push_back("+exception-handling");
-    CC1Args.push_back("-target-feature");
-    CC1Args.push_back("+reference-types");
   }
 }
 

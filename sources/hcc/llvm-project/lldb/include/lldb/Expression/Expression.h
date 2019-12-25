@@ -32,11 +32,22 @@ class RecordingMemoryManager;
 /// LLVM IR from the expression.
 class Expression {
 public:
+  /// Discriminator for LLVM-style RTTI (dyn_cast<> et al.)
+  enum ExpressionKind {
+    eKindFunctionCaller,
+    eKindClangFunctionCaller,
+    eKindUserExpression,
+    eKindLLVMUserExpression,
+    eKindClangUserExpression,
+    eKindUtilityFunction,
+    eKindClangUtilityFunction,
+  };
+
   enum ResultType { eResultTypeAny, eResultTypeId };
 
-  Expression(Target &target);
+  Expression(Target &target, ExpressionKind kind);
 
-  Expression(ExecutionContextScope &exe_scope);
+  Expression(ExecutionContextScope &exe_scope, ExpressionKind kind);
 
   /// Destructor
   virtual ~Expression() {}
@@ -52,10 +63,6 @@ public:
   /// Return the language that should be used when parsing.  To use the
   /// default, return eLanguageTypeUnknown.
   virtual lldb::LanguageType Language() { return lldb::eLanguageTypeUnknown; }
-
-  /// Return the Materializer that the parser should use when registering
-  /// external values.
-  virtual Materializer *GetMaterializer() { return nullptr; }
 
   /// Return the desired result type of the function, or eResultTypeAny if
   /// indifferent.
@@ -83,9 +90,12 @@ public:
 
   virtual ExpressionTypeSystemHelper *GetTypeSystemHelper() { return nullptr; }
 
-  // LLVM RTTI support
-  virtual bool isA(const void *ClassID) const = 0;
-
+  /// LLVM-style RTTI support.
+  ExpressionKind getKind() const { return m_kind; }
+  
+private:
+  /// LLVM-style RTTI support.
+  const ExpressionKind m_kind;
 protected:
   lldb::TargetWP m_target_wp; /// Expression's always have to have a target...
   lldb::ProcessWP m_jit_process_wp; /// An expression might have a process, but

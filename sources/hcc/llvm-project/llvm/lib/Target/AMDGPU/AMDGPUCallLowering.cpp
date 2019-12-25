@@ -356,7 +356,7 @@ Register AMDGPUCallLowering::lowerParameterPtr(MachineIRBuilder &B,
   Register OffsetReg = MRI.createGenericVirtualRegister(LLT::scalar(64));
   B.buildConstant(OffsetReg, Offset);
 
-  B.buildPtrAdd(DstReg, KernArgSegmentVReg, OffsetReg);
+  B.buildGEP(DstReg, KernArgSegmentVReg, OffsetReg);
 
   return DstReg;
 }

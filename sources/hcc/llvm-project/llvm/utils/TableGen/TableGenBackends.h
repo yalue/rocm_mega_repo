@@ -81,7 +81,6 @@ void EmitRegisterInfo(RecordKeeper &RK, raw_ostream &OS);
 void EmitSubtarget(RecordKeeper &RK, raw_ostream &OS);
 void EmitMapTable(RecordKeeper &RK, raw_ostream &OS);
 void EmitOptParser(RecordKeeper &RK, raw_ostream &OS);
-void EmitOptRST(RecordKeeper &RK, raw_ostream &OS);
 void EmitCTags(RecordKeeper &RK, raw_ostream &OS);
 void EmitAttributes(RecordKeeper &RK, raw_ostream &OS);
 void EmitSearchableTables(RecordKeeper &RK, raw_ostream &OS);

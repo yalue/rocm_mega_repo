@@ -364,7 +364,7 @@ def apple_simulator_test(platform):
             else:
                 return "%s simulator is not supported on this system." % platform
         except subprocess.CalledProcessError:
-            return "Simulators are unsupported on this system (xcodebuild failed)"
+            return "%s is not supported on this system (xcodebuild failed)." % feature
 
     return skipTestIfFn(should_skip_simulator_test)
 
@@ -517,9 +517,6 @@ def skipIfRemote(func):
 def skipIfNoSBHeaders(func):
     """Decorate the item to mark tests that should be skipped when LLDB is built with no SB API headers."""
     def are_sb_headers_missing():
-        if lldb.remote_platform:
-            return "skip because SBHeaders tests make no sense remotely"
-
         if lldbplatformutil.getHostPlatform() == 'darwin':
             header = os.path.join(
                 os.environ["LLDB_LIB_DIR"],

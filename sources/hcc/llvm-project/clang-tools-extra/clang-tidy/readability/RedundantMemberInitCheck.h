@@ -23,15 +23,9 @@ namespace readability {
 class RedundantMemberInitCheck : public ClangTidyCheck {
 public:
   RedundantMemberInitCheck(StringRef Name, ClangTidyContext *Context)
-      : ClangTidyCheck(Name, Context),
-        IgnoreBaseInCopyConstructors(
-            Options.get("IgnoreBaseInCopyConstructors", 0)) {}
-  void storeOptions(ClangTidyOptions::OptionMap &Opts) override;
+      : ClangTidyCheck(Name, Context) {}
   void registerMatchers(ast_matchers::MatchFinder *Finder) override;
   void check(const ast_matchers::MatchFinder::MatchResult &Result) override;
-
-private:
-  bool IgnoreBaseInCopyConstructors;
 };
 
 } // namespace readability

@@ -42,7 +42,7 @@ class DWARFDebugMacro {
   using MacroList = SmallVector<Entry, 4>;
 
   /// A list of all the macro entries in the debug_macinfo section.
-  std::vector<MacroList> MacroLists;
+  MacroList Macros;
 
 public:
   DWARFDebugMacro() = default;
@@ -54,7 +54,7 @@ public:
   void parse(DataExtractor data);
 
   /// Return whether the section has any entries.
-  bool empty() const { return MacroLists.empty(); }
+  bool empty() const { return Macros.empty(); }
 };
 
 } // end namespace llvm

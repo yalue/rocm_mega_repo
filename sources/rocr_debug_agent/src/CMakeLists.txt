@@ -59,8 +59,8 @@
 
 cmake_minimum_required(VERSION 3.5.0)
 
-project(rocr_debug_agent VERSION 1.0.0)
-set(TARGET_NAME "${PROJECT_NAME}64" )
+project(rocm-debug-agent VERSION 1.0.0)
+set(TARGET_NAME "${PROJECT_NAME}" )
 set(BUILD_VERSION_MAJOR ${PROJECT_VERSION_MAJOR})
 set(BUILD_VERSION_MINOR ${PROJECT_VERSION_MINOR})
 set(BUILD_VERSION_PATCH ${PROJECT_VERSION_PATCH})
@@ -111,18 +111,6 @@ if("${CMAKE_SYSTEM_PROCESSOR}" STREQUAL "x86_64")
   set(NBIT 64)
 elseif("${CMAKE_SYSTEM_PROCESSOR}" STREQUAL "x86")
   set(NBIT 32)
-endif()
-
-# Check if dtrace is installed
-find_program(DTRACE dtrace)
-
-# Check if sys/sdt.h is avaialable
-include(CheckIncludeFile)
-check_include_file("sys/sdt.h" HAVE_SYS_SDT_H)
-if(NOT DTRACE OR NOT HAVE_SYS_SDT_H)
-  message(FATAL_ERROR "SystemTap not found, "
-      "please install systemtap-sdt-dev (debian), "
-      "or systemtap-sdt-devel (rpm).")
 endif()
 
 # Set project requirements
@@ -195,85 +183,11 @@ include_directories (${CMAKE_CURRENT_SOURCE_DIR}/Include)
 # Add sources that belong to the project
 aux_source_directory(${CMAKE_CURRENT_SOURCE_DIR} Src)
 
-macro(LLVMAssemble AsmPath ObjPath TargetName ISAVersionMinor ISAVersionStepping)
-  add_custom_command(
-    OUTPUT ${ObjPath}
-    DEPENDS "${AsmPath}"
-    COMMAND ${LC_BIN}/clang -x assembler -Wa,-defsym,.LISA_VERSION_MINOR=${ISAVersionMinor} -Wa,-defsym,.LISA_VERSION_STEPPING=${ISAVersionStepping} -target amdgcn--amdhsa -mcpu=${TargetName} -mno-code-object-v3 -c -o ${ObjPath} "${AsmPath}"
-    COMMENT "Building LLVM assembly object ${ObjPath}..."
-  )
-endmacro()
-
-macro(LLVMLink ObjPath CodeObjPath)
-  add_custom_command(
-    OUTPUT ${CodeObjPath}
-    DEPENDS ${ObjPath}
-    COMMAND ${LC_BIN}/clang -target amdgcn--amdhsa -o ${CodeObjPath} ${ObjPath}
-    COMMENT "Linking LLVM code object ${CodeObjPath}..."
-  )
-endmacro()
-
-macro(LLVMStringify CodeObjPath HdrPath TargetName)
-  add_custom_command(
-    OUTPUT ${HdrPath}
-    DEPENDS ${CodeObjPath}
-    COMMAND ${CMAKE_CURRENT_SOURCE_DIR}/create_debug_trap_co_hex_file.sh ${CodeObjPath} ${HdrPath} ${TargetName}
-    COMMENT "Generating LLVM code object header ${HdrPath}..."
-  )
-endmacro()
-
-set(TARGET_ISAS
-  "gfx900"
-  "gfx906"
-  "gfx908"
-)
-
-macro(DTraceGenerateHeader ScriptPath HdrPath)
-  add_custom_command(
-    OUTPUT ${HdrPath}
-    DEPENDS ${ScriptPath}
-    COMMAND ${DTRACE} -h -s ${ScriptPath} -o ${HdrPath}
-    COMMENT "Generating SystemTap probes header ${HdrPath}..."
-  )
-endmacro()
-
-set(DTRACE_SCRIPTS
-  "${CMAKE_CURRENT_SOURCE_DIR}/HSADebugAgentGDBProbes.d"
-)
-
-# Build and generate header file for debug trap handler
-set(ASM_HDR_PATHS "")
-set(ASM_SRC "${CMAKE_CURRENT_SOURCE_DIR}/HSATrapHandler_s_gfx9xx.s")
-foreach(ISA IN LISTS TARGET_ISAS)
-  set(OUT_BASE_NAME "HSATrapHandler_s_${ISA}")
-  set(OBJ_PATH ${OUT_BASE_NAME}.o)
-  set(CODE_OBJ_PATH ${OUT_BASE_NAME}.co)
-  set(HDR_PATH ${CMAKE_CURRENT_BINARY_DIR}/${OUT_BASE_NAME}.h)
-  STRING(REGEX MATCHALL "([0-9])" ISA_VERSION "${ISA}")
-  list(GET ISA_VERSION 1 ISA_VERSION_MINOR)
-  list(GET ISA_VERSION 2 ISA_VERSION_STEPPING)
-
-  LLVMAssemble("${ASM_SRC}" ${OBJ_PATH} ${ISA} ${ISA_VERSION_MINOR} ${ISA_VERSION_STEPPING})
-  LLVMLink(${OBJ_PATH} ${CODE_OBJ_PATH})
-  LLVMStringify(${CODE_OBJ_PATH} ${HDR_PATH} ${ISA})
-  list(APPEND ASM_HDR_PATHS ${HDR_PATH})
-endforeach()
-
-# Generate the header files for the GDB probes
-set(PROBES_HDR_PATHS "")
-foreach(DTRACE_SCRIPT IN LISTS DTRACE_SCRIPTS)
-  get_filename_component(SRC_BASE_NAME "${DTRACE_SCRIPT}" NAME_WE)
-  set(OUT_BASE_NAME ${SRC_BASE_NAME})
-  set(HDR_PATH ${CMAKE_CURRENT_BINARY_DIR}/${OUT_BASE_NAME}.h)
-  DTraceGenerateHeader(${DTRACE_SCRIPT} ${HDR_PATH})
-  list(APPEND PROBES_HDR_PATHS ${HDR_PATH})
-endforeach()
-
 # Build and link the program
-add_library(${TARGET_NAME} SHARED ${Src} ${ASM_HDR_PATHS} ${PROBES_HDR_PATHS})
+add_library(${TARGET_NAME} SHARED ${Src})
 target_link_libraries(${TARGET_NAME} PRIVATE ${ROCR_LIB} ${HSAKMT_LIB} c stdc++ dl pthread rt)
 
-set_target_properties(rocr_debug_agent64 PROPERTIES
+set_target_properties(${TARGET_NAME} PROPERTIES
   CXX_STANDARD 11
   CXX_STANDARD_REQUIRED Yes
   CXX_EXTENSIONS No

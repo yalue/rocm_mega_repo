@@ -134,7 +134,7 @@ namespace {
 
     const Record *ExplicitDef;
 
-    GroupInfo() : IDNo(0), ExplicitDef(nullptr) {}
+    GroupInfo() : ExplicitDef(nullptr) {}
   };
 } // end anonymous namespace.
 
@@ -554,7 +554,7 @@ public:
 
   ModifierType ModKind;
   std::vector<Piece *> Options;
-  int Index = 0;
+  int Index;
 
   static bool classof(const Piece *P) {
     return P->getPieceClass() == SelectPieceClass ||
@@ -566,7 +566,7 @@ struct PluralPiece : SelectPiece {
   PluralPiece() : SelectPiece(PluralPieceClass, MT_Plural) {}
 
   std::vector<Piece *> OptionPrefixes;
-  int Index = 0;
+  int Index;
 
   static bool classof(const Piece *P) {
     return P->getPieceClass() == PluralPieceClass;

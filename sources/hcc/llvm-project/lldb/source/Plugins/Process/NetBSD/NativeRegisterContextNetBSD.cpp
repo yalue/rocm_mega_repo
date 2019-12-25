@@ -8,8 +8,6 @@
 
 #include "NativeRegisterContextNetBSD.h"
 
-#include "Plugins/Process/NetBSD/NativeProcessNetBSD.h"
-
 #include "lldb/Host/common/NativeProcessProtocol.h"
 
 using namespace lldb_private;

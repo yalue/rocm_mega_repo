@@ -97,33 +97,6 @@ bool IsOnlySpaces(const EditLineStringType &content) {
   return true;
 }
 
-static int GetOperation(HistoryOperation op) {
-  // The naming used by editline for the history operations is counter
-  // intuitive to how it's used here.
-  //
-  //  - The H_PREV operation returns the previous element in the history, which
-  //    is newer than the current one.
-  //
-  //  - The H_NEXT operation returns the next element in the history, which is
-  //    older than the current one.
-  //
-  // The naming of the enum entries match the semantic meaning.
-  switch(op) {
-    case HistoryOperation::Oldest:
-      return H_FIRST;
-    case HistoryOperation::Older:
-      return H_NEXT;
-    case HistoryOperation::Current:
-      return H_CURR;
-    case HistoryOperation::Newer:
-      return H_PREV;
-    case HistoryOperation::Newest:
-      return H_LAST;
-  }
-  llvm_unreachable("Fully covered switch!");
-}
-
-
 EditLineStringType CombineLines(const std::vector<EditLineStringType> &lines) {
   EditLineStringStreamType combined_stream;
   for (EditLineStringType line : lines) {
@@ -450,8 +423,7 @@ StringList Editline::GetInputAsStringList(int line_count) {
   return lines;
 }
 
-unsigned char Editline::RecallHistory(HistoryOperation op) {
-  assert(op == HistoryOperation::Older || op == HistoryOperation::Newer);
+unsigned char Editline::RecallHistory(bool earlier) {
   if (!m_history_sp || !m_history_sp->IsValid())
     return CC_ERROR;
 
@@ -461,38 +433,27 @@ unsigned char Editline::RecallHistory(HistoryOperation op) {
 
   // Treat moving from the "live" entry differently
   if (!m_in_history) {
-    switch (op) {
-    case HistoryOperation::Newer:
+    if (!earlier)
       return CC_ERROR; // Can't go newer than the "live" entry
-    case HistoryOperation::Older: {
-      if (history_w(pHistory, &history_event,
-                    GetOperation(HistoryOperation::Newest)) == -1)
-        return CC_ERROR;
-      // Save any edits to the "live" entry in case we return by moving forward
-      // in history (it would be more bash-like to save over any current entry,
-      // but libedit doesn't offer the ability to add entries anywhere except
-      // the end.)
-      SaveEditedLine();
-      m_live_history_lines = m_input_lines;
-      m_in_history = true;
-    } break;
-    default:
-      llvm_unreachable("unsupported history direction");
-    }
+    if (history_w(pHistory, &history_event, H_FIRST) == -1)
+      return CC_ERROR;
+
+    // Save any edits to the "live" entry in case we return by moving forward
+    // in history (it would be more bash-like to save over any current entry,
+    // but libedit doesn't offer the ability to add entries anywhere except the
+    // end.)
+    SaveEditedLine();
+    m_live_history_lines = m_input_lines;
+    m_in_history = true;
   } else {
-    if (history_w(pHistory, &history_event, GetOperation(op)) == -1) {
-      switch (op) {
-      case HistoryOperation::Older:
-        // Can't move earlier than the earliest entry.
+    if (history_w(pHistory, &history_event, earlier ? H_PREV : H_NEXT) == -1) {
+      // Can't move earlier than the earliest entry
+      if (earlier)
         return CC_ERROR;
-      case HistoryOperation::Newer:
-        // Moving to newer-than-the-newest entry yields the "live" entry.
-        new_input_lines = m_live_history_lines;
-        m_in_history = false;
-        break;
-      default:
-        llvm_unreachable("unsupported history direction");
-      }
+
+      // ... but moving to newer than the newest yields the "live" entry
+      new_input_lines = m_live_history_lines;
+      m_in_history = false;
     }
   }
 
@@ -507,17 +468,8 @@ unsigned char Editline::RecallHistory(HistoryOperation op) {
 
   // Prepare to edit the last line when moving to previous entry, or the first
   // line when moving to next entry
-  switch (op) {
-  case HistoryOperation::Older:
-    m_current_line_index = (int)m_input_lines.size() - 1;
-    break;
-  case HistoryOperation::Newer:
-    m_current_line_index = 0;
-    break;
-  default:
-    llvm_unreachable("unsupported history direction");
-  }
-  SetCurrentLine(m_current_line_index);
+  SetCurrentLine(m_current_line_index =
+                     earlier ? (int)m_input_lines.size() - 1 : 0);
   MoveCursor(CursorLocation::BlockEnd, CursorLocation::EditingPrompt);
   return CC_NEWLINE;
 }
@@ -769,7 +721,7 @@ unsigned char Editline::PreviousLineCommand(int ch) {
   SaveEditedLine();
 
   if (m_current_line_index == 0) {
-    return RecallHistory(HistoryOperation::Older);
+    return RecallHistory(true);
   }
 
   // Start from a known location
@@ -795,7 +747,7 @@ unsigned char Editline::NextLineCommand(int ch) {
     // Don't add an extra line if the existing last line is blank, move through
     // history instead
     if (IsOnlySpaces()) {
-      return RecallHistory(HistoryOperation::Newer);
+      return RecallHistory(false);
     }
 
     // Determine indentation for the new line
@@ -827,13 +779,13 @@ unsigned char Editline::NextLineCommand(int ch) {
 unsigned char Editline::PreviousHistoryCommand(int ch) {
   SaveEditedLine();
 
-  return RecallHistory(HistoryOperation::Older);
+  return RecallHistory(true);
 }
 
 unsigned char Editline::NextHistoryCommand(int ch) {
   SaveEditedLine();
 
-  return RecallHistory(HistoryOperation::Newer);
+  return RecallHistory(false);
 }
 
 unsigned char Editline::FixIndentationCommand(int ch) {
@@ -1152,15 +1104,6 @@ void Editline::ConfigureEditor(bool multiline) {
          NULL); // Delete previous word, behave like bash in emacs mode
   el_set(m_editline, EL_BIND, "\t", "lldb-complete",
          NULL); // Bind TAB to auto complete
-
-  // Allow ctrl-left-arrow and ctrl-right-arrow for navigation, behave like
-  // bash in emacs mode.
-  el_set(m_editline, EL_BIND, ESCAPE "[1;5C", "em-next-word", NULL);
-  el_set(m_editline, EL_BIND, ESCAPE "[1;5D", "ed-prev-word", NULL);
-  el_set(m_editline, EL_BIND, ESCAPE "[5C", "em-next-word", NULL);
-  el_set(m_editline, EL_BIND, ESCAPE "[5D", "ed-prev-word", NULL);
-  el_set(m_editline, EL_BIND, ESCAPE ESCAPE "[C", "em-next-word", NULL);
-  el_set(m_editline, EL_BIND, ESCAPE ESCAPE "[D", "ed-prev-word", NULL);
 
   // Allow user-specific customization prior to registering bindings we
   // absolutely require

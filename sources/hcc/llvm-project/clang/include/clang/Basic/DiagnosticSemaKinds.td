@@ -551,13 +551,9 @@ def err_access_decl : Error<
   "use using declarations instead">;
 def warn_deprecated_copy_operation : Warning<
   "definition of implicit copy %select{constructor|assignment operator}1 "
-  "for %0 is deprecated because it has a user-declared copy "
-  "%select{assignment operator|constructor}1">,
-  InGroup<DeprecatedCopy>, DefaultIgnore;
-def warn_deprecated_copy_dtor_operation : Warning<
-  "definition of implicit copy %select{constructor|assignment operator}1 "
-  "for %0 is deprecated because it has a user-declared destructor">,
-  InGroup<DeprecatedCopyDtor>, DefaultIgnore;
+  "for %0 is deprecated because it has a user-declared "
+  "%select{copy %select{assignment operator|constructor}1|destructor}2">,
+  InGroup<Deprecated>, DefaultIgnore;
 def warn_cxx17_compat_exception_spec_in_signature : Warning<
   "mangled name of %0 will change in C++17 due to non-throwing exception "
   "specification in function signature">, InGroup<CXX17CompatMangling>;
@@ -579,22 +575,21 @@ def err_thread_non_global : Error<
 def err_thread_unsupported : Error<
   "thread-local storage is not supported for the current target">;
 
-// FIXME: Combine fallout warnings to just one warning.
 def warn_maybe_falloff_nonvoid_function : Warning<
-  "non-void function does not return a value in all control paths">,
+  "control may reach end of non-void function">,
   InGroup<ReturnType>;
 def warn_falloff_nonvoid_function : Warning<
-  "non-void function does not return a value">,
+  "control reaches end of non-void function">,
   InGroup<ReturnType>;
 def err_maybe_falloff_nonvoid_block : Error<
-  "non-void block does not return a value in all control paths">;
+  "control may reach end of non-void block">;
 def err_falloff_nonvoid_block : Error<
-  "non-void block does not return a value">;
+  "control reaches end of non-void block">;
 def warn_maybe_falloff_nonvoid_coroutine : Warning<
-  "non-void coroutine does not return a value in all control paths">,
+  "control may reach end of coroutine; which is undefined behavior because the promise type %0 does not declare 'return_void()'">,
   InGroup<ReturnType>;
 def warn_falloff_nonvoid_coroutine : Warning<
-  "non-void coroutine does not return a value">,
+  "control reaches end of coroutine; which is undefined behavior because the promise type %0 does not declare 'return_void()'">,
   InGroup<ReturnType>;
 def warn_suggest_noreturn_function : Warning<
   "%select{function|method}0 %1 could be declared with attribute 'noreturn'">,
@@ -992,22 +987,6 @@ def warn_objc_boxing_invalid_utf8_string : Warning<
   "string is ill-formed as UTF-8 and will become a null %0 when boxed">,
   InGroup<ObjCBoxing>;
 
-def err_objc_direct_on_protocol : Error<
-  "'objc_direct' attribute cannot be applied to %select{methods|properties}0 "
-  "declared in an Objective-C protocol">;
-def err_objc_direct_missing_on_decl : Error<
-  "direct method implementation was previously declared not direct">;
-def err_objc_direct_on_override : Error<
-  "methods that %select{override superclass methods|implement protocol requirements}0 cannot be direct">;
-def err_objc_override_direct_method : Error<
-  "cannot override a method that is declared direct by a superclass">;
-def warn_objc_direct_ignored : Warning<
-  "%0 attribute isn't implemented by this Objective-C runtime">,
-  InGroup<IgnoredAttributes>;
-def warn_objc_direct_property_ignored : Warning<
-  "direct attribute on property %0 ignored (not implemented by this Objective-C runtime)">,
-  InGroup<IgnoredAttributes>;
-
 def warn_conflicting_overriding_ret_types : Warning<
   "conflicting return type in "
   "declaration of %0%diff{: $ vs $|}1,2">,
@@ -1093,7 +1072,6 @@ def warn_accessor_property_type_mismatch : Warning<
   "type of property %0 does not match type of accessor %1">;
 def note_conv_function_declared_at : Note<"type conversion function declared here">;
 def note_method_declared_at : Note<"method %0 declared here">;
-def note_direct_method_declared_at : Note<"direct method %0 declared here">;
 def note_property_attribute : Note<"property %0 is declared "
   "%select{deprecated|unavailable|partial}1 here">;
 def err_setter_type_void : Error<"type of setter must be void">;
@@ -1329,8 +1307,6 @@ def warn_multiple_selectors: Warning<
   "several methods with selector %0 of mismatched types are found "
   "for the @selector expression">,
   InGroup<SelectorTypeMismatch>, DefaultIgnore;
-def err_direct_selector_expression: Error<
-  "@selector expression formed with direct selector %0">;
 
 def err_objc_kindof_nonobject : Error<
   "'__kindof' specifier cannot be applied to non-object type %0">;
@@ -1344,12 +1320,6 @@ def err_objc_method_unsupported_param_ret_type : Error<
 def warn_messaging_unqualified_id : Warning<
   "messaging unqualified id">, DefaultIgnore,
   InGroup<DiagGroup<"objc-messaging-id">>;
-def err_messaging_unqualified_id_with_direct_method : Error<
-  "messaging unqualified id with a method that is possibly direct">;
-def err_messaging_super_with_direct_method : Error<
-  "messaging super with a direct method">;
-def err_messaging_class_with_direct_method : Error<
-  "messaging a Class with a method that is possibly direct">;
 
 // C++ declarations
 def err_static_assert_expression_is_not_constant : Error<
@@ -1732,10 +1702,7 @@ def note_ivar_decl : Note<"instance variable is declared here">;
 def note_bitfield_decl : Note<"bit-field is declared here">;
 def note_implicit_param_decl : Note<"%0 is an implicit parameter">;
 def note_member_synthesized_at : Note<
-  "in %select{implicit|defaulted}0 %sub{select_special_member_kind}1 for %2 "
-  "first required here">;
-def note_comparison_synthesized_at : Note<
-  "in defaulted %sub{select_defaulted_comparison_kind}0 for %1 "
+  "in implicit %sub{select_special_member_kind}0 for %1 "
   "first required here">;
 def err_missing_default_ctor : Error<
   "%select{constructor for %1 must explicitly initialize the|"
@@ -2575,26 +2542,6 @@ def err_non_constant_constraint_expression : Error<
   "expression">;
 def err_non_bool_atomic_constraint : Error<
   "atomic constraint must be of type 'bool' (found %0)">;
-def err_template_arg_list_constraints_not_satisfied : Error<
-  "constraints not satisfied for %select{class template|function template|variable template|alias template|"
-  "template template parameter|template}0 %1%2">;
-def note_constraints_not_satisfied : Note<
-  "constraints not satisfied">;
-def note_substituted_constraint_expr_is_ill_formed : Note<
-  "because substituted constraint expression is ill-formed%0">;
-def note_atomic_constraint_evaluated_to_false : Note<
-  "%select{and |because }0'%1' evaluated to false">;
-def note_concept_specialization_constraint_evaluated_to_false : Note<
-  "%select{and |because }0'%1' evaluated to false">;
-def note_single_arg_concept_specialization_constraint_evaluated_to_false : Note<
-  "%select{and |because }0%1 does not satisfy %2">;
-def note_atomic_constraint_evaluated_to_false_elaborated : Note<
-  "%select{and |because }0'%1' (%2 %3 %4) evaluated to false">;
-def err_could_not_normalize_ill_formed_constraint : Error<
-  "required expansion of concept specialization %0 failed, substituted "
-  "expression would be illegal">;
-def note_could_not_normalize_ill_formed_constraint_reason : Note<
-  "because: %0">;
 
 def err_template_different_requires_clause : Error<
   "requires clause differs in template redeclaration">;
@@ -2647,8 +2594,6 @@ def err_attribute_requires_positive_integer : Error<
   "integral compile time constant expression">;
 def err_attribute_requires_opencl_version : Error<
   "%0 attribute requires OpenCL version %1%select{| or above}2">;
-def err_invalid_branch_protection_spec : Error<
-  "invalid or misplaced branch protection specification '%0'">;
 def warn_unsupported_target_attribute
     : Warning<"%select{unsupported|duplicate}0%select{| architecture}1 '%2' in"
               " the 'target' attribute string; 'target' attribute ignored">,
@@ -3661,15 +3606,6 @@ def err_attribute_overloadable_no_prototype : Error<
 def err_attribute_overloadable_multiple_unmarked_overloads : Error<
   "at most one overload for a given name may lack the 'overloadable' "
   "attribute">;
-def warn_attribute_no_builtin_invalid_builtin_name : Warning<
-  "'%0' is not a valid builtin name for %1">,
-  InGroup<DiagGroup<"invalid-no-builtin-names">>;
-def err_attribute_no_builtin_wildcard_or_builtin_name : Error<
-  "empty %0 cannot be composed with named ones">;
-def err_attribute_no_builtin_on_non_definition : Error<
-  "%0 attribute is permitted on definitions only">;
-def err_attribute_no_builtin_on_defaulted_deleted_function : Error<
-  "%0 attribute has no effect on defaulted or deleted functions">;
 def warn_ns_attribute_wrong_return_type : Warning<
   "%0 attribute only applies to %select{functions|methods|properties}1 that "
   "return %select{an Objective-C object|a pointer|a non-retainable pointer}2">,
@@ -3886,8 +3822,6 @@ def note_ovl_candidate_inconsistent_deduction_types : Note<
 def note_ovl_candidate_explicit_arg_mismatch_named : Note<
     "candidate template ignored: invalid explicitly-specified argument "
     "for template parameter %0">;
-def note_ovl_candidate_unsatisfied_constraints : Note<
-    "candidate template ignored: constraints not satisfied%0">;
 def note_ovl_candidate_explicit_arg_mismatch_unnamed : Note<
     "candidate template ignored: invalid explicitly-specified argument "
     "for %ordinal0 template parameter">;
@@ -4072,10 +4006,7 @@ def err_ovl_deleted_oper : Error<
   "overload resolution selected deleted operator '%0'">;
 def err_ovl_deleted_special_oper : Error<
   "object of type %0 cannot be %select{constructed|copied|moved|assigned|"
-  "assigned|destroyed}1 because its %sub{select_special_member_kind}1 is "
-  "implicitly deleted">;
-def err_ovl_deleted_comparison : Error<
-  "object of type %0 cannot be compared because its %1 is implicitly deleted">;
+  "assigned|destroyed}1 because its %sub{select_special_member_kind}1 is implicitly deleted">;
 def err_ovl_rewrite_equalequal_not_bool : Error<
   "return type %0 of selected 'operator==' function for rewritten "
   "'%1' comparison is not 'bool'">;
@@ -4583,14 +4514,6 @@ def note_template_default_arg_checking : Note<
   "while checking a default template argument used here">;
 def note_concept_specialization_here : Note<
   "while checking the satisfaction of concept '%0' requested here">;
-def note_checking_constraints_for_template_id_here : Note<
-  "while checking constraint satisfaction for template '%0' required here">;
-def note_checking_constraints_for_var_spec_id_here : Note<
-  "while checking constraint satisfaction for variable template "
-  "partial specialization '%0' required here">;
-def note_checking_constraints_for_class_spec_id_here : Note<
-  "while checking constraint satisfaction for class template partial "
-  "specialization '%0' required here">;
 def note_constraint_substitution_here : Note<
   "while substituting template arguments into constraint expression here">;
 def note_instantiation_contexts_suppressed : Note<
@@ -6509,8 +6432,6 @@ def warn_objc_unsafe_perform_selector : Warning<
   InGroup<DiagGroup<"objc-unsafe-perform-selector">>;
 def note_objc_unsafe_perform_selector_method_declared_here :  Note<
   "method %0 that returns %1 declared here">;
-def err_attribute_arm_mve_alias : Error<
-  "'__clang_arm_mve_alias' attribute can only be applied to an ARM MVE builtin">;
 
 def warn_setter_getter_impl_required : Warning<
   "property %0 requires method %1 to be defined - "
@@ -6638,10 +6559,10 @@ def err_downcast_from_inaccessible_base : Error<
 def err_upcast_to_inaccessible_base : Error<
   "cannot cast %0 to its %select{private|protected}2 base class %1">;
 def err_bad_dynamic_cast_not_ref_or_ptr : Error<
-  "invalid target type %0 for dynamic_cast; target type must be a reference or pointer type to a defined class">;
-def err_bad_dynamic_cast_not_class : Error<"%0 is not a class type">;
+  "%0 is not a reference or pointer">;
+def err_bad_dynamic_cast_not_class : Error<"%0 is not a class">;
 def err_bad_dynamic_cast_incomplete : Error<"%0 is an incomplete type">;
-def err_bad_dynamic_cast_not_ptr : Error<"cannot use dynamic_cast to convert from %0 to %1">;
+def err_bad_dynamic_cast_not_ptr : Error<"%0 is not a pointer">;
 def err_bad_dynamic_cast_not_polymorphic : Error<"%0 is not polymorphic">;
 
 // Other C++ expressions
@@ -6928,10 +6849,10 @@ let CategoryName = "Lambda Issue" in {
   def err_noreturn_lambda_has_return_expr : Error<
     "lambda declared 'noreturn' should not return">;
   def warn_maybe_falloff_nonvoid_lambda : Warning<
-    "non-void lambda does not return a value in all control paths">,
+    "control may reach end of non-void lambda">,
     InGroup<ReturnType>;
   def warn_falloff_nonvoid_lambda : Warning<
-    "non-void lambda does not return a value">,
+    "control reaches end of non-void lambda">,
     InGroup<ReturnType>;
   def err_access_lambda_capture : Error<
     // The ERRORs represent other special members that aren't constructors, in
@@ -7472,8 +7393,10 @@ def err_atomic_op_needs_trivial_copy : Error<
 def err_atomic_op_needs_atomic_int_or_ptr : Error<
   "address argument to atomic operation must be a pointer to %select{|atomic }0"
   "integer or pointer (%1 invalid)">;
-def err_atomic_op_needs_atomic_int : Error<
-  "address argument to atomic operation must be a pointer to "
+def err_atomic_op_needs_int32_or_ptr : Error<
+  "address argument to atomic operation must be a pointer to signed or unsigned 32-bit integer">;
+def err_atomic_op_bitwise_needs_atomic_int : Error<
+  "address argument to bitwise atomic operation must be a pointer to "
   "%select{|atomic }0integer (%1 invalid)">;
 def warn_atomic_op_has_invalid_memory_order : Warning<
   "memory order argument to atomic operation is invalid">,
@@ -8160,7 +8083,7 @@ def err_incorrect_defaulted_consteval : Error<
   "cannot be consteval because implicit definition is not constexpr">;
 def warn_defaulted_method_deleted : Warning<
   "explicitly defaulted %sub{select_special_member_kind}0 is implicitly "
-  "deleted">, InGroup<DefaultedFunctionDeleted>;
+  "deleted">, InGroup<DiagGroup<"defaulted-function-deleted">>;
 def err_out_of_line_default_deletes : Error<
   "defaulting this %sub{select_special_member_kind}0 "
   "would delete it after its first declaration">;
@@ -8177,67 +8100,6 @@ def warn_vbase_moved_multiple_times : Warning<
 def note_vbase_moved_here : Note<
   "%select{%1 is a virtual base class of base class %2 declared here|"
   "virtual base class %1 declared here}0">;
-
-// C++20 defaulted comparisons
-// This corresponds to values of Sema::DefaultedComparisonKind.
-def select_defaulted_comparison_kind : TextSubstitution<
-  "%select{<ERROR>|equality|three-way|equality|relational}0 comparison "
-  "operator">;
-def ext_defaulted_comparison : ExtWarn<
-  "defaulted comparison operators are a C++20 extension">, InGroup<CXX2a>;
-def warn_cxx17_compat_defaulted_comparison : Warning<
-  "defaulted comparison operators are incompatible with C++ standards "
-  "before C++20">, InGroup<CXXPre2aCompat>, DefaultIgnore;
-def err_defaulted_comparison_template : Error<
-  "comparison operator template cannot be defaulted">;
-def err_defaulted_comparison_out_of_class : Error<
-  "%sub{select_defaulted_comparison_kind}0 can only be defaulted in a class "
-  "definition">;
-def err_defaulted_comparison_param : Error<
-  "invalid parameter type for defaulted %sub{select_defaulted_comparison_kind}0"
-  "%diff{; found $, expected $|}1,2">;
-def err_defaulted_comparison_non_const : Error<
-  "defaulted member %sub{select_defaulted_comparison_kind}0 must be "
-  "const-qualified">;
-def err_defaulted_comparison_return_type_not_bool : Error<
-  "return type for defaulted %sub{select_defaulted_comparison_kind}0 "
-  "must be 'bool', not %1">;
-def warn_defaulted_comparison_deleted : Warning<
-  "explicitly defaulted %sub{select_defaulted_comparison_kind}0 is implicitly "
-  "deleted">, InGroup<DefaultedFunctionDeleted>;
-def err_non_first_default_compare_deletes : Error<
-  "defaulting this %sub{select_defaulted_comparison_kind}0 "
-  "would delete it after its first declaration">;
-def note_defaulted_comparison_union : Note<
-  "defaulted %0 is implicitly deleted because "
-  "%2 is a %select{union-like class|union}1 with variant members">;
-def note_defaulted_comparison_reference_member : Note<
-  "defaulted %0 is implicitly deleted because "
-  "class %1 has a reference member">;
-def note_defaulted_comparison_ambiguous : Note<
-  "defaulted %0 is implicitly deleted because implied %select{|'==' |'<' }1"
-  "comparison %select{|for member %3 |for base class %3 }2is ambiguous">;
-def note_defaulted_comparison_calls_deleted : Note<
-  "defaulted %0 is implicitly deleted because it would invoke a deleted "
-  "comparison function%select{| for member %2| for base class %2}1">;
-def note_defaulted_comparison_no_viable_function : Note<
-  "defaulted %0 is implicitly deleted because there is no viable comparison "
-  "function%select{| for member %2| for base class %2}1">;
-def note_defaulted_comparison_no_viable_function_synthesized : Note<
-  "three-way comparison cannot be synthesized because there is no viable "
-  "function for %select{'=='|'<'}0 comparison">;
-def note_defaulted_comparison_not_rewritten_callee : Note<
-  "defaulted %0 is implicitly deleted because this non-rewritten comparison "
-  "function would be the best match for the comparison">;
-def err_incorrect_defaulted_comparison_constexpr : Error<
-  "defaulted definition of %sub{select_defaulted_comparison_kind}0 "
-  "cannot be declared %select{constexpr|consteval}1 because it invokes "
-  "a non-constexpr comparison function">;
-def note_defaulted_comparison_not_constexpr : Note<
-  "non-constexpr comparison function would be used to compare "
-  "%select{|member %1|base class %1}0">;
-def note_defaulted_comparison_not_constexpr_here : Note<
-  "non-constexpr comparison function declared here">;
 
 def ext_implicit_exception_spec_mismatch : ExtWarn<
   "function previously declared with an %select{explicit|implicit}0 exception "
@@ -8485,7 +8347,7 @@ def warn_tautological_overlap_comparison : Warning<
 
 def warn_stringcompare : Warning<
   "result of comparison against %select{a string literal|@encode}0 is "
-  "unspecified (use an explicit string comparison function instead)">,
+  "unspecified (use strncmp instead)">,
   InGroup<StringCompare>;
 
 def warn_identity_field_assign : Warning<
@@ -8775,12 +8637,6 @@ def warn_argument_invalid_range : Warning<
   InGroup<DiagGroup<"argument-outside-range">>;
 def err_argument_not_multiple : Error<
   "argument should be a multiple of %0">;
-def err_argument_not_power_of_2 : Error<
-  "argument should be a power of 2">;
-def err_argument_not_shifted_byte : Error<
-  "argument should be an 8-bit value shifted by a multiple of 8 bits">;
-def err_argument_not_shifted_byte_or_xxff : Error<
-  "argument should be an 8-bit value shifted by a multiple of 8 bits, or in the form 0x??FF">;
 def warn_neon_vector_initializer_non_portable : Warning<
   "vector initializers are not compatible with NEON intrinsics in big endian "
   "mode">, InGroup<DiagGroup<"nonportable-vector-initialization">>;
@@ -8799,12 +8655,6 @@ def err_32_bit_builtin_64_bit_tgt : Error<
   "this builtin is only available on 32-bit targets">;
 def err_builtin_x64_aarch64_only : Error<
   "this builtin is only available on x86-64 and aarch64 targets">;
-def err_mips_builtin_requires_dsp : Error<
-  "this builtin requires 'dsp' ASE, please use -mdsp">;
-def err_mips_builtin_requires_dspr2 : Error<
-  "this builtin requires 'dsp r2' ASE, please use -mdspr2">;
-def err_mips_builtin_requires_msa : Error<
-  "this builtin requires 'msa' ASE, please use -mmsa">;
 def err_ppc_builtin_only_on_pwr7 : Error<
   "this builtin is only valid on POWER7 or later CPUs">;
 def err_x86_builtin_invalid_rounding : Error<
@@ -9030,7 +8880,7 @@ def err_unknown_any_function : Error<
   "function %0 with unknown type must be given a function type">;
 
 def err_filter_expression_integral : Error<
-  "filter expression has non-integral type %0">;
+  "filter expression type should be an integral value not %0">;
 
 def err_non_asm_stmt_in_naked_function : Error<
   "non-ASM statement in naked function is not supported">;
@@ -9339,12 +9189,8 @@ def err_omp_threadprivate_incomplete_type : Error<
   "threadprivate variable with incomplete type %0">;
 def err_omp_no_dsa_for_variable : Error<
   "variable %0 must have explicitly specified data sharing attributes">;
-def err_omp_defaultmap_no_attr_for_variable : Error<
-  "variable %0 must have explicitly specified data sharing attributes, data mapping attributes, or in an is_device_ptr clause">;
 def note_omp_default_dsa_none : Note<
   "explicit data sharing attribute requested here">;
-def note_omp_defaultmap_attr_none : Note<
-  "explicit data sharing attribute, data mapping attribute, or is_device_ptr clause requested here">;
 def err_omp_wrong_dsa : Error<
   "%0 variable cannot be %1">;
 def err_omp_variably_modified_type_not_supported : Error<
@@ -9433,7 +9279,7 @@ def ext_omp_loop_not_canonical_init : ExtWarn<
   "('var = init' or 'T var = init')">, InGroup<OpenMPLoopForm>;
 def err_omp_loop_not_canonical_cond : Error<
   "condition of OpenMP for loop must be a relational comparison "
-  "('<', '<=', '>', %select{or '>='|'>=', or '!='}0) of loop variable %1">;
+	"('<', '<=', '>', %select{or '>='|'>=', or '!='}0) of loop variable %1">;
 def err_omp_loop_not_canonical_incr : Error<
   "increment clause of OpenMP for loop must perform simple addition "
   "or subtraction on loop variable %0">;
@@ -9488,7 +9334,7 @@ def err_omp_prohibited_region : Error<
   "; perhaps you forget to enclose 'omp %3' directive into a target region?|"
   "; perhaps you forget to enclose 'omp %3' directive into a teams region?}2">;
 def err_omp_prohibited_region_simd : Error<
-  "OpenMP constructs may not be nested inside a simd region%select{| except for ordered simd, simd or atomic directive}0">;
+  "OpenMP constructs may not be nested inside a simd region">;
 def err_omp_prohibited_region_atomic : Error<
   "OpenMP constructs may not be nested inside an atomic region">;
 def err_omp_prohibited_region_critical_same_name : Error<
@@ -9683,8 +9529,8 @@ def err_omp_reduction_vla_unsupported : Error<
 def err_omp_linear_distribute_var_non_loop_iteration : Error<
   "only loop iteration variables are allowed in 'linear' clause in distribute directives">;
 def warn_omp_non_trivial_type_mapped : Warning<
-  "Type %0 is not trivially copyable and not guaranteed to be mapped correctly">,
-  InGroup<OpenMPMapping>;
+  "Non-trivial type %0 is mapped, only trivial types are guaranteed to be mapped correctly">,
+  InGroup<OpenMPTarget>;
 def err_omp_requires_clause_redeclaration : Error <
   "Only one %0 clause can appear on a requires directive in a single translation unit">;
 def note_omp_requires_previous_clause : Note <
@@ -9773,8 +9619,6 @@ def warn_omp_declare_variant_marked_as_declare_variant : Warning<
   "variant function in '#pragma omp declare variant' is itself marked as '#pragma omp declare variant'"
   >, InGroup<SourceUsesOpenMP>;
 def note_omp_marked_declare_variant_here : Note<"marked as 'declare variant' here">;
-def err_omp_one_defaultmap_each_category: Error<
-  "at most one defaultmap clause for each variable-category can appear on the directive">;
 } // end of OpenMP category
 
 let CategoryName = "Related Result Type Issue" in {
@@ -10249,19 +10093,4 @@ def err_bit_cast_non_trivially_copyable : Error<
   "__builtin_bit_cast %select{source|destination}0 type must be trivially copyable">;
 def err_bit_cast_type_size_mismatch : Error<
   "__builtin_bit_cast source size does not equal destination size (%0 vs %1)">;
-
-// SYCL-specific diagnostics
-def warn_sycl_kernel_num_of_template_params : Warning<
-  "'sycl_kernel' attribute only applies to a function template with at least"
-  " two template parameters">, InGroup<IgnoredAttributes>;
-def warn_sycl_kernel_invalid_template_param_type : Warning<
-  "template parameter of a function template with the 'sycl_kernel' attribute"
-  " cannot be a non-type template parameter">, InGroup<IgnoredAttributes>;
-def warn_sycl_kernel_num_of_function_params : Warning<
-  "function template with 'sycl_kernel' attribute must have a single parameter">,
-  InGroup<IgnoredAttributes>;
-def warn_sycl_kernel_return_type : Warning<
-  "function template with 'sycl_kernel' attribute must have a 'void' return type">,
-  InGroup<IgnoredAttributes>;
-
 } // end of sema component.

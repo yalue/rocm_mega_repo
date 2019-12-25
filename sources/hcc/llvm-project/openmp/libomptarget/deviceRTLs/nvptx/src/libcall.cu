@@ -11,7 +11,7 @@
 //
 //===----------------------------------------------------------------------===//
 
-#include "common/omptarget.h"
+#include "omptarget-nvptx.h"
 
 // Timer precision is 1ns
 #define TIMER_PRECISION ((double)1E-9)
@@ -286,7 +286,7 @@ EXTERN void omp_get_partition_place_nums(int *place_nums) {
 }
 
 EXTERN int omp_get_cancellation(void) {
-  int rc = 0;
+  int rc = FALSE; // currently false only
   PRINT(LD_IO, "call omp_get_cancellation() returns %d\n", rc);
   return rc;
 }
@@ -364,7 +364,7 @@ EXTERN void omp_set_lock(omp_lock_t *lock) {
     for (;;) {
       now = clock();
       clock_t cycles = now > start ? now - start : now + (0xffffffff - start);
-      if (cycles >= __OMP_SPIN * GetBlockIdInKernel()) {
+      if (cycles >= __OMP_SPIN * blockIdx.x) {
         break;
       }
     }

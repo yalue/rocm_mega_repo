@@ -51,8 +51,7 @@ static MCRegisterInfo *createRISCVMCRegisterInfo(const Triple &TT) {
 }
 
 static MCAsmInfo *createRISCVMCAsmInfo(const MCRegisterInfo &MRI,
-                                       const Triple &TT,
-                                       const MCTargetOptions &Options) {
+                                       const Triple &TT) {
   MCAsmInfo *MAI = new RISCVMCAsmInfo(TT);
 
   Register SP = MRI.getDwarfRegNum(RISCV::X2, true);

@@ -24,11 +24,20 @@
 #include "KFDTestUtil.hpp"
 
 #include <stdlib.h>
+#include <sys/time.h>
 #include <algorithm>
 #include <vector>
 #include "BaseQueue.hpp"
 #include "Dispatch.hpp"
 #include "SDMAPacket.hpp"
+
+void WaitUntilInput() {
+    char dummy;
+    printf("Press enter to continue: ");
+    do {
+        scanf("%c", &dummy);
+    } while (dummy != 10); // enter key's ascii value is 10
+}
 
 uint64_t RoundToPowerOf2(uint64_t val) {
   int bytes = sizeof(uint64_t);
@@ -115,6 +124,8 @@ unsigned int FamilyIdFromNode(const HsaNodeProperties *props) {
         familyId = FAMILY_AI;
         if (props->EngineId.ui32.Stepping == 2)
             familyId = FAMILY_RV;
+        if (props->EngineId.ui32.Stepping == 8)
+            familyId = FAMILY_AR;
         break;
     case 10:
         familyId = FAMILY_NV;
@@ -129,17 +140,19 @@ unsigned int FamilyIdFromNode(const HsaNodeProperties *props) {
     return familyId;
 }
 
-void GetSdmaInfo(const HsaNodeProperties *props,
+void GetHwQueueInfo(const HsaNodeProperties *props,
+                 unsigned int *p_num_cp_queues,
                  unsigned int *p_num_sdma_engines,
                  unsigned int *p_num_sdma_xgmi_engines,
                  unsigned int *p_num_sdma_queues_per_engine) {
+    int num_cp_queues = 24;
     int num_sdma_queues_per_engine = 2;
 
     if (props->EngineId.ui32.Major == 9) {
         if (props->EngineId.ui32.Stepping == 6)  // VEGA20
             num_sdma_queues_per_engine = 8;
-    } else if (props->EngineId.ui32.Major == 10) { //NAVIi
-            num_sdma_queues_per_engine = 8;
+    } else if (props->EngineId.ui32.Major == 10) {  // NAVI
+        num_sdma_queues_per_engine = 8;
     }
 
     if (p_num_sdma_engines)
@@ -150,6 +163,9 @@ void GetSdmaInfo(const HsaNodeProperties *props,
 
     if (p_num_sdma_queues_per_engine)
         *p_num_sdma_queues_per_engine = num_sdma_queues_per_engine;
+
+    if (p_num_cp_queues)
+        *p_num_cp_queues = num_cp_queues;
 }
 
 bool isTonga(const HsaNodeProperties *props) {
@@ -159,6 +175,12 @@ bool isTonga(const HsaNodeProperties *props) {
     }
 
     return false;
+}
+
+HSAuint64 GetSystemTickCountInMicroSec() {
+    struct timeval t;
+    gettimeofday(&t, 0);
+    return t.tv_sec * 1000000ULL + t.tv_usec;
 }
 
 const HsaMemoryBuffer HsaMemoryBuffer::Null;
@@ -189,6 +211,7 @@ HsaMemoryBuffer::HsaMemoryBuffer(HSAuint64 size, unsigned int node, bool zero, b
             m_Flags.ui32.HostAccess = 1;
             m_Flags.ui32.NonPaged = 0;
             m_Flags.ui32.CoarseGrain = 0;
+            m_Flags.ui32.NoNUMABind = 1;
         }
 
         if (isExec)
@@ -196,6 +219,9 @@ HsaMemoryBuffer::HsaMemoryBuffer(HSAuint64 size, unsigned int node, bool zero, b
     }
     if (isReadOnly)
         m_Flags.ui32.ReadOnly = 1;
+
+    if (zero)
+        EXPECT_EQ(m_Flags.ui32.HostAccess, 1);
 
     EXPECT_SUCCESS(hsaKmtAllocMemory(m_Node, m_Size, m_Flags, &m_pBuf));
     if (is_dgpu()) {
@@ -583,4 +609,40 @@ const int HsaNodeInfo::FindLargeBarGPUNode() const {
             return gpuNodes.at(i);
 
     return -1;
+}
+
+const bool HsaNodeInfo::AreGPUNodesXGMI(int node0, int node1) const {
+    const HsaNodeProperties *pNodeProperties0 = GetNodeProperties(node0);
+    const HsaNodeProperties *pNodeProperties1 = GetNodeProperties(node1);
+
+    if ((pNodeProperties0->HiveID != 0) && (pNodeProperties1->HiveID != 0) &&
+        (pNodeProperties0->HiveID == pNodeProperties1->HiveID))
+        return true;
+
+    return false;
+}
+
+int HsaNodeInfo::FindAccessiblePeers(std::vector<HSAuint32> *peers, HSAuint32 dstNode,
+        bool bidirectional) const {
+    peers->push_back(dstNode);
+    if (IsGPUNodeLargeBar(dstNode)) {
+        for (unsigned i = 0; i < m_NodesWithGPU.size(); i++) {
+            if (m_NodesWithGPU.at(i) == dstNode)
+                continue;
+
+            if (!bidirectional || IsGPUNodeLargeBar(m_NodesWithGPU.at(i)) ||
+                AreGPUNodesXGMI(dstNode, m_NodesWithGPU.at(i)))
+                peers->push_back(m_NodesWithGPU.at(i));
+        }
+    } else {
+        for (unsigned i = 0; i < m_NodesWithGPU.size(); i++) {
+            if (m_NodesWithGPU.at(i) == dstNode)
+                continue;
+
+            if (AreGPUNodesXGMI(dstNode, m_NodesWithGPU.at(i)))
+                peers->push_back(m_NodesWithGPU.at(i));
+        }
+    }
+
+    return peers->size();
 }

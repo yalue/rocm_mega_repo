@@ -56,18 +56,20 @@ static StringRef ToolName;
 // The basename of this program.
 static StringRef Stem;
 
-const char RanlibHelp[] = R"(OVERVIEW: LLVM Ranlib (llvm-ranlib)
+const char RanlibHelp[] = R"(
+OVERVIEW: LLVM Ranlib (llvm-ranlib)
 
   This program generates an index to speed access to archives
 
 USAGE: llvm-ranlib <archive-file>
 
 OPTIONS:
-  -h --help                         - Display available options
-  --version                         - Display the version of this program
+  -help                             - Display available options
+  -version                          - Display the version of this program
 )";
 
-const char ArHelp[] = R"(OVERVIEW: LLVM Archiver
+const char ArHelp[] = R"(
+OVERVIEW: LLVM Archiver
 
 USAGE: llvm-ar [options] [-]<operation>[modifiers] [relpos] [count] <archive> [files]
        llvm-ar -M [<mri-script]
@@ -125,13 +127,6 @@ void printHelpMessage() {
 static unsigned MRILineNumber;
 static bool ParsingMRIScript;
 
-// Show the error plus the usage message, and exit.
-LLVM_ATTRIBUTE_NORETURN static void badUsage(Twine Error) {
-  WithColor::error(errs(), ToolName) << Error << "\n";
-  printHelpMessage();
-  exit(1);
-}
-
 // Show the error message and exit.
 LLVM_ATTRIBUTE_NORETURN static void fail(Twine Error) {
   if (ParsingMRIScript) {
@@ -139,7 +134,9 @@ LLVM_ATTRIBUTE_NORETURN static void fail(Twine Error) {
         << "script line " << MRILineNumber << ": " << Error << "\n";
   } else {
     WithColor::error(errs(), ToolName) << Error << "\n";
+    printHelpMessage();
   }
+
   exit(1);
 }
 
@@ -242,19 +239,19 @@ static void getRelPos() {
 // associated with the N modifier
 static void getCountParam() {
   if (PositionalArgs.empty())
-    badUsage("expected [count] for 'N' modifier");
+    fail("expected [count] for 'N' modifier");
   auto CountParamArg = StringRef(PositionalArgs[0]);
   if (CountParamArg.getAsInteger(10, CountParam))
-    badUsage("value for [count] must be numeric, got: " + CountParamArg);
+    fail("value for [count] must be numeric, got: " + CountParamArg);
   if (CountParam < 1)
-    badUsage("value for [count] must be positive, got: " + CountParamArg);
+    fail("value for [count] must be positive, got: " + CountParamArg);
   PositionalArgs.erase(PositionalArgs.begin());
 }
 
 // Get the archive file name from the command line
 static void getArchive() {
   if (PositionalArgs.empty())
-    badUsage("an archive name must be specified");
+    fail("an archive name must be specified");
   ArchiveName = PositionalArgs[0];
   PositionalArgs.erase(PositionalArgs.begin());
 }
@@ -279,7 +276,7 @@ static void runMRIScript();
 static ArchiveOperation parseCommandLine() {
   if (MRI) {
     if (!PositionalArgs.empty() || !Options.empty())
-      badUsage("cannot mix -M and other options");
+      fail("cannot mix -M and other options");
     runMRIScript();
   }
 
@@ -392,7 +389,7 @@ static ArchiveOperation parseCommandLine() {
       printHelpMessage();
       exit(0);
     default:
-      badUsage(std::string("unknown option ") + Options[i]);
+      fail(std::string("unknown option ") + Options[i]);
     }
   }
 
@@ -407,31 +404,31 @@ static ArchiveOperation parseCommandLine() {
     NumOperations = 1;
     Operation = CreateSymTab;
     if (!Members.empty())
-      badUsage("the 's' operation takes only an archive as argument");
+      fail("the 's' operation takes only an archive as argument");
   }
 
   // Perform various checks on the operation/modifier specification
   // to make sure we are dealing with a legal request.
   if (NumOperations == 0)
-    badUsage("you must specify at least one of the operations");
+    fail("you must specify at least one of the operations");
   if (NumOperations > 1)
-    badUsage("only one operation may be specified");
+    fail("only one operation may be specified");
   if (NumPositional > 1)
-    badUsage("you may only specify one of 'a', 'b', and 'i' modifiers");
+    fail("you may only specify one of 'a', 'b', and 'i' modifiers");
   if (AddAfter || AddBefore)
     if (Operation != Move && Operation != ReplaceOrInsert)
-      badUsage("the 'a', 'b' and 'i' modifiers can only be specified with "
-               "the 'm' or 'r' operations");
+      fail("the 'a', 'b' and 'i' modifiers can only be specified with "
+           "the 'm' or 'r' operations");
   if (CountParam)
     if (Operation != Extract && Operation != Delete)
-      badUsage("the 'N' modifier can only be specified with the 'x' or 'd' "
-               "operations");
+      fail("the 'N' modifier can only be specified with the 'x' or 'd' "
+           "operations");
   if (OriginalDates && Operation != Extract)
-    badUsage("the 'o' modifier is only applicable to the 'x' operation");
+    fail("the 'o' modifier is only applicable to the 'x' operation");
   if (OnlyUpdate && Operation != ReplaceOrInsert)
-    badUsage("the 'u' modifier is only applicable to the 'r' operation");
+    fail("the 'u' modifier is only applicable to the 'r' operation");
   if (AddLibrary && Operation != QuickAppend)
-    badUsage("the 'L' modifier is only applicable to the 'q' operation");
+    fail("the 'L' modifier is only applicable to the 'q' operation");
 
   // Return the parsed operation to the caller
   return Operation;
@@ -533,12 +530,8 @@ static void doExtract(StringRef Name, const object::Archive::Child &C) {
   failIfError(ModeOrErr.takeError());
   sys::fs::perms Mode = ModeOrErr.get();
 
-  llvm::StringRef outputFilePath = sys::path::filename(Name);
-  if (Verbose)
-    outs() << "x - " << outputFilePath << '\n';
-
   int FD;
-  failIfError(sys::fs::openFileForWrite(outputFilePath, FD,
+  failIfError(sys::fs::openFileForWrite(sys::path::filename(Name), FD,
                                         sys::fs::CD_CreateAlways,
                                         sys::fs::OF_None, Mode),
               Name);
@@ -1082,7 +1075,7 @@ static void runMRIScript() {
 }
 
 static bool handleGenericOption(StringRef arg) {
-  if (arg == "-help" || arg == "--help" || arg == "-h") {
+  if (arg == "-help" || arg == "--help") {
     printHelpMessage();
     return true;
   }
@@ -1099,7 +1092,7 @@ static int ar_main(int argc, char **argv) {
   cl::ExpandResponseFiles(Saver, cl::TokenizeGNUCommandLine, Argv);
   for (size_t i = 1; i < Argv.size(); ++i) {
     StringRef Arg = Argv[i];
-    const char *match = nullptr;
+    const char *match;
     auto MatchFlagWithArg = [&](const char *expected) {
       size_t len = strlen(expected);
       if (Arg == expected) {
@@ -1163,9 +1156,6 @@ static int ranlib_main(int argc, char **argv) {
       ArchiveSpecified = true;
       ArchiveName = argv[i];
     }
-  }
-  if (!ArchiveSpecified) {
-    badUsage("an archive name must be specified");
   }
   return performOperation(CreateSymTab, nullptr);
 }

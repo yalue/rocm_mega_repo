@@ -800,15 +800,6 @@ void DwarfUnit::constructTypeDIE(DIE &Buffer, const DIDerivedType *DTy) {
   if (!Name.empty())
     addString(Buffer, dwarf::DW_AT_name, Name);
 
-  // If alignment is specified for a typedef , create and insert DW_AT_alignment
-  // attribute in DW_TAG_typedef DIE.
-  if (Tag == dwarf::DW_TAG_typedef && DD->getDwarfVersion() >= 5) {
-    uint32_t AlignInBytes = DTy->getAlignInBytes();
-    if (AlignInBytes > 0)
-      addUInt(Buffer, dwarf::DW_AT_alignment, dwarf::DW_FORM_udata,
-              AlignInBytes);
-  }
-
   // Add size if non-zero (derived types might be zero-sized.)
   if (Size && Tag != dwarf::DW_TAG_pointer_type
            && Tag != dwarf::DW_TAG_ptr_to_member_type
@@ -1316,9 +1307,6 @@ void DwarfUnit::applySubprogramAttributes(const DISubprogram *SP, DIE &SPDie,
     addFlag(SPDie, dwarf::DW_AT_elemental);
   if (SP->isRecursive())
     addFlag(SPDie, dwarf::DW_AT_recursive);
-
-  if (DD->getDwarfVersion() >= 5 && SP->isDeleted())
-    addFlag(SPDie, dwarf::DW_AT_deleted);
 }
 
 void DwarfUnit::constructSubrangeDIE(DIE &Buffer, const DISubrange *SR,

@@ -124,13 +124,6 @@ inline bool CC_SystemZ_I128Indirect(unsigned &ValNo, MVT &ValVT,
   return true;
 }
 
-inline bool CC_SystemZ_GHC_Error(unsigned &, MVT &, MVT &,
-                                 CCValAssign::LocInfo &, ISD::ArgFlagsTy &,
-                                 CCState &) {
-  report_fatal_error("No registers left in GHC calling convention");
-  return false;
-}
-
 } // end namespace llvm
 
 #endif

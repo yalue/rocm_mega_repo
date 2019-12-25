@@ -364,6 +364,7 @@ TEST_F(KFDMemoryTest , MapMemoryToGPU) {
 TEST_F(KFDMemoryTest, InvalidMemoryPointerAlloc) {
     TEST_START(TESTPROFILE_RUNALL)
 
+    m_MemoryFlags.ui32.NoNUMABind = 1;
     EXPECT_EQ(HSAKMT_STATUS_INVALID_PARAMETER, hsaKmtAllocMemory(0 /* system */, PAGE_SIZE, m_MemoryFlags, NULL));
 
     TEST_END
@@ -384,6 +385,7 @@ TEST_F(KFDMemoryTest, MemoryAlloc) {
     TEST_START(TESTPROFILE_RUNALL)
 
     unsigned int* pDb = NULL;
+    m_MemoryFlags.ui32.NoNUMABind = 1;
     EXPECT_SUCCESS(hsaKmtAllocMemory(0 /* system */, PAGE_SIZE, m_MemoryFlags, reinterpret_cast<void**>(&pDb)));
 
     TEST_END
@@ -747,151 +749,134 @@ TEST_F(KFDMemoryTest, GetTileConfigTest) {
     TEST_END
 }
 
-void KFDMemoryTest::BigBufferSystemMemory(int defaultGPUNode, HSAuint64 granularityMB,
-                                                HSAuint64 *lastSize) {
-    HSAuint64 sysMemSizeMB;
-    HsaMemMapFlags mapFlags = {0};
-    HSAuint64 AlternateVAGPU;
+void KFDMemoryTest::BinarySearchLargestBuffer(int allocNode, const HsaMemFlags &memFlags,
+                                        HSAuint64 highMB, int nodeToMap,
+                                        HSAuint64 *lastSizeMB) {
     int ret;
 
+    HsaMemMapFlags mapFlags = {0};
+    HSAuint64 granularityMB = 128;
+
+    /* Testing big buffers in VRAM */
+    unsigned int * pDb = NULL;
+    HSAuint64 lowMB = 0;
+
+    highMB = (highMB + granularityMB - 1) & ~(granularityMB - 1);
+
+    HSAuint64 sizeMB;
+    HSAuint64 size = 0;
+
+    while (highMB - lowMB > granularityMB) {
+        sizeMB = (lowMB + highMB) / 2;
+        size = sizeMB * 1024 * 1024;
+        ret = hsaKmtAllocMemory(allocNode, size, memFlags,
+                                reinterpret_cast<void**>(&pDb));
+        if (ret) {
+            highMB = sizeMB;
+            continue;
+        }
+
+        ret = hsaKmtMapMemoryToGPUNodes(pDb, size, NULL,
+                        mapFlags, 1, reinterpret_cast<HSAuint32 *>(&nodeToMap));
+        if (ret) {
+            EXPECT_SUCCESS(hsaKmtFreeMemory(pDb, size));
+            highMB = sizeMB;
+            continue;
+        }
+        EXPECT_SUCCESS(hsaKmtUnmapMemoryToGPU(pDb));
+        EXPECT_SUCCESS(hsaKmtFreeMemory(pDb, size));
+
+        lowMB = sizeMB;
+    }
+
+    if (lastSizeMB)
+        *lastSizeMB = lowMB;
+}
+
+/*
+ * Largest*BufferTest allocates, maps/unmaps, and frees the largest possible
+ * buffers. Its size is found using binary search in the range
+ * (0, RAM SIZE) with a granularity of 128M. Also, the similar logic is
+ * repeated on local buffers (VRAM).
+ * Please note we limit the largest possible system buffer to be smaller than
+ * the RAM size. The reason is that the system buffer can make use of virtual
+ * memory so that a system buffer could be very large even though the RAM size
+ * is small. For example, on a typical Carrizo platform, the largest allocated
+ * system buffer could be more than 14G even though it only has 4G memory.
+ * In that situation, it will take too much time to finish the test because of
+ * the onerous memory swap operation. So we limit the buffer size that way.
+ */
+TEST_F(KFDMemoryTest, LargestSysBufferTest) {
+    if (!is_dgpu()) {
+        LOG() << "Skipping test: Running on APU fails and locks the system." << std::endl;
+        return;
+    }
+    TEST_REQUIRE_ENV_CAPABILITIES(ENVCAPS_64BITLINUX);
+    TEST_START(TESTPROFILE_RUNALL);
+
+    int defaultGPUNode = m_NodeInfo.HsaDefaultGPUNode();
+    ASSERT_GE(defaultGPUNode, 0) << "failed to get default GPU Node";
+
+    HSAuint64 lastTestedSizeMB = 0;
+
+    HSAuint64 sysMemSizeMB;
     sysMemSizeMB = GetSysMemSize() >> 20;
 
     LOG() << "Found System Memory of " << std::dec << sysMemSizeMB
                 << "MB" << std::endl;
 
-    /* Testing big buffers in system memory */
-    unsigned int * pDb = NULL;
-    HSAuint64 lowMB = 0;
-    HSAuint64 highMB = (sysMemSizeMB + granularityMB - 1) & ~(granularityMB - 1);
+    BinarySearchLargestBuffer(0, m_MemoryFlags, sysMemSizeMB, defaultGPUNode,
+                    &lastTestedSizeMB);
 
-    HSAuint64 sizeMB;
-    HSAuint64 size = 0;
-    HSAuint64 lastTestedSize = 0;
+    LOG() << "The largest allocated system buffer is " << std::dec
+            << lastTestedSizeMB << "MB" << std::endl;
 
-    while (highMB - lowMB > granularityMB) {
-        sizeMB = (lowMB + highMB) / 2;
-        size = sizeMB * 1024 * 1024;
-        ret = hsaKmtAllocMemory(0 /* system */, size, m_MemoryFlags,
-                                reinterpret_cast<void**>(&pDb));
-        if (ret) {
-            highMB = sizeMB;
-            continue;
-        }
-
-        ret = hsaKmtMapMemoryToGPUNodes(pDb, size, &AlternateVAGPU,
-                        mapFlags, 1, reinterpret_cast<HSAuint32 *>(&defaultGPUNode));
-        if (ret) {
-            EXPECT_SUCCESS(hsaKmtFreeMemory(pDb, size));
-            highMB = sizeMB;
-            continue;
-        }
-        EXPECT_SUCCESS(hsaKmtUnmapMemoryToGPU(pDb));
-        EXPECT_SUCCESS(hsaKmtFreeMemory(pDb, size));
-
-        lowMB = sizeMB;
-        lastTestedSize = sizeMB;
-    }
-
-    /* Save the biggest allocated system buffer for signal handling test */
-    LOG() << "The biggest allocated system buffer is " << std::dec
-            << lastTestedSize << "MB" << std::endl;
-    if (lastSize)
-        *lastSize = lastTestedSize * 1024 *1024;
+    TEST_END
 }
 
-void KFDMemoryTest::BigBufferVRAM(int defaultGPUNode, HSAuint64 granularityMB,
-                                        HSAuint64 *lastSize) {
-    HSAuint64 AlternateVAGPU;
-    int ret;
-    HSAuint64 vramSizeMB;
-    HsaMemFlags memFlags;
-    HsaMemMapFlags mapFlags = {0};
+TEST_F(KFDMemoryTest, LargestVramBufferTest) {
+    if (!is_dgpu()) {
+        LOG() << "Skipping test: Running on APU fails and locks the system." << std::endl;
+        return;
+    }
+    TEST_REQUIRE_ENV_CAPABILITIES(ENVCAPS_64BITLINUX);
+    TEST_START(TESTPROFILE_RUNALL);
 
+    int defaultGPUNode = m_NodeInfo.HsaDefaultGPUNode();
+    ASSERT_GE(defaultGPUNode, 0) << "failed to get default GPU Node";
+
+    HSAuint64 lastTestedSizeMB = 0;
+
+    HsaMemFlags memFlags = {0};
+    memFlags.ui32.HostAccess = 0;
+    memFlags.ui32.NonPaged = 1;
+
+    HSAuint64 vramSizeMB;
     vramSizeMB = GetVramSize(defaultGPUNode) >> 20;
 
     LOG() << "Found VRAM of " << std::dec << vramSizeMB << "MB." << std::endl;
 
-    /* Testing big buffers in VRAM */
-    unsigned int * pDb = NULL;
-    HSAuint64 lowMB = 0;
-    HSAuint64 highMB = (vramSizeMB + granularityMB - 1) & ~(granularityMB - 1);
+    BinarySearchLargestBuffer(defaultGPUNode, memFlags, vramSizeMB, defaultGPUNode,
+                    &lastTestedSizeMB);
 
-    HSAuint64 sizeMB;
-    HSAuint64 size = 0;
-    HSAuint64 lastTestedSize = 0;
-
-    memset(&memFlags, 0, sizeof(memFlags));
-    memFlags.ui32.HostAccess = 0;
-    memFlags.ui32.NonPaged = 1;
-
-    while (highMB - lowMB > granularityMB) {
-        sizeMB = (lowMB + highMB) / 2;
-        size = sizeMB * 1024 * 1024;
-        ret = hsaKmtAllocMemory(defaultGPUNode, size, memFlags,
-                                reinterpret_cast<void**>(&pDb));
-        if (ret) {
-            highMB = sizeMB;
-            continue;
-        }
-
-        ret = hsaKmtMapMemoryToGPUNodes(pDb, size, &AlternateVAGPU,
-                        mapFlags, 1, reinterpret_cast<HSAuint32 *>(&defaultGPUNode));
-        if (ret) {
-            EXPECT_SUCCESS(hsaKmtFreeMemory(pDb, size));
-            highMB = sizeMB;
-            continue;
-        }
-        EXPECT_SUCCESS(hsaKmtUnmapMemoryToGPU(pDb));
-        EXPECT_SUCCESS(hsaKmtFreeMemory(pDb, size));
-
-        lowMB = sizeMB;
-        lastTestedSize = sizeMB;
-    }
-
-    LOG() << "The biggest allocated VRAM buffer is " << std::dec
-            << lastTestedSize << "MB" << std::endl;
-    if (lastSize)
-        *lastSize = lastTestedSize * 1024 * 1024;
+    LOG() << "The largest allocated VRAM buffer is " << std::dec
+            << lastTestedSizeMB << "MB" << std::endl;
 
     /* Make sure 3/4 vram can be allocated.*/
-    EXPECT_GE(lastTestedSize * 4, vramSizeMB * 3);
-    if (lastTestedSize * 16 < vramSizeMB * 15)
-        WARN() << "The biggest allocated VRAM buffer size is smaller than the expected "
+    EXPECT_GE(lastTestedSizeMB * 4, vramSizeMB * 3);
+    if (lastTestedSizeMB * 16 < vramSizeMB * 15)
+        WARN() << "The largest allocated VRAM buffer size is smaller than the expected "
             << vramSizeMB * 15 / 16 << "MB" << std::endl;
+
+    TEST_END
 }
 
-void KFDMemoryTest::NumaNodeBind(const char *nodeStr) {
-    if (numa_available() != -1) {
-        int num_node = numa_num_task_nodes();
-
-        if (num_node > 1) {
-            struct bitmask *nodemask;
-
-            LOG() << "NUMA total nodes " << num_node << ", bind to " << nodeStr << std::endl;
-
-            nodemask = numa_parse_nodestring(nodeStr);
-            if (nodemask) {
-                numa_bind(nodemask);
-                numa_free_nodemask(nodemask);
-            }
-        }
-    }
-}
-
-/* BigBufferStressTest allocs, maps/unmaps, and frees the biggest possible system
- * buffers. Its size is found using binary search in the range (0, RAM SIZE) with
- * a granularity of 128M. Repeat the similar logic on local buffers (VRAM).
- * Finally, it allocs and maps 128M system buffers in a loop until it
- * fails, then unmaps and frees them afterwards.
- * Please note we limit the biggest possible system buffer to be smaller than
- * the RAM size. The reason is that the system buffer can make use of virtual
- * memory so that a system buffer could be very large even though the RAM size
- * is small. For example, on a typical Carrizo platform, the biggest allocated
- * system buffer could be more than 14G even though it only has 4G memory.
- * In that situation, it will take too much time to finish the test, because of
- * the onerous memory swap operation. So we limit the buffer size that way.
+/*
+ * BigSysBufferStressTest allocates and maps 128M system buffers in a loop until it
+ * fails, then unmaps and frees them afterwards. Meanwhile, a queue task is
+ * performed on each buffer.
  */
-TEST_F(KFDMemoryTest, BigBufferStressTest) {
+TEST_F(KFDMemoryTest, BigSysBufferStressTest) {
     if (!is_dgpu()) {
         LOG() << "Skipping test: Running on APU fails and locks the system." << std::endl;
         return;
@@ -900,25 +885,11 @@ TEST_F(KFDMemoryTest, BigBufferStressTest) {
     TEST_START(TESTPROFILE_RUNALL);
 
     HSAuint64 AlternateVAGPU;
-    HSAuint64 Available_size;
     HsaMemMapFlags mapFlags = {0};
     int ret;
 
-    HSAuint64 granularityMB = 128;
-
     int defaultGPUNode = m_NodeInfo.HsaDefaultGPUNode();
     ASSERT_GE(defaultGPUNode, 0) << "failed to get default GPU Node";
-
-    /* Don't run on node 0 on multiple NUMA node machine because dma32 zone is on node 0,
-     * Use all memory including dma32 zone on node 0 will cause TTM eviction to free dma32
-     * zone for other devices which supports 32bit physical address. The eviction and
-     * restore may retry if busy and cause queue timeout and test failure.
-     */
-    NumaNodeBind("!0");
-
-    BigBufferSystemMemory(defaultGPUNode, granularityMB, &Available_size);
-
-    BigBufferVRAM(defaultGPUNode, granularityMB, NULL);
 
     /* Repeatedly allocate and map big buffers in system memory until it fails,
      * then unmap and free them.
@@ -929,18 +900,9 @@ TEST_F(KFDMemoryTest, BigBufferStressTest) {
     unsigned int* pDb_array[ARRAY_ENTRIES];
     HSAuint64 block_size_mb = 128;
     HSAuint64 block_size = block_size_mb * 1024 * 1024;
-    PM4Queue queue;
-
-    /* In non-numa system to avoid TTM eviction,
-     * we have to keep half of dma32 zone (2GB) out of allocation.
-     */
-    if (((numa_available() == -1) || (numa_num_task_nodes() < 2)) &&
-            (Available_size > 0x80000000))
-        Available_size -= 0x80000000;
 
     /* Test 4 times to see if there is any memory leak.*/
     for (int repeat = 1; repeat < 5; repeat++) {
-        ASSERT_SUCCESS(queue.Create(defaultGPUNode));
 
         for (i = 0; i < ARRAY_ENTRIES; i++) {
             ret = hsaKmtAllocMemory(0 /* system */, block_size, m_MemoryFlags,
@@ -954,38 +916,20 @@ TEST_F(KFDMemoryTest, BigBufferStressTest) {
                 EXPECT_SUCCESS(hsaKmtFreeMemory(pDb_array[i], block_size));
                 break;
             }
-
-            if ((i + 2) * block_size > Available_size)
-                break;
         }
 
-        LOG() << "Allocated system buffers time " << std::dec << repeat << ": " << i << "x"
-            << block_size_mb << "MB" << std::endl;
+        LOG() << "Allocated system buffers time " << std::dec << repeat << ": "
+            << i << " * " << block_size_mb << "MB" << std::endl;
 
         if (allocationCount == 0)
             allocationCount = i;
         EXPECT_GE(i, allocationCount) << "There might be memory leak!" << std::endl;
 
         for (int j = 0; j < i; j++) {
-            /* To see if GPU can access the memory correctly*/
-            unsigned int *begin = pDb_array[j];
-            *begin = 0;
-            queue.PlaceAndSubmitPacket(
-                    PM4WriteDataPacket(begin, 0xdeadbeaf));
-            queue.Wait4PacketConsumption(NULL, 300000);
-            EXPECT_TRUE(WaitOnValue(begin, 0xdeadbeaf));
-        }
-
-        EXPECT_SUCCESS(queue.Destroy());
-
-        for (int j = 0; j < i; j++) {
             EXPECT_SUCCESS(hsaKmtUnmapMemoryToGPU(pDb_array[j]));
             EXPECT_SUCCESS(hsaKmtFreeMemory(pDb_array[j], block_size));
         }
     }
-
-    /* Reset to run on all task nodes */
-    NumaNodeBind("all");
 
     TEST_END
 }
@@ -1093,6 +1037,7 @@ TEST_F(KFDMemoryTest, MMBench) {
             memFlags.ui32.PageSize = HSA_PAGE_SIZE_4KB;
             memFlags.ui32.HostAccess = 1;
             memFlags.ui32.NonPaged = 0;
+            memFlags.ui32.NoNUMABind = 1;
         } else {
             allocNode = defaultGPUNode;
             memFlags.ui32.PageSize = HSA_PAGE_SIZE_4KB;
@@ -1327,6 +1272,7 @@ TEST_F(KFDMemoryTest, PtraceAccess) {
 
     // Alloc system memory from node 0 and initialize it
     memFlags.ui32.NonPaged = 0;
+    memFlags.ui32.NoNUMABind = 1;
     ASSERT_SUCCESS(hsaKmtAllocMemory(0, PAGE_SIZE*2, memFlags, &mem[0]));
     for (i = 0; i < 4*sizeof(HSAint64) + 4; i++) {
         (reinterpret_cast<HSAuint8 *>(mem[0]))[i] = i;            // source
@@ -1623,7 +1569,7 @@ TEST_F(KFDMemoryTest, SignalHandling) {
      * Try to allocate 1/4th System RAM
      */
     size = (sysMemSize >> 2) & ~(HSAuint64)(PAGE_SIZE - 1);
-
+    m_MemoryFlags.ui32.NoNUMABind = 1;
     ASSERT_SUCCESS(hsaKmtAllocMemory(0 /* system */, size, m_MemoryFlags, reinterpret_cast<void**>(&pDb)));
     // Verify that pDb is not null before it's being used
     EXPECT_NE(nullPtr, pDb) << "hsaKmtAllocMemory returned a null pointer";
@@ -1684,6 +1630,8 @@ TEST_F(KFDMemoryTest, CheckZeroInitializationSysMem) {
 
     unsigned int offset = 257;  // a constant offset, should be smaller than 512.
     unsigned int size = sysBufSize / sizeof(*pDb);
+
+    m_MemoryFlags.ui32.NoNUMABind = 1;
 
     while (count--) {
         ret = hsaKmtAllocMemory(0 /* system */, sysBufSize, m_MemoryFlags,
@@ -1791,6 +1739,7 @@ TEST_F(KFDMemoryTest, MMBandWidth) {
             memFlags.ui32.PageSize = HSA_PAGE_SIZE_4KB;
             memFlags.ui32.HostAccess = 1;
             memFlags.ui32.NonPaged = 0;
+            memFlags.ui32.NoNUMABind = 1;
         } else {
             /* Alloc visible vram*/
             allocNode = defaultGPUNode;
@@ -1964,6 +1913,7 @@ TEST_F(KFDMemoryTest, DeviceHdpFlush) {
     HSAuint32 *mmioBase = NULL;
     unsigned int *nullPtr = NULL;
     std::vector<HSAuint32> nodes;
+    int numPeers;
 
     const std::vector<int> gpuNodes = m_NodeInfo.GetNodesWithGPU();
     if (gpuNodes.size() < 2) {
@@ -1975,26 +1925,23 @@ TEST_F(KFDMemoryTest, DeviceHdpFlush) {
     if (g_TestDstNodeId != -1 && g_TestNodeId != -1) {
         nodes.push_back(g_TestNodeId);
         nodes.push_back(g_TestDstNodeId);
-        if (!m_NodeInfo.IsGPUNodeLargeBar(nodes[0])) {
-            LOG() << "Skipping test: first GPU specified is not a large bar GPU." << std::endl;
+
+        if (!m_NodeInfo.IsGPUNodeLargeBar(g_TestNodeId) &&
+            !m_NodeInfo.AreGPUNodesXGMI(g_TestNodeId, g_TestDstNodeId)) {
+            LOG() << "Skipping test: first GPU specified is not peer-accessible." << std::endl;
             return;
         }
+
         if (nodes[0] == nodes[1]) {
             LOG() << "Skipping test: Different GPUs must be specified (2 GPUs required)." << std::endl;
             return;
         }
     } else {
         HSAint32 defaultGPU = m_NodeInfo.HsaDefaultGPUNode();
-        if (!m_NodeInfo.IsGPUNodeLargeBar(defaultGPU)) {
-            LOG() << "Skipping test: Default GPUs must be large bar." << std::endl;
-            return;
-        }
-        nodes.push_back(defaultGPU);
-        for (unsigned i = 0; i < gpuNodes.size(); i++)
-            if (gpuNodes.at(i) != defaultGPU)
-                nodes.push_back(gpuNodes.at(i));
+        m_NodeInfo.FindAccessiblePeers(&nodes, defaultGPU, false);
         if (nodes.size() < 2) {
-            LOG() << "Skipping test: At least 2 GPUs required." << std::endl;
+            LOG() << "Skipping test: Test requires at least one large bar GPU." << std::endl;
+            LOG() << "               or two GPUs are XGMI connected." << std::endl;
             return;
         }
     }
@@ -2059,6 +2006,186 @@ TEST_F(KFDMemoryTest, DeviceHdpFlush) {
     delete [] memoryProperties;
     EXPECT_SUCCESS(hsaKmtUnmapMemoryToGPU(buffer));
     EXPECT_SUCCESS(hsaKmtFreeMemory(buffer, PAGE_SIZE));
+
+    TEST_END
+}
+
+/* Test should only run on Arcturus series which has the new RW mtype
+ * Map a local VRAM with RW mtype (coarse grain for upper layer),
+ * read it locally to cache it and write with local SDMA, remote devices(
+ * CPU or Remote GPU shader connected with PCIe or XGMI),
+ * then read again. The second read should get back what SDMA wrote,
+ * since the cache should be invalidated on write and second read
+ * should go to physical VRAM instead of cache.
+ */
+TEST_F(KFDMemoryTest, CacheInvalidateOnSdmaWrite) {
+    TEST_REQUIRE_ENV_CAPABILITIES(ENVCAPS_64BITLINUX);
+    TEST_START(TESTPROFILE_RUNALL);
+
+    HSAuint32 defaultGPUNode = m_NodeInfo.HsaDefaultGPUNode();
+    HsaMemoryBuffer tmpBuffer(PAGE_SIZE, 0, true /* zero */);
+    volatile HSAuint32 *tmp = tmpBuffer.As<volatile HSAuint32 *>();
+    const int dwLocation = 100;
+
+    if (m_FamilyId != FAMILY_AR) {
+        LOG() << "Skipping test: Test requires arcturus series asics." << std::endl;
+        return;
+    }
+
+    HsaMemoryBuffer buffer(PAGE_SIZE, defaultGPUNode, false/*zero*/, true/*local*/, false/*exec*/);
+    SDMAQueue sdmaQueue;
+    ASSERT_SUCCESS(sdmaQueue.Create(defaultGPUNode));
+    buffer.Fill(0, sdmaQueue, 0, PAGE_SIZE);
+    sdmaQueue.PlacePacket(SDMAWriteDataPacket(sdmaQueue.GetFamilyId(), buffer.As<int*>(), 0x5678));
+
+    /* Read buffer from shader to fill cache */
+    PM4Queue queue;
+    ASSERT_SUCCESS(queue.Create(defaultGPUNode));
+    HsaMemoryBuffer isaBuffer(PAGE_SIZE, defaultGPUNode, true/*zero*/, false/*local*/, true/*exec*/);
+    m_pIsaGen->CompileShader(gfx9_PollMemory, "ReadMemory", isaBuffer);
+    Dispatch dispatch(isaBuffer);
+    dispatch.SetArgs(buffer.As<int*>(), buffer.As<int*>()+dwLocation);
+    dispatch.Submit(queue);
+
+    /* Delay 100ms to make sure shader executed*/
+    Delay(100);
+
+    /* SDMA writes to buffer. Shader should get what sdma writes and quits*/
+    sdmaQueue.SubmitPacket();
+    sdmaQueue.Wait4PacketConsumption();
+
+    /* Check test result*/
+    dispatch.Sync();
+    EXPECT_EQ(buffer.IsPattern(dwLocation*sizeof(int), 0x5678, sdmaQueue, tmp), true);
+
+    // Clean up
+    EXPECT_SUCCESS(queue.Destroy());
+    EXPECT_SUCCESS(sdmaQueue.Destroy());
+
+    TEST_END
+}
+
+TEST_F(KFDMemoryTest, CacheInvalidateOnCPUWrite) {
+    TEST_REQUIRE_ENV_CAPABILITIES(ENVCAPS_64BITLINUX);
+    TEST_START(TESTPROFILE_RUNALL);
+
+    HSAuint32 defaultGPUNode = m_NodeInfo.HsaDefaultGPUNode();
+
+    if (m_FamilyId != FAMILY_AR) {
+        LOG() << "Skipping test: Test requires arcturus series asics." << std::endl;
+        return;
+    }
+
+    if (!m_NodeInfo.IsGPUNodeLargeBar(defaultGPUNode)) {
+        LOG() << "Skipping test: Test requires a large bar GPU." << std::endl;
+        return;
+    }
+
+    int *buffer;
+    HsaMemFlags memFlags = {0};
+    /* Host accessible vram */
+    memFlags.ui32.HostAccess = 1;
+    memFlags.ui32.NonPaged = 1;
+    memFlags.ui32.CoarseGrain = 1;
+    ASSERT_SUCCESS(hsaKmtAllocMemory(defaultGPUNode, PAGE_SIZE, memFlags, reinterpret_cast<void**>(&buffer)));
+    ASSERT_SUCCESS(hsaKmtMapMemoryToGPU(buffer, PAGE_SIZE, NULL));
+    *buffer = 0;
+
+    /* Read buffer from shader to fill cache */
+    PM4Queue queue;
+    ASSERT_SUCCESS(queue.Create(defaultGPUNode));
+    HsaMemoryBuffer isaBuffer(PAGE_SIZE, defaultGPUNode, true/*zero*/, false/*local*/, true/*exec*/);
+    m_pIsaGen->CompileShader(gfx9_PollMemory, "ReadMemory", isaBuffer);
+    Dispatch dispatch(isaBuffer);
+    dispatch.SetArgs(buffer, buffer+100);
+    dispatch.Submit(queue);
+
+    /* Delay 100ms to make sure shader executed*/
+    Delay(100);
+
+    /* CPU writes to buffer. Shader should get what CPU writes and quits*/
+    *buffer = 0x5678;
+
+    /* Check test result*/
+    dispatch.Sync();
+    EXPECT_EQ(buffer[100], 0x5678);
+
+    // Clean up
+    EXPECT_SUCCESS(hsaKmtUnmapMemoryToGPU(buffer));
+    EXPECT_SUCCESS(hsaKmtFreeMemory(buffer, PAGE_SIZE));
+    EXPECT_SUCCESS(queue.Destroy());
+
+    TEST_END
+}
+
+TEST_F(KFDMemoryTest, CacheInvalidateOnRemoteWrite) {
+    TEST_REQUIRE_ENV_CAPABILITIES(ENVCAPS_64BITLINUX);
+    TEST_START(TESTPROFILE_RUNALL);
+
+    HSAuint32 defaultGPUNode = m_NodeInfo.HsaDefaultGPUNode();
+    HsaMemoryBuffer tmpBuffer(PAGE_SIZE, 0, true /* zero */);
+    volatile HSAuint32 *tmp = tmpBuffer.As<volatile HSAuint32 *>();
+    const int dwLocation = 100;
+    const int dwLocation1 = 50;
+
+    if (m_FamilyId != FAMILY_AR) {
+        LOG() << "Skipping test: Test requires arcturus series asics." << std::endl;
+        return;
+    }
+
+    const std::vector<int> gpuNodes = m_NodeInfo.GetNodesWithGPU();
+    if (gpuNodes.size() < 2) {
+        LOG() << "Skipping test: At least two GPUs are required." << std::endl;
+        return;
+    }
+
+    HSAuint32 nondefaultNode;
+    for (unsigned i = 0; i < gpuNodes.size(); i++) {
+        if (gpuNodes.at(i) != defaultGPUNode) {
+            nondefaultNode = gpuNodes.at(i);
+            break;
+        }
+    }
+
+    HsaMemoryBuffer buffer(PAGE_SIZE, defaultGPUNode, false/*zero*/, true/*local*/, false/*exec*/);
+    buffer.MapMemToNodes(&nondefaultNode, 1);
+    SDMAQueue sdmaQueue;
+    ASSERT_SUCCESS(sdmaQueue.Create(defaultGPUNode));
+    buffer.Fill(0, sdmaQueue, 0, PAGE_SIZE);
+
+    /* Read buffer from shader to fill cache */
+    PM4Queue queue;
+    ASSERT_SUCCESS(queue.Create(defaultGPUNode));
+    HsaMemoryBuffer isaBuffer(PAGE_SIZE, defaultGPUNode, true/*zero*/, false/*local*/, true/*exec*/);
+    m_pIsaGen->CompileShader(gfx9_PollMemory, "ReadMemory", isaBuffer);
+    Dispatch dispatch(isaBuffer);
+    dispatch.SetArgs(buffer.As<int*>(), buffer.As<int*>()+dwLocation);
+    dispatch.Submit(queue);
+
+    /* Delay 100ms to make sure shader executed*/
+    Delay(100);
+
+    /* Using a remote shader to copy data from dwLocation1 to the beginning of the buffer.
+     * Local shader should get what remote writes and quits
+     */
+    PM4Queue queue1;
+    ASSERT_SUCCESS(queue1.Create(nondefaultNode));
+    buffer.Fill(0x5678, sdmaQueue, dwLocation1*sizeof(int), 4);
+    HsaMemoryBuffer isaBuffer1(PAGE_SIZE, nondefaultNode, true/*zero*/, false/*local*/, true/*exec*/);
+    m_pIsaGen->GetCopyDwordIsa(isaBuffer1);
+    Dispatch dispatch1(isaBuffer1);
+    dispatch1.SetArgs(buffer.As<int*>()+dwLocation1, buffer.As<int*>());
+    dispatch1.Submit(queue1);
+    dispatch1.Sync(g_TestTimeOut);
+
+    /* Check test result*/
+    dispatch.Sync();
+    EXPECT_EQ(buffer.IsPattern(dwLocation*sizeof(int), 0x5678, sdmaQueue, tmp), true);
+
+    // Clean up
+    EXPECT_SUCCESS(queue.Destroy());
+    EXPECT_SUCCESS(queue1.Destroy());
+    EXPECT_SUCCESS(sdmaQueue.Destroy());
 
     TEST_END
 }

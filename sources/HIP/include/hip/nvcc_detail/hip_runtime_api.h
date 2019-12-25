@@ -50,25 +50,40 @@ typedef enum hipMemcpyKind {
     hipMemcpyDefault
 } hipMemcpyKind;
 
+// hipDataType
+#define hipDataType cudaDataType
+#define HIP_R_16F CUDA_R_16F
+#define HIP_R_32F CUDA_R_32F
+#define HIP_R_64F CUDA_R_64F
+#define HIP_C_16F CUDA_C_16F
+#define HIP_C_32F CUDA_C_32F
+#define HIP_C_64F CUDA_C_64F
+
+// hipLibraryPropertyType
+#define hipLibraryPropertyType libraryPropertyType
+#define HIP_LIBRARY_MAJOR_VERSION MAJOR_VERSION
+#define HIP_LIBRARY_MINOR_VERSION MINOR_VERSION
+#define HIP_LIBRARY_PATCH_LEVEL PATCH_LEVEL
+
 // hipTextureAddressMode
-#define hipTextureAddressMode cudaTextureAddressMode
+typedef enum cudaTextureAddressMode hipTextureAddressMode;
 #define hipAddressModeWrap cudaAddressModeWrap
 #define hipAddressModeClamp cudaAddressModeClamp
 #define hipAddressModeMirror cudaAddressModeMirror
 #define hipAddressModeBorder cudaAddressModeBorder
 
 // hipTextureFilterMode
-#define hipTextureFilterMode cudaTextureFilterMode
+typedef enum cudaTextureFilterMode hipTextureFilterMode;
 #define hipFilterModePoint cudaFilterModePoint
 #define hipFilterModeLinear cudaFilterModeLinear
 
 // hipTextureReadMode
-#define hipTextureReadMode cudaTextureReadMode
+typedef enum cudaTextureReadMode hipTextureReadMode;
 #define hipReadModeElementType cudaReadModeElementType
 #define hipReadModeNormalizedFloat cudaReadModeNormalizedFloat
 
 // hipChannelFormatKind
-#define hipChannelFormatKind            cudaChannelFormatKind
+typedef enum cudaChannelFormatKind hipChannelFormatKind;
 #define hipChannelFormatKindSigned      cudaChannelFormatKindSigned
 #define hipChannelFormatKindUnsigned    cudaChannelFormatKindUnsigned
 #define hipChannelFormatKindFloat       cudaChannelFormatKindFloat
@@ -152,7 +167,7 @@ typedef cudaIpcMemHandle_t hipIpcMemHandle_t;
 typedef enum cudaLimit hipLimit_t;
 typedef enum cudaFuncCache hipFuncCache_t;
 typedef CUcontext hipCtx_t;
-typedef cudaSharedMemConfig hipSharedMemConfig;
+typedef enum cudaSharedMemConfig hipSharedMemConfig;
 typedef CUfunc_cache hipFuncCache;
 typedef CUjit_option hipJitOption;
 typedef CUdevice hipDevice_t;
@@ -162,8 +177,8 @@ typedef CUdeviceptr hipDeviceptr_t;
 typedef struct cudaArray hipArray;
 typedef struct cudaArray* hipArray_t;
 typedef struct cudaArray* hipArray_const_t;
-typedef cudaFuncAttributes hipFuncAttributes;
-typedef CUfunction_attribute hipFunction_attribute;
+typedef struct cudaFuncAttributes hipFuncAttributes;
+#define hipFunction_attribute CUfunction_attribute
 #define hip_Memcpy2D CUDA_MEMCPY2D
 #define hipMemcpy3DParms cudaMemcpy3DParms
 #define hipArrayDefault cudaArrayDefault
@@ -181,8 +196,8 @@ typedef cudaSurfaceObject_t hipSurfaceObject_t;
 #define hipTextureType3D cudaTextureType3D
 #define hipDeviceMapHost cudaDeviceMapHost
 
-#define hipExtent cudaExtent
-#define hipPitchedPtr cudaPitchedPtr
+typedef struct cudaExtent hipExtent;
+typedef struct cudaPitchedPtr hipPitchedPtr;
 #define make_hipExtent make_cudaExtent
 #define make_hipPos make_cudaPos
 #define make_hipPitchedPtr make_cudaPitchedPtr
@@ -190,10 +205,10 @@ typedef cudaSurfaceObject_t hipSurfaceObject_t;
 #define hipStreamDefault cudaStreamDefault
 #define hipStreamNonBlocking cudaStreamNonBlocking
 
-#define hipChannelFormatDesc cudaChannelFormatDesc
-#define hipResourceDesc cudaResourceDesc
-#define hipTextureDesc cudaTextureDesc
-#define hipResourceViewDesc cudaResourceViewDesc
+typedef struct cudaChannelFormatDesc hipChannelFormatDesc;
+typedef struct cudaResourceDesc hipResourceDesc;
+typedef struct cudaTextureDesc hipTextureDesc;
+typedef struct cudaResourceViewDesc hipResourceViewDesc;
 // adding code for hipmemSharedConfig
 #define hipSharedMemBankSizeDefault cudaSharedMemBankSizeDefault
 #define hipSharedMemBankSizeFourByte cudaSharedMemBankSizeFourByte
@@ -379,7 +394,7 @@ inline static enum cudaMemcpyKind hipMemcpyKindToCudaMemcpyKind(hipMemcpyKind ki
     }
 }
 
-inline static cudaTextureAddressMode hipTextureAddressModeToCudaTextureAddressMode(
+inline static enum cudaTextureAddressMode hipTextureAddressModeToCudaTextureAddressMode(
     hipTextureAddressMode kind) {
     switch (kind) {
         case hipAddressModeWrap:
@@ -395,7 +410,7 @@ inline static cudaTextureAddressMode hipTextureAddressModeToCudaTextureAddressMo
     }
 }
 
-inline static cudaTextureFilterMode hipTextureFilterModeToCudaTextureFilterMode(
+inline static enum cudaTextureFilterMode hipTextureFilterModeToCudaTextureFilterMode(
     hipTextureFilterMode kind) {
     switch (kind) {
         case hipFilterModePoint:
@@ -407,7 +422,7 @@ inline static cudaTextureFilterMode hipTextureFilterModeToCudaTextureFilterMode(
     }
 }
 
-inline static cudaTextureReadMode hipTextureReadModeToCudaTextureReadMode(hipTextureReadMode kind) {
+inline static enum cudaTextureReadMode hipTextureReadModeToCudaTextureReadMode(hipTextureReadMode kind) {
     switch (kind) {
         case hipReadModeElementType:
             return cudaReadModeElementType;
@@ -418,7 +433,7 @@ inline static cudaTextureReadMode hipTextureReadModeToCudaTextureReadMode(hipTex
     }
 }
 
-inline static cudaChannelFormatKind hipChannelFormatKindToCudaChannelFormatKind(
+inline static enum cudaChannelFormatKind hipChannelFormatKindToCudaChannelFormatKind(
     hipChannelFormatKind kind) {
     switch (kind) {
         case hipChannelFormatKindSigned:
@@ -459,6 +474,10 @@ inline static hipError_t hipMallocPitch(void** ptr, size_t* pitch, size_t width,
     return hipCUDAErrorTohipError(cudaMallocPitch(ptr, pitch, width, height));
 }
 
+inline static hipError_t hipMemAllocPitch(hipDeviceptr_t* dptr,size_t* pitch,size_t widthInBytes,size_t height,unsigned int elementSizeBytes){
+    return hipCUResultTohipError(cuMemAllocPitch(dptr,pitch,widthInBytes,height,elementSizeBytes));
+}
+
 inline static hipError_t hipMalloc3D(hipPitchedPtr* pitchedDevPtr, hipExtent extent) {
     return hipCUDAErrorTohipError(cudaMalloc3D(pitchedDevPtr, extent));
 }
@@ -469,6 +488,12 @@ inline static hipError_t hipMallocHost(void** ptr, size_t size)
     __attribute__((deprecated("use hipHostMalloc instead")));
 inline static hipError_t hipMallocHost(void** ptr, size_t size) {
     return hipCUDAErrorTohipError(cudaMallocHost(ptr, size));
+}
+
+inline static hipError_t hipMemAllocHost(void** ptr, size_t size)
+    __attribute__((deprecated("use hipHostMalloc instead")));
+inline static hipError_t hipMemAllocHost(void** ptr, size_t size) {
+    return hipCUResultTohipError(cuMemAllocHost(ptr, size));
 }
 
 inline static hipError_t hipHostAlloc(void** ptr, size_t size, unsigned int flags)
@@ -485,14 +510,14 @@ inline static hipError_t hipMallocManaged(void** ptr, size_t size, unsigned int 
     return hipCUDAErrorTohipError(cudaMallocManaged(ptr, size, flags));
 }
 
-inline static hipError_t hipMallocArray(hipArray** array, const struct hipChannelFormatDesc* desc,
+inline static hipError_t hipMallocArray(hipArray** array, const hipChannelFormatDesc* desc,
                                         size_t width, size_t height,
                                         unsigned int flags __dparm(hipArrayDefault)) {
     return hipCUDAErrorTohipError(cudaMallocArray(array, desc, width, height, flags));
 }
 
-inline static hipError_t hipMalloc3DArray(hipArray** array, const struct hipChannelFormatDesc* desc,
-                            struct hipExtent extent, unsigned int flags) {
+inline static hipError_t hipMalloc3DArray(hipArray** array, const hipChannelFormatDesc* desc,
+                             hipExtent extent, unsigned int flags) {
     return hipCUDAErrorTohipError(cudaMalloc3DArray(array, desc, extent, flags));
 }
 
@@ -761,6 +786,20 @@ inline static hipError_t hipMemsetD8(hipDeviceptr_t dest, unsigned char value, s
     return hipCUResultTohipError(cuMemsetD8(dest, value, sizeBytes));
 }
 
+inline static hipError_t hipMemsetD8Async(hipDeviceptr_t dest, unsigned char value, size_t sizeBytes,
+                                          hipStream_t stream __dparm(0)) {
+    return hipCUResultTohipError(cuMemsetD8Async(dest, value, sizeBytes, stream));
+}
+
+inline static hipError_t hipMemsetD16(hipDeviceptr_t dest, unsigned short value, size_t sizeBytes) {
+    return hipCUResultTohipError(cuMemsetD16(dest, value, sizeBytes));
+}
+
+inline static hipError_t hipMemsetD16Async(hipDeviceptr_t dest, unsigned short value, size_t sizeBytes,
+                                           hipStream_t stream __dparm(0)) {
+    return hipCUResultTohipError(cuMemsetD16Async(dest, value, sizeBytes, stream));
+}
+
 inline static hipError_t hipMemset2D(void* dst, size_t pitch, int value, size_t width, size_t height) {
     return hipCUDAErrorTohipError(cudaMemset2D(dst, pitch, value, width, height));
 }
@@ -841,6 +880,12 @@ inline static hipError_t hipGetDeviceProperties(hipDeviceProp_t* p_prop, int dev
     p_prop->maxTexture3D[0] = cdprop.maxTexture3D[0];
     p_prop->maxTexture3D[1] = cdprop.maxTexture3D[1];
     p_prop->maxTexture3D[2] = cdprop.maxTexture3D[2];
+
+    p_prop->memPitch                 = cdprop.memPitch;
+    p_prop->textureAlignment         = cdprop.textureAlignment;
+    p_prop->kernelExecTimeoutEnabled = cdprop.kernelExecTimeoutEnabled;
+    p_prop->ECCEnabled               = cdprop.ECCEnabled;
+    p_prop->tccDriver                = cdprop.tccDriver;
 
     return hipCUDAErrorTohipError(cerror);
 }
@@ -946,9 +991,23 @@ inline static hipError_t hipDeviceGetAttribute(int* pi, hipDeviceAttribute_t att
         case hipDeviceAttributeMaxTexture3DDepth:
             cdattr = cudaDevAttrMaxTexture3DDepth;
             break;
-        default:
-            cerror = cudaErrorInvalidValue;
+        case hipDeviceAttributeMaxPitch:
+            cdattr = cudaDevAttrMaxPitch;
             break;
+        case hipDeviceAttributeTextureAlignment:
+            cdattr = cudaDevAttrTextureAlignment;
+            break;
+        case hipDeviceAttributeKernelExecTimeout:
+            cdattr = cudaDevAttrKernelExecTimeout;
+            break;
+        case hipDeviceAttributeCanMapHostMemory:
+            cdattr = cudaDevAttrCanMapHostMemory;
+            break;
+        case hipDeviceAttributeEccEnabled:
+            cdattr = cudaDevAttrEccEnabled;
+            break;
+        default:
+            return hipCUDAErrorTohipError(cudaErrorInvalidValue);
     }
 
     cerror = cudaDeviceGetAttribute(pi, cdattr, device);
@@ -989,7 +1048,6 @@ inline static hipError_t hipPointerGetAttributes(hipPointerAttribute_t* attribut
     return err;
 }
 
-
 inline static hipError_t hipMemGetInfo(size_t* free, size_t* total) {
     return hipCUDAErrorTohipError(cudaMemGetInfo(free, total));
 }
@@ -1013,7 +1071,6 @@ inline static hipError_t hipEventElapsedTime(float* ms, hipEvent_t start, hipEve
 inline static hipError_t hipEventDestroy(hipEvent_t event) {
     return hipCUDAErrorTohipError(cudaEventDestroy(event));
 }
-
 
 inline static hipError_t hipStreamCreateWithFlags(hipStream_t* stream, unsigned int flags) {
     return hipCUDAErrorTohipError(cudaStreamCreateWithFlags(stream, flags));
@@ -1301,72 +1358,13 @@ inline static hipError_t hipModuleLaunchKernel(hipFunction_t f, unsigned int gri
                                                 kernelParams, extra));
 }
 
-
 inline static hipError_t hipFuncSetCacheConfig(const void* func, hipFuncCache_t cacheConfig) {
     return hipCUDAErrorTohipError(cudaFuncSetCacheConfig(func, cacheConfig));
 }
 
-#ifdef __cplusplus
-}
-#endif
-
-#ifdef __CUDACC__
-
-template <class T>
-inline static hipError_t hipOccupancyMaxPotentialBlockSize(int* minGridSize, int* blockSize, T func,
-                                                           size_t dynamicSMemSize = 0,
-                                                           int blockSizeLimit = 0) {
-    cudaError_t cerror;
-    cerror = cudaOccupancyMaxPotentialBlockSize(minGridSize, blockSize, func, dynamicSMemSize, blockSizeLimit);
-    return hipCUDAErrorTohipError(cerror);
-}
-
-template <class T, int dim, enum hipTextureReadMode readMode>
-inline static hipError_t hipBindTexture(size_t* offset, const struct texture<T, dim, readMode>& tex,
-                                        const void* devPtr, size_t size = UINT_MAX) {
-    return hipCUDAErrorTohipError(cudaBindTexture(offset, tex, devPtr, size));
-}
-
-template <class T, int dim, enum hipTextureReadMode readMode>
-inline static hipError_t hipBindTexture(size_t* offset, struct texture<T, dim, readMode>& tex,
-                                        const void* devPtr, const struct hipChannelFormatDesc& desc,
-                                        size_t size = UINT_MAX) {
+inline static hipError_t hipBindTexture(size_t* offset, struct textureReference* tex, const void* devPtr,
+                                        const hipChannelFormatDesc* desc, size_t size __dparm(UINT_MAX)){
     return hipCUDAErrorTohipError(cudaBindTexture(offset, tex, devPtr, desc, size));
-}
-
-template <class T, int dim, enum hipTextureReadMode readMode>
-inline static hipError_t hipUnbindTexture(struct texture<T, dim, readMode>* tex) {
-    return hipCUDAErrorTohipError(cudaUnbindTexture(tex));
-}
-
-inline static hipError_t hipBindTexture(size_t* offset, textureReference* tex, const void* devPtr,
-                                        const hipChannelFormatDesc* desc, size_t size = UINT_MAX){
-    return hipCUDAErrorTohipError(cudaBindTexture(offset, tex, devPtr, desc, size));
-}
-
-template <class T, int dim, enum hipTextureReadMode readMode>
-inline static hipError_t hipBindTextureToArray(struct texture<T, dim, readMode>& tex,
-                                               hipArray_const_t array,
-                                               const struct hipChannelFormatDesc& desc) {
-    return hipCUDAErrorTohipError(cudaBindTextureToArray(tex, array, desc));
-}
-
-template <class T, int dim, enum hipTextureReadMode readMode>
-inline static hipError_t hipBindTextureToArray(struct texture<T, dim, readMode> *tex,
-                                               hipArray_const_t array,
-                                               const struct hipChannelFormatDesc* desc) {
-    return hipCUDAErrorTohipError(cudaBindTextureToArray(tex, array, desc));
-}
-
-template <class T, int dim, enum hipTextureReadMode readMode>
-inline static hipError_t hipBindTextureToArray(struct texture<T, dim, readMode>& tex,
-                                               hipArray_const_t array) {
-    return hipCUDAErrorTohipError(cudaBindTextureToArray(tex, array));
-}
-
-template <class T>
-inline static hipChannelFormatDesc hipCreateChannelDesc() {
-    return cudaCreateChannelDesc<T>();
 }
 
 inline static hipChannelFormatDesc hipCreateChannelDesc(int x, int y, int z, int w,
@@ -1400,7 +1398,7 @@ inline static hipError_t hipGetTextureObjectResourceDesc(hipResourceDesc* pResDe
     return hipCUDAErrorTohipError(cudaGetTextureObjectResourceDesc( pResDesc, textureObject));
 }
 
-inline static hipError_t hipGetTextureAlignmentOffset(size_t* offset, const textureReference* texref)
+inline static hipError_t hipGetTextureAlignmentOffset(size_t* offset, const struct textureReference* texref)
 {
     return hipCUDAErrorTohipError(cudaGetTextureAlignmentOffset(offset,texref));
 }
@@ -1408,6 +1406,70 @@ inline static hipError_t hipGetTextureAlignmentOffset(size_t* offset, const text
 inline static hipError_t hipGetChannelDesc(hipChannelFormatDesc* desc, hipArray_const_t array)
 {
     return hipCUDAErrorTohipError(cudaGetChannelDesc(desc,array));
+}
+
+
+#ifdef __cplusplus
+}
+#endif
+
+#ifdef __CUDACC__
+
+template <class T>
+inline static hipError_t hipOccupancyMaxPotentialBlockSize(int* minGridSize, int* blockSize, T func,
+                                                           size_t dynamicSMemSize = 0,
+                                                           int blockSizeLimit = 0) {
+    cudaError_t cerror;
+    cerror = cudaOccupancyMaxPotentialBlockSize(minGridSize, blockSize, func, dynamicSMemSize, blockSizeLimit);
+    return hipCUDAErrorTohipError(cerror);
+}
+
+template <class T, int dim, enum cudaTextureReadMode readMode>
+inline static hipError_t hipBindTexture(size_t* offset, const struct texture<T, dim, readMode>& tex,
+                                        const void* devPtr, size_t size = UINT_MAX) {
+    return hipCUDAErrorTohipError(cudaBindTexture(offset, tex, devPtr, size));
+}
+
+template <class T, int dim, enum cudaTextureReadMode readMode>
+inline static hipError_t hipBindTexture(size_t* offset, struct texture<T, dim, readMode>& tex,
+                                        const void* devPtr, const hipChannelFormatDesc& desc,
+                                        size_t size = UINT_MAX) {
+    return hipCUDAErrorTohipError(cudaBindTexture(offset, tex, devPtr, desc, size));
+}
+
+template <class T, int dim, enum cudaTextureReadMode readMode>
+inline static hipError_t hipUnbindTexture(struct texture<T, dim, readMode>* tex) {
+    return hipCUDAErrorTohipError(cudaUnbindTexture(tex));
+}
+
+template <class T, int dim, enum cudaTextureReadMode readMode>
+inline static hipError_t hipUnbindTexture(struct texture<T, dim, readMode> &tex) {
+    return hipCUDAErrorTohipError(cudaUnbindTexture(tex));
+}
+
+template <class T, int dim, enum cudaTextureReadMode readMode>
+inline static hipError_t hipBindTextureToArray(struct texture<T, dim, readMode>& tex,
+                                               hipArray_const_t array,
+                                               const hipChannelFormatDesc& desc) {
+    return hipCUDAErrorTohipError(cudaBindTextureToArray(tex, array, desc));
+}
+
+template <class T, int dim, enum cudaTextureReadMode readMode>
+inline static hipError_t hipBindTextureToArray(struct texture<T, dim, readMode> *tex,
+                                               hipArray_const_t array,
+                                               const hipChannelFormatDesc* desc) {
+    return hipCUDAErrorTohipError(cudaBindTextureToArray(tex, array, desc));
+}
+
+template <class T, int dim, enum cudaTextureReadMode readMode>
+inline static hipError_t hipBindTextureToArray(struct texture<T, dim, readMode>& tex,
+                                               hipArray_const_t array) {
+    return hipCUDAErrorTohipError(cudaBindTextureToArray(tex, array));
+}
+
+template <class T>
+inline static hipChannelFormatDesc hipCreateChannelDesc() {
+    return cudaCreateChannelDesc<T>();
 }
 #endif  //__CUDACC__
 

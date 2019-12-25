@@ -2,9 +2,16 @@
 
 cmake_minimum_required(VERSION 2.8.12)
 
+# We use C++14 features, this will add compile option: -std=c++14
+set( CMAKE_CXX_STANDARD 14 )
+# Without this line, it will add -std=gnu++14 instead, which has some issues.
+set( CMAKE_CXX_EXTENSIONS OFF )
+
 set(CMAKE_INSTALL_PREFIX "/opt/rocm" CACHE PATH "")
 
 project(rccl CXX)
+
+set(AMDGPU_TARGETS gfx900;gfx906;gfx908 CACHE STRING "List of specific machine types for library to target")
 
 find_package(ROCM
              REQUIRED
@@ -134,25 +141,26 @@ if(PROFILE)
   add_definitions(-DENABLE_PROFILING)
 endif()
 
-target_link_libraries(rccl
-  PRIVATE --amdgpu-target=gfx803
-  PRIVATE --amdgpu-target=gfx900
-  PRIVATE --amdgpu-target=gfx906
-  PRIVATE --amdgpu-target=gfx908)
+foreach(target ${AMDGPU_TARGETS})
+target_link_libraries(rccl PRIVATE --amdgpu-target=${target})
+endforeach()
 
 if("${HIP_COMPILER}" MATCHES "clang")
-  target_compile_options(rccl
-    PRIVATE --amdgpu-target=gfx803
-    PRIVATE --amdgpu-target=gfx900
-    PRIVATE --amdgpu-target=gfx906
-    PRIVATE --amdgpu-target=gfx908
-    PRIVATE -fgpu-rdc)
+  foreach(target ${AMDGPU_TARGETS})
+    target_compile_options(rccl PRIVATE --amdgpu-target=${target} PRIVATE -fgpu-rdc)
+  endforeach()
   target_link_libraries(rccl PRIVATE -fgpu-rdc)
   target_include_directories(rccl PRIVATE /opt/rocm/hsa/include)
 endif()
 
 if("${HIP_COMPILER}" MATCHES "hcc")
-  target_link_libraries(rccl PRIVATE -hc-function-calls)
+  find_program( hcc_executable hcc )
+  execute_process(COMMAND bash "-c" "${hcc_executable} --version | sed -e '1!d' -e 's/.*based on HCC\\s*//'" OUTPUT_VARIABLE hcc_version_string)
+  execute_process(COMMAND bash "-c" "echo \"${hcc_version_string}\" | awk -F\".\" '{ printf $1}'" OUTPUT_VARIABLE hcc_major_version)
+  execute_process(COMMAND bash "-c" "echo \"${hcc_version_string}\" | awk -F\".\" '{ printf $2}'" OUTPUT_VARIABLE hcc_minor_version)
+  if ("${hcc_major_version}.${hcc_minor_version}" VERSION_LESS "3.2")
+    target_link_libraries(rccl PRIVATE -hc-function-calls)
+  endif()
 endif()
 
 if(TARGET hip::device)
@@ -178,8 +186,8 @@ rocm_export_targets(NAMESPACE
                     DEPENDS
                     hip)
 
-set(CPACK_DEBIAN_PACKAGE_DEPENDS "hip_hcc")
-set(CPACK_RPM_PACKAGE_REQUIRES "hip_hcc")
+set(CPACK_DEBIAN_PACKAGE_DEPENDS "rocm-dev (>= 2.5.27)")
+set(CPACK_RPM_PACKAGE_REQUIRES "rocm-dev >= 2.5.27")
 
 set(CPACK_RPM_EXCLUDE_FROM_AUTO_FILELIST_ADDITION "/opt" "/opt/rocm")
 
@@ -189,7 +197,7 @@ rocm_create_package(
   DESCRIPTION
   "Optimized primitives for collective multi-GPU communication"
   MAINTAINER
-  "<no-reply@amd.com>"
+  "<rccl-maintainer@amd.com>"
   LDCONFIG)
 
 rocm_install_symlink_subdir(rccl)

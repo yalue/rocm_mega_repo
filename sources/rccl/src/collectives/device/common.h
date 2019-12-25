@@ -40,7 +40,8 @@ static inline __device__ void exitIfAbortBarrier(int abort) {
   NCCL_COLL_NAME(coll##LL, op, dtype)
 
 #define NCCL_FUNC4(coll, op, dtype) \
-  NCCL_FUNC5(coll##Ring, op, dtype)
+  NCCL_FUNC5(coll##Ring, op, dtype), \
+  NCCL_FUNC5(coll##Tree, op, dtype)
 
 // Must be consistent with ncclDataType_t
 #define NCCL_FUNCS3A(coll, op) \
@@ -52,8 +53,10 @@ static inline __device__ void exitIfAbortBarrier(int abort) {
   NCCL_FUNC4(coll, op, u64), \
   NCCL_FUNC4(coll, op, f16), \
   NCCL_FUNC4(coll, op, f32), \
-  NCCL_FUNC4(coll, op, f64)
+  NCCL_FUNC4(coll, op, f64), \
+  NCCL_FUNC4(coll, op, b16)
 #define NCCL_FUNCS3B(coll, op) \
+  NCCL_FUNC4(coll, op,  i8), \
   NCCL_FUNC4(coll, op,  i8), \
   NCCL_FUNC4(coll, op,  i8), \
   NCCL_FUNC4(coll, op,  i8), \
@@ -120,16 +123,20 @@ struct Caller<f, f + 1>{
 inline
 __device__
 void NCCL_CALL_FUNCTIONS(struct ncclColl* const c) noexcept {
-  if (c->funcIndex < 72) {
-    if (c->funcIndex % 2) ncclBroadcastRingLL_copy_i8(&c->args);
-    else ncclBroadcastRing_copy_i8(&c->args);
+  if (c->funcIndex < 160) {
+    if (c->funcIndex % 4 == 0) ncclBroadcastRing_copy_i8(&c->args);
+    else if (c->funcIndex % 4 == 1) ncclBroadcastRingLL_copy_i8(&c->args);
+    else if (c->funcIndex % 4 == 2) ncclBroadcastTree_copy_i8(&c->args);
+    else ncclBroadcastTreeLL_copy_i8(&c->args);
   }
-  else if (c->funcIndex < 144) Caller<72, 144>::call(c);
-  else if (c->funcIndex < 216) {
-    if (c->funcIndex % 2) ncclAllGatherRingLL_copy_i8(&c->args);
-    else ncclAllGatherRing_copy_i8(&c->args);
+  else if (c->funcIndex < 320) Caller<160, 320>::call(c);
+  else if (c->funcIndex < 480) {
+    if (c->funcIndex % 4 == 0) ncclAllGatherRing_copy_i8(&c->args);
+    else if (c->funcIndex % 4 == 1) ncclAllGatherRingLL_copy_i8(&c->args);
+    else if (c->funcIndex % 4 == 2) ncclAllGatherTree_copy_i8(&c->args);
+    else ncclAllGatherTreeLL_copy_i8(&c->args);
   }
-  else Caller<216, 360>::call(c);
+  else Caller<480, 800>::call(c);
 }
 
 static __device__ void load_parallel(void* dst, void* src, size_t size, int tid, uint32_t* abortCount) {
@@ -152,7 +159,6 @@ __device__ void NCCL_COLL_NAME(coll, op, dtype)(struct CollectiveArgs* args) { \
   coll##Kernel<COLL_UNROLL, ncclFunc<ctype>, ctype>(args); \
 }
 
-#if NCCL_OP == 0
 /* Kernels with the first operation inlined */
 #define IMPL_COLL_KERN(coll, op, ncclFunc, dtype, ctype, fIndex) \
 __launch_bounds__(MAXTHREADS+WARP_SIZE, 1) \
@@ -195,18 +201,24 @@ __global__ void NCCL_KERN_NAME(coll, op, dtype)(struct ncclColl firstColl) { \
     load_coll(c, channel->devCollectives+nextIndex, tid, &abortCount); \
   } \
 }
-#else
-#define IMPL_COLL_KERN(coll, op, ncclFunc, dtype, ctype, fIndex)
-#endif
+
+#define IMPL_COLL_KERN_sum(coll, op, ncclFunc, dtype, ctype, fIndex) \
+  IMPL_COLL_KERN(coll, op, ncclFunc, dtype, ctype, fIndex)
+#define IMPL_COLL_KERN_copy(coll, op, ncclFunc, dtype, ctype, fIndex) \
+  IMPL_COLL_KERN(coll, op, ncclFunc, dtype, ctype, fIndex)
+#define IMPL_COLL_KERN_prod(coll, op, ncclFunc, dtype, ctype, fIndex)
+#define IMPL_COLL_KERN_min(coll, op, ncclFunc, dtype, ctype, fIndex)
+#define IMPL_COLL_KERN_max(coll, op, ncclFunc, dtype, ctype, fIndex)
 
 // Only generate inline kernels for LL
 #define IMPL_COLL4(coll, op, ncclFunc, dtype, ctype, ncclColl, ncclOp, ncclType, al) \
   IMPL_COLL_FUNC(coll, op, ncclFunc, dtype, ctype) \
   IMPL_COLL_FUNC(coll##LL, op, ncclFunc, dtype, ctype) \
-  IMPL_COLL_KERN(coll##LL, op, ncclFunc, dtype, ctype, FUNC_INDEX(ncclColl, ncclOp, ncclType, 1, al)) \
+  IMPL_COLL_KERN_##op(coll##LL, op, ncclFunc, dtype, ctype, FUNC_INDEX(ncclColl, ncclOp, ncclType, 1, al)) \
 
 #define IMPL_COLL3(coll, op, ncclFunc, dtype, ctype, ncclColl, ncclOp, ncclType) \
-  IMPL_COLL4(coll##Ring, op, ncclFunc, dtype, ctype, ncclColl, ncclOp, ncclType, 0)
+  IMPL_COLL4(coll##Ring, op, ncclFunc, dtype, ctype, ncclColl, ncclOp, ncclType, 0) \
+  IMPL_COLL4(coll##Tree, op, ncclFunc, dtype, ctype, ncclColl, ncclOp, ncclType, 1)
 
 #define IMPL_COLL2(coll, op, ncclFunc, ncclColl, ncclOp) \
   IMPL_COLL3(coll, op, ncclFunc, i8,  int8_t,   ncclColl, ncclOp, ncclInt8) \
@@ -217,7 +229,8 @@ __global__ void NCCL_KERN_NAME(coll, op, dtype)(struct ncclColl firstColl) { \
   IMPL_COLL3(coll, op, ncclFunc, u64, uint64_t, ncclColl, ncclOp, ncclUint64) \
   IMPL_COLL3(coll, op, ncclFunc, f16, half,     ncclColl, ncclOp, ncclFloat16) \
   IMPL_COLL3(coll, op, ncclFunc, f32, float,    ncclColl, ncclOp, ncclFloat32) \
-  IMPL_COLL3(coll, op, ncclFunc, f64, double,   ncclColl, ncclOp, ncclFloat64)
+  IMPL_COLL3(coll, op, ncclFunc, f64, double,   ncclColl, ncclOp, ncclFloat64) \
+  IMPL_COLL3(coll, op, ncclFunc, b16, rccl_bfloat16, ncclColl, ncclOp, ncclBfloat16)
 
 #define COLL_UNROLL 2
 

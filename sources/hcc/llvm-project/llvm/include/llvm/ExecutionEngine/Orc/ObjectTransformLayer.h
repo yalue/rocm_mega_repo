@@ -29,14 +29,10 @@ public:
           std::unique_ptr<MemoryBuffer>)>;
 
   ObjectTransformLayer(ExecutionSession &ES, ObjectLayer &BaseLayer,
-                       TransformFunction Transform = TransformFunction());
+                       TransformFunction Transform);
 
   void emit(MaterializationResponsibility R,
             std::unique_ptr<MemoryBuffer> O) override;
-
-  void setTransform(TransformFunction Transform) {
-    this->Transform = std::move(Transform);
-  }
 
 private:
   ObjectLayer &BaseLayer;

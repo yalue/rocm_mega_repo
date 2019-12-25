@@ -1,3 +1,5 @@
+:orphan:
+
 ========================================
  Kaleidoscope: Compiling to Object Code
 ========================================
@@ -155,7 +157,7 @@ pass:
 .. code-block:: c++
 
   legacy::PassManager pass;
-  auto FileType = CGFT_ObjectFile;
+  auto FileType = TargetMachine::CGFT_ObjectFile;
 
   if (TargetMachine->addPassesToEmitFile(pass, dest, nullptr, FileType)) {
     errs() << "TargetMachine can't emit a file of this type";

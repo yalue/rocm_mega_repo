@@ -366,7 +366,7 @@ public:
   std::string ARCMTMigrateReportOut;
 
   /// The input files and their types.
-  SmallVector<FrontendInputFile, 0> Inputs;
+  std::vector<FrontendInputFile> Inputs;
 
   /// When the input is a module map, the original module map file from which
   /// that map was inferred, if any (for umbrella modules).

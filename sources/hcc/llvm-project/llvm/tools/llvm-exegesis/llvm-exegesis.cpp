@@ -217,11 +217,11 @@ generateSnippets(const LLVMState &State, unsigned Opcode,
   if (InstrDesc.isCall() || InstrDesc.isReturn())
     return make_error<Failure>("Unsupported opcode: isCall/isReturn");
 
-  SnippetGenerator::Options SnippetOptions;
-  SnippetOptions.MaxConfigsPerOpcode = MaxConfigsPerOpcode;
+  SnippetGenerator::Options Options;
+  Options.MaxConfigsPerOpcode = MaxConfigsPerOpcode;
   const std::unique_ptr<SnippetGenerator> Generator =
       State.getExegesisTarget().createSnippetGenerator(BenchmarkMode, State,
-                                                       SnippetOptions);
+                                                       Options);
   if (!Generator)
     report_fatal_error("cannot create snippet generator");
   return Generator->generateConfigurations(Instr, ForbiddenRegs);

@@ -1,14 +1,6 @@
-.. toctree::
-   :maxdepth: 4 
-   :caption: Contents:
-
 .. |br| raw:: html
 
   <br />
-
-=========
-rocSPARSE
-=========
 
 Introduction
 ------------
@@ -313,9 +305,9 @@ where
 .. math::
 
   \begin{array}{ll}
-    \text{coo_val}[8] & = \{1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0\} \\
-    \text{coo_row_ind}[8] & = \{0, 0, 0, 1, 1, 2, 2, 2\} \\
-    \text{coo_col_ind}[8] & = \{0, 1, 3, 1, 2, 0, 3, 4\}
+    \text{coo\_val}[8] & = \{1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0\} \\
+    \text{coo\_row\_ind}[8] & = \{0, 0, 0, 1, 1, 2, 2, 2\} \\
+    \text{coo\_col\_ind}[8] & = \{0, 1, 3, 1, 2, 0, 3, 4\}
   \end{array}
 
 CSR storage format
@@ -347,9 +339,9 @@ where
 .. math::
 
   \begin{array}{ll}
-    \text{csr_val}[8] & = \{1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0\} \\
-    \text{csr_row_ptr}[4] & = \{1, 4, 6, 9\} \\
-    \text{csr_col_ind}[8] & = \{1, 2, 4, 2, 3, 1, 4, 5\}
+    \text{csr\_val}[8] & = \{1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0\} \\
+    \text{csr\_row\_ptr}[4] & = \{1, 4, 6, 9\} \\
+    \text{csr\_col\_ind}[8] & = \{1, 2, 4, 2, 3, 1, 4, 5\}
   \end{array}
 
 ELL storage format
@@ -365,7 +357,7 @@ ell_col_ind array of ``m times ell_width`` elements containing the column indice
 =========== ================================================================================
 
 The ELL matrix is assumed to be stored in column-major format. Rows with less than ``ell_width`` non-zero elements are padded with zeros (``ell_val``) and :math:`-1` (``ell_col_ind``).
-Consider the following :math:`3 \times 5` matrix and the corresponding ELL structures, with :math:`m = 3, n = 5` and :math:`\text{ell_width} = 3` using zero based indexing:
+Consider the following :math:`3 \times 5` matrix and the corresponding ELL structures, with :math:`m = 3, n = 5` and :math:`\text{ell\_width} = 3` using zero based indexing:
 
 .. math::
 
@@ -380,8 +372,8 @@ where
 .. math::
 
   \begin{array}{ll}
-    \text{ell_val}[9] & = \{1.0, 4.0, 6.0, 2.0, 5.0, 7.0, 3.0, 0.0, 8.0\} \\
-    \text{ell_col_ind}[9] & = \{0, 1, 0, 1, 2, 3, 3, -1, 4\}
+    \text{ell\_val}[9] & = \{1.0, 4.0, 6.0, 2.0, 5.0, 7.0, 3.0, 0.0, 8.0\} \\
+    \text{ell\_col\_ind}[9] & = \{0, 1, 0, 1, 2, 3, 3, -1, 4\}
   \end{array}
 
 .. _HYB storage format:
@@ -666,6 +658,10 @@ rocsparse_axpyi()
 .. doxygenfunction:: rocsparse_saxpyi
   :outline:
 .. doxygenfunction:: rocsparse_daxpyi
+  :outline:
+.. doxygenfunction:: rocsparse_caxpyi
+  :outline:
+.. doxygenfunction:: rocsparse_zaxpyi
 
 rocsparse_doti()
 *********************
@@ -673,6 +669,17 @@ rocsparse_doti()
 .. doxygenfunction:: rocsparse_sdoti
   :outline:
 .. doxygenfunction:: rocsparse_ddoti
+  :outline:
+.. doxygenfunction:: rocsparse_cdoti
+  :outline:
+.. doxygenfunction:: rocsparse_zdoti
+
+rocsparse_dotci()
+*********************
+
+.. doxygenfunction:: rocsparse_cdotci
+  :outline:
+.. doxygenfunction:: rocsparse_zdotci
 
 rocsparse_gthr()
 *********************
@@ -680,6 +687,10 @@ rocsparse_gthr()
 .. doxygenfunction:: rocsparse_sgthr
   :outline:
 .. doxygenfunction:: rocsparse_dgthr
+  :outline:
+.. doxygenfunction:: rocsparse_cgthr
+  :outline:
+.. doxygenfunction:: rocsparse_zgthr
 
 rocsparse_gthrz()
 *********************
@@ -687,6 +698,10 @@ rocsparse_gthrz()
 .. doxygenfunction:: rocsparse_sgthrz
   :outline:
 .. doxygenfunction:: rocsparse_dgthrz
+  :outline:
+.. doxygenfunction:: rocsparse_cgthrz
+  :outline:
+.. doxygenfunction:: rocsparse_zgthrz
 
 rocsparse_roti()
 ****************
@@ -701,6 +716,10 @@ rocsparse_sctr()
 .. doxygenfunction:: rocsparse_ssctr
   :outline:
 .. doxygenfunction:: rocsparse_dsctr
+  :outline:
+.. doxygenfunction:: rocsparse_csctr
+  :outline:
+.. doxygenfunction:: rocsparse_zsctr
 
 .. _rocsparse_level2_functions_:
 
@@ -717,6 +736,10 @@ rocsparse_coomv()
 .. doxygenfunction:: rocsparse_scoomv
   :outline:
 .. doxygenfunction:: rocsparse_dcoomv
+  :outline:
+.. doxygenfunction:: rocsparse_ccoomv
+  :outline:
+.. doxygenfunction:: rocsparse_zcoomv
 
 rocsparse_csrmv_analysis()
 ***************************
@@ -724,6 +747,10 @@ rocsparse_csrmv_analysis()
 .. doxygenfunction:: rocsparse_scsrmv_analysis
   :outline:
 .. doxygenfunction:: rocsparse_dcsrmv_analysis
+  :outline:
+.. doxygenfunction:: rocsparse_ccsrmv_analysis
+  :outline:
+.. doxygenfunction:: rocsparse_zcsrmv_analysis
 
 rocsparse_csrmv()
 *****************
@@ -731,6 +758,10 @@ rocsparse_csrmv()
 .. doxygenfunction:: rocsparse_scsrmv
   :outline:
 .. doxygenfunction:: rocsparse_dcsrmv
+  :outline:
+.. doxygenfunction:: rocsparse_ccsrmv
+  :outline:
+.. doxygenfunction:: rocsparse_zcsrmv
 
 rocsparse_csrmv_analysis_clear()
 *********************************
@@ -743,6 +774,10 @@ rocsparse_ellmv()
 .. doxygenfunction:: rocsparse_sellmv
   :outline:
 .. doxygenfunction:: rocsparse_dellmv
+  :outline:
+.. doxygenfunction:: rocsparse_cellmv
+  :outline:
+.. doxygenfunction:: rocsparse_zellmv
 
 rocsparse_hybmv()
 *****************
@@ -750,6 +785,10 @@ rocsparse_hybmv()
 .. doxygenfunction:: rocsparse_shybmv
   :outline:
 .. doxygenfunction:: rocsparse_dhybmv
+  :outline:
+.. doxygenfunction:: rocsparse_chybmv
+  :outline:
+.. doxygenfunction:: rocsparse_zhybmv
 
 rocsparse_csrsv_zero_pivot()
 ****************************
@@ -762,6 +801,10 @@ rocsparse_csrsv_buffer_size()
 .. doxygenfunction:: rocsparse_scsrsv_buffer_size
   :outline:
 .. doxygenfunction:: rocsparse_dcsrsv_buffer_size
+  :outline:
+.. doxygenfunction:: rocsparse_ccsrsv_buffer_size
+  :outline:
+.. doxygenfunction:: rocsparse_zcsrsv_buffer_size
 
 rocsparse_csrsv_analysis()
 **************************
@@ -769,6 +812,10 @@ rocsparse_csrsv_analysis()
 .. doxygenfunction:: rocsparse_scsrsv_analysis
   :outline:
 .. doxygenfunction:: rocsparse_dcsrsv_analysis
+  :outline:
+.. doxygenfunction:: rocsparse_ccsrsv_analysis
+  :outline:
+.. doxygenfunction:: rocsparse_zcsrsv_analysis
 
 rocsparse_csrsv_solve()
 ***********************
@@ -776,6 +823,10 @@ rocsparse_csrsv_solve()
 .. doxygenfunction:: rocsparse_scsrsv_solve
   :outline:
 .. doxygenfunction:: rocsparse_dcsrsv_solve
+  :outline:
+.. doxygenfunction:: rocsparse_ccsrsv_solve
+  :outline:
+.. doxygenfunction:: rocsparse_zcsrsv_solve
 
 rocsparse_csrsv_clear()
 ***********************
@@ -797,6 +848,10 @@ rocsparse_csrmm()
 .. doxygenfunction:: rocsparse_scsrmm
   :outline:
 .. doxygenfunction:: rocsparse_dcsrmm
+  :outline:
+.. doxygenfunction:: rocsparse_ccsrmm
+  :outline:
+.. doxygenfunction:: rocsparse_zcsrmm
 
 .. _rocsparse_extra_functions_:
 
@@ -813,6 +868,10 @@ rocsparse_csrgemm_buffer_size()
 .. doxygenfunction:: rocsparse_scsrgemm_buffer_size
   :outline:
 .. doxygenfunction:: rocsparse_dcsrgemm_buffer_size
+  :outline:
+.. doxygenfunction:: rocsparse_ccsrgemm_buffer_size
+  :outline:
+.. doxygenfunction:: rocsparse_zcsrgemm_buffer_size
 
 rocsparse_csrgemm_nnz()
 ***********************
@@ -825,6 +884,10 @@ rocsparse_csrgemm()
 .. doxygenfunction:: rocsparse_scsrgemm
   :outline:
 .. doxygenfunction:: rocsparse_dcsrgemm
+  :outline:
+.. doxygenfunction:: rocsparse_ccsrgemm
+  :outline:
+.. doxygenfunction:: rocsparse_zcsrgemm
 
 .. _rocsparse_precond_functions_:
 
@@ -846,6 +909,10 @@ rocsparse_csrilu0_buffer_size()
 .. doxygenfunction:: rocsparse_scsrilu0_buffer_size
   :outline:
 .. doxygenfunction:: rocsparse_dcsrilu0_buffer_size
+  :outline:
+.. doxygenfunction:: rocsparse_ccsrilu0_buffer_size
+  :outline:
+.. doxygenfunction:: rocsparse_zcsrilu0_buffer_size
 
 rocsparse_csrilu0_analysis()
 ****************************
@@ -853,6 +920,10 @@ rocsparse_csrilu0_analysis()
 .. doxygenfunction:: rocsparse_scsrilu0_analysis
   :outline:
 .. doxygenfunction:: rocsparse_dcsrilu0_analysis
+  :outline:
+.. doxygenfunction:: rocsparse_ccsrilu0_analysis
+  :outline:
+.. doxygenfunction:: rocsparse_zcsrilu0_analysis
 
 rocsparse_csrilu0()
 *******************
@@ -860,6 +931,10 @@ rocsparse_csrilu0()
 .. doxygenfunction:: rocsparse_scsrilu0
   :outline:
 .. doxygenfunction:: rocsparse_dcsrilu0
+  :outline:
+.. doxygenfunction:: rocsparse_ccsrilu0
+  :outline:
+.. doxygenfunction:: rocsparse_zcsrilu0
 
 rocsparse_csrilu0_clear()
 **********************************
@@ -896,6 +971,10 @@ rocsparse_csr2csc()
 .. doxygenfunction:: rocsparse_scsr2csc
   :outline:
 .. doxygenfunction:: rocsparse_dcsr2csc
+  :outline:
+.. doxygenfunction:: rocsparse_ccsr2csc
+  :outline:
+.. doxygenfunction:: rocsparse_zcsr2csc
 
 rocsparse_csr2ell_width()
 *************************
@@ -908,6 +987,10 @@ rocsparse_csr2ell()
 .. doxygenfunction:: rocsparse_scsr2ell
   :outline:
 .. doxygenfunction:: rocsparse_dcsr2ell
+  :outline:
+.. doxygenfunction:: rocsparse_ccsr2ell
+  :outline:
+.. doxygenfunction:: rocsparse_zcsr2ell
 
 rocsparse_ell2csr_nnz()
 ***********************
@@ -920,6 +1003,10 @@ rocsparse_ell2csr()
 .. doxygenfunction:: rocsparse_sell2csr
   :outline:
 .. doxygenfunction:: rocsparse_dell2csr
+  :outline:
+.. doxygenfunction:: rocsparse_cell2csr
+  :outline:
+.. doxygenfunction:: rocsparse_zell2csr
 
 rocsparse_csr2hyb()
 *******************
@@ -927,6 +1014,10 @@ rocsparse_csr2hyb()
 .. doxygenfunction:: rocsparse_scsr2hyb
   :outline:
 .. doxygenfunction:: rocsparse_dcsr2hyb
+  :outline:
+.. doxygenfunction:: rocsparse_ccsr2hyb
+  :outline:
+.. doxygenfunction:: rocsparse_zcsr2hyb
 
 rocsparse_create_identity_permutation()
 ***************************************
@@ -942,6 +1033,16 @@ rocsparse_csrsort()
 *******************
 
 .. doxygenfunction:: rocsparse_csrsort
+
+rocsparse_cscsort_buffer_size()
+*******************************
+
+.. doxygenfunction:: rocsparse_cscsort_buffer_size
+
+rocsparse_cscsort()
+*******************
+
+.. doxygenfunction:: rocsparse_cscsort
 
 rocsparse_coosort_buffer_size()
 *******************************

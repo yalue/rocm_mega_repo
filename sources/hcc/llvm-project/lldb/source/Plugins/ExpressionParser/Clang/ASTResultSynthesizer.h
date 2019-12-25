@@ -135,11 +135,18 @@ private:
   void RecordPersistentTypes(clang::DeclContext *FunDeclCtx);
 
   /// Given a TypeDecl, if it declares a type whose name starts with a dollar
-  /// sign, register it as a pointer type in the target's scratch AST context.
+  /// sign, register it as a pointer type in the target's scratch
+  /// AST context.
+  ///
+  /// \param[in] Body
+  ///     The body of the function.
   void MaybeRecordPersistentType(clang::TypeDecl *D);
 
   /// Given a NamedDecl, register it as a pointer type in the target's scratch
   /// AST context.
+  ///
+  /// \param[in] Body
+  ///     The body of the function.
   void RecordPersistentDecl(clang::NamedDecl *D);
 
   clang::ASTContext

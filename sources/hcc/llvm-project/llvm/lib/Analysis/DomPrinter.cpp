@@ -20,7 +20,6 @@
 #include "llvm/Analysis/DomPrinter.h"
 #include "llvm/Analysis/DOTGraphTraitsPass.h"
 #include "llvm/Analysis/PostDominators.h"
-#include "llvm/InitializePasses.h"
 
 using namespace llvm;
 

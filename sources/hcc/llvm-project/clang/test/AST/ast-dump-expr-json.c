@@ -132,7 +132,6 @@ void PrimaryExpressions(int a) {
 // CHECK-NEXT:   }
 // CHECK-NEXT:  },
 // CHECK-NEXT:  "name": "Comma",
-// CHECK-NEXT:  "mangledName": "Comma",
 // CHECK-NEXT:  "type": {
 // CHECK-NEXT:   "qualType": "void (void)"
 // CHECK-NEXT:  },
@@ -292,7 +291,6 @@ void PrimaryExpressions(int a) {
 // CHECK-NEXT:   }
 // CHECK-NEXT:  },
 // CHECK-NEXT:  "name": "Assignment",
-// CHECK-NEXT:  "mangledName": "Assignment",
 // CHECK-NEXT:  "type": {
 // CHECK-NEXT:   "qualType": "void (int)"
 // CHECK-NEXT:  },
@@ -320,7 +318,6 @@ void PrimaryExpressions(int a) {
 // CHECK-NEXT:    },
 // CHECK-NEXT:    "isUsed": true,
 // CHECK-NEXT:    "name": "a",
-// CHECK-NEXT:    "mangledName": "a",
 // CHECK-NEXT:    "type": {
 // CHECK-NEXT:     "qualType": "int"
 // CHECK-NEXT:    }
@@ -551,7 +548,6 @@ void PrimaryExpressions(int a) {
 // CHECK-NEXT:   }
 // CHECK-NEXT:  },
 // CHECK-NEXT:  "name": "Conditionals",
-// CHECK-NEXT:  "mangledName": "Conditionals",
 // CHECK-NEXT:  "type": {
 // CHECK-NEXT:   "qualType": "void (int)"
 // CHECK-NEXT:  },
@@ -579,7 +575,6 @@ void PrimaryExpressions(int a) {
 // CHECK-NEXT:    },
 // CHECK-NEXT:    "isUsed": true,
 // CHECK-NEXT:    "name": "a",
-// CHECK-NEXT:    "mangledName": "a",
 // CHECK-NEXT:    "type": {
 // CHECK-NEXT:     "qualType": "int"
 // CHECK-NEXT:    }
@@ -985,7 +980,6 @@ void PrimaryExpressions(int a) {
 // CHECK-NEXT:   }
 // CHECK-NEXT:  },
 // CHECK-NEXT:  "name": "BinaryOperators",
-// CHECK-NEXT:  "mangledName": "BinaryOperators",
 // CHECK-NEXT:  "type": {
 // CHECK-NEXT:   "qualType": "void (int, int)"
 // CHECK-NEXT:  },
@@ -1013,7 +1007,6 @@ void PrimaryExpressions(int a) {
 // CHECK-NEXT:    },
 // CHECK-NEXT:    "isUsed": true,
 // CHECK-NEXT:    "name": "a",
-// CHECK-NEXT:    "mangledName": "a",
 // CHECK-NEXT:    "type": {
 // CHECK-NEXT:     "qualType": "int"
 // CHECK-NEXT:    }
@@ -1040,7 +1033,6 @@ void PrimaryExpressions(int a) {
 // CHECK-NEXT:    },
 // CHECK-NEXT:    "isUsed": true,
 // CHECK-NEXT:    "name": "b",
-// CHECK-NEXT:    "mangledName": "b",
 // CHECK-NEXT:    "type": {
 // CHECK-NEXT:     "qualType": "int"
 // CHECK-NEXT:    }
@@ -3358,7 +3350,6 @@ void PrimaryExpressions(int a) {
 // CHECK-NEXT:  },
 // CHECK-NEXT:  "isUsed": true,
 // CHECK-NEXT:  "name": "UnaryOperators",
-// CHECK-NEXT:  "mangledName": "UnaryOperators",
 // CHECK-NEXT:  "type": {
 // CHECK-NEXT:   "qualType": "void (int, int *)"
 // CHECK-NEXT:  },
@@ -3386,7 +3377,6 @@ void PrimaryExpressions(int a) {
 // CHECK-NEXT:    },
 // CHECK-NEXT:    "isUsed": true,
 // CHECK-NEXT:    "name": "a",
-// CHECK-NEXT:    "mangledName": "a",
 // CHECK-NEXT:    "type": {
 // CHECK-NEXT:     "qualType": "int"
 // CHECK-NEXT:    }
@@ -3413,7 +3403,6 @@ void PrimaryExpressions(int a) {
 // CHECK-NEXT:    },
 // CHECK-NEXT:    "isUsed": true,
 // CHECK-NEXT:    "name": "b",
-// CHECK-NEXT:    "mangledName": "b",
 // CHECK-NEXT:    "type": {
 // CHECK-NEXT:     "qualType": "int *"
 // CHECK-NEXT:    }
@@ -4025,7 +4014,6 @@ void PrimaryExpressions(int a) {
 // CHECK-NEXT:   }
 // CHECK-NEXT:  },
 // CHECK-NEXT:  "name": "PostfixOperators",
-// CHECK-NEXT:  "mangledName": "PostfixOperators",
 // CHECK-NEXT:  "type": {
 // CHECK-NEXT:   "qualType": "void (int *, struct S, struct S *)"
 // CHECK-NEXT:  },
@@ -4053,7 +4041,6 @@ void PrimaryExpressions(int a) {
 // CHECK-NEXT:    },
 // CHECK-NEXT:    "isUsed": true,
 // CHECK-NEXT:    "name": "a",
-// CHECK-NEXT:    "mangledName": "a",
 // CHECK-NEXT:    "type": {
 // CHECK-NEXT:     "qualType": "int *"
 // CHECK-NEXT:    }
@@ -4080,7 +4067,6 @@ void PrimaryExpressions(int a) {
 // CHECK-NEXT:    },
 // CHECK-NEXT:    "isUsed": true,
 // CHECK-NEXT:    "name": "b",
-// CHECK-NEXT:    "mangledName": "b",
 // CHECK-NEXT:    "type": {
 // CHECK-NEXT:     "desugaredQualType": "struct S",
 // CHECK-NEXT:     "qualType": "struct S"
@@ -4108,7 +4094,6 @@ void PrimaryExpressions(int a) {
 // CHECK-NEXT:    },
 // CHECK-NEXT:    "isUsed": true,
 // CHECK-NEXT:    "name": "c",
-// CHECK-NEXT:    "mangledName": "c",
 // CHECK-NEXT:    "type": {
 // CHECK-NEXT:     "qualType": "struct S *"
 // CHECK-NEXT:    }
@@ -4922,7 +4907,6 @@ void PrimaryExpressions(int a) {
 // CHECK-NEXT:   }
 // CHECK-NEXT:  },
 // CHECK-NEXT:  "name": "PrimaryExpressions",
-// CHECK-NEXT:  "mangledName": "PrimaryExpressions",
 // CHECK-NEXT:  "type": {
 // CHECK-NEXT:   "qualType": "void (int)"
 // CHECK-NEXT:  },
@@ -4950,7 +4934,6 @@ void PrimaryExpressions(int a) {
 // CHECK-NEXT:    },
 // CHECK-NEXT:    "isUsed": true,
 // CHECK-NEXT:    "name": "a",
-// CHECK-NEXT:    "mangledName": "a",
 // CHECK-NEXT:    "type": {
 // CHECK-NEXT:     "qualType": "int"
 // CHECK-NEXT:    }

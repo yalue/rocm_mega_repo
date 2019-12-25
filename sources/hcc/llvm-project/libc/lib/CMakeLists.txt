@@ -2,23 +2,8 @@
 add_entrypoint_library(
   llvmlibc
   DEPENDS
-    # errno.h entrypoints
-    __errno_location
-
+    ### C standard library entrypoints
     # string.h entrypoints
     strcpy
     strcat
-)
-
-add_entrypoint_library(
-  llvmlibm
-  DEPENDS
-    # math.h entrypoints
-    round
-)
-
-add_redirector_library(
-  llvmlibc_redirectors
-  DEPENDS
-    round_redirector
 )

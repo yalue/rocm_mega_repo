@@ -31,16 +31,13 @@
 #include "llvm/Analysis/ConstantFolding.h"
 #include "llvm/Analysis/EHPersonalities.h"
 #include "llvm/Analysis/OptimizationRemarkEmitter.h"
-#include "llvm/Analysis/ProfileSummaryInfo.h"
 #include "llvm/BinaryFormat/COFF.h"
 #include "llvm/BinaryFormat/Dwarf.h"
 #include "llvm/BinaryFormat/ELF.h"
 #include "llvm/CodeGen/GCMetadata.h"
 #include "llvm/CodeGen/GCMetadataPrinter.h"
 #include "llvm/CodeGen/GCStrategy.h"
-#include "llvm/CodeGen/LazyMachineBlockFrequencyInfo.h"
 #include "llvm/CodeGen/MachineBasicBlock.h"
-#include "llvm/CodeGen/MachineBlockFrequencyInfo.h"
 #include "llvm/CodeGen/MachineConstantPool.h"
 #include "llvm/CodeGen/MachineDominators.h"
 #include "llvm/CodeGen/MachineFrameInfo.h"
@@ -55,7 +52,6 @@
 #include "llvm/CodeGen/MachineModuleInfoImpls.h"
 #include "llvm/CodeGen/MachineOperand.h"
 #include "llvm/CodeGen/MachineOptimizationRemarkEmitter.h"
-#include "llvm/CodeGen/MachineSizeOpts.h"
 #include "llvm/CodeGen/StackMaps.h"
 #include "llvm/CodeGen/TargetFrameLowering.h"
 #include "llvm/CodeGen/TargetInstrInfo.h"
@@ -85,6 +81,7 @@
 #include "llvm/IR/Type.h"
 #include "llvm/IR/Value.h"
 #include "llvm/MC/MCAsmInfo.h"
+#include "llvm/MC/MCCodePadder.h"
 #include "llvm/MC/MCContext.h"
 #include "llvm/MC/MCDirectives.h"
 #include "llvm/MC/MCDwarf.h"
@@ -142,12 +139,17 @@ static const char *const DbgTimerDescription = "Debug Info Emission";
 static const char *const EHTimerName = "write_exception";
 static const char *const EHTimerDescription = "DWARF Exception Writer";
 static const char *const CFGuardName = "Control Flow Guard";
-static const char *const CFGuardDescription = "Control Flow Guard";
+static const char *const CFGuardDescription = "Control Flow Guard Tables";
 static const char *const CodeViewLineTablesGroupName = "linetables";
 static const char *const CodeViewLineTablesGroupDescription =
   "CodeView Line Tables";
 
 STATISTIC(EmittedInsts, "Number of machine instrs printed");
+
+static cl::opt<bool> EnableRemarksSection(
+    "remarks-section",
+    cl::desc("Emit a section containing remark diagnostics metadata"),
+    cl::init(false));
 
 char AsmPrinter::ID = 0;
 
@@ -251,8 +253,6 @@ void AsmPrinter::getAnalysisUsage(AnalysisUsage &AU) const {
   AU.addRequired<MachineModuleInfoWrapperPass>();
   AU.addRequired<MachineOptimizationRemarkEmitterPass>();
   AU.addRequired<GCModuleInfo>();
-  AU.addRequired<LazyMachineBlockFrequencyInfoPass>();
-  AU.addRequired<ProfileSummaryInfoWrapperPass>();
 }
 
 bool AsmPrinter::doInitialization(Module &M) {
@@ -381,12 +381,12 @@ bool AsmPrinter::doInitialization(Module &M) {
                           EHTimerDescription, DWARFGroupName,
                           DWARFGroupDescription);
 
-  // Emit tables for any value of cfguard flag (i.e. cfguard=1 or cfguard=2).
   if (mdconst::extract_or_null<ConstantInt>(
-          MMI->getModule()->getModuleFlag("cfguard")))
+          MMI->getModule()->getModuleFlag("cfguardtable")))
     Handlers.emplace_back(std::make_unique<WinCFGuard>(this), CFGuardName,
                           CFGuardDescription, DWARFGroupName,
                           DWARFGroupDescription);
+
   return false;
 }
 
@@ -940,7 +940,7 @@ AsmPrinter::CFIMoveType AsmPrinter::needsCFIMoves() const {
       MF->getFunction().needsUnwindTableEntry())
     return CFI_M_EH;
 
-  if (MMI->hasDebugInfo() || MF->getTarget().Options.ForceDwarfFrameSection)
+  if (MMI->hasDebugInfo())
     return CFI_M_Debug;
 
   return CFI_M_None;
@@ -1065,9 +1065,13 @@ void AsmPrinter::EmitFunctionBody() {
         ++NumInstsInFunction;
       }
 
-      // If there is a pre-instruction symbol, emit a label for it here.
+      // If there is a pre-instruction symbol, emit a label for it here. If the
+      // instruction was duplicated and the label has already been emitted,
+      // don't re-emit the same label.
+      // FIXME: Consider strengthening that to an assertion.
       if (MCSymbol *S = MI.getPreInstrSymbol())
-        OutStreamer->EmitLabel(S);
+        if (S->isUndefined())
+          OutStreamer->EmitLabel(S);
 
       if (ShouldPrintDebugScopes) {
         for (const HandlerInfo &HI : Handlers) {
@@ -1120,9 +1124,13 @@ void AsmPrinter::EmitFunctionBody() {
         break;
       }
 
-      // If there is a post-instruction symbol, emit a label for it here.
+      // If there is a post-instruction symbol, emit a label for it here.  If
+      // the instruction was duplicated and the label has already been emitted,
+      // don't re-emit the same label.
+      // FIXME: Consider strengthening that to an assertion.
       if (MCSymbol *S = MI.getPostInstrSymbol())
-        OutStreamer->EmitLabel(S);
+        if (S->isUndefined())
+          OutStreamer->EmitLabel(S);
 
       if (ShouldPrintDebugScopes) {
         for (const HandlerInfo &HI : Handlers) {
@@ -1357,14 +1365,14 @@ void AsmPrinter::emitGlobalIndirectSymbol(Module &M,
   }
 }
 
-void AsmPrinter::emitRemarksSection(RemarkStreamer &RS) {
-  if (!RS.needsSection())
+void AsmPrinter::emitRemarksSection(Module &M) {
+  RemarkStreamer *RS = M.getContext().getRemarkStreamer();
+  if (!RS)
     return;
-
-  remarks::RemarkSerializer &RemarkSerializer = RS.getSerializer();
+  remarks::RemarkSerializer &RemarkSerializer = RS->getSerializer();
 
   Optional<SmallString<128>> Filename;
-  if (Optional<StringRef> FilenameRef = RS.getFilename()) {
+  if (Optional<StringRef> FilenameRef = RS->getFilename()) {
     Filename = *FilenameRef;
     sys::fs::make_absolute(*Filename);
     assert(!Filename->empty() && "The filename can't be empty.");
@@ -1377,7 +1385,7 @@ void AsmPrinter::emitRemarksSection(RemarkStreamer &RS) {
                : RemarkSerializer.metaSerializer(OS);
   MetaSerializer->emit();
 
-  // Switch to the remarks section.
+  // Switch to the right section: .remarks/__remarks.
   MCSection *RemarksSection =
       OutContext.getObjectFileInfo()->getRemarksSection();
   OutStreamer->SwitchSection(RemarksSection);
@@ -1419,8 +1427,8 @@ bool AsmPrinter::doFinalization(Module &M) {
   // Emit the remarks section contents.
   // FIXME: Figure out when is the safest time to emit this section. It should
   // not come after debug info.
-  if (RemarkStreamer *RS = M.getContext().getRemarkStreamer())
-    emitRemarksSection(*RS);
+  if (EnableRemarksSection)
+    emitRemarksSection(M);
 
   const TargetLoweringObjectFile &TLOF = getObjFileLowering();
 
@@ -1494,6 +1502,8 @@ bool AsmPrinter::doFinalization(Module &M) {
       OutStreamer->EmitSymbolAttribute(getSymbol(&GO), MCSA_WeakReference);
     }
   }
+
+  OutStreamer->AddBlankLine();
 
   // Print aliases in topological order, that is, for each alias a = b,
   // b must be printed before a.
@@ -1689,13 +1699,6 @@ void AsmPrinter::SetupMachineFunction(MachineFunction &MF) {
   }
 
   ORE = &getAnalysis<MachineOptimizationRemarkEmitterPass>().getORE();
-  PSI = &getAnalysis<ProfileSummaryInfoWrapperPass>().getPSI();
-  MBFI = (PSI && PSI->hasProfileSummary()) ?
-         // ORE conditionally computes MBFI. If available, use it, otherwise
-         // request it.
-         (ORE->getBFI() ? ORE->getBFI() :
-          &getAnalysis<LazyMachineBlockFrequencyInfoPass>().getBFI()) :
-         nullptr;
 }
 
 namespace {
@@ -1765,11 +1768,6 @@ void AsmPrinter::EmitConstantPool() {
       MCSymbol *Sym = GetCPISymbol(CPI);
       if (!Sym->isUndefined())
         continue;
-
-      if (TM.getTargetTriple().isOSBinFormatXCOFF()) {
-        cast<MCSymbolXCOFF>(Sym)->setContainingCsect(
-            cast<MCSectionXCOFF>(CPSections[i].S));
-      }
 
       if (CurSection != CPSections[i].S) {
         OutStreamer->SwitchSection(CPSections[i].S);
@@ -1860,16 +1858,10 @@ void AsmPrinter::EmitJumpTableInfo() {
     // second label is actually referenced by the code.
     if (JTInDiffSection && DL.hasLinkerPrivateGlobalPrefix())
       // FIXME: This doesn't have to have any specific name, just any randomly
-      // named and numbered local label started with 'l' would work.  Simplify
-      // GetJTISymbol.
+      // named and numbered 'l' label would work.  Simplify GetJTISymbol.
       OutStreamer->EmitLabel(GetJTISymbol(JTI, true));
 
-    MCSymbol* JTISymbol = GetJTISymbol(JTI);
-    if (TM.getTargetTriple().isOSBinFormatXCOFF()) {
-      cast<MCSymbolXCOFF>(JTISymbol)->setContainingCsect(
-          cast<MCSectionXCOFF>(TLOF.getSectionForJumpTable(F, TM)));
-    }
-    OutStreamer->EmitLabel(JTISymbol);
+    OutStreamer->EmitLabel(GetJTISymbol(JTI));
 
     for (unsigned ii = 0, ee = JTBBs.size(); ii != ee; ++ii)
       EmitJumpTableEntry(MJTI, JTBBs[ii], JTI);
@@ -2922,6 +2914,19 @@ static void emitBasicBlockLoopComments(const MachineBasicBlock &MBB,
   PrintChildLoopComment(OS, Loop, AP.getFunctionNumber());
 }
 
+void AsmPrinter::setupCodePaddingContext(const MachineBasicBlock &MBB,
+                                         MCCodePaddingContext &Context) const {
+  assert(MF != nullptr && "Machine function must be valid");
+  Context.IsPaddingActive = !MF->hasInlineAsm() &&
+                            !MF->getFunction().hasOptSize() &&
+                            TM.getOptLevel() != CodeGenOpt::None;
+  Context.IsBasicBlockReachableViaFallthrough =
+      std::find(MBB.pred_begin(), MBB.pred_end(), MBB.getPrevNode()) !=
+      MBB.pred_end();
+  Context.IsBasicBlockReachableViaBranch =
+      MBB.pred_size() > 0 && !isBlockOnlyReachableByFallthrough(&MBB);
+}
+
 /// EmitBasicBlockStart - This method prints the label for the specified
 /// MachineBasicBlock, an alignment (if present) and a comment describing
 /// it if appropriate.
@@ -2938,6 +2943,9 @@ void AsmPrinter::EmitBasicBlockStart(const MachineBasicBlock &MBB) {
   const Align Alignment = MBB.getAlignment();
   if (Alignment != Align::None())
     EmitAlignment(Alignment);
+  MCCodePaddingContext Context;
+  setupCodePaddingContext(MBB, Context);
+  OutStreamer->EmitCodePaddingBasicBlockStart(Context);
 
   // If the block has its address taken, emit any labels that were used to
   // reference the block.  It is possible that there is more than one label
@@ -2985,7 +2993,11 @@ void AsmPrinter::EmitBasicBlockStart(const MachineBasicBlock &MBB) {
   }
 }
 
-void AsmPrinter::EmitBasicBlockEnd(const MachineBasicBlock &MBB) {}
+void AsmPrinter::EmitBasicBlockEnd(const MachineBasicBlock &MBB) {
+  MCCodePaddingContext Context;
+  setupCodePaddingContext(MBB, Context);
+  OutStreamer->EmitCodePaddingBasicBlockEnd(Context);
+}
 
 void AsmPrinter::EmitVisibility(MCSymbol *Sym, unsigned Visibility,
                                 bool IsDefinition) const {

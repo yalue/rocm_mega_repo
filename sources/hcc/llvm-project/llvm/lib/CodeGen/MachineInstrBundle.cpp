@@ -15,7 +15,6 @@
 #include "llvm/CodeGen/TargetInstrInfo.h"
 #include "llvm/CodeGen/TargetRegisterInfo.h"
 #include "llvm/CodeGen/TargetSubtargetInfo.h"
-#include "llvm/InitializePasses.h"
 #include "llvm/Target/TargetMachine.h"
 #include <utility>
 using namespace llvm;
@@ -278,18 +277,22 @@ bool llvm::finalizeBundles(MachineFunction &MF) {
   return Changed;
 }
 
-VirtRegInfo llvm::AnalyzeVirtRegInBundle(
-    MachineInstr &MI, unsigned Reg,
-    SmallVectorImpl<std::pair<MachineInstr *, unsigned>> *Ops) {
-  VirtRegInfo RI = {false, false, false};
-  for (MIBundleOperands O(MI); O.isValid(); ++O) {
-    MachineOperand &MO = *O;
+//===----------------------------------------------------------------------===//
+// MachineOperand iterator
+//===----------------------------------------------------------------------===//
+
+MachineOperandIteratorBase::VirtRegInfo
+MachineOperandIteratorBase::analyzeVirtReg(unsigned Reg,
+                    SmallVectorImpl<std::pair<MachineInstr*, unsigned> > *Ops) {
+  VirtRegInfo RI = { false, false, false };
+  for(; isValid(); ++*this) {
+    MachineOperand &MO = deref();
     if (!MO.isReg() || MO.getReg() != Reg)
       continue;
 
     // Remember each (MI, OpNo) that refers to Reg.
     if (Ops)
-      Ops->push_back(std::make_pair(MO.getParent(), O.getOperandNo()));
+      Ops->push_back(std::make_pair(MO.getParent(), getOperandNo()));
 
     // Both defs and uses can read virtual registers.
     if (MO.readsReg()) {
@@ -301,22 +304,22 @@ VirtRegInfo llvm::AnalyzeVirtRegInBundle(
     // Only defs can write.
     if (MO.isDef())
       RI.Writes = true;
-    else if (!RI.Tied &&
-             MO.getParent()->isRegTiedToDefOperand(O.getOperandNo()))
+    else if (!RI.Tied && MO.getParent()->isRegTiedToDefOperand(getOperandNo()))
       RI.Tied = true;
   }
   return RI;
 }
 
-PhysRegInfo llvm::AnalyzePhysRegInBundle(const MachineInstr &MI, unsigned Reg,
-                                         const TargetRegisterInfo *TRI) {
+MachineOperandIteratorBase::PhysRegInfo
+MachineOperandIteratorBase::analyzePhysReg(unsigned Reg,
+                                           const TargetRegisterInfo *TRI) {
   bool AllDefsDead = true;
   PhysRegInfo PRI = {false, false, false, false, false, false, false, false};
 
   assert(Register::isPhysicalRegister(Reg) &&
          "analyzePhysReg not given a physical register!");
-  for (ConstMIBundleOperands O(MI); O.isValid(); ++O) {
-    const MachineOperand &MO = *O;
+  for (; isValid(); ++*this) {
+    MachineOperand &MO = deref();
 
     if (MO.isRegMask() && MO.clobbersPhysReg(Reg)) {
       PRI.Clobbered = true;

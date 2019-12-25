@@ -36,8 +36,8 @@ public:
 
 private:
   virtual void anchor();
-  bool ExtendedInsts = false;
-  HWMultEnum HWMultMode = NoHWMult;
+  bool ExtendedInsts;
+  HWMultEnum HWMultMode;
   MSP430FrameLowering FrameLowering;
   MSP430InstrInfo InstrInfo;
   MSP430TargetLowering TLInfo;

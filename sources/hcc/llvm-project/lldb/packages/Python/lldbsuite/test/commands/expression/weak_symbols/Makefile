@@ -1,20 +1,25 @@
-C_SOURCES := main.c
-CFLAGS_EXTRAS := -std=c99 -fmodules
-LD_EXTRAS := -ldylib -L.
-
-all: a.out hidden/libdylib.dylib
-
-a.out: libdylib.dylib
-
+CFLAGS_EXTRAS := -std=c99
+LD_FLAGS := -dynamiclib
 include Makefile.rules
 
-libdylib.dylib: dylib.c
-	$(MAKE) -C $(BUILDDIR) -f $(MAKEFILE_RULES) \
-		C_SOURCES= DYLIB_C_SOURCES=dylib.c DYLIB_NAME=dylib \
-		CFLAGS_EXTRAS=-DHAS_THEM LD_EXTRAS=-dynamiclib
+all: a.out dylib missing
 
-hidden/libdylib.dylib:
+dylib: dylib.o
+	$(CC)  $(LD_FLAGS) -o libdylib.dylib dylib.o
+
+missing: dylib2.o
 	mkdir hidden
-	$(MAKE) -C $(BUILDDIR)/hidden -f $(MAKEFILE_RULES) \
-		C_SOURCES= DYLIB_C_SOURCES=dylib.c DYLIB_NAME=dylib \
-		LD_EXTRAS=-dynamiclib
+	$(CC)  $(LD_FLAGS) -o hidden/libdylib.dylib dylib2.o
+
+a.out: main.o dylib missing
+	$(CC)  $(CFLAGS) -L. -ldylib main.o
+
+dylib.o: dylib.h $(SRCDIR)/dylib.c
+	$(CC) -DHAS_THEM  $(CFLAGS) -c $(SRCDIR)/dylib.c
+
+dylib2.o: dylib.h $(SRCDIR)/dylib.c
+	$(CC)  $(CFLAGS) -c $(SRCDIR)/dylib.c -o dylib2.o
+
+main.o: dylib.h $(SRCDIR)/main.c
+	$(CC)  $(CFLAGS) -c $(SRCDIR)/main.c -fmodules -fmodules-cache-path=$(CLANG_MODULE_CACHE_DIR)
+

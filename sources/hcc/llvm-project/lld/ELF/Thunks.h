@@ -27,7 +27,7 @@ class ThunkSection;
 // Thunks are assigned to synthetic ThunkSections
 class Thunk {
 public:
-  Thunk(Symbol &destination, int64_t addend);
+  Thunk(Symbol &destination);
   virtual ~Thunk();
 
   virtual uint32_t size() = 0;
@@ -55,12 +55,11 @@ public:
 
   Defined *getThunkTargetSym() const { return syms[0]; }
 
-  Symbol &destination;
-  int64_t addend;
-  llvm::SmallVector<Defined *, 3> syms;
-  uint64_t offset = 0;
   // The alignment requirement for this Thunk, defaults to the size of the
   // typical code section alignment.
+  Symbol &destination;
+  llvm::SmallVector<Defined *, 3> syms;
+  uint64_t offset = 0;
   uint32_t alignment = 4;
 };
 

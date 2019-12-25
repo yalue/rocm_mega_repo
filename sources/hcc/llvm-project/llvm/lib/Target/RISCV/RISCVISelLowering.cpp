@@ -146,8 +146,7 @@ RISCVTargetLowering::RISCVTargetLowering(const TargetMachine &TM,
       ISD::SETGE,  ISD::SETNE};
 
   ISD::NodeType FPOpToExtend[] = {
-      ISD::FSIN, ISD::FCOS, ISD::FSINCOS, ISD::FPOW, ISD::FREM, ISD::FP16_TO_FP,
-      ISD::FP_TO_FP16};
+      ISD::FSIN, ISD::FCOS, ISD::FSINCOS, ISD::FPOW, ISD::FREM};
 
   if (Subtarget.hasStdExtF()) {
     setOperationAction(ISD::FMINNUM, MVT::f32, Legal);
@@ -159,8 +158,6 @@ RISCVTargetLowering::RISCVTargetLowering(const TargetMachine &TM,
     setOperationAction(ISD::BR_CC, MVT::f32, Expand);
     for (auto Op : FPOpToExtend)
       setOperationAction(Op, MVT::f32, Expand);
-    setLoadExtAction(ISD::EXTLOAD, MVT::f32, MVT::f16, Expand);
-    setTruncStoreAction(MVT::f32, MVT::f16, Expand);
   }
 
   if (Subtarget.hasStdExtF() && Subtarget.is64Bit())
@@ -178,8 +175,6 @@ RISCVTargetLowering::RISCVTargetLowering(const TargetMachine &TM,
     setTruncStoreAction(MVT::f64, MVT::f32, Expand);
     for (auto Op : FPOpToExtend)
       setOperationAction(Op, MVT::f64, Expand);
-    setLoadExtAction(ISD::EXTLOAD, MVT::f64, MVT::f16, Expand);
-    setTruncStoreAction(MVT::f64, MVT::f16, Expand);
   }
 
   setOperationAction(ISD::GlobalAddress, XLenVT, Custom);
@@ -192,9 +187,6 @@ RISCVTargetLowering::RISCVTargetLowering(const TargetMachine &TM,
   // Unfortunately this can't be determined just from the ISA naming string.
   setOperationAction(ISD::READCYCLECOUNTER, MVT::i64,
                      Subtarget.is64Bit() ? Legal : Custom);
-
-  setOperationAction(ISD::TRAP, MVT::Other, Legal);
-  setOperationAction(ISD::DEBUGTRAP, MVT::Other, Legal);
 
   if (Subtarget.hasStdExtA()) {
     setMaxAtomicSizeInBitsSupported(Subtarget.getXLen());
@@ -581,7 +573,10 @@ SDValue RISCVTargetLowering::lowerGlobalTLSAddress(SDValue Op,
   int64_t Offset = N->getOffset();
   MVT XLenVT = Subtarget.getXLenVT();
 
-  TLSModel::Model Model = getTargetMachine().getTLSModel(N->getGlobal());
+  // Non-PIC TLS lowering should always use the LocalExec model.
+  TLSModel::Model Model = isPositionIndependent()
+                              ? getTargetMachine().getTLSModel(N->getGlobal())
+                              : TLSModel::LocalExec;
 
   SDValue Addr;
   switch (Model) {
@@ -2252,16 +2247,6 @@ SDValue RISCVTargetLowering::LowerCall(CallLoweringInfo &CLI,
     Glue = Chain.getValue(1);
   }
 
-  // Validate that none of the argument registers have been marked as
-  // reserved, if so report an error. Do the same for the return address if this
-  // is not a tailcall.
-  validateCCReservedRegs(RegsToPass, MF);
-  if (!IsTailCall &&
-      MF.getSubtarget<RISCVSubtarget>().isRegisterReservedByUser(RISCV::X1))
-    MF.getFunction().getContext().diagnose(DiagnosticInfoUnsupported{
-        MF.getFunction(),
-        "Return address register required, but has been reserved."});
-
   // If the callee is a GlobalAddress/ExternalSymbol node, turn it into a
   // TargetGlobalAddress/TargetExternalSymbol node so that legalize won't
   // split it and then direct call can be matched by PseudoCALL.
@@ -2377,9 +2362,6 @@ RISCVTargetLowering::LowerReturn(SDValue Chain, CallingConv::ID CallConv,
                                  const SmallVectorImpl<ISD::OutputArg> &Outs,
                                  const SmallVectorImpl<SDValue> &OutVals,
                                  const SDLoc &DL, SelectionDAG &DAG) const {
-  const MachineFunction &MF = DAG.getMachineFunction();
-  const RISCVSubtarget &STI = MF.getSubtarget<RISCVSubtarget>();
-
   // Stores the assignment of the return value to a location.
   SmallVector<CCValAssign, 16> RVLocs;
 
@@ -2409,13 +2391,6 @@ RISCVTargetLowering::LowerReturn(SDValue Chain, CallingConv::ID CallConv,
       Register RegLo = VA.getLocReg();
       assert(RegLo < RISCV::X31 && "Invalid register pair");
       Register RegHi = RegLo + 1;
-
-      if (STI.isRegisterReservedByUser(RegLo) ||
-          STI.isRegisterReservedByUser(RegHi))
-        MF.getFunction().getContext().diagnose(DiagnosticInfoUnsupported{
-            MF.getFunction(),
-            "Return value register required, but has been reserved."});
-
       Chain = DAG.getCopyToReg(Chain, DL, RegLo, Lo, Glue);
       Glue = Chain.getValue(1);
       RetOps.push_back(DAG.getRegister(RegLo, MVT::i32));
@@ -2426,11 +2401,6 @@ RISCVTargetLowering::LowerReturn(SDValue Chain, CallingConv::ID CallConv,
       // Handle a 'normal' return.
       Val = convertValVTToLocVT(DAG, Val, VA, DL);
       Chain = DAG.getCopyToReg(Chain, DL, VA.getLocReg(), Val, Glue);
-
-      if (STI.isRegisterReservedByUser(VA.getLocReg()))
-        MF.getFunction().getContext().diagnose(DiagnosticInfoUnsupported{
-            MF.getFunction(),
-            "Return value register required, but has been reserved."});
 
       // Guarantee that all emitted copies are stuck together.
       Glue = Chain.getValue(1);
@@ -2468,19 +2438,6 @@ RISCVTargetLowering::LowerReturn(SDValue Chain, CallingConv::ID CallConv,
   }
 
   return DAG.getNode(RISCVISD::RET_FLAG, DL, MVT::Other, RetOps);
-}
-
-void RISCVTargetLowering::validateCCReservedRegs(
-    const SmallVectorImpl<std::pair<llvm::Register, llvm::SDValue>> &Regs,
-    MachineFunction &MF) const {
-  const Function &F = MF.getFunction();
-  const RISCVSubtarget &STI = MF.getSubtarget<RISCVSubtarget>();
-
-  if (std::any_of(std::begin(Regs), std::end(Regs), [&STI](auto Reg) {
-        return STI.isRegisterReservedByUser(Reg.first);
-      }))
-    F.getContext().diagnose(DiagnosticInfoUnsupported{
-        F, "Argument register required, but has been reserved."});
 }
 
 const char *RISCVTargetLowering::getTargetNodeName(unsigned Opcode) const {
@@ -2890,23 +2847,4 @@ bool RISCVTargetLowering::shouldExtendTypeInLibCall(EVT Type) const {
     return false;
 
   return true;
-}
-
-#define GET_REGISTER_MATCHER
-#include "RISCVGenAsmMatcher.inc"
-
-Register
-RISCVTargetLowering::getRegisterByName(const char *RegName, EVT VT,
-                                       const MachineFunction &MF) const {
-  Register Reg = MatchRegisterAltName(RegName);
-  if (Reg == RISCV::NoRegister)
-    Reg = MatchRegisterName(RegName);
-  if (Reg == RISCV::NoRegister)
-    report_fatal_error(
-        Twine("Invalid register name \"" + StringRef(RegName) + "\"."));
-  BitVector ReservedRegs = Subtarget.getRegisterInfo()->getReservedRegs(MF);
-  if (!ReservedRegs.test(Reg) && !Subtarget.isRegisterReservedByUser(Reg))
-    report_fatal_error(Twine("Trying to obtain non-reserved register \"" +
-                             StringRef(RegName) + "\"."));
-  return Reg;
 }

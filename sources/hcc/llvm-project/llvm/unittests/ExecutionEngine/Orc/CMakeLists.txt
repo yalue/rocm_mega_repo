@@ -3,7 +3,6 @@ set(LLVM_LINK_COMPONENTS
   Core
   ExecutionEngine
   Object
-  OrcError
   OrcJIT
   Passes
   RuntimeDyld

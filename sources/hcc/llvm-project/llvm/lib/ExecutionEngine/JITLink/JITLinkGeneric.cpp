@@ -151,12 +151,9 @@ JITLinkerBase::SegmentLayoutMap JITLinkerBase::layOutBlocks() {
   for (auto &KV : Layout) {
 
     auto CompareBlocks = [](const Block *LHS, const Block *RHS) {
-      // Sort by section, address and size
       if (LHS->getSection().getOrdinal() != RHS->getSection().getOrdinal())
         return LHS->getSection().getOrdinal() < RHS->getSection().getOrdinal();
-      if (LHS->getAddress() != RHS->getAddress())
-        return LHS->getAddress() < RHS->getAddress();
-      return LHS->getSize() < RHS->getSize();
+      return LHS->getOrdinal() < RHS->getOrdinal();
     };
 
     auto &SegLists = KV.second;
@@ -257,35 +254,25 @@ Error JITLinkerBase::allocateSegments(const SegmentLayoutMap &Layout) {
   return Error::success();
 }
 
-JITLinkContext::LookupMap JITLinkerBase::getExternalSymbolNames() const {
+DenseSet<StringRef> JITLinkerBase::getExternalSymbolNames() const {
   // Identify unresolved external symbols.
-  JITLinkContext::LookupMap UnresolvedExternals;
+  DenseSet<StringRef> UnresolvedExternals;
   for (auto *Sym : G->external_symbols()) {
     assert(Sym->getAddress() == 0 &&
            "External has already been assigned an address");
     assert(Sym->getName() != StringRef() && Sym->getName() != "" &&
            "Externals must be named");
-    SymbolLookupFlags LookupFlags =
-        Sym->getLinkage() == Linkage::Weak
-            ? SymbolLookupFlags::WeaklyReferencedSymbol
-            : SymbolLookupFlags::RequiredSymbol;
-    UnresolvedExternals[Sym->getName()] = LookupFlags;
+    UnresolvedExternals.insert(Sym->getName());
   }
   return UnresolvedExternals;
 }
 
 void JITLinkerBase::applyLookupResult(AsyncLookupResult Result) {
   for (auto *Sym : G->external_symbols()) {
-    assert(Sym->getOffset() == 0 &&
-           "External symbol is not at the start of its addressable block");
     assert(Sym->getAddress() == 0 && "Symbol already resolved");
     assert(!Sym->isDefined() && "Symbol being resolved is already defined");
-    auto ResultI = Result.find(Sym->getName());
-    if (ResultI != Result.end())
-      Sym->getAddressable().setAddress(ResultI->second.getAddress());
-    else
-      assert(Sym->getLinkage() == Linkage::Weak &&
-             "Failed to resolve non-weak reference");
+    assert(Result.count(Sym->getName()) && "Missing resolution for symbol");
+    Sym->getAddressable().setAddress(Result[Sym->getName()].getAddress());
   }
 
   LLVM_DEBUG({
@@ -295,11 +282,8 @@ void JITLinkerBase::applyLookupResult(AsyncLookupResult Result) {
              << formatv("{0:x16}", Sym->getAddress()) << "\n";
   });
   assert(llvm::all_of(G->external_symbols(),
-                      [](Symbol *Sym) {
-                        return Sym->getAddress() != 0 ||
-                               Sym->getLinkage() == Linkage::Weak;
-                      }) &&
-         "All strong external symbols should have been resolved by now");
+                      [](Symbol *Sym) { return Sym->getAddress() != 0; }) &&
+         "All symbols should have been resolved by this point");
 }
 
 void JITLinkerBase::deallocateAndBailOut(Error Err) {

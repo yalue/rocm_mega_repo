@@ -129,7 +129,6 @@ UnpinnedCopyEngine::UnpinnedCopyEngine(hsa_agent_t hsaAgent, hsa_agent_t cpuAgen
         hsa_signal_create(0, 0, NULL, &_completionSignal2[i]);
     }
 
-    delete [] agentBlock;
 };
 
 

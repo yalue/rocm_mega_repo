@@ -470,5 +470,7 @@ attributes #2 = { "less-precise-fpmad"="false" "no-frame-pointer-elim"="true" "n
 ; CHECK-NEXT: .b8 4                                // DW_AT_byte_size
 ; CHECK-NEXT: .b8 0                                // End Of Children Mark
 ; CHECK-NEXT: }
-; CHECK-NEXT: .section .debug_loc { }
-; CHECK-NOT: debug_
+; CHECK-NEXT: .section .debug_macinfo
+; CHECK-NEXT: {
+; CHECK-NEXT: .b8 0                                // End Of Macro List Mark
+; CHECK:      }

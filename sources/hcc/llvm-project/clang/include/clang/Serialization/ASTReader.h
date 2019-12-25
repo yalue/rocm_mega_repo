@@ -36,7 +36,7 @@
 #include "clang/Sema/IdentifierResolver.h"
 #include "clang/Serialization/ASTBitCodes.h"
 #include "clang/Serialization/ContinuousRangeMap.h"
-#include "clang/Serialization/ModuleFile.h"
+#include "clang/Serialization/Module.h"
 #include "clang/Serialization/ModuleFileExtension.h"
 #include "clang/Serialization/ModuleManager.h"
 #include "llvm/ADT/APFloat.h"
@@ -550,14 +550,6 @@ private:
   /// within them, and those anonymous declarations.
   llvm::DenseMap<Decl*, llvm::SmallVector<NamedDecl*, 2>>
     AnonymousDeclarationsForMerging;
-
-  /// Key used to identify LifetimeExtendedTemporaryDecl for merging,
-  /// containing the lifetime-extending declaration and the mangling number.
-  using LETemporaryKey = std::pair<Decl *, unsigned>;
-
-  /// Map of already deserialiazed temporaries.
-  llvm::DenseMap<LETemporaryKey, LifetimeExtendedTemporaryDecl *>
-      LETemporaryForMerging;
 
   struct FileDeclsInfo {
     ModuleFile *Mod = nullptr;
@@ -1448,7 +1440,7 @@ private:
   /// do with non-routine failures (e.g., corrupted AST file).
   void Error(StringRef Msg) const;
   void Error(unsigned DiagID, StringRef Arg1 = StringRef(),
-             StringRef Arg2 = StringRef(), StringRef Arg3 = StringRef()) const;
+             StringRef Arg2 = StringRef()) const;
   void Error(unsigned DiagID, StringRef Arg1, StringRef Arg2,
              unsigned Select) const;
   void Error(llvm::Error &&Err) const;

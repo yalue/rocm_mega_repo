@@ -83,8 +83,7 @@ initializeRecordStreamer(const Module &M,
   if (!MRI)
     return;
 
-  MCTargetOptions MCOptions;
-  std::unique_ptr<MCAsmInfo> MAI(T->createMCAsmInfo(*MRI, TT.str(), MCOptions));
+  std::unique_ptr<MCAsmInfo> MAI(T->createMCAsmInfo(*MRI, TT.str()));
   if (!MAI)
     return;
 
@@ -110,6 +109,7 @@ initializeRecordStreamer(const Module &M,
   std::unique_ptr<MCAsmParser> Parser(
       createMCAsmParser(SrcMgr, MCCtx, Streamer, *MAI));
 
+  MCTargetOptions MCOptions;
   std::unique_ptr<MCTargetAsmParser> TAP(
       T->createMCAsmParser(*STI, *Parser, *MCII, MCOptions));
   if (!TAP)

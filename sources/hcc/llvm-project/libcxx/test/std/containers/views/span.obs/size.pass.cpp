@@ -10,7 +10,7 @@
 
 // <span>
 
-// constexpr size_type size() const noexcept;
+// constexpr index_type size() const noexcept;
 //
 
 

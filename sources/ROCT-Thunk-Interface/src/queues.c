@@ -128,6 +128,12 @@ const struct device_info raven_device_info = {
 	.doorbell_size = DOORBELL_SIZE_GFX9,
 };
 
+const struct device_info renoir_device_info = {
+	.asic_family = CHIP_RENOIR,
+	.eop_buffer_size = 4096,
+	.doorbell_size = DOORBELL_SIZE_GFX9,
+};
+
 const struct device_info vega20_device_info = {
 	.asic_family = CHIP_VEGA20,
 	.eop_buffer_size = 4096,
@@ -142,6 +148,12 @@ const struct device_info arcturus_device_info = {
 
 const struct device_info navi10_device_info = {
 	.asic_family = CHIP_NAVI10,
+	.eop_buffer_size = 4096,
+	.doorbell_size = DOORBELL_SIZE_GFX9,
+};
+
+const struct device_info navi12_device_info = {
+	.asic_family = CHIP_NAVI12,
 	.eop_buffer_size = 4096,
 	.doorbell_size = DOORBELL_SIZE_GFX9,
 };
@@ -166,8 +178,10 @@ static const struct device_info *dev_lookup_table[] = {
 	[CHIP_VEGA12] = &vega12_device_info,
 	[CHIP_VEGA20] = &vega20_device_info,
 	[CHIP_RAVEN] = &raven_device_info,
+	[CHIP_RENOIR] = &renoir_device_info,
 	[CHIP_ARCTURUS] = &arcturus_device_info,
 	[CHIP_NAVI10] = &navi10_device_info,
+	[CHIP_NAVI12] = &navi12_device_info,
 	[CHIP_NAVI14] = &navi14_device_info,
 };
 
@@ -417,6 +431,7 @@ void *allocate_exec_aligned_memory_gpu(uint32_t size, uint32_t align,
 	HSAuint64 gpu_va;
 	HsaMemFlags flags;
 	HSAKMT_STATUS ret;
+	HSAuint32 cpu_id = 0;
 
 	flags.Value = 0;
 	flags.ui32.HostAccess = !DeviceLocal;
@@ -425,9 +440,20 @@ void *allocate_exec_aligned_memory_gpu(uint32_t size, uint32_t align,
 	flags.ui32.PageSize = HSA_PAGE_SIZE_4KB;
 	flags.ui32.CoarseGrain = DeviceLocal;
 
+	/* Get the closest cpu_id to GPU NodeId for system memory allocation
+	 * nonPaged=1 system memory allocation uses GTT path
+	 */
+	if (!DeviceLocal && !nonPaged) {
+		cpu_id = get_direct_link_cpu(NodeId);
+		if (cpu_id == INVALID_NODEID) {
+			flags.ui32.NoNUMABind = 1;
+			cpu_id = 0;
+		}
+	}
+
 	size = ALIGN_UP(size, align);
 
-	ret = hsaKmtAllocMemory(DeviceLocal ? NodeId : 0, size, flags, &mem);
+	ret = hsaKmtAllocMemory(DeviceLocal ? NodeId : cpu_id, size, flags, &mem);
 	if (ret != HSAKMT_STATUS_SUCCESS)
 		return NULL;
 

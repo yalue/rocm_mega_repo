@@ -70,7 +70,7 @@ static bool addPass(PassManagerBase &PM, StringRef PassName,
   return false;
 }
 
-MachineFunction &createVoidVoidPtrMachineFunction(StringRef FunctionName,
+MachineFunction &createVoidVoidPtrMachineFunction(StringRef FunctionID,
                                                   Module *Module,
                                                   MachineModuleInfo *MMI) {
   Type *const ReturnType = Type::getInt32Ty(Module->getContext());
@@ -79,7 +79,7 @@ MachineFunction &createVoidVoidPtrMachineFunction(StringRef FunctionName,
   FunctionType *FunctionType =
       FunctionType::get(ReturnType, {MemParamType}, false);
   Function *const F = Function::Create(
-      FunctionType, GlobalValue::InternalLinkage, FunctionName, Module);
+      FunctionType, GlobalValue::InternalLinkage, FunctionID, Module);
   // Making sure we can create a MachineFunction out of this Function even if it
   // contains no IR.
   F->setIsMaterializable(true);
@@ -238,7 +238,7 @@ void assembleToStream(const ExegesisTarget &ET,
   TPC->setInitialized();
 
   // AsmPrinter is responsible for generating the assembly into AsmBuffer.
-  if (TM->addAsmPrinter(PM, AsmStream, nullptr, CGFT_ObjectFile,
+  if (TM->addAsmPrinter(PM, AsmStream, nullptr, TargetMachine::CGFT_ObjectFile,
                         MCContext))
     report_fatal_error("Cannot add AsmPrinter passes");
 

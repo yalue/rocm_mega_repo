@@ -888,7 +888,8 @@ def AtomWrite01_174 : SchedWriteRes<[AtomPort01]> {
   let Latency = 174;
   let ResourceCycles = [174];
 }
-def : InstRW<[AtomWrite01_174], (instrs FSINCOS, FSIN, FCOS)>;
+def : InstRW<[AtomWrite01_174], (instrs FSINCOS)>;
+def : InstRW<[AtomWrite01_174], (instregex "(COS|SIN)_F")>;
 
 def AtomWrite01_183 : SchedWriteRes<[AtomPort01]> {
   let Latency = 183;

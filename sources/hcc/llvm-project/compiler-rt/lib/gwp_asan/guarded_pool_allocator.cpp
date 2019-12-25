@@ -110,6 +110,13 @@ void GuardedPoolAllocator::init(const options::Options &Opts) {
       Opts.MaxSimultaneousAllocations == 0)
     return;
 
+  // TODO(hctim): Add a death unit test for this.
+  if (SingletonPtr) {
+    (*SingletonPtr->Printf)(
+        "GWP-ASan Error: init() has already been called.\n");
+    exit(EXIT_FAILURE);
+  }
+
   if (Opts.SampleRate < 0) {
     Opts.Printf("GWP-ASan Error: SampleRate is < 0.\n");
     exit(EXIT_FAILURE);
@@ -520,7 +527,7 @@ void GuardedPoolAllocator::reportErrorInternal(uintptr_t AccessPtr, Error E) {
     printAllocDeallocTraces(AccessPtr, Meta, Printf, PrintBacktrace);
 }
 
-GWP_ASAN_TLS_INITIAL_EXEC
+TLS_INITIAL_EXEC
 GuardedPoolAllocator::ThreadLocalPackedVariables
     GuardedPoolAllocator::ThreadLocals;
 } // namespace gwp_asan

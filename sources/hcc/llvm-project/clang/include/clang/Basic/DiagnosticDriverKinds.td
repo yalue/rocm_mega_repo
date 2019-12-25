@@ -143,8 +143,8 @@ def err_drv_missing_arg_mtp : Error<
   "missing argument to '%0'">;
 def err_drv_invalid_libcxx_deployment : Error<
   "invalid deployment target for -stdlib=libc++ (requires %0 or later)">;
-def err_drv_invalid_argument_to_option : Error<
-  "invalid argument '%0' to -%1">;
+def err_drv_invalid_argument_to_fdebug_prefix_map : Error<
+  "invalid argument '%0' to -fdebug-prefix-map">;
 def err_drv_malformed_sanitizer_blacklist : Error<
   "malformed sanitizer blacklist: '%0'">;
 def err_drv_duplicate_config : Error<
@@ -454,10 +454,6 @@ def warn_drv_experimental_isel_incomplete : Warning<
 def warn_drv_experimental_isel_incomplete_opt : Warning<
   "-fexperimental-isel support is incomplete for this architecture at the current optimization level">,
   InGroup<ExperimentalISel>;
-
-def warn_drv_experimental_fp_control_incomplete_opt : Warning<
-  "Support for floating point control option %0 is incomplete and experimental">,
-  InGroup<ExperimentalFloatControl>;
 
 def warn_drv_moutline_unsupported_opt : Warning<
   "The '%0' architecture does not support -moutline; flag ignored">,

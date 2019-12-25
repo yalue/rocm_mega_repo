@@ -10,7 +10,6 @@
 #define LLVM_CLANG_TOOLING_REFACTOR_AST_SELECTION_H
 
 #include "clang/AST/ASTTypeTraits.h"
-#include "clang/AST/Stmt.h"
 #include "clang/Basic/LLVM.h"
 #include "clang/Basic/SourceLocation.h"
 #include <vector>

@@ -30,14 +30,11 @@ namespace lldb_private {
 /// implementations of LLVMUserExpression - which will be vended through the
 /// appropriate TypeSystem.
 class LLVMUserExpression : public UserExpression {
-  // LLVM RTTI support
-  static char ID;
-
 public:
-  bool isA(const void *ClassID) const override {
-    return ClassID == &ID || UserExpression::isA(ClassID);
+  /// LLVM-style RTTI support.
+  static bool classof(const Expression *E) {
+    return E->getKind() == eKindLLVMUserExpression;
   }
-  static bool classof(const Expression *obj) { return obj->isA(&ID); }
 
   // The IRPasses struct is filled in by a runtime after an expression is
   // compiled and can be used to to run fixups/analysis passes as required.
@@ -54,7 +51,8 @@ public:
   LLVMUserExpression(ExecutionContextScope &exe_scope, llvm::StringRef expr,
                      llvm::StringRef prefix, lldb::LanguageType language,
                      ResultType desired_type,
-                     const EvaluateExpressionOptions &options);
+                     const EvaluateExpressionOptions &options,
+                     ExpressionKind kind);
   ~LLVMUserExpression() override;
 
   bool FinalizeJITExecution(
@@ -64,8 +62,6 @@ public:
       lldb::addr_t function_stack_top = LLDB_INVALID_ADDRESS) override;
 
   bool CanInterpret() override { return m_can_interpret; }
-
-  Materializer *GetMaterializer() override { return m_materializer_up.get(); }
 
   /// Return the string that the parser should parse.  Must be a full
   /// translation unit.

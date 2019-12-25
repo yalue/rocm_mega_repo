@@ -17,8 +17,6 @@
 #include "lldb/Interpreter/OptionArgParser.h"
 #include "lldb/Interpreter/OptionGroupBoolean.h"
 
-#include <csignal>
-
 using namespace lldb;
 using namespace llvm;
 using namespace lldb_private;
@@ -70,32 +68,7 @@ static constexpr OptionEnumValues ReproducerProviderType() {
   return OptionEnumValues(g_reproducer_provider_type);
 }
 
-#define LLDB_OPTIONS_reproducer_dump
-#include "CommandOptions.inc"
-
-enum ReproducerCrashSignal {
-  eReproducerCrashSigill,
-  eReproducerCrashSigsegv,
-};
-
-static constexpr OptionEnumValueElement g_reproducer_signaltype[] = {
-    {
-        eReproducerCrashSigill,
-        "SIGILL",
-        "Illegal instruction",
-    },
-    {
-        eReproducerCrashSigsegv,
-        "SIGSEGV",
-        "Segmentation fault",
-    },
-};
-
-static constexpr OptionEnumValues ReproducerSignalType() {
-  return OptionEnumValues(g_reproducer_signaltype);
-}
-
-#define LLDB_OPTIONS_reproducer_xcrash
+#define LLDB_OPTIONS_reproducer
 #include "CommandOptions.inc"
 
 class CommandObjectReproducerGenerate : public CommandObjectParsed {
@@ -105,7 +78,7 @@ public:
             interpreter, "reproducer generate",
             "Generate reproducer on disk. When the debugger is in capture "
             "mode, this command will output the reproducer to a directory on "
-            "disk and quit. In replay mode this command in a no-op.",
+            "disk. In replay mode this command in a no-op.",
             nullptr) {}
 
   ~CommandObjectReproducerGenerate() override = default;
@@ -122,7 +95,7 @@ protected:
     if (auto generator = r.GetGenerator()) {
       generator->Keep();
     } else if (r.IsReplaying()) {
-      // Make this operation a NO-OP in replay mode.
+      // Make this operation a NOP in replay mode.
       result.SetStatus(eReturnStatusSuccessFinishNoResult);
       return result.Succeeded();
     } else {
@@ -137,94 +110,9 @@ protected:
         << "Please have a look at the directory to assess if you're willing to "
            "share the contained information.\n";
 
-    m_interpreter.BroadcastEvent(
-        CommandInterpreter::eBroadcastBitQuitCommandReceived);
-    result.SetStatus(eReturnStatusQuit);
+    result.SetStatus(eReturnStatusSuccessFinishResult);
     return result.Succeeded();
   }
-};
-
-class CommandObjectReproducerXCrash : public CommandObjectParsed {
-public:
-  CommandObjectReproducerXCrash(CommandInterpreter &interpreter)
-      : CommandObjectParsed(interpreter, "reproducer xcrash",
-                            "Intentionally force  the debugger to crash in "
-                            "order to trigger and test reproducer generation.",
-                            nullptr) {}
-
-  ~CommandObjectReproducerXCrash() override = default;
-
-  Options *GetOptions() override { return &m_options; }
-
-  class CommandOptions : public Options {
-  public:
-    CommandOptions() : Options() {}
-
-    ~CommandOptions() override = default;
-
-    Status SetOptionValue(uint32_t option_idx, StringRef option_arg,
-                          ExecutionContext *execution_context) override {
-      Status error;
-      const int short_option = m_getopt_table[option_idx].val;
-
-      switch (short_option) {
-      case 's':
-        signal = (ReproducerCrashSignal)OptionArgParser::ToOptionEnum(
-            option_arg, GetDefinitions()[option_idx].enum_values, 0, error);
-        if (!error.Success())
-          error.SetErrorStringWithFormat("unrecognized value for signal '%s'",
-                                         option_arg.str().c_str());
-        break;
-      default:
-        llvm_unreachable("Unimplemented option");
-      }
-
-      return error;
-    }
-
-    void OptionParsingStarting(ExecutionContext *execution_context) override {
-      signal = eReproducerCrashSigsegv;
-    }
-
-    ArrayRef<OptionDefinition> GetDefinitions() override {
-      return makeArrayRef(g_reproducer_xcrash_options);
-    }
-
-    ReproducerCrashSignal signal = eReproducerCrashSigsegv;
-  };
-
-protected:
-  bool DoExecute(Args &command, CommandReturnObject &result) override {
-    if (!command.empty()) {
-      result.AppendErrorWithFormat("'%s' takes no arguments",
-                                   m_cmd_name.c_str());
-      return false;
-    }
-
-    auto &r = Reproducer::Instance();
-
-    if (!r.IsCapturing() && !r.IsReplaying()) {
-      result.SetError(
-          "forcing a crash is only supported when capturing a reproducer.");
-      result.SetStatus(eReturnStatusSuccessFinishNoResult);
-      return false;
-    }
-
-    switch (m_options.signal) {
-    case eReproducerCrashSigill:
-      std::raise(SIGILL);
-      break;
-    case eReproducerCrashSigsegv:
-      std::raise(SIGSEGV);
-      break;
-    }
-
-    result.SetStatus(eReturnStatusQuit);
-    return result.Succeeded();
-  }
-
-private:
-  CommandOptions m_options;
 };
 
 class CommandObjectReproducerStatus : public CommandObjectParsed {
@@ -232,8 +120,7 @@ public:
   CommandObjectReproducerStatus(CommandInterpreter &interpreter)
       : CommandObjectParsed(
             interpreter, "reproducer status",
-            "Show the current reproducer status. In capture mode the "
-            "debugger "
+            "Show the current reproducer status. In capture mode the debugger "
             "is collecting all the information it needs to create a "
             "reproducer.  In replay mode the reproducer is replaying a "
             "reproducer. When the reproducers are off, no data is collected "
@@ -319,7 +206,7 @@ public:
     }
 
     ArrayRef<OptionDefinition> GetDefinitions() override {
-      return makeArrayRef(g_reproducer_dump_options);
+      return makeArrayRef(g_reproducer_options);
     }
 
     FileSpec file;
@@ -476,8 +363,7 @@ CommandObjectReproducer::CommandObjectReproducer(
     CommandInterpreter &interpreter)
     : CommandObjectMultiword(
           interpreter, "reproducer",
-          "Commands for manipulating reproducers. Reproducers make it "
-          "possible "
+          "Commands for manipulating reproducers. Reproducers make it possible "
           "to capture full debug sessions with all its dependencies. The "
           "resulting reproducer is used to replay the debug session while "
           "debugging the debugger.\n"
@@ -494,8 +380,6 @@ CommandObjectReproducer::CommandObjectReproducer(
                                new CommandObjectReproducerStatus(interpreter)));
   LoadSubCommand("dump",
                  CommandObjectSP(new CommandObjectReproducerDump(interpreter)));
-  LoadSubCommand("xcrash", CommandObjectSP(
-                               new CommandObjectReproducerXCrash(interpreter)));
 }
 
 CommandObjectReproducer::~CommandObjectReproducer() = default;

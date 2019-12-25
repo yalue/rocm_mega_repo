@@ -21,191 +21,101 @@
  *
  * ************************************************************************ */
 
+#include "rocsparse_data.hpp"
+#include "rocsparse_datatype2string.hpp"
+#include "rocsparse_test.hpp"
 #include "testing_csrgemm.hpp"
-#include "utility.hpp"
+#include "type_dispatch.hpp"
 
-#include <gtest/gtest.h>
-#include <rocsparse.h>
-#include <string>
-#include <unistd.h>
-#include <vector>
+#include <cctype>
+#include <cstring>
+#include <type_traits>
 
-typedef rocsparse_index_base base;
-typedef rocsparse_operation  trans;
-
-typedef std::
-    tuple<rocsparse_int, rocsparse_int, rocsparse_int, double, base, base, base, trans, trans>
-                                                                        csrgemm_tuple;
-typedef std::tuple<double, base, base, base, trans, trans, std::string> csrgemm_bin_tuple;
-
-double csrgemm_alpha_range[] = {0.0, 2.7};
-//double csrgemm_beta_range[] = {0.0, 1.3};
-
-rocsparse_int csrgemm_M_range[] = {-1, 0, 50, 647, 1799};
-rocsparse_int csrgemm_N_range[] = {-1, 0, 13, 523, 3712};
-rocsparse_int csrgemm_K_range[] = {-1, 0, 50, 254, 1942};
-
-base csrgemm_idxbaseA_range[] = {rocsparse_index_base_zero, rocsparse_index_base_one};
-base csrgemm_idxbaseB_range[] = {rocsparse_index_base_zero, rocsparse_index_base_one};
-base csrgemm_idxbaseC_range[] = {rocsparse_index_base_zero, rocsparse_index_base_one};
-
-trans csrgemm_transA_range[] = {rocsparse_operation_none};
-trans csrgemm_transB_range[] = {rocsparse_operation_none};
-
-std::string csrgemm_bin[] = {"rma10.bin",
-                             "mac_econ_fwd500.bin",
-                             "mc2depi.bin",
-                             "scircuit.bin",
-                             "bmwcra_1.bin",
-                             "nos1.bin",
-                             "nos2.bin",
-                             "nos3.bin",
-                             "nos4.bin",
-                             "nos5.bin",
-                             "nos6.bin",
-                             "nos7.bin",
-                             "amazon0312.bin",
-                             "Chebyshev4.bin",
-                             "sme3Dc.bin",
-                             //                             "webbase-1M.bin",
-                             "shipsec1.bin"};
-
-class parameterized_csrgemm : public testing::TestWithParam<csrgemm_tuple>
+namespace
 {
-protected:
-    parameterized_csrgemm() {}
-    virtual ~parameterized_csrgemm() {}
-    virtual void SetUp() {}
-    virtual void TearDown() {}
-};
-
-class parameterized_csrgemm_bin : public testing::TestWithParam<csrgemm_bin_tuple>
-{
-protected:
-    parameterized_csrgemm_bin() {}
-    virtual ~parameterized_csrgemm_bin() {}
-    virtual void SetUp() {}
-    virtual void TearDown() {}
-};
-
-Arguments setup_csrgemm_arguments(csrgemm_tuple tup)
-{
-    Arguments arg;
-    arg.M     = std::get<0>(tup);
-    arg.N     = std::get<1>(tup);
-    arg.K     = std::get<2>(tup);
-    arg.alpha = std::get<3>(tup);
-    //    arg.beta      = std::get<4>(tup);
-    arg.idx_base  = std::get<4>(tup);
-    arg.idx_base2 = std::get<5>(tup);
-    arg.idx_base3 = std::get<6>(tup);
-    //    arg.idx_base4 = std::get<7>(tup);
-    arg.transA = std::get<7>(tup);
-    arg.transB = std::get<8>(tup);
-    arg.timing = 0;
-    return arg;
-}
-
-Arguments setup_csrgemm_arguments(csrgemm_bin_tuple tup)
-{
-    Arguments arg;
-    arg.M     = -99;
-    arg.N     = -99;
-    arg.K     = -99;
-    arg.alpha = std::get<0>(tup);
-    //    arg.beta      = std::get<1>(tup);
-    arg.idx_base  = std::get<1>(tup);
-    arg.idx_base2 = std::get<2>(tup);
-    arg.idx_base3 = std::get<3>(tup);
-    //    arg.idx_base4 = std::get<4>(tup);
-    arg.transA = std::get<4>(tup);
-    arg.transB = std::get<5>(tup);
-    arg.timing = 0;
-
-    // Determine absolute path of test matrix
-    std::string bin_file = std::get<6>(tup);
-
-    // Get current executables absolute path
-    char    path_exe[PATH_MAX];
-    ssize_t len = readlink("/proc/self/exe", path_exe, sizeof(path_exe) - 1);
-    if(len < 14)
+    // By default, this test does not apply to any types.
+    // The unnamed second parameter is used for enable_if below.
+    template <typename, typename = void>
+    struct csrgemm_testing : rocsparse_test_invalid
     {
-        path_exe[0] = '\0';
-    }
-    else
+    };
+
+    // When the condition in the second argument is satisfied, the type combination
+    // is valid. When the condition is false, this specialization does not apply.
+    template <typename T>
+    struct csrgemm_testing<
+        T,
+        typename std::enable_if<std::is_same<T, float>{} || std::is_same<T, double>{}
+                                || std::is_same<T, rocsparse_float_complex>{}
+                                || std::is_same<T, rocsparse_double_complex>{}>::type>
     {
-        path_exe[len - 14] = '\0';
+        explicit operator bool()
+        {
+            return true;
+        }
+        void operator()(const Arguments& arg)
+        {
+            if(!strcmp(arg.function, "csrgemm"))
+                testing_csrgemm<T>(arg);
+            else if(!strcmp(arg.function, "csrgemm_bad_arg"))
+                testing_csrgemm_bad_arg<T>(arg);
+            else
+                FAIL() << "Internal error: Test called with unknown function: " << arg.function;
+        }
+    };
+
+    struct csrgemm : RocSPARSE_Test<csrgemm, csrgemm_testing>
+    {
+        // Filter for which types apply to this suite
+        static bool type_filter(const Arguments& arg)
+        {
+            return rocsparse_simple_dispatch<type_filter_functor>(arg);
+        }
+
+        // Filter for which functions apply to this suite
+        static bool function_filter(const Arguments& arg)
+        {
+            return !strcmp(arg.function, "csrgemm") || !strcmp(arg.function, "csrgemm_bad_arg");
+        }
+
+        // Google Test name suffix based on parameters
+        static std::string name_suffix(const Arguments& arg)
+        {
+            if(arg.matrix == rocsparse_matrix_file_rocalution
+               || arg.matrix == rocsparse_matrix_file_mtx)
+            {
+                return RocSPARSE_TestName<csrgemm>{}
+                       << rocsparse_datatype2string(arg.compute_type) << '_' << arg.N << '_' << '_'
+                       << arg.alpha << '_' << arg.alphai << '_' << arg.beta << '_' << arg.betai
+                       << '_' << rocsparse_operation2string(arg.transA) << '_'
+                       << rocsparse_operation2string(arg.transB) << '_'
+                       << rocsparse_indexbase2string(arg.baseA) << '_'
+                       << rocsparse_indexbase2string(arg.baseB) << '_'
+                       << rocsparse_indexbase2string(arg.baseC) << '_'
+                       << rocsparse_indexbase2string(arg.baseD) << '_'
+                       << rocsparse_matrix2string(arg.matrix) << '_' << arg.filename;
+            }
+            else
+            {
+                return RocSPARSE_TestName<csrgemm>{}
+                       << rocsparse_datatype2string(arg.compute_type) << '_' << arg.M << '_'
+                       << arg.N << '_' << arg.K << '_' << arg.alpha << '_' << arg.alphai << '_'
+                       << arg.beta << '_' << arg.betai << '_'
+                       << rocsparse_operation2string(arg.transA) << '_'
+                       << rocsparse_operation2string(arg.transB) << '_'
+                       << rocsparse_indexbase2string(arg.baseA) << '_'
+                       << rocsparse_indexbase2string(arg.baseB) << '_'
+                       << rocsparse_indexbase2string(arg.baseC) << '_'
+                       << rocsparse_indexbase2string(arg.baseD) << '_'
+                       << rocsparse_matrix2string(arg.matrix);
+            }
+        }
+    };
+
+    TEST_P(csrgemm, extra)
+    {
+        rocsparse_simple_dispatch<csrgemm_testing>(GetParam());
     }
+    INSTANTIATE_TEST_CATEGORIES(csrgemm);
 
-    // Matrices are stored at the same path in matrices directory
-    arg.filename = std::string(path_exe) + "../matrices/" + bin_file;
-
-    return arg;
-}
-
-TEST(csrgemm_bad_arg, csrgemm_float)
-{
-    testing_csrgemm_bad_arg<float>();
-}
-
-TEST_P(parameterized_csrgemm, csrgemm_float)
-{
-    Arguments arg = setup_csrgemm_arguments(GetParam());
-
-    rocsparse_status status = testing_csrgemm<float>(arg);
-    EXPECT_EQ(status, rocsparse_status_success);
-}
-
-TEST_P(parameterized_csrgemm, csrgemm_double)
-{
-    Arguments arg = setup_csrgemm_arguments(GetParam());
-
-    rocsparse_status status = testing_csrgemm<double>(arg);
-    EXPECT_EQ(status, rocsparse_status_success);
-}
-
-TEST_P(parameterized_csrgemm_bin, csrgemm_bin_float)
-{
-    Arguments arg = setup_csrgemm_arguments(GetParam());
-
-    rocsparse_status status = testing_csrgemm<float>(arg);
-    EXPECT_EQ(status, rocsparse_status_success);
-}
-
-TEST_P(parameterized_csrgemm_bin, csrgemm_bin_double)
-{
-    Arguments arg = setup_csrgemm_arguments(GetParam());
-
-    rocsparse_status status = testing_csrgemm<double>(arg);
-    EXPECT_EQ(status, rocsparse_status_success);
-}
-
-INSTANTIATE_TEST_CASE_P(
-    csrgemm,
-    parameterized_csrgemm,
-    testing::Combine(
-        testing::ValuesIn(csrgemm_M_range),
-        testing::ValuesIn(csrgemm_N_range),
-        testing::ValuesIn(csrgemm_K_range),
-        testing::ValuesIn(csrgemm_alpha_range),
-        //                                         testing::ValuesIn(csrgemm_beta_range),
-        testing::ValuesIn(csrgemm_idxbaseA_range),
-        testing::ValuesIn(csrgemm_idxbaseB_range),
-        testing::ValuesIn(csrgemm_idxbaseC_range),
-        //                                         testing::ValuesIn(csrgemm_idxbaseD_range),
-        testing::ValuesIn(csrgemm_transA_range),
-        testing::ValuesIn(csrgemm_transB_range)));
-
-INSTANTIATE_TEST_CASE_P(
-    csrgemm_bin,
-    parameterized_csrgemm_bin,
-    testing::Combine(
-        testing::ValuesIn(csrgemm_alpha_range),
-        //                                         testing::ValuesIn(csrgemm_beta_range),
-        testing::ValuesIn(csrgemm_idxbaseA_range),
-        testing::ValuesIn(csrgemm_idxbaseB_range),
-        testing::ValuesIn(csrgemm_idxbaseC_range),
-        //                                         testing::ValuesIn(csrgemm_idxbaseD_range),
-        testing::ValuesIn(csrgemm_transA_range),
-        testing::ValuesIn(csrgemm_transB_range),
-        testing::ValuesIn(csrgemm_bin)));
+} // namespace

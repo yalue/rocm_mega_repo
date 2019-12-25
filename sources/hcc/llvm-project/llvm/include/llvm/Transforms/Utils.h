@@ -119,13 +119,6 @@ ModulePass *createStripNonLineTableDebugInfoPass();
 // number of conditional branches in the hot paths based on profiles.
 //
 FunctionPass *createControlHeightReductionLegacyPass();
-
-//===----------------------------------------------------------------------===//
-//
-// InjectTLIMappingsLegacy - populates the VFABI attribute with the
-// scalar-to-vector mappings from the TargetLibraryInfo.
-//
-FunctionPass *createInjectTLIMappingsLegacyPass();
 }
 
 #endif

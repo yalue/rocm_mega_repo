@@ -29,7 +29,6 @@
 #include "llvm/ADT/BreadthFirstIterator.h"
 #include "llvm/ADT/Sequence.h"
 #include "llvm/ADT/SmallVector.h"
-#include "llvm/Support/CommandLine.h"
 #include "llvm/Support/Debug.h"
 
 using namespace llvm;
@@ -284,9 +283,6 @@ CacheCostTy IndexedReference::computeRefCost(const Loop &L,
     const SCEV *ElemSize = Sizes.back();
     const SCEV *Stride = SE.getMulExpr(Coeff, ElemSize);
     const SCEV *CacheLineSize = SE.getConstant(Stride->getType(), CLS);
-    Type *WiderType = SE.getWiderType(Stride->getType(), TripCount->getType());
-    Stride = SE.getNoopOrSignExtend(Stride, WiderType);
-    TripCount = SE.getNoopOrAnyExtend(TripCount, WiderType);
     const SCEV *Numerator = SE.getMulExpr(Stride, TripCount);
     RefCost = SE.getUDivExpr(Numerator, CacheLineSize);
     LLVM_DEBUG(dbgs().indent(4)
@@ -317,7 +313,7 @@ bool IndexedReference::delinearize(const LoopInfo &LI) {
   const SCEV *ElemSize = SE.getElementSize(&StoreOrLoadInst);
   const BasicBlock *BB = StoreOrLoadInst.getParent();
 
-  if (Loop *L = LI.getLoopFor(BB)) {
+  for (Loop *L = LI.getLoopFor(BB); L != nullptr; L = L->getParentLoop()) {
     const SCEV *AccessFn =
         SE.getSCEVAtScope(getPointerOperand(&StoreOrLoadInst), L);
 
@@ -346,7 +342,7 @@ bool IndexedReference::delinearize(const LoopInfo &LI) {
                    << "ERROR: failed to delinearize reference\n");
         Subscripts.clear();
         Sizes.clear();
-        return false;
+        break;
       }
 
       const SCEV *Div = SE.getUDivExactExpr(AccessFn, ElemSize);
@@ -457,7 +453,7 @@ CacheCost::CacheCost(const LoopVectorTy &Loops, const LoopInfo &LI,
                      AliasAnalysis &AA, DependenceInfo &DI,
                      Optional<unsigned> TRT)
     : Loops(Loops), TripCounts(), LoopCosts(),
-      TRT((TRT == None) ? Optional<unsigned>(TemporalReuseThreshold) : TRT),
+      TRT(TRT == None ? Optional<unsigned>(TemporalReuseThreshold) : TRT),
       LI(LI), SE(SE), TTI(TTI), AA(AA), DI(DI) {
   assert(!Loops.empty() && "Expecting a non-empty loop vector.");
 

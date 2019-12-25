@@ -2828,9 +2828,6 @@ void Sema::MatchAllMethodDeclarations(const SelectorSet &InsMap,
              "Expected to find the method through lookup as well");
       // ImpMethodDecl may be null as in a @dynamic property.
       if (ImpMethodDecl) {
-        // Skip property accessor function stubs.
-        if (ImpMethodDecl->isSynthesizedAccessorStub())
-          continue;
         if (!WarnCategoryMethodImpl)
           WarnConflictingTypedMethods(ImpMethodDecl, I,
                                       isa<ObjCProtocolDecl>(CDecl));
@@ -2857,9 +2854,6 @@ void Sema::MatchAllMethodDeclarations(const SelectorSet &InsMap,
              "Expected to find the method through lookup as well");
       // ImpMethodDecl may be null as in a @dynamic property.
       if (ImpMethodDecl) {
-        // Skip property accessor function stubs.
-        if (ImpMethodDecl->isSynthesizedAccessorStub())
-          continue;
         if (!WarnCategoryMethodImpl)
           WarnConflictingTypedMethods(ImpMethodDecl, I,
                                       isa<ObjCProtocolDecl>(CDecl));
@@ -3239,9 +3233,6 @@ bool Sema::MatchTwoMethodDeclarations(const ObjCMethodDecl *left,
   if (left->isHidden() || right->isHidden())
     return false;
 
-  if (left->isDirectMethod() != right->isDirectMethod())
-    return false;
-
   if (getLangOpts().ObjCAutoRefCount &&
       (left->hasAttr<NSReturnsRetainedAttr>()
          != right->hasAttr<NSReturnsRetainedAttr>() ||
@@ -3431,9 +3422,6 @@ void Sema::AddMethodToGlobalPool(ObjCMethodDecl *Method, bool impl,
 static bool isAcceptableMethodMismatch(ObjCMethodDecl *chosen,
                                        ObjCMethodDecl *other) {
   if (!chosen->isInstanceMethod())
-    return false;
-
-  if (chosen->isDirectMethod() != other->isDirectMethod())
     return false;
 
   Selector sel = chosen->getSelector();
@@ -3915,25 +3903,6 @@ Decl *Sema::ActOnAtEnd(Scope *S, SourceRange AtEnd, ArrayRef<Decl *> allMethods,
          || isa<ObjCProtocolDecl>(ClassDecl);
   bool checkIdenticalMethods = isa<ObjCImplementationDecl>(ClassDecl);
 
-  // Make synthesized accessor stub functions visible.
-  // ActOnPropertyImplDecl() creates them as not visible in case
-  // they are overridden by an explicit method that is encountered
-  // later.
-  if (auto *OID = dyn_cast<ObjCImplementationDecl>(CurContext)) {
-    for (auto PropImpl : OID->property_impls()) {
-      if (auto *Getter = PropImpl->getGetterMethodDecl())
-        if (Getter->isSynthesizedAccessorStub()) {
-          OID->makeDeclVisibleInContext(Getter);
-          OID->addDecl(Getter);
-        }
-      if (auto *Setter = PropImpl->getSetterMethodDecl())
-        if (Setter->isSynthesizedAccessorStub()) {
-          OID->makeDeclVisibleInContext(Setter);
-          OID->addDecl(Setter);
-        }
-    }
-  }
-
   // FIXME: Remove these and use the ObjCContainerDecl/DeclContext.
   llvm::DenseMap<Selector, const ObjCMethodDecl*> InsMap;
   llvm::DenseMap<Selector, const ObjCMethodDecl*> ClsMap;
@@ -4032,8 +4001,8 @@ Decl *Sema::ActOnAtEnd(Scope *S, SourceRange AtEnd, ArrayRef<Decl *> allMethods,
               continue;
 
           for (const auto *Ext : IDecl->visible_extensions()) {
-            if (ObjCMethodDecl *GetterMethod =
-                    Ext->getInstanceMethod(Property->getGetterName()))
+            if (ObjCMethodDecl *GetterMethod
+                  = Ext->getInstanceMethod(Property->getGetterName()))
               GetterMethod->setPropertyAccessor(true);
             if (!Property->isReadOnly())
               if (ObjCMethodDecl *SetterMethod
@@ -4345,18 +4314,6 @@ private:
 };
 } // end anonymous namespace
 
-void Sema::CheckObjCMethodDirectOverrides(ObjCMethodDecl *method,
-                                          ObjCMethodDecl *overridden) {
-  if (const auto *attr = overridden->getAttr<ObjCDirectAttr>()) {
-    Diag(method->getLocation(), diag::err_objc_override_direct_method);
-    Diag(attr->getLocation(), diag::note_previous_declaration);
-  } else if (const auto *attr = method->getAttr<ObjCDirectAttr>()) {
-    Diag(attr->getLocation(), diag::err_objc_direct_on_override)
-        << isa<ObjCProtocolDecl>(overridden->getDeclContext());
-    Diag(overridden->getLocation(), diag::note_previous_declaration);
-  }
-}
-
 void Sema::CheckObjCMethodOverrides(ObjCMethodDecl *ObjCMethod,
                                     ObjCInterfaceDecl *CurrentClass,
                                     ResultTypeCompatibilityKind RTC) {
@@ -4375,8 +4332,8 @@ void Sema::CheckObjCMethodOverrides(ObjCMethodDecl *ObjCMethod,
       if (isa<ObjCProtocolDecl>(overridden->getDeclContext()) ||
           CurrentClass != overridden->getClassInterface() ||
           overridden->isOverriding()) {
-        CheckObjCMethodDirectOverrides(ObjCMethod, overridden);
         hasOverriddenMethodsInBaseOrProtocol = true;
+
       } else if (isa<ObjCImplDecl>(ObjCMethod->getDeclContext())) {
         // OverrideSearch will return as "overridden" the same method in the
         // interface. For hasOverriddenMethodsInBaseOrProtocol, we need to
@@ -4400,7 +4357,6 @@ void Sema::CheckObjCMethodOverrides(ObjCMethodDecl *ObjCMethod,
               for (ObjCMethodDecl *SuperOverridden : overrides) {
                 if (isa<ObjCProtocolDecl>(SuperOverridden->getDeclContext()) ||
                     CurrentClass != SuperOverridden->getClassInterface()) {
-                  CheckObjCMethodDirectOverrides(ObjCMethod, SuperOverridden);
                   hasOverriddenMethodsInBaseOrProtocol = true;
                   overridden->setOverriding(true);
                   break;
@@ -4508,12 +4464,6 @@ static void mergeInterfaceMethodToImpl(Sema &S,
                                             method->getLocation()));
   }
 
-  if (!method->isDirectMethod())
-    if (const auto *attr = prevMethod->getAttr<ObjCDirectAttr>()) {
-      method->addAttr(
-          ObjCDirectAttr::CreateImplicit(S.Context, attr->getLocation()));
-    }
-
   // Merge nullability of the result type.
   QualType newReturnType
     = mergeTypeNullabilityForRedecl(
@@ -4601,7 +4551,6 @@ Decl *Sema::ActOnMethodDeclaration(
     Diag(MethodLoc, diag::err_missing_method_context);
     return nullptr;
   }
-
   Decl *ClassDecl = cast<ObjCContainerDecl>(CurContext);
   QualType resultDeclType;
 
@@ -4625,7 +4574,7 @@ Decl *Sema::ActOnMethodDeclaration(
   ObjCMethodDecl *ObjCMethod = ObjCMethodDecl::Create(
       Context, MethodLoc, EndLoc, Sel, resultDeclType, ReturnTInfo, CurContext,
       MethodType == tok::minus, isVariadic,
-      /*isPropertyAccessor=*/false, /*isSynthesizedAccessorStub=*/false,
+      /*isPropertyAccessor=*/false,
       /*isImplicitlyDeclared=*/false, /*isDefined=*/false,
       MethodDeclKind == tok::objc_optional ? ObjCMethodDecl::Optional
                                            : ObjCMethodDecl::Required,
@@ -4717,39 +4666,12 @@ Decl *Sema::ActOnMethodDeclaration(
       ImpDecl->addClassMethod(ObjCMethod);
     }
 
-    // If this method overrides a previous @synthesize declaration,
-    // register it with the property.  Linear search through all
-    // properties here, because the autosynthesized stub hasn't been
-    // made visible yet, so it can be overriden by a later
-    // user-specified implementation.
-    for (ObjCPropertyImplDecl *PropertyImpl : ImpDecl->property_impls()) {
-      if (auto *Setter = PropertyImpl->getSetterMethodDecl())
-        if (Setter->getSelector() == Sel &&
-            Setter->isInstanceMethod() == ObjCMethod->isInstanceMethod()) {
-          assert(Setter->isSynthesizedAccessorStub() && "autosynth stub expected");
-          PropertyImpl->setSetterMethodDecl(ObjCMethod);
-        }
-      if (auto *Getter = PropertyImpl->getGetterMethodDecl())
-        if (Getter->getSelector() == Sel &&
-            Getter->isInstanceMethod() == ObjCMethod->isInstanceMethod()) {
-          assert(Getter->isSynthesizedAccessorStub() && "autosynth stub expected");
-          PropertyImpl->setGetterMethodDecl(ObjCMethod);
-          break;
-        }
-    }
-
     // Merge information from the @interface declaration into the
     // @implementation.
     if (ObjCInterfaceDecl *IDecl = ImpDecl->getClassInterface()) {
       if (auto *IMD = IDecl->lookupMethod(ObjCMethod->getSelector(),
                                           ObjCMethod->isInstanceMethod())) {
         mergeInterfaceMethodToImpl(*this, ObjCMethod, IMD);
-        if (const auto *attr = ObjCMethod->getAttr<ObjCDirectAttr>()) {
-          if (!IMD->isDirectMethod()) {
-            Diag(attr->getLocation(), diag::err_objc_direct_missing_on_decl);
-            Diag(IMD->getLocation(), diag::note_previous_declaration);
-          }
-        }
 
         // Warn about defining -dealloc in a category.
         if (isa<ObjCCategoryImplDecl>(ImpDecl) && IMD->isOverriding() &&
@@ -4757,9 +4679,6 @@ Decl *Sema::ActOnMethodDeclaration(
           Diag(ObjCMethod->getLocation(), diag::warn_dealloc_in_category)
             << ObjCMethod->getDeclName();
         }
-      } else if (ImpDecl->hasAttr<ObjCDirectMembersAttr>()) {
-        ObjCMethod->addAttr(
-            ObjCDirectAttr::CreateImplicit(Context, ObjCMethod->getLocation()));
       }
 
       // Warn if a method declared in a protocol to which a category or
@@ -4779,11 +4698,6 @@ Decl *Sema::ActOnMethodDeclaration(
           }
     }
   } else {
-    if (!ObjCMethod->isDirectMethod() &&
-        ClassDecl->hasAttr<ObjCDirectMembersAttr>()) {
-      ObjCMethod->addAttr(
-          ObjCDirectAttr::CreateImplicit(Context, ObjCMethod->getLocation()));
-    }
     cast<DeclContext>(ClassDecl)->addDecl(ObjCMethod);
   }
 
@@ -4868,9 +4782,6 @@ Decl *Sema::ActOnMethodDeclaration(
       ObjCMethod->dropAttr<AvailabilityAttr>();
     }
   }
-
-  // Insert the invisible arguments, self and _cmd!
-  ObjCMethod->createImplicitParams(Context, ObjCMethod->getClassInterface());
 
   ActOnDocumentableDecl(ObjCMethod);
 
@@ -5150,9 +5061,6 @@ void Sema::DiagnoseUnusedBackingIvarInAccessor(Scope *S,
     const ObjCPropertyDecl *PDecl;
     const ObjCIvarDecl *IV = GetIvarBackingPropertyAccessor(CurMethod, PDecl);
     if (!IV)
-      continue;
-
-    if (CurMethod->isSynthesizedAccessorStub())
       continue;
 
     UnusedBackingIvarChecker Checker(*this, CurMethod, IV);

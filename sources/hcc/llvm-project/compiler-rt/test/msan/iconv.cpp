@@ -8,15 +8,6 @@
 #include <stdio.h>
 #include <errno.h>
 
-#if defined(__NetBSD__)
-#include <sys/param.h>
-#if __NetBSD_Prereq__(9,99,17)
-#define NETBSD_POSIX_ICONV 1
-#else
-#define NETBSD_POSIX_ICONV 0
-#endif
-#endif
-
 int main(void) {
   iconv_t cd = iconv_open("ASCII", "ASCII");
   assert(cd != (iconv_t)-1);
@@ -24,7 +15,7 @@ int main(void) {
   char inbuf_[100];
   strcpy(inbuf_, "sample text");
   char outbuf_[100];
-#if defined(__NetBSD__) && !NETBSD_POSIX_ICONV
+#if defined(__NetBSD__)
   // Some OSes expect the 2nd argument of iconv(3) to be of type const char **
   const char *inbuf = inbuf_;
 #else

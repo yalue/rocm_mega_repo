@@ -1675,15 +1675,7 @@ LegalizerHelper::widenScalar(MachineInstr &MI, unsigned TypeIdx, LLT WideTy) {
   case TargetOpcode::G_CONSTANT: {
     MachineOperand &SrcMO = MI.getOperand(1);
     LLVMContext &Ctx = MIRBuilder.getMF().getFunction().getContext();
-    unsigned ExtOpc = LI.getExtOpcodeForWideningConstant(
-        MRI.getType(MI.getOperand(0).getReg()));
-    assert((ExtOpc == TargetOpcode::G_ZEXT || ExtOpc == TargetOpcode::G_SEXT ||
-            ExtOpc == TargetOpcode::G_ANYEXT) &&
-           "Illegal Extend");
-    const APInt &SrcVal = SrcMO.getCImm()->getValue();
-    const APInt &Val = (ExtOpc == TargetOpcode::G_SEXT)
-                           ? SrcVal.sext(WideTy.getSizeInBits())
-                           : SrcVal.zext(WideTy.getSizeInBits());
+    const APInt &Val = SrcMO.getCImm()->getValue().sext(WideTy.getSizeInBits());
     Observer.changingInstr(MI);
     SrcMO.setCImm(ConstantInt::get(Ctx, Val));
 
@@ -1756,8 +1748,8 @@ LegalizerHelper::widenScalar(MachineInstr &MI, unsigned TypeIdx, LLT WideTy) {
     Observer.changedInstr(MI);
     return Legalized;
 
-  case TargetOpcode::G_PTR_ADD:
-    assert(TypeIdx == 1 && "unable to legalize pointer of G_PTR_ADD");
+  case TargetOpcode::G_GEP:
+    assert(TypeIdx == 1 && "unable to legalize pointer of GEP");
     Observer.changingInstr(MI);
     widenScalarSrc(MI, WideTy, 2, TargetOpcode::G_SEXT);
     Observer.changedInstr(MI);
@@ -1797,33 +1789,8 @@ LegalizerHelper::widenScalar(MachineInstr &MI, unsigned TypeIdx, LLT WideTy) {
     if (TypeIdx != 2)
       return UnableToLegalize;
     Observer.changingInstr(MI);
-    // TODO: Probably should be zext
     widenScalarSrc(MI, WideTy, 2, TargetOpcode::G_SEXT);
     Observer.changedInstr(MI);
-    return Legalized;
-  }
-  case TargetOpcode::G_INSERT_VECTOR_ELT: {
-    if (TypeIdx == 1) {
-      Observer.changingInstr(MI);
-
-      Register VecReg = MI.getOperand(1).getReg();
-      LLT VecTy = MRI.getType(VecReg);
-      LLT WideVecTy = LLT::vector(VecTy.getNumElements(), WideTy);
-
-      widenScalarSrc(MI, WideVecTy, 1, TargetOpcode::G_ANYEXT);
-      widenScalarSrc(MI, WideTy, 2, TargetOpcode::G_ANYEXT);
-      widenScalarDst(MI, WideVecTy, 0);
-      Observer.changedInstr(MI);
-      return Legalized;
-    }
-
-    if (TypeIdx == 2) {
-      Observer.changingInstr(MI);
-      // TODO: Probably should be zext
-      widenScalarSrc(MI, WideTy, 3, TargetOpcode::G_SEXT);
-      Observer.changedInstr(MI);
-    }
-
     return Legalized;
   }
   case TargetOpcode::G_FADD:
@@ -2091,9 +2058,8 @@ LegalizerHelper::lower(MachineInstr &MI, unsigned TypeIdx, LLT Ty) {
 
         auto OffsetCst =
             MIRBuilder.buildConstant(LLT::scalar(64), LargeSplitSize / 8);
-        Register PtrAddReg = MRI.createGenericVirtualRegister(PtrTy);
-        auto SmallPtr =
-            MIRBuilder.buildPtrAdd(PtrAddReg, PtrReg, OffsetCst.getReg(0));
+        Register GEPReg = MRI.createGenericVirtualRegister(PtrTy);
+        auto SmallPtr = MIRBuilder.buildGEP(GEPReg, PtrReg, OffsetCst.getReg(0));
         auto SmallLoad = MIRBuilder.buildLoad(SmallLdReg, SmallPtr.getReg(0),
                                               *SmallMMO);
 
@@ -2117,7 +2083,7 @@ LegalizerHelper::lower(MachineInstr &MI, unsigned TypeIdx, LLT Ty) {
       default:
         llvm_unreachable("Unexpected opcode");
       case TargetOpcode::G_LOAD:
-        MIRBuilder.buildExtOrTrunc(TargetOpcode::G_ANYEXT, DstReg, TmpReg);
+        MIRBuilder.buildAnyExt(DstReg, TmpReg);
         break;
       case TargetOpcode::G_SEXTLOAD:
         MIRBuilder.buildSExt(DstReg, TmpReg);
@@ -2160,13 +2126,12 @@ LegalizerHelper::lower(MachineInstr &MI, unsigned TypeIdx, LLT Ty) {
     auto ShiftAmt = MIRBuilder.buildConstant(ExtendTy, LargeSplitSize);
     auto SmallVal = MIRBuilder.buildLShr(ExtendTy, ExtVal, ShiftAmt);
 
-    // Generate the PtrAdd and truncating stores.
+    // Generate the GEP and truncating stores.
     LLT PtrTy = MRI.getType(PtrReg);
     auto OffsetCst =
         MIRBuilder.buildConstant(LLT::scalar(64), LargeSplitSize / 8);
-    Register PtrAddReg = MRI.createGenericVirtualRegister(PtrTy);
-    auto SmallPtr =
-        MIRBuilder.buildPtrAdd(PtrAddReg, PtrReg, OffsetCst.getReg(0));
+    Register GEPReg = MRI.createGenericVirtualRegister(PtrTy);
+    auto SmallPtr = MIRBuilder.buildGEP(GEPReg, PtrReg, OffsetCst.getReg(0));
 
     MachineFunction &MF = MIRBuilder.getMF();
     MachineMemOperand *LargeMMO =
@@ -2918,7 +2883,7 @@ LegalizerHelper::reduceLoadStoreWidth(MachineInstr &MI, unsigned TypeIdx,
       unsigned ByteOffset = Offset / 8;
       Register NewAddrReg;
 
-      MIRBuilder.materializePtrAdd(NewAddrReg, AddrReg, OffsetTy, ByteOffset);
+      MIRBuilder.materializeGEP(NewAddrReg, AddrReg, OffsetTy, ByteOffset);
 
       MachineMemOperand *NewMMO =
         MF.getMachineMemOperand(MMO, ByteOffset, ByteSize);
@@ -3387,7 +3352,7 @@ void LegalizerHelper::multiplyRegisters(SmallVectorImpl<Register> &DstRegs,
           B.buildUMulH(NarrowTy, Src1Regs[DstIdx - 1 - i], Src2Regs[i]);
       Factors.push_back(Umulh.getReg(0));
     }
-    // Add CarrySum from additions calculated for previous DstIdx.
+    // Add CarrySum from additons calculated for previous DstIdx.
     if (DstIdx != 1) {
       Factors.push_back(CarrySumPrevDstIdx);
     }
@@ -3859,14 +3824,6 @@ LegalizerHelper::lowerUITOFP(MachineInstr &MI, unsigned TypeIdx, LLT Ty) {
   LLT DstTy = MRI.getType(Dst);
   LLT SrcTy = MRI.getType(Src);
 
-  if (SrcTy == LLT::scalar(1)) {
-    auto True = MIRBuilder.buildFConstant(DstTy, 1.0);
-    auto False = MIRBuilder.buildFConstant(DstTy, 0.0);
-    MIRBuilder.buildSelect(Dst, Src, True, False);
-    MI.eraseFromParent();
-    return Legalized;
-  }
-
   if (SrcTy != LLT::scalar(64))
     return UnableToLegalize;
 
@@ -3891,14 +3848,6 @@ LegalizerHelper::lowerSITOFP(MachineInstr &MI, unsigned TypeIdx, LLT Ty) {
   const LLT S64 = LLT::scalar(64);
   const LLT S32 = LLT::scalar(32);
   const LLT S1 = LLT::scalar(1);
-
-  if (SrcTy == S1) {
-    auto True = MIRBuilder.buildFConstant(DstTy, -1.0);
-    auto False = MIRBuilder.buildFConstant(DstTy, 0.0);
-    MIRBuilder.buildSelect(Dst, Src, True, False);
-    MI.eraseFromParent();
-    return Legalized;
-  }
 
   if (SrcTy != S64)
     return UnableToLegalize;
@@ -4202,7 +4151,7 @@ LegalizerHelper::lowerDynStackAlloc(MachineInstr &MI) {
 
   // Subtract the final alloc from the SP. We use G_PTRTOINT here so we don't
   // have to generate an extra instruction to negate the alloc and then use
-  // G_PTR_ADD to add the negative offset.
+  // G_GEP to add the negative offset.
   auto Alloc = MIRBuilder.buildSub(IntPtrTy, SPTmp, AllocSize);
   if (Align) {
     APInt AlignMask(IntPtrTy.getSizeInBits(), Align, true);

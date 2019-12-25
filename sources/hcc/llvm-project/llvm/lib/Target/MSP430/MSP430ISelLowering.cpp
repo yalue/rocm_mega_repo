@@ -37,11 +37,6 @@ using namespace llvm;
 
 #define DEBUG_TYPE "msp430-lower"
 
-static cl::opt<bool>MSP430NoLegalImmediate(
-  "msp430-no-legal-immediate", cl::Hidden,
-  cl::desc("Enable non legal immediates (for testing purposes only)"),
-  cl::init(false));
-
 MSP430TargetLowering::MSP430TargetLowering(const TargetMachine &TM,
                                            const MSP430Subtarget &STI)
     : TargetLowering(TM) {
@@ -358,20 +353,9 @@ SDValue MSP430TargetLowering::LowerOperation(SDValue Op,
   }
 }
 
-// Define non profitable transforms into shifts
-bool MSP430TargetLowering::shouldAvoidTransformToShift(EVT VT,
-                                                       unsigned Amount) const {
-  return !(Amount == 8 || Amount == 9 || Amount<=2);
+unsigned MSP430TargetLowering::getShiftAmountThreshold(EVT VT) const {
+  return 2;
 }
-
-// Implemented to verify test case assertions in
-// tests/codegen/msp430/shift-amount-threshold-b.ll
-bool MSP430TargetLowering::isLegalICmpImmediate(int64_t Immed) const {
-  if (MSP430NoLegalImmediate)
-    return Immed >= -32 && Immed < 32;
-  return TargetLowering::isLegalICmpImmediate(Immed);
-}
-
 //===----------------------------------------------------------------------===//
 //                       MSP430 Inline Assembly Support
 //===----------------------------------------------------------------------===//

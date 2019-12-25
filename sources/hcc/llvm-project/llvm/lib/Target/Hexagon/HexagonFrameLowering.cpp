@@ -36,7 +36,6 @@
 #include "llvm/CodeGen/MachineOperand.h"
 #include "llvm/CodeGen/MachinePostDominators.h"
 #include "llvm/CodeGen/MachineRegisterInfo.h"
-#include "llvm/CodeGen/PseudoSourceValue.h"
 #include "llvm/CodeGen/RegisterScavenging.h"
 #include "llvm/CodeGen/TargetRegisterInfo.h"
 #include "llvm/IR/Attributes.h"
@@ -224,7 +223,8 @@ namespace {
 
 bool HexagonCallFrameInformation::runOnMachineFunction(MachineFunction &MF) {
   auto &HFI = *MF.getSubtarget<HexagonSubtarget>().getFrameLowering();
-  bool NeedCFI = MF.needsFrameMoves();
+  bool NeedCFI = MF.getMMI().hasDebugInfo() ||
+                 MF.getFunction().needsUnwindTableEntry();
 
   if (!NeedCFI)
     return false;
@@ -1363,7 +1363,6 @@ void HexagonFrameLowering::processFunctionBeforeFrameFinalized(
   if (!HasAlloca || !NeedsAlign)
     return;
 
-  SmallSet<int, 4> DealignSlots;
   unsigned LFS = MFI.getLocalFrameSize();
   for (int i = 0, e = MFI.getObjectIndexEnd(); i != e; ++i) {
     if (!MFI.isSpillSlotObjectIndex(i) || MFI.isDeadObjectIndex(i))
@@ -1374,8 +1373,7 @@ void HexagonFrameLowering::processFunctionBeforeFrameFinalized(
     unsigned A = std::max(MFI.getObjectAlignment(i), 8U);
     MFI.setObjectAlignment(i, 8);
     LFS = alignTo(LFS+S, A);
-    MFI.mapLocalFrameObject(i, -static_cast<int64_t>(LFS));
-    DealignSlots.insert(i);
+    MFI.mapLocalFrameObject(i, -LFS);
   }
 
   MFI.setLocalFrameSize(LFS);
@@ -1384,38 +1382,6 @@ void HexagonFrameLowering::processFunctionBeforeFrameFinalized(
   if (A == 1)
     MFI.setLocalFrameMaxAlign(Align(8));
   MFI.setUseLocalStackAllocationBlock(true);
-
-  // Go over all MachineMemOperands in the code, and change the ones that
-  // refer to the dealigned stack slots to reflect the new alignment.
-  if (!DealignSlots.empty()) {
-    for (MachineBasicBlock &BB : MF) {
-      for (MachineInstr &MI : BB) {
-        bool KeepOld = true;
-        ArrayRef<MachineMemOperand*> memops = MI.memoperands();
-        SmallVector<MachineMemOperand*,1> new_memops;
-        for (MachineMemOperand *MMO : memops) {
-          auto *PV = MMO->getPseudoValue();
-          if (auto *FS = dyn_cast_or_null<FixedStackPseudoSourceValue>(PV)) {
-            int FI = FS->getFrameIndex();
-            if (DealignSlots.count(FI)) {
-              unsigned A = MFI.getObjectAlignment(FI);
-              auto *NewMMO = MF.getMachineMemOperand(MMO->getPointerInfo(),
-                                MMO->getFlags(), MMO->getSize(), A,
-                                MMO->getAAInfo(), MMO->getRanges(),
-                                MMO->getSyncScopeID(), MMO->getOrdering(),
-                                MMO->getFailureOrdering());
-              new_memops.push_back(NewMMO);
-              KeepOld = false;
-              continue;
-            }
-          }
-          new_memops.push_back(MMO);
-        }
-        if (!KeepOld)
-          MI.setMemRefs(MF, new_memops);
-      }
-    }
-  }
 
   // Set the physical aligned-stack base address register.
   unsigned AP = 0;
@@ -1784,21 +1750,16 @@ bool HexagonFrameLowering::expandStoreVec2(MachineBasicBlock &B,
   Register SrcHi = HRI.getSubReg(SrcR, Hexagon::vsub_hi);
   bool IsKill = MI->getOperand(2).isKill();
   int FI = MI->getOperand(0).getIndex();
-  bool NeedsAligna = needsAligna(MF);
 
   unsigned Size = HRI.getSpillSize(Hexagon::HvxVRRegClass);
   unsigned NeedAlign = HRI.getSpillAlignment(Hexagon::HvxVRRegClass);
   unsigned HasAlign = MFI.getObjectAlignment(FI);
   unsigned StoreOpc;
 
-  auto UseAligned = [&] (unsigned NeedAlign, unsigned HasAlign) {
-    return !NeedsAligna && (NeedAlign <= HasAlign);
-  };
-
   // Store low part.
   if (LPR.contains(SrcLo)) {
-    StoreOpc = UseAligned(NeedAlign, HasAlign) ? Hexagon::V6_vS32b_ai
-                                               : Hexagon::V6_vS32Ub_ai;
+    StoreOpc = NeedAlign <= HasAlign ? Hexagon::V6_vS32b_ai
+                                     : Hexagon::V6_vS32Ub_ai;
     BuildMI(B, It, DL, HII.get(StoreOpc))
         .addFrameIndex(FI)
         .addImm(0)
@@ -1808,8 +1769,8 @@ bool HexagonFrameLowering::expandStoreVec2(MachineBasicBlock &B,
 
   // Store high part.
   if (LPR.contains(SrcHi)) {
-    StoreOpc = UseAligned(NeedAlign, HasAlign) ? Hexagon::V6_vS32b_ai
-                                               : Hexagon::V6_vS32Ub_ai;
+    StoreOpc = NeedAlign <= MinAlign(HasAlign, Size) ? Hexagon::V6_vS32b_ai
+                                                     : Hexagon::V6_vS32Ub_ai;
     BuildMI(B, It, DL, HII.get(StoreOpc))
         .addFrameIndex(FI)
         .addImm(Size)
@@ -1836,28 +1797,23 @@ bool HexagonFrameLowering::expandLoadVec2(MachineBasicBlock &B,
   Register DstHi = HRI.getSubReg(DstR, Hexagon::vsub_hi);
   Register DstLo = HRI.getSubReg(DstR, Hexagon::vsub_lo);
   int FI = MI->getOperand(1).getIndex();
-  bool NeedsAligna = needsAligna(MF);
 
   unsigned Size = HRI.getSpillSize(Hexagon::HvxVRRegClass);
   unsigned NeedAlign = HRI.getSpillAlignment(Hexagon::HvxVRRegClass);
   unsigned HasAlign = MFI.getObjectAlignment(FI);
   unsigned LoadOpc;
 
-  auto UseAligned = [&] (unsigned NeedAlign, unsigned HasAlign) {
-    return !NeedsAligna && (NeedAlign <= HasAlign);
-  };
-
   // Load low part.
-  LoadOpc = UseAligned(NeedAlign, HasAlign) ? Hexagon::V6_vL32b_ai
-                                            : Hexagon::V6_vL32Ub_ai;
+  LoadOpc = NeedAlign <= HasAlign ? Hexagon::V6_vL32b_ai
+                                  : Hexagon::V6_vL32Ub_ai;
   BuildMI(B, It, DL, HII.get(LoadOpc), DstLo)
       .addFrameIndex(FI)
       .addImm(0)
       .cloneMemRefs(*MI);
 
   // Load high part.
-  LoadOpc = UseAligned(NeedAlign, HasAlign) ? Hexagon::V6_vL32b_ai
-                                            : Hexagon::V6_vL32Ub_ai;
+  LoadOpc = NeedAlign <= MinAlign(HasAlign, Size) ? Hexagon::V6_vL32b_ai
+                                                  : Hexagon::V6_vL32Ub_ai;
   BuildMI(B, It, DL, HII.get(LoadOpc), DstHi)
       .addFrameIndex(FI)
       .addImm(Size)
@@ -1876,7 +1832,6 @@ bool HexagonFrameLowering::expandStoreVec(MachineBasicBlock &B,
   if (!MI->getOperand(0).isFI())
     return false;
 
-  bool NeedsAligna = needsAligna(MF);
   auto &HRI = *MF.getSubtarget<HexagonSubtarget>().getRegisterInfo();
   DebugLoc DL = MI->getDebugLoc();
   Register SrcR = MI->getOperand(2).getReg();
@@ -1885,9 +1840,8 @@ bool HexagonFrameLowering::expandStoreVec(MachineBasicBlock &B,
 
   unsigned NeedAlign = HRI.getSpillAlignment(Hexagon::HvxVRRegClass);
   unsigned HasAlign = MFI.getObjectAlignment(FI);
-  bool UseAligned = !NeedsAligna && (NeedAlign <= HasAlign);
-  unsigned StoreOpc = UseAligned ? Hexagon::V6_vS32b_ai
-                                 : Hexagon::V6_vS32Ub_ai;
+  unsigned StoreOpc = NeedAlign <= HasAlign ? Hexagon::V6_vS32b_ai
+                                            : Hexagon::V6_vS32Ub_ai;
   BuildMI(B, It, DL, HII.get(StoreOpc))
       .addFrameIndex(FI)
       .addImm(0)
@@ -1907,7 +1861,6 @@ bool HexagonFrameLowering::expandLoadVec(MachineBasicBlock &B,
   if (!MI->getOperand(1).isFI())
     return false;
 
-  bool NeedsAligna = needsAligna(MF);
   auto &HRI = *MF.getSubtarget<HexagonSubtarget>().getRegisterInfo();
   DebugLoc DL = MI->getDebugLoc();
   Register DstR = MI->getOperand(0).getReg();
@@ -1915,9 +1868,8 @@ bool HexagonFrameLowering::expandLoadVec(MachineBasicBlock &B,
 
   unsigned NeedAlign = HRI.getSpillAlignment(Hexagon::HvxVRRegClass);
   unsigned HasAlign = MFI.getObjectAlignment(FI);
-  bool UseAligned = !NeedsAligna && (NeedAlign <= HasAlign);
-  unsigned LoadOpc = UseAligned ? Hexagon::V6_vL32b_ai
-                                : Hexagon::V6_vL32Ub_ai;
+  unsigned LoadOpc = NeedAlign <= HasAlign ? Hexagon::V6_vL32b_ai
+                                           : Hexagon::V6_vL32Ub_ai;
   BuildMI(B, It, DL, HII.get(LoadOpc), DstR)
       .addFrameIndex(FI)
       .addImm(0)
@@ -1960,9 +1912,11 @@ bool HexagonFrameLowering::expandSpillMacros(MachineFunction &MF,
           Changed |= expandLoadVecPred(B, I, MRI, HII, NewRegs);
           break;
         case Hexagon::PS_vloadrw_ai:
+        case Hexagon::PS_vloadrwu_ai:
           Changed |= expandLoadVec2(B, I, MRI, HII, NewRegs);
           break;
         case Hexagon::PS_vstorerw_ai:
+        case Hexagon::PS_vstorerwu_ai:
           Changed |= expandStoreVec2(B, I, MRI, HII, NewRegs);
           break;
       }
@@ -2007,15 +1961,7 @@ void HexagonFrameLowering::determineCalleeSaves(MachineFunction &MF,
     for (auto *RC : SpillRCs) {
       if (!needToReserveScavengingSpillSlots(MF, HRI, RC))
         continue;
-      unsigned Num = 1;
-      switch (RC->getID()) {
-        case Hexagon::IntRegsRegClassID:
-          Num = NumberScavengerSlots;
-          break;
-        case Hexagon::HvxQRRegClassID:
-          Num = 2; // Vector predicate spills also need a vector register.
-          break;
-      }
+      unsigned Num = RC == &Hexagon::IntRegsRegClass ? NumberScavengerSlots : 1;
       unsigned S = HRI.getSpillSize(*RC), A = HRI.getSpillAlignment(*RC);
       for (unsigned i = 0; i < Num; i++) {
         int NewFI = MFI.CreateSpillStackObject(S, A);
@@ -2443,9 +2389,9 @@ bool HexagonFrameLowering::needsAligna(const MachineFunction &MF) const {
   const MachineFrameInfo &MFI = MF.getFrameInfo();
   if (!MFI.hasVarSizedObjects())
     return false;
-  // Do not check for max stack object alignment here, because the stack
-  // may not be complete yet. Assume that we will need PS_aligna if there
-  // are variable-sized objects.
+  unsigned MaxA = MFI.getMaxAlignment();
+  if (MaxA <= getStackAlignment())
+    return false;
   return true;
 }
 

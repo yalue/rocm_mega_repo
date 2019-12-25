@@ -6,13 +6,14 @@ Kaleidoscope: Implementing a Language with LLVM
 ===============================================
 
 .. toctree::
-   :hidden:
+   :titlesonly:
+   :glob:
+   :numbered:
 
    MyFirstLanguageFrontend/index
 
-:doc:`MyFirstLanguageFrontend/index`
-  This is the "Kaleidoscope" Language tutorial, showing how to implement a simple
-  language using LLVM components in C++.
+This is the "Kaleidoscope" Language tutorial, showing how to implement a simple
+language using LLVM components in C++.
 
 Kaleidoscope: Implementing a Language with LLVM in Objective Caml
 =================================================================

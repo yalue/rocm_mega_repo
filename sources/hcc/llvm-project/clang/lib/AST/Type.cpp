@@ -663,6 +663,10 @@ ObjCTypeParamType::ObjCTypeParamType(const ObjCTypeParamDecl *D,
   initialize(protocols);
 }
 
+QualType ObjCTypeParamType::desugar() const {
+  return getDecl()->getUnderlyingType();
+}
+
 ObjCObjectType::ObjCObjectType(QualType Canonical, QualType Base,
                                ArrayRef<QualType> typeArgs,
                                ArrayRef<ObjCProtocolDecl *> protocols,
@@ -3064,12 +3068,6 @@ FunctionProtoType::FunctionProtoType(QualType result, ArrayRef<QualType> params,
     *getTrailingObjects<Qualifiers>() = epi.TypeQuals;
   } else {
     FunctionTypeBits.HasExtQuals = 0;
-  }
-
-  // Fill in the Ellipsis location info if present.
-  if (epi.Variadic) {
-    auto &EllipsisLoc = *getTrailingObjects<SourceLocation>();
-    EllipsisLoc = epi.EllipsisLoc;
   }
 }
 

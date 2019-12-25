@@ -54,8 +54,8 @@ private:
   // output.
   bool isSetCCr(unsigned Opode);
 
-  MachineRegisterInfo *MRI = nullptr;
-  const X86InstrInfo *TII = nullptr;
+  MachineRegisterInfo *MRI;
+  const X86InstrInfo *TII;
 
   enum { SearchBound = 16 };
 

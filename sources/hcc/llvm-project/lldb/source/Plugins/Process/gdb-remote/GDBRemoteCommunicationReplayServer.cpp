@@ -143,14 +143,7 @@ GDBRemoteCommunicationReplayServer::GetPacketAndSendResponse(
                  entry.packet.data);
         LLDB_LOG(log, "GDBRemoteCommunicationReplayServer actual packet: '{0}'",
                  packet.GetStringRef());
-#ifndef NDEBUG
-        // This behaves like a regular assert, but prints the expected and
-        // received packet before aborting.
-        printf("Reproducer expected packet: '%s'\n", entry.packet.data.c_str());
-        printf("Reproducer received packet: '%s'\n",
-               packet.GetStringRef().data());
-        llvm::report_fatal_error("Encountered unexpected packet during replay");
-#endif
+        assert(false && "Encountered unexpected packet during replay");
         return PacketResult::ErrorSendFailed;
       }
 
@@ -211,9 +204,9 @@ bool GDBRemoteCommunicationReplayServer::StartAsyncThread() {
         "<lldb.gdb-replay.async>",
         GDBRemoteCommunicationReplayServer::AsyncThread, this);
     if (!async_thread) {
-      LLDB_LOG_ERROR(lldb_private::GetLogIfAllCategoriesSet(LIBLLDB_LOG_HOST),
-                     async_thread.takeError(),
-                     "failed to launch host thread: {}");
+      LLDB_LOG(lldb_private::GetLogIfAllCategoriesSet(LIBLLDB_LOG_HOST),
+               "failed to launch host thread: {}",
+               llvm::toString(async_thread.takeError()));
       return false;
     }
     m_async_thread = *async_thread;

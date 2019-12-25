@@ -373,9 +373,9 @@ public:
 };
 
 class X86DomainReassignment : public MachineFunctionPass {
-  const X86Subtarget *STI = nullptr;
-  MachineRegisterInfo *MRI = nullptr;
-  const X86InstrInfo *TII = nullptr;
+  const X86Subtarget *STI;
+  MachineRegisterInfo *MRI;
+  const X86InstrInfo *TII;
 
   /// All edges that are included in some closure
   DenseSet<unsigned> EnclosedEdges;

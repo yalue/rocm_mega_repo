@@ -11,12 +11,11 @@
 
 #include "lldb/Host/common/NativeThreadProtocol.h"
 
+#include "Plugins/Process/NetBSD/NativeProcessNetBSD.h"
 #include "Plugins/Process/Utility/NativeRegisterContextRegisterInfo.h"
 
 namespace lldb_private {
 namespace process_netbsd {
-
-class NativeProcessNetBSD;
 
 class NativeRegisterContextNetBSD : public NativeRegisterContextRegisterInfo {
 public:
@@ -31,10 +30,6 @@ public:
   static NativeRegisterContextNetBSD *
   CreateHostNativeRegisterContextNetBSD(const ArchSpec &target_arch,
                                         NativeThreadProtocol &native_thread);
-  virtual Status
-  CopyHardwareWatchpointsFrom(NativeRegisterContextNetBSD &source) = 0;
-
-  virtual Status ClearWatchpointHit(uint32_t wp_index) = 0;
 
 protected:
   Status DoRegisterSet(int req, void *buf);

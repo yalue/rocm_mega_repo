@@ -44,6 +44,9 @@ public:
   ///   The breakpoint that owns this resolver.
   /// \param[in] resolverType
   ///   The concrete breakpoint resolver type for this breakpoint.
+  ///
+  /// \result
+  ///   Returns breakpoint location id.
   BreakpointResolver(Breakpoint *bkpt, unsigned char resolverType,
                      lldb::addr_t offset = 0);
 
@@ -183,7 +186,7 @@ protected:
   };
   static const char
       *g_option_names[static_cast<uint32_t>(OptionNames::LastOptionName)];
-
+  
   virtual void NotifyBreakpointSet() {};
 
 public:

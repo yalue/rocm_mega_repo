@@ -21,6 +21,12 @@
 #include "llvm/ADT/STLExtras.h"
 #include "llvm/Support/Compiler.h"
 
+// Support building against older versions of LLVM, this macro was added
+// recently.
+#ifndef LLVM_EXTENSION
+#define LLVM_EXTENSION
+#endif
+
 #include "RegisterContextDarwin_x86_64.h"
 
 using namespace lldb;

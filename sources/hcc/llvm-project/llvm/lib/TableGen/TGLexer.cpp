@@ -379,7 +379,15 @@ bool TGLexer::LexInclude() {
     return true;
   }
 
-  Dependencies.insert(IncludedFile);
+  DependenciesMapTy::const_iterator Found = Dependencies.find(IncludedFile);
+  if (Found != Dependencies.end()) {
+    PrintError(getLoc(),
+               "File '" + IncludedFile + "' has already been included.");
+    SrcMgr.PrintMessage(Found->second, SourceMgr::DK_Note,
+                        "previously included here");
+    return true;
+  }
+  Dependencies.insert(std::make_pair(IncludedFile, getLoc()));
   // Save the line number and lex buffer of the includer.
   CurBuf = SrcMgr.getMemoryBuffer(CurBuffer)->getBuffer();
   CurPtr = CurBuf.begin();

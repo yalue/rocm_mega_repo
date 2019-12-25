@@ -1,4 +1,4 @@
-add_llvm_component_library(LLVMMC
+add_llvm_library(LLVMMC
   ConstantPools.cpp
   ELFObjectWriter.cpp
   MCAsmBackend.cpp
@@ -12,6 +12,7 @@ add_llvm_component_library(LLVMMC
   MCAsmStreamer.cpp
   MCAssembler.cpp
   MCCodeEmitter.cpp
+  MCCodePadder.cpp
   MCCodeView.cpp
   MCContext.cpp
   MCDwarf.cpp

@@ -31,16 +31,11 @@
 ; CHECK-NEXT:       Dominator Tree Construction
 ; CHECK-NEXT:       Call-site splitting
 ; CHECK-NEXT:     Interprocedural Sparse Conditional Constant Propagation
-; CHECK-NEXT:       FunctionPass Manager
-; CHECK-NEXT:         Dominator Tree Construction
+; CHECK-NEXT:       Unnamed pass: implement Pass::getPassName()
 ; CHECK-NEXT:     Called Value Propagation
 ; CHECK-NEXT:     Deduce and propagate attributes
 ; CHECK-NEXT:     Global Variable Optimizer
-; CHECK-NEXT:       FunctionPass Manager
-; CHECK-NEXT:         Dominator Tree Construction
-; CHECK-NEXT:         Natural Loop Information
-; CHECK-NEXT:         Branch Probability Analysis
-; CHECK-NEXT:         Block Frequency Analysis
+; CHECK-NEXT:       Unnamed pass: implement Pass::getPassName()
 ; CHECK-NEXT:     FunctionPass Manager
 ; CHECK-NEXT:       Dominator Tree Construction
 ; CHECK-NEXT:       Promote Memory to Register
@@ -190,11 +185,7 @@
 ; CHECK-NEXT:     CallGraph Construction
 ; CHECK-NEXT:     Deduce function attributes in RPO
 ; CHECK-NEXT:     Global Variable Optimizer
-; CHECK-NEXT:       FunctionPass Manager
-; CHECK-NEXT:         Dominator Tree Construction
-; CHECK-NEXT:         Natural Loop Information
-; CHECK-NEXT:         Branch Probability Analysis
-; CHECK-NEXT:         Block Frequency Analysis
+; CHECK-NEXT:       Unnamed pass: implement Pass::getPassName()
 ; CHECK-NEXT:     Dead Global Elimination
 ; CHECK-NEXT:     CallGraph Construction
 ; CHECK-NEXT:     Globals Alias Analysis

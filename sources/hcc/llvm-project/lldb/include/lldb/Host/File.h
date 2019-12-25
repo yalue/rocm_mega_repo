@@ -76,7 +76,9 @@ public:
   /// that takes an "off_t &offset" to ensure correct operation in multi-
   /// threaded environments.
   ///
-  /// \param[in,out] num_bytes
+  /// \param[out] buf
+  ///
+  /// \param[in,out] num_bytes.
   ///    Pass in the size of buf.  Read will pass out the number
   ///    of bytes read.   Zero bytes read with no error indicates
   ///    EOF.
@@ -90,6 +92,8 @@ public:
   /// NOTE: This function is NOT thread safe. Use the write function
   /// that takes an "off_t &offset" to ensure correct operation in multi-
   /// threaded environments.
+  ///
+  /// \param[in] buf
   ///
   /// \param[in,out] num_bytes
   ///    Pass in the size of buf.  Write will pass out the number

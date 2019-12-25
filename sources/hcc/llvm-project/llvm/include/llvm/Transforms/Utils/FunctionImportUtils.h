@@ -49,7 +49,7 @@ class FunctionImportGlobalProcessing {
   DenseMap<const Comdat *, Comdat *> RenamedComdats;
 
   /// Check if we should promote the given local value to global scope.
-  bool shouldPromoteLocalToGlobal(const GlobalValue *SGV, ValueInfo VI);
+  bool shouldPromoteLocalToGlobal(const GlobalValue *SGV);
 
 #ifndef NDEBUG
   /// Check if the given value is a local that can't be renamed (promoted).
@@ -67,9 +67,11 @@ class FunctionImportGlobalProcessing {
   /// import SGV as a definition, otherwise import as a declaration.
   bool doImportAsDefinition(const GlobalValue *SGV);
 
-  /// Get the name for a local SGV that should be promoted and renamed to global
-  /// scope in the linked destination module.
-  std::string getPromotedName(const GlobalValue *SGV);
+  /// Get the name for SGV that should be used in the linked destination
+  /// module. Specifically, this handles the case where we need to rename
+  /// a local that is being promoted to global scope, which it will always
+  /// do when \p DoPromote is true (or when importing a local).
+  std::string getName(const GlobalValue *SGV, bool DoPromote);
 
   /// Process globals so that they can be used in ThinLTO. This includes
   /// promoting local variables so that they can be reference externally by
@@ -105,6 +107,9 @@ public:
   }
 
   bool run();
+
+  static bool doImportAsDefinition(const GlobalValue *SGV,
+                                   SetVector<GlobalValue *> *GlobalsToImport);
 };
 
 /// Perform in-place global value handling on the given Module for

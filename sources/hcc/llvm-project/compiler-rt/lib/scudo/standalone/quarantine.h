@@ -59,7 +59,7 @@ struct QuarantineBatch {
   void shuffle(u32 State) { ::scudo::shuffle(Batch, Count, &State); }
 };
 
-static_assert(sizeof(QuarantineBatch) <= (1U << 13), ""); // 8Kb.
+COMPILER_CHECK(sizeof(QuarantineBatch) <= (1U << 13)); // 8Kb.
 
 // Per-thread cache of memory blocks.
 template <typename Callback> class QuarantineCache {
@@ -160,7 +160,7 @@ public:
   }
 
 private:
-  SinglyLinkedList<QuarantineBatch> List;
+  IntrusiveList<QuarantineBatch> List;
   atomic_uptr Size;
 
   void addToSize(uptr add) { atomic_store_relaxed(&Size, getSize() + add); }

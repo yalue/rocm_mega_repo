@@ -124,11 +124,7 @@ Output path for the plist report
 
 .. option:: -cfguard
 
-Emit tables and checks for Windows Control Flow Guard.
-
-.. option:: -cfguard-no-checks
-
-Emit tables required for Windows Control Flow Guard without checks.
+Emit tables required for Windows Control Flow Guard.
 
 .. option:: -client\_name<arg>
 
@@ -1701,7 +1697,7 @@ Emit OpenMP code only for SIMD-based constructs.
 
 .. option:: -foptimization-record-file=<arg>
 
-Specify the output name of the file containing the optimization remarks. Implies -fsave-optimization-record. On Darwin platforms, this cannot be used with multiple -arch <arch> options.
+Specify the file name of any generated YAML optimization record
 
 .. option:: -foptimize-sibling-calls, -fno-optimize-sibling-calls
 

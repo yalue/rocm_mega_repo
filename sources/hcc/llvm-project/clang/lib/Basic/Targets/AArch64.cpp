@@ -15,8 +15,6 @@
 #include "clang/Basic/TargetInfo.h"
 #include "llvm/ADT/ArrayRef.h"
 #include "llvm/ADT/StringExtras.h"
-#include "llvm/ADT/StringSwitch.h"
-#include "llvm/Support/AArch64TargetParser.h"
 
 using namespace clang;
 using namespace clang::targets;
@@ -53,11 +51,7 @@ AArch64TargetInfo::AArch64TargetInfo(const llvm::Triple &Triple,
   HasLegalHalfType = true;
   HasFloat16 = true;
 
-  if (Triple.isArch64Bit())
-    LongWidth = LongAlign = PointerWidth = PointerAlign = 64;
-  else
-    LongWidth = LongAlign = PointerWidth = PointerAlign = 32;
-
+  LongWidth = LongAlign = PointerWidth = PointerAlign = 64;
   MaxVectorAlign = 128;
   MaxAtomicInlineWidth = 128;
   MaxAtomicPromoteWidth = 128;
@@ -109,28 +103,6 @@ bool AArch64TargetInfo::setABI(const std::string &Name) {
   return true;
 }
 
-bool AArch64TargetInfo::validateBranchProtection(StringRef Spec,
-                                                 BranchProtectionInfo &BPI,
-                                                 StringRef &Err) const {
-  llvm::AArch64::ParsedBranchProtection PBP;
-  if (!llvm::AArch64::parseBranchProtection(Spec, PBP, Err))
-    return false;
-
-  BPI.SignReturnAddr =
-      llvm::StringSwitch<CodeGenOptions::SignReturnAddressScope>(PBP.Scope)
-          .Case("non-leaf", CodeGenOptions::SignReturnAddressScope::NonLeaf)
-          .Case("all", CodeGenOptions::SignReturnAddressScope::All)
-          .Default(CodeGenOptions::SignReturnAddressScope::None);
-
-  if (PBP.Key == "a_key")
-    BPI.SignKey = CodeGenOptions::SignReturnAddressKeyValue::AKey;
-  else
-    BPI.SignKey = CodeGenOptions::SignReturnAddressKeyValue::BKey;
-
-  BPI.BranchTargetEnforcement = PBP.BranchTargetEnforcement;
-  return true;
-}
-
 bool AArch64TargetInfo::isValidCPUName(StringRef Name) const {
   return Name == "generic" ||
          llvm::AArch64::parseCPUArch(Name) != llvm::AArch64::ArchKind::INVALID;
@@ -158,7 +130,6 @@ void AArch64TargetInfo::getTargetDefinesARMV82A(const LangOptions &Opts,
 
 void AArch64TargetInfo::getTargetDefinesARMV83A(const LangOptions &Opts,
                                                 MacroBuilder &Builder) const {
-  Builder.defineMacro("__ARM_FEATURE_COMPLEX", "1");
   Builder.defineMacro("__ARM_FEATURE_JCVT", "1");
   // Also include the Armv8.2 defines
   getTargetDefinesARMV82A(Opts, Builder);
@@ -189,7 +160,7 @@ void AArch64TargetInfo::getTargetDefines(const LangOptions &Opts,
     Builder.defineMacro("__ELF__");
 
   // Target properties.
-  if (!getTriple().isOSWindows() && getTriple().isArch64Bit()) {
+  if (!getTriple().isOSWindows()) {
     Builder.defineMacro("_LP64");
     Builder.defineMacro("__LP64__");
   }
@@ -535,19 +506,14 @@ int AArch64TargetInfo::getEHDataRegisterNumber(unsigned RegNo) const {
   return -1;
 }
 
-bool AArch64TargetInfo::hasInt128Type() const { return true; }
-
 AArch64leTargetInfo::AArch64leTargetInfo(const llvm::Triple &Triple,
                                          const TargetOptions &Opts)
     : AArch64TargetInfo(Triple, Opts) {}
 
 void AArch64leTargetInfo::setDataLayout() {
-  if (getTriple().isOSBinFormatMachO()) {
-    if(getTriple().isArch32Bit())
-      resetDataLayout("e-m:o-p:32:32-i64:64-i128:128-n32:64-S128");
-    else
-      resetDataLayout("e-m:o-i64:64-i128:128-n32:64-S128");
-  } else
+  if (getTriple().isOSBinFormatMachO())
+    resetDataLayout("e-m:o-i64:64-i128:128-n32:64-S128");
+  else
     resetDataLayout("e-m:e-i8:8:32-i16:16:32-i64:64-i128:128-n32:64-S128");
 }
 
@@ -665,34 +631,19 @@ DarwinAArch64TargetInfo::DarwinAArch64TargetInfo(const llvm::Triple &Triple,
                                                  const TargetOptions &Opts)
     : DarwinTargetInfo<AArch64leTargetInfo>(Triple, Opts) {
   Int64Type = SignedLongLong;
-  if (getTriple().isArch32Bit())
-    IntMaxType = SignedLongLong;
-
-  WCharType = SignedInt;
   UseSignedCharForObjCBool = false;
 
   LongDoubleWidth = LongDoubleAlign = SuitableAlign = 64;
   LongDoubleFormat = &llvm::APFloat::IEEEdouble();
 
-  UseZeroLengthBitfieldAlignment = false;
-
-  if (getTriple().isArch32Bit()) {
-    UseBitFieldTypeAlignment = false;
-    ZeroLengthBitfieldBoundary = 32;
-    UseZeroLengthBitfieldAlignment = true;
-    TheCXXABI.set(TargetCXXABI::WatchOS);
-  } else
-    TheCXXABI.set(TargetCXXABI::iOS64);
+  TheCXXABI.set(TargetCXXABI::iOS64);
 }
 
 void DarwinAArch64TargetInfo::getOSDefines(const LangOptions &Opts,
                                            const llvm::Triple &Triple,
                                            MacroBuilder &Builder) const {
   Builder.defineMacro("__AARCH64_SIMD__");
-  if (Triple.isArch32Bit())
-    Builder.defineMacro("__ARM64_ARCH_8_32__");
-  else
-    Builder.defineMacro("__ARM64_ARCH_8__");
+  Builder.defineMacro("__ARM64_ARCH_8__");
   Builder.defineMacro("__ARM_NEON__");
   Builder.defineMacro("__LITTLE_ENDIAN__");
   Builder.defineMacro("__REGISTER_PREFIX__", "");

@@ -218,7 +218,6 @@ struct DoesNotAllowConstDefaultInit {
 // CHECK-NEXT:     }
 // CHECK-NEXT:    },
 // CHECK-NEXT:    "name": "operator()",
-// CHECK-NEXT:    "mangledName": "_ZZ1fvENK3$_0clEv",
 // CHECK-NEXT:    "type": {
 // CHECK-NEXT:     "qualType": "void () const"
 // CHECK-NEXT:    },
@@ -265,7 +264,6 @@ struct DoesNotAllowConstDefaultInit {
 // CHECK-NEXT:    },
 // CHECK-NEXT:    "isImplicit": true,
 // CHECK-NEXT:    "name": "operator void (*)()",
-// CHECK-NEXT:    "mangledName": "_ZZ1fvENK3$_0cvPFvvEEv",
 // CHECK-NEXT:    "type": {
 // CHECK-NEXT:     "qualType": "void (*() const noexcept)()"
 // CHECK-NEXT:    },
@@ -294,7 +292,6 @@ struct DoesNotAllowConstDefaultInit {
 // CHECK-NEXT:    },
 // CHECK-NEXT:    "isImplicit": true,
 // CHECK-NEXT:    "name": "__invoke",
-// CHECK-NEXT:    "mangledName": "_ZZ1fvEN3$_08__invokeEv",
 // CHECK-NEXT:    "type": {
 // CHECK-NEXT:     "qualType": "void ()"
 // CHECK-NEXT:    },
@@ -324,7 +321,6 @@ struct DoesNotAllowConstDefaultInit {
 // CHECK-NEXT:    "isImplicit": true,
 // CHECK-NEXT:    "isReferenced": true,
 // CHECK-NEXT:    "name": "~",
-// CHECK-NEXT:    "mangledName": "_ZZ1fvEN3$_0D1Ev",
 // CHECK-NEXT:    "type": {
 // CHECK-NEXT:     "qualType": "void () noexcept"
 // CHECK-NEXT:    },
@@ -682,7 +678,6 @@ struct DoesNotAllowConstDefaultInit {
 // CHECK-NEXT:    "isImplicit": true,
 // CHECK-NEXT:    "isReferenced": true,
 // CHECK-NEXT:    "name": "~",
-// CHECK-NEXT:    "mangledName": "_ZZ1fvEN3$_1D1Ev",
 // CHECK-NEXT:    "type": {
 // CHECK-NEXT:     "qualType": "void () noexcept"
 // CHECK-NEXT:    },
@@ -798,7 +793,6 @@ struct DoesNotAllowConstDefaultInit {
 // CHECK-NEXT:     }
 // CHECK-NEXT:    },
 // CHECK-NEXT:    "name": "CanPassInRegisters",
-// CHECK-NEXT:    "mangledName": "_ZN18CanPassInRegistersC1ERKS_",
 // CHECK-NEXT:    "type": {
 // CHECK-NEXT:     "qualType": "void (const CanPassInRegisters &)"
 // CHECK-NEXT:    },
@@ -939,7 +933,6 @@ struct DoesNotAllowConstDefaultInit {
 // CHECK-NEXT:     }
 // CHECK-NEXT:    },
 // CHECK-NEXT:    "name": "CantPassInRegisters",
-// CHECK-NEXT:    "mangledName": "_ZN19CantPassInRegistersC1ERKS_",
 // CHECK-NEXT:    "type": {
 // CHECK-NEXT:     "qualType": "void (const CantPassInRegisters &)"
 // CHECK-NEXT:    },
@@ -1592,7 +1585,6 @@ struct DoesNotAllowConstDefaultInit {
 // CHECK-NEXT:     }
 // CHECK-NEXT:    },
 // CHECK-NEXT:    "name": "f",
-// CHECK-NEXT:    "mangledName": "_ZN16IsStandardLayout1fEv",
 // CHECK-NEXT:    "type": {
 // CHECK-NEXT:     "qualType": "void ()"
 // CHECK-NEXT:    }
@@ -1713,7 +1705,6 @@ struct DoesNotAllowConstDefaultInit {
 // CHECK-NEXT:     }
 // CHECK-NEXT:    },
 // CHECK-NEXT:    "name": "f",
-// CHECK-NEXT:    "mangledName": "_ZN19IsNotStandardLayout1fEv",
 // CHECK-NEXT:    "type": {
 // CHECK-NEXT:     "qualType": "void ()"
 // CHECK-NEXT:    },
@@ -1742,7 +1733,6 @@ struct DoesNotAllowConstDefaultInit {
 // CHECK-NEXT:    },
 // CHECK-NEXT:    "isImplicit": true,
 // CHECK-NEXT:    "name": "operator=",
-// CHECK-NEXT:    "mangledName": "_ZN19IsNotStandardLayoutaSERKS_",
 // CHECK-NEXT:    "type": {
 // CHECK-NEXT:     "qualType": "IsNotStandardLayout &(const IsNotStandardLayout &)"
 // CHECK-NEXT:    },
@@ -1798,7 +1788,6 @@ struct DoesNotAllowConstDefaultInit {
 // CHECK-NEXT:    },
 // CHECK-NEXT:    "isImplicit": true,
 // CHECK-NEXT:    "name": "operator=",
-// CHECK-NEXT:    "mangledName": "_ZN19IsNotStandardLayoutaSEOS_",
 // CHECK-NEXT:    "type": {
 // CHECK-NEXT:     "qualType": "IsNotStandardLayout &(IsNotStandardLayout &&)"
 // CHECK-NEXT:    },
@@ -1854,7 +1843,6 @@ struct DoesNotAllowConstDefaultInit {
 // CHECK-NEXT:    },
 // CHECK-NEXT:    "isImplicit": true,
 // CHECK-NEXT:    "name": "~IsNotStandardLayout",
-// CHECK-NEXT:    "mangledName": "_ZN19IsNotStandardLayoutD1Ev",
 // CHECK-NEXT:    "type": {
 // CHECK-NEXT:     "qualType": "void ()"
 // CHECK-NEXT:    },
@@ -2069,7 +2057,6 @@ struct DoesNotAllowConstDefaultInit {
 // CHECK-NEXT:     }
 // CHECK-NEXT:    },
 // CHECK-NEXT:    "name": "IsNotTriviallyCopyable",
-// CHECK-NEXT:    "mangledName": "_ZN22IsNotTriviallyCopyableC1ERKS_",
 // CHECK-NEXT:    "type": {
 // CHECK-NEXT:     "qualType": "void (const IsNotTriviallyCopyable &)"
 // CHECK-NEXT:    },
@@ -2486,7 +2473,6 @@ struct DoesNotAllowConstDefaultInit {
 // CHECK-NEXT:     }
 // CHECK-NEXT:    },
 // CHECK-NEXT:    "name": "IsTrivial",
-// CHECK-NEXT:    "mangledName": "_ZN9IsTrivialC1Ev",
 // CHECK-NEXT:    "type": {
 // CHECK-NEXT:     "qualType": "void ()"
 // CHECK-NEXT:    },
@@ -2614,7 +2600,6 @@ struct DoesNotAllowConstDefaultInit {
 // CHECK-NEXT:     }
 // CHECK-NEXT:    },
 // CHECK-NEXT:    "name": "IsNotTrivial",
-// CHECK-NEXT:    "mangledName": "_ZN12IsNotTrivialC1Ev",
 // CHECK-NEXT:    "type": {
 // CHECK-NEXT:     "qualType": "void ()"
 // CHECK-NEXT:    },
@@ -2753,7 +2738,6 @@ struct DoesNotAllowConstDefaultInit {
 // CHECK-NEXT:     }
 // CHECK-NEXT:    },
 // CHECK-NEXT:    "name": "f",
-// CHECK-NEXT:    "mangledName": "_ZN13IsPolymorphic1fEv",
 // CHECK-NEXT:    "type": {
 // CHECK-NEXT:     "qualType": "void ()"
 // CHECK-NEXT:    },
@@ -2782,7 +2766,6 @@ struct DoesNotAllowConstDefaultInit {
 // CHECK-NEXT:    },
 // CHECK-NEXT:    "isImplicit": true,
 // CHECK-NEXT:    "name": "operator=",
-// CHECK-NEXT:    "mangledName": "_ZN13IsPolymorphicaSERKS_",
 // CHECK-NEXT:    "type": {
 // CHECK-NEXT:     "qualType": "IsPolymorphic &(const IsPolymorphic &)"
 // CHECK-NEXT:    },
@@ -2838,7 +2821,6 @@ struct DoesNotAllowConstDefaultInit {
 // CHECK-NEXT:    },
 // CHECK-NEXT:    "isImplicit": true,
 // CHECK-NEXT:    "name": "operator=",
-// CHECK-NEXT:    "mangledName": "_ZN13IsPolymorphicaSEOS_",
 // CHECK-NEXT:    "type": {
 // CHECK-NEXT:     "qualType": "IsPolymorphic &(IsPolymorphic &&)"
 // CHECK-NEXT:    },
@@ -2894,7 +2876,6 @@ struct DoesNotAllowConstDefaultInit {
 // CHECK-NEXT:    },
 // CHECK-NEXT:    "isImplicit": true,
 // CHECK-NEXT:    "name": "~IsPolymorphic",
-// CHECK-NEXT:    "mangledName": "_ZN13IsPolymorphicD1Ev",
 // CHECK-NEXT:    "type": {
 // CHECK-NEXT:     "qualType": "void ()"
 // CHECK-NEXT:    },
@@ -3026,7 +3007,6 @@ struct DoesNotAllowConstDefaultInit {
 // CHECK-NEXT:     }
 // CHECK-NEXT:    },
 // CHECK-NEXT:    "name": "f",
-// CHECK-NEXT:    "mangledName": "_ZN16IsNotPolymorphic1fEv",
 // CHECK-NEXT:    "type": {
 // CHECK-NEXT:     "qualType": "void ()"
 // CHECK-NEXT:    }
@@ -3148,7 +3128,6 @@ struct DoesNotAllowConstDefaultInit {
 // CHECK-NEXT:     }
 // CHECK-NEXT:    },
 // CHECK-NEXT:    "name": "f",
-// CHECK-NEXT:    "mangledName": "_ZN10IsAbstract1fEv",
 // CHECK-NEXT:    "type": {
 // CHECK-NEXT:     "qualType": "void ()"
 // CHECK-NEXT:    },
@@ -3178,7 +3157,6 @@ struct DoesNotAllowConstDefaultInit {
 // CHECK-NEXT:    },
 // CHECK-NEXT:    "isImplicit": true,
 // CHECK-NEXT:    "name": "operator=",
-// CHECK-NEXT:    "mangledName": "_ZN10IsAbstractaSERKS_",
 // CHECK-NEXT:    "type": {
 // CHECK-NEXT:     "qualType": "IsAbstract &(const IsAbstract &)"
 // CHECK-NEXT:    },
@@ -3234,7 +3212,6 @@ struct DoesNotAllowConstDefaultInit {
 // CHECK-NEXT:    },
 // CHECK-NEXT:    "isImplicit": true,
 // CHECK-NEXT:    "name": "operator=",
-// CHECK-NEXT:    "mangledName": "_ZN10IsAbstractaSEOS_",
 // CHECK-NEXT:    "type": {
 // CHECK-NEXT:     "qualType": "IsAbstract &(IsAbstract &&)"
 // CHECK-NEXT:    },
@@ -3290,7 +3267,6 @@ struct DoesNotAllowConstDefaultInit {
 // CHECK-NEXT:    },
 // CHECK-NEXT:    "isImplicit": true,
 // CHECK-NEXT:    "name": "~IsAbstract",
-// CHECK-NEXT:    "mangledName": "_ZN10IsAbstractD1Ev",
 // CHECK-NEXT:    "type": {
 // CHECK-NEXT:     "qualType": "void ()"
 // CHECK-NEXT:    },
@@ -3413,7 +3389,6 @@ struct DoesNotAllowConstDefaultInit {
 // CHECK-NEXT:     }
 // CHECK-NEXT:    },
 // CHECK-NEXT:    "name": "f",
-// CHECK-NEXT:    "mangledName": "_ZN13IsNotAbstract1fEv",
 // CHECK-NEXT:    "type": {
 // CHECK-NEXT:     "qualType": "void ()"
 // CHECK-NEXT:    },
@@ -3442,7 +3417,6 @@ struct DoesNotAllowConstDefaultInit {
 // CHECK-NEXT:    },
 // CHECK-NEXT:    "isImplicit": true,
 // CHECK-NEXT:    "name": "operator=",
-// CHECK-NEXT:    "mangledName": "_ZN13IsNotAbstractaSERKS_",
 // CHECK-NEXT:    "type": {
 // CHECK-NEXT:     "qualType": "IsNotAbstract &(const IsNotAbstract &)"
 // CHECK-NEXT:    },
@@ -3498,7 +3472,6 @@ struct DoesNotAllowConstDefaultInit {
 // CHECK-NEXT:    },
 // CHECK-NEXT:    "isImplicit": true,
 // CHECK-NEXT:    "name": "operator=",
-// CHECK-NEXT:    "mangledName": "_ZN13IsNotAbstractaSEOS_",
 // CHECK-NEXT:    "type": {
 // CHECK-NEXT:     "qualType": "IsNotAbstract &(IsNotAbstract &&)"
 // CHECK-NEXT:    },
@@ -3554,7 +3527,6 @@ struct DoesNotAllowConstDefaultInit {
 // CHECK-NEXT:    },
 // CHECK-NEXT:    "isImplicit": true,
 // CHECK-NEXT:    "name": "~IsNotAbstract",
-// CHECK-NEXT:    "mangledName": "_ZN13IsNotAbstractD1Ev",
 // CHECK-NEXT:    "type": {
 // CHECK-NEXT:     "qualType": "void ()"
 // CHECK-NEXT:    },
@@ -3675,7 +3647,6 @@ struct DoesNotAllowConstDefaultInit {
 // CHECK-NEXT:     }
 // CHECK-NEXT:    },
 // CHECK-NEXT:    "name": "~IsLiteral",
-// CHECK-NEXT:    "mangledName": "_ZN9IsLiteralD1Ev",
 // CHECK-NEXT:    "type": {
 // CHECK-NEXT:     "qualType": "void ()"
 // CHECK-NEXT:    },
@@ -3790,7 +3761,6 @@ struct DoesNotAllowConstDefaultInit {
 // CHECK-NEXT:     }
 // CHECK-NEXT:    },
 // CHECK-NEXT:    "name": "~IsNotLiteral",
-// CHECK-NEXT:    "mangledName": "_ZN12IsNotLiteralD1Ev",
 // CHECK-NEXT:    "type": {
 // CHECK-NEXT:     "qualType": "void () noexcept"
 // CHECK-NEXT:    },
@@ -3934,7 +3904,6 @@ struct DoesNotAllowConstDefaultInit {
 // CHECK-NEXT:     }
 // CHECK-NEXT:    },
 // CHECK-NEXT:    "name": "HasUserDeclaredConstructor",
-// CHECK-NEXT:    "mangledName": "_ZN26HasUserDeclaredConstructorC1Ev",
 // CHECK-NEXT:    "type": {
 // CHECK-NEXT:     "qualType": "void ()"
 // CHECK-NEXT:    },
@@ -4184,7 +4153,6 @@ struct DoesNotAllowConstDefaultInit {
 // CHECK-NEXT:     }
 // CHECK-NEXT:    },
 // CHECK-NEXT:    "name": "HasConstexprNonCopyMoveConstructor",
-// CHECK-NEXT:    "mangledName": "_ZN34HasConstexprNonCopyMoveConstructorC1Ev",
 // CHECK-NEXT:    "type": {
 // CHECK-NEXT:     "qualType": "void ()"
 // CHECK-NEXT:    },
@@ -4329,7 +4297,6 @@ struct DoesNotAllowConstDefaultInit {
 // CHECK-NEXT:     }
 // CHECK-NEXT:    },
 // CHECK-NEXT:    "name": "HasNoConstexprNonCopyMoveConstructor",
-// CHECK-NEXT:    "mangledName": "_ZN36HasNoConstexprNonCopyMoveConstructorC1Ev",
 // CHECK-NEXT:    "type": {
 // CHECK-NEXT:     "qualType": "void ()"
 // CHECK-NEXT:    },
@@ -4502,7 +4469,6 @@ struct DoesNotAllowConstDefaultInit {
 // CHECK-NEXT:    },
 // CHECK-NEXT:    "isImplicit": true,
 // CHECK-NEXT:    "name": "HasMutableFields",
-// CHECK-NEXT:    "mangledName": "_ZN16HasMutableFieldsC1ERKS_",
 // CHECK-NEXT:    "type": {
 // CHECK-NEXT:     "qualType": "void (const HasMutableFields &)"
 // CHECK-NEXT:    },
@@ -4558,7 +4524,6 @@ struct DoesNotAllowConstDefaultInit {
 // CHECK-NEXT:    },
 // CHECK-NEXT:    "isImplicit": true,
 // CHECK-NEXT:    "name": "operator=",
-// CHECK-NEXT:    "mangledName": "_ZN16HasMutableFieldsaSERKS_",
 // CHECK-NEXT:    "type": {
 // CHECK-NEXT:     "qualType": "HasMutableFields &(const HasMutableFields &)"
 // CHECK-NEXT:    },

@@ -23,8 +23,10 @@ THE SOFTWARE.
 #include <iostream>
 
 // hip header file
-#include "hip/hip_runtime.h"
+#include <hip/hip_runtime.h>
 #include "roctracer_ext.h"
+// roctx header file
+#include <inc/roctx.h>
 
 
 #define WIDTH 1024
@@ -35,6 +37,10 @@ THE SOFTWARE.
 #define THREADS_PER_BLOCK_X 4
 #define THREADS_PER_BLOCK_Y 4
 #define THREADS_PER_BLOCK_Z 1
+
+// Mark API
+extern "C"
+void roctracer_mark(const char* str);
 
 // Device (Kernel) function, it must be void
 __global__ void matrixTranspose(float* out, float* in, const int width) {
@@ -82,18 +88,30 @@ int main() {
     hipMalloc((void**)&gpuMatrix, NUM * sizeof(float));
     hipMalloc((void**)&gpuTransposeMatrix, NUM * sizeof(float));
 
+    uint32_t iterations = 100;
+    while (iterations-- > 0) {
+    std::cout << "## Iteration (" << iterations << ") #################" << std::endl;
+
     // Memory transfer from host to device
     hipMemcpy(gpuMatrix, Matrix, NUM * sizeof(float), hipMemcpyHostToDevice);
 
     roctracer_mark("before HIP LaunchKernel");
+    roctxMark("before hipLaunchKernel");
+    roctxRangePush("hipLaunchKernel");
     // Lauching kernel from host
     hipLaunchKernelGGL(matrixTranspose, dim3(WIDTH / THREADS_PER_BLOCK_X, WIDTH / THREADS_PER_BLOCK_Y),
                     dim3(THREADS_PER_BLOCK_X, THREADS_PER_BLOCK_Y), 0, 0, gpuTransposeMatrix,
                     gpuMatrix, WIDTH);
     roctracer_mark("after HIP LaunchKernel");
+    roctxMark("after hipLaunchKernel");
 
     // Memory transfer from device to host
+    roctxRangePush("hipMemcpy");
+
     hipMemcpy(TransposeMatrix, gpuTransposeMatrix, NUM * sizeof(float), hipMemcpyDeviceToHost);
+
+    roctxRangePop(); // for "hipMemcpy"
+    roctxRangePop(); // for "hipLaunchKernel"
 
     // CPU MatrixTranspose computation
     matrixTransposeCPUReference(cpuTransposeMatrix, Matrix, WIDTH);
@@ -110,6 +128,8 @@ int main() {
         printf("FAILED: %d errors\n", errors);
     } else {
         printf("PASSED!\n");
+    }
+
     }
 
     // free the resources on device side

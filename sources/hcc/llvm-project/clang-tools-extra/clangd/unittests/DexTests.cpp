@@ -687,18 +687,14 @@ TEST(DexTests, Refs) {
   Req.Filter = RefKind::Declaration | RefKind::Definition;
 
   std::vector<std::string> Files;
-  EXPECT_FALSE(Dex(std::vector<Symbol>{Foo, Bar}, Refs, RelationSlab())
-                   .refs(Req, [&](const Ref &R) {
-                     Files.push_back(R.Location.FileURI);
-                   }));
+  Dex(std::vector<Symbol>{Foo, Bar}, Refs, RelationSlab())
+      .refs(Req, [&](const Ref &R) { Files.push_back(R.Location.FileURI); });
   EXPECT_THAT(Files, UnorderedElementsAre("foo.h", "foo.cc"));
 
   Req.Limit = 1;
   Files.clear();
-  EXPECT_TRUE(Dex(std::vector<Symbol>{Foo, Bar}, Refs, RelationSlab())
-                  .refs(Req, [&](const Ref &R) {
-                    Files.push_back(R.Location.FileURI);
-                  }));
+  Dex(std::vector<Symbol>{Foo, Bar}, Refs, RelationSlab())
+      .refs(Req, [&](const Ref &R) { Files.push_back(R.Location.FileURI); });
   EXPECT_THAT(Files, ElementsAre(AnyOf("foo.h", "foo.cc")));
 }
 
