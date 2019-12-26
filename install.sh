@@ -19,6 +19,14 @@ export PATH=$PATH:ROCM_INSTALL_DIR/bin
 export HIP_PATH=$ROCM_INSTALL_DIR
 export ROCM_PATH=$ROCM_INSTALL_DIR
 
+check_install_error() {
+	if [ $? -ne 0 ];
+	then
+		echo "Failed installing $1"
+		exit 1
+	fi
+}
+
 echo -e "\nInstalling ROCT-Thunk-Interface\n"
 cd sources/ROCT-Thunk-Interface
 rm -r build
@@ -27,7 +35,9 @@ cd build
 cmake -DCMAKE_INSTALL_PREFIX=$ROCM_INSTALL_DIR ..
 make
 make install
+check_install_error "ROCT-Thunk-Interface"
 make install-dev
+check_install_error "ROCT-Thunk-Interface (dev)"
 cd $ROCM_INSTALL_DIR/..
 
 echo -e "\nInstalling ROCR-Runtime\n"
@@ -42,6 +52,7 @@ cmake \
 	..
 make -j8
 make install
+check_install_error "ROCR-Runtime"
 cd $ROCM_INSTALL_DIR/..
 
 echo -e "\nInstalling rocm-smi\n"
@@ -57,6 +68,7 @@ mkdir build
 cd build
 cmake -DCMAKE_INSTALL_PREFIX=$ROCM_INSTALL_DIR ..
 cmake --build . --target install
+check_install_error "rocm-cmake"
 cd $ROCM_INSTALL_DIR/..
 
 echo -e "\nInstalling rocminfo\n"
@@ -70,6 +82,7 @@ cmake \
 	..
 make
 make install
+check_install_error "rocminfo"
 cd $ROCM_INSTALL_DIR/..
 
 echo -e "\nInstalling rocprofiler\n"
@@ -83,21 +96,24 @@ cmake \
 	..
 make -j8
 make install
+check_install_error "rocprofiler"
 cd $ROCM_INSTALL_DIR/..
 
-echo -e "\nInstalling LLVM_amd-common\n"
-cd sources/llvm_amd-common
+echo -e "\nInstalling LLVM_amd-stg-open\n"
+cd sources/llvm_amd-stg-open
 rm -r build
 mkdir build
 cd build
 cmake \
+	-DLLVM_ENABLE_PROJECTS="clang;clang-tools-extra;lld;compiler-rt;libclc" \
 	-DCMAKE_PREFIX_PATH=$ROCM_INSTALL_DIR \
 	-DCMAKE_INSTALL_PREFIX=$LLVM_DIR \
 	-DCMAKE_BUILD_TYPE=Release \
 	-DLLVM_TARGETS_TO_BUILD="AMDGPU;X86" \
-	..
+	../llvm
 make -j6
 make -j6 install
+check_install_error "LLVM_amd-stg-open"
 cd $ROCM_INSTALL_DIR/..
 
 echo -e "\nInstalling ROCm-Device-Libs\n"
@@ -113,6 +129,7 @@ CC=$ROCM_INSTALL_DIR/llvm/bin/clang cmake \
 	..
 make -j8
 make -j8 install
+check_install_error "ROCm-Device-Libs"
 cd $ROCM_INSTALL_DIR/..
 
 echo -e "\nInstalling comgr (code object manager)\n"
@@ -127,6 +144,7 @@ cmake \
 	..
 make -j8
 make -j8 install
+check_install_error "comgr"
 cd $ROCM_INSTALL_DIR/..
 
 echo -e "\nInstalling hcc\n"
@@ -144,6 +162,7 @@ cmake \
 	..
 make -j6
 make -j6 install
+check_install_error "hcc"
 cd $ROCM_INSTALL_DIR/..
 
 echo -e "\nInstalling HIP\n"
@@ -162,6 +181,7 @@ cmake \
 	..
 make -j8
 make -j8 install
+check_install_error "HIP"
 cd $ROCM_INSTALL_DIR/..
 # Fix some hardcoded paths in the hipcc script.
 sed -i 's@/opt/rocm@'"$ROCM_INSTALL_DIR"'@g' $ROCM_INSTALL_DIR/bin/hipcc
@@ -180,6 +200,7 @@ cmake \
 	..
 make
 make install
+check_install_error "rocRAND"
 cd $ROCM_INSTALL_DIR/..
 
 echo -e "\nInstalling rocBLAS\n"
@@ -204,6 +225,7 @@ CXX=hipcc cmake \
 # depending on if you modified the above cmake command.
 ROCM_PATH=$ROCM_INSTALL_DIR make
 make install
+check_install_error "rocBLAS"
 cd $ROCM_INSTALL_DIR/..
 
 echo -e "\nInstalling clang-ocl\n"
@@ -218,6 +240,7 @@ cmake \
 	..
 make
 make install
+check_install_error "clang-ocl"
 cd $ROCM_INSTALL_DIR/..
 
 echo -e "\nInstalling MIOpen\n"
@@ -234,6 +257,7 @@ CXX=$ROCM_INSTALL_DIR/bin/hcc \
 	..
 make -j4
 make -j4 install
+check_install_error "MIOpen"
 cd $ROCM_INSTALL_DIR/..
 
 echo -e "\nInstalling rocFFT\n"
@@ -249,6 +273,7 @@ CXX=$ROCM_INSTALL_DIR/bin/hcc \
 	..
 make -j6
 make install
+check_install_error "rocFFT"
 cd $ROCM_INSTALL_DIR/..
 
 echo -e "\nInstalling rocPRIM\n"
@@ -267,6 +292,7 @@ cmake \
 	..
 make
 make install
+check_install_error "rocPRIM"
 cd $ROCM_INSTALL_DIR/..
 
 echo -e "\nInstalling rocSPARSE\n"
@@ -285,6 +311,7 @@ cmake \
 	..
 make -j6
 make install
+check_install_error "rocSPARSE"
 cd $ROCM_INSTALL_DIR/..
 
 echo -e "\nInstalling hipSPARSE\n"
@@ -301,6 +328,7 @@ cmake \
 	..
 make
 make install
+check_install_error "hipSPARSE"
 cd $ROCM_INSTALL_DIR/..
 
 echo -e "\nInstalling hipCUB\n"
@@ -319,6 +347,7 @@ cmake \
 	..
 make -j6
 make -j6 install
+check_install_error "hipCUB"
 cd $ROCM_INSTALL_DIR/..
 
 echo -e "\nInstalling rccl\n"
@@ -334,6 +363,7 @@ CXX=hcc cmake \
 	..
 make -j6
 make -j6 install
+check_install_error "rccl"
 cd $ROCM_INSTALL_DIR/..
 
 echo -e "\nInstalling rocThrust\n"
@@ -351,6 +381,7 @@ CXX=hcc cmake \
 	..
 make
 make install
+check_install_error "rocThrust"
 cd $ROCM_INSTALL_DIR/..
 
 echo -e "\nInstalling roctracer\n"
@@ -366,6 +397,7 @@ cmake \
 	..
 make -j6
 make -j6 install
+check_install_error "roctracer"
 cd $ROCM_INSTALL_DIR/..
 
 echo "Installation complete!"
