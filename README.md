@@ -39,7 +39,7 @@ You will first need to have the following prerequisites installed (there may be
 others that I'm forgetting):
 ```
 sudo apt install cmake pkg-config libpci-dev libelf-dev liblapack-dev \
-  libboost-program-options-dev
+  libboost-program-options-dev libnuma-dev
 ```
 
 You will need to make sure that you are running a sufficiently recent version
