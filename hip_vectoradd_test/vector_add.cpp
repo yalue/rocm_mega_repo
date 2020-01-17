@@ -9,7 +9,7 @@
 #define DEVICE_ID (0)
 
 // The number of 64-bit integers in each vectors to add.
-#define VECTOR_LENGTH (100 * 1024 * 1024)
+#define VECTOR_LENGTH (200 * 1024 * 1024)
 
 // This macro takes a hipError_t value and exits if it isn't equal to
 // hipSuccess.
@@ -126,6 +126,9 @@ int main(int argc, char **argv) {
   block_count = VECTOR_LENGTH / 256;
   if ((VECTOR_LENGTH % 256) != 0) block_count++;
 
+  hipStream_t stream;
+  CheckHIPError(hipStreamCreate(&stream));
+  //CheckHIPError(hipStreamSetComputeUnitMask(stream, 7));
   // Do a warm-up iteration of the kernel before we take a time measurement.
   hipLaunchKernelGGL(GPUVectorAdd, block_count, 256, 0, 0, v);
   CheckHIPError(hipDeviceSynchronize());
@@ -134,7 +137,8 @@ int main(int argc, char **argv) {
     sizeof(uint64_t)));
 
   start_time = CurrentSeconds();
-  hipLaunchKernelGGL(GPUVectorAdd, block_count, 256, 0, 0, v);
+  hipLaunchKernelGGL(GPUVectorAdd, block_count, 256, 0, stream, v);
+  CheckHIPError(hipStreamSynchronize(stream));
   CheckHIPError(hipDeviceSynchronize());
   end_time = CurrentSeconds();
   printf("GPU vector add took %f seconds.\n", end_time - start_time);
@@ -154,6 +158,7 @@ int main(int argc, char **argv) {
   if (all_ok) {
     printf("The device computation produced the correct result!\n");
   }
+  CheckHIPError(hipStreamDestroy(stream));
   CleanupVectors(&v);
   return 0;
 }
