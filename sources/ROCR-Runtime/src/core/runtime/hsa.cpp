@@ -714,8 +714,6 @@ hsa_status_t hsa_queue_create(
 
   assert(cmd_queue != nullptr && "Queue not returned but status was success.\n");
   *queue = core::Queue::Convert(cmd_queue);
-  printf("Created HSA queue with id %llu\n",
-    (unsigned long long) (*queue)->id);
   return status;
 
   CATCH;

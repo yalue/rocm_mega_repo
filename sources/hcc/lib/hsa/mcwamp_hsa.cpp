@@ -4124,7 +4124,6 @@ HSAQueue::HSAQueue(KalmarDevice* pDev, hsa_agent_t agent, execute_order order, q
         if (!set_cu_mask(parsed_mask)) {
             printf("Failed setting CU mask to %s\n", cu_mask_env);
         }
-        printf("Set new HSA queue's CU mask to %s\n", cu_mask_env);
     }
 }
 
