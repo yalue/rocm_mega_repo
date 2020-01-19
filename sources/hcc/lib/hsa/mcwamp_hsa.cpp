@@ -1199,7 +1199,6 @@ struct RocrQueue {
         /// Create a queue using the maximum size.
         hsa_status_t status = hsa_queue_create(agent, queue_size, HSA_QUEUE_TYPE_SINGLE, callbackQueue, NULL,
                                   UINT32_MAX, UINT32_MAX, &_hwQueue);
-        printf("In HCC: after calling hsa_queue_create.\n");
         DBOUT(DB_QUEUE, "  " <<  __func__ << ": created an HSA command queue: " << _hwQueue << "\n");
         STATUS_CHECK(status, __LINE__);
 
@@ -4041,7 +4040,58 @@ std::ostream& operator<<(std::ostream& os, const HSAQueue & hav)
     return os;
 }
 
+static std::vector<bool> generateDefaultCuMask(unsigned entries) {
+    std::vector<bool> to_return;
+    for (unsigned i = 0; i < entries; i++) {
+        to_return.push_back(true);
+    }
+    return to_return;
+}
 
+// Returns the integer value, between 0 and 15, inclusive, of the hex char.
+// Returns a value over 15 if c is not a valid ascii hex character.
+static uint8_t hexCharToValue(char c) {
+  if ((c >= '0') && (c <= '9')) return c - '0';
+  if ((c >= 'a') && (c <= 'f')) return c - 'a';
+  if ((c >= 'A') && (c <= 'F')) return c - 'A';
+  return 0xff;
+}
+
+// Parses the content of the HSA_DEFAULT_CU_MASK environment variable, and
+// returns a vector that can be passed to HSAQueue::set_cu_mask if the CU mask
+// is valid.  If the mask is not valid, this prints a warning to stdout and
+// returns a vector containing 128 "true" values (should be enough to set all
+// CUs on any AMD GPU for a while).
+static std::vector<bool> parseDefaultCuMask(const char *cuMaskHex) {
+    const char *c = cuMaskHex;
+    std::vector<bool> to_return;
+    while (*c != 0) {
+        uint8_t v = hexCharToValue(*c);
+        if (v > 15) {
+            printf("Found non-hex character %c in HSA_DEFAULT_CU_MASK; "
+                "the mask will be ignored.\n", *c);
+            return generateDefaultCuMask(128);
+        }
+        // We want the least significant bit in the hex environment variable to
+        // map onto CU 0, so we'll read the bits from the highest first and
+        // reverse the vector before returning it.
+        to_return.push_back((v & 8) != 0);
+        to_return.push_back((v & 4) != 0);
+        to_return.push_back((v & 2) != 0);
+        to_return.push_back((v & 1) != 0);
+        c++;
+    }
+    std::reverse(to_return.begin(), to_return.end());
+    // Finally, for sanity, make sure that at least one of the first 32 CUs are
+    // set in the mask (this is geared towards testing on a system with 32 CUs.
+    for (int i = 0; i < 32; i++) {
+        if (i >= to_return.size()) break;
+        if (to_return[i]) return to_return;
+    }
+    printf("HSA_DEFAULT_CU_MASK didn't have at least one of the first 32 CUs "
+        "enabled; the mask will be ignored.\n");
+    return generateDefaultCuMask(128);
+}
 
 
 HSAQueue::HSAQueue(KalmarDevice* pDev, hsa_agent_t agent, execute_order order, queue_priority priority) :
@@ -4066,6 +4116,16 @@ HSAQueue::HSAQueue(KalmarDevice* pDev, hsa_agent_t agent, execute_order order, q
 
     hsa_status_t status= hsa_signal_create(1, 1, &agent, &sync_copy_signal);
     STATUS_CHECK(status, __LINE__);
+
+    const char *cu_mask_env = std::getenv("HSA_DEFAULT_CU_MASK");
+    if (cu_mask_env) {
+        std::vector<bool> parsed_mask = parseDefaultCuMask(cu_mask_env);
+        // Calling this function will create the queue and set the mask.
+        if (!set_cu_mask(parsed_mask)) {
+            printf("Failed setting CU mask to %s\n", cu_mask_env);
+        }
+        printf("Set new HSA queue's CU mask to %s\n", cu_mask_env);
+    }
 }
 
 
