@@ -90,3 +90,14 @@ packages overwritten by this project. However, at least in the case of HIP and
 hcc, you may be able to restore old versions by retaining copies of the
 original `/opt/rocm/hip` and `/opt/rocm/hcc` directories.
 
+Kernel Modification and Python Module
+-------------------------------------
+
+This repository assumes the user is already running an up-to-date version of
+the Linux kernel with the `amdkfd` (and related) drivers enabled. The
+`python_rocm_control_module` directory contains a kernel patch to enable a
+`set_default_cu_mask` ioctl to the `/dev/kfd` character device, and a python
+module that can be used to call the function from within python code (I had
+used it for some early PyTorch tests). In the unlikely case that somebody wants
+to use this code, more instructions can be found in the README in that
+subdirectory.
