@@ -47,7 +47,11 @@ hipError_t memcpyAsync(void* dst, const void* src, size_t sizeBytes, hipMemcpyKi
     }
 
     try {
+        //printf("HIP: before locked_copyAsync\n"); ///////////////////////////////////////////////////////////////////// locked_copyAsync is blocked!!!!!
+        //fflush(stdout);
         stream->locked_copyAsync(dst, src, sizeBytes, kind);
+        //printf("HIP: after locked_copyAsync\n");
+        //fflush(stdout);
     }
     catch (ihipException& ex) {
         e = ex._code;
@@ -1113,6 +1117,8 @@ hipError_t hipMemcpyHtoH(void* dst, void* src, size_t sizeBytes) {
 hipError_t hipMemcpyAsync(void* dst, const void* src, size_t sizeBytes, hipMemcpyKind kind,
                           hipStream_t stream) {
     HIP_INIT_SPECIAL_API(hipMemcpyAsync, (TRACE_MCMD), dst, src, sizeBytes, kind, stream);
+    //printf("HIP: hipMemcpyAsync %lu bytes: %s\n", (unsigned long) sizeBytes, (kind == hipMemcpyDeviceToHost) ? "dev->host" : (kind == hipMemcpyHostToDevice) ? "host->dev" : "dev->dev");
+    //fflush(stdout);
 
     return ihipLogStatus(hip_internal::memcpyAsync(dst, src, sizeBytes, kind, stream));
 }
@@ -1955,46 +1961,46 @@ hipError_t hipFree(void* ptr) {
 
     hipError_t hipStatus = hipErrorInvalidDevicePointer;
 
-    if (ptr) {
-        hc::accelerator acc;
+    if (!ptr) {
+        return ihipLogStatus(hipSuccess);
+    }
+
+    hc::accelerator acc;
 #if (__hcc_workweek__ >= 17332)
-        hc::AmPointerInfo amPointerInfo(NULL, NULL, NULL, 0, acc, 0, 0);
+    hc::AmPointerInfo amPointerInfo(NULL, NULL, NULL, 0, acc, 0, 0);
 #else
-        hc::AmPointerInfo amPointerInfo(NULL, NULL, 0, acc, 0, 0);
+    hc::AmPointerInfo amPointerInfo(NULL, NULL, 0, acc, 0, 0);
 #endif
-        am_status_t status = hc::am_memtracker_getinfo(&amPointerInfo, ptr);
-        if (status == AM_SUCCESS) {
-            /*if (amPointerInfo._hostPointer == NULL) */ //TODO: Fix it when there is proper managed memory support
-            {
-                if (HIP_SYNC_FREE) {
-                    // Synchronize all devices, all streams
-                    // to ensure all work has finished on all devices.
-                    // This is disabled by default.
-                    for (unsigned i = 0; i < g_deviceCnt; i++) {
-                        ihipGetPrimaryCtx(i)->locked_waitAllStreams();
-                    }
-                }
-                else {
-                    ihipCtx_t* ctx;
-                    if (amPointerInfo._appId != -1) {
-#if USE_APP_PTR_FOR_CTX
-                        ctx = static_cast<ihipCtx_t*>(amPointerInfo._appPtr);
-#else
-                        ctx = ihipGetPrimaryCtx(amPointerInfo._appId);
-#endif
-                    } else {
-                        ctx = ihipGetTlsDefaultCtx();
-                    }
-                    // Synchronize to ensure all work has finished on device owning the memory.
-                    ctx->locked_waitAllStreams();  // ignores non-blocking streams, this waits
-                                                   // for all activity to finish.
-                }
-                hc::am_free(ptr);
-                hipStatus = hipSuccess;
+    am_status_t status = hc::am_memtracker_getinfo(&amPointerInfo, ptr);
+    if (status != AM_SUCCESS) {
+        return ihipLogStatus(hipStatus);
+    }
+
+    /*if (amPointerInfo._hostPointer == NULL) */ //TODO: Fix it when there is proper managed memory support
+    {
+        if (HIP_SYNC_FREE) {
+            // Synchronize all devices, all streams
+            // to ensure all work has finished on all devices.
+            // This is disabled by default.
+            for (unsigned i = 0; i < g_deviceCnt; i++) {
+                ihipGetPrimaryCtx(i)->locked_waitAllStreams();
             }
+        } else {
+            ihipCtx_t* ctx;
+            if (amPointerInfo._appId != -1) {
+#if USE_APP_PTR_FOR_CTX
+                ctx = static_cast<ihipCtx_t*>(amPointerInfo._appPtr);
+#else
+                ctx = ihipGetPrimaryCtx(amPointerInfo._appId);
+#endif
+            } else {
+                ctx = ihipGetTlsDefaultCtx();
+            }
+            // Synchronize to ensure all work has finished on device owning the memory.
+            ctx->locked_waitAllStreams();  // ignores non-blocking streams, this waits
+                                           // for all activity to finish.
         }
-    } else {
-        // free NULL pointer succeeds and is common technique to initialize runtime
+        hc::am_free(ptr);
         hipStatus = hipSuccess;
     }
 
