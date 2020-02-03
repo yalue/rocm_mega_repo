@@ -1,3 +1,9 @@
+# NOTE: I no longer use this script, since I found it simpler to just install
+# ROCm from AMD's repositories, then overwrite components with versions I
+# compiled from source. However, I'm keeping this script around so that I don't
+# forget the compilation options that (at least partially) worked at some
+# point.
+#
 # This script rebuilds all of ROCm from source, installing it to a pre-existing
 # ./install directory. Clean the directory manually before running this script.
 #

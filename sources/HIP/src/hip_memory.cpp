@@ -47,11 +47,7 @@ hipError_t memcpyAsync(void* dst, const void* src, size_t sizeBytes, hipMemcpyKi
     }
 
     try {
-        //printf("HIP: before locked_copyAsync\n"); ///////////////////////////////////////////////////////////////////// locked_copyAsync is blocked!!!!!
-        //fflush(stdout);
         stream->locked_copyAsync(dst, src, sizeBytes, kind);
-        //printf("HIP: after locked_copyAsync\n");
-        //fflush(stdout);
     }
     catch (ihipException& ex) {
         e = ex._code;
@@ -1117,8 +1113,6 @@ hipError_t hipMemcpyHtoH(void* dst, void* src, size_t sizeBytes) {
 hipError_t hipMemcpyAsync(void* dst, const void* src, size_t sizeBytes, hipMemcpyKind kind,
                           hipStream_t stream) {
     HIP_INIT_SPECIAL_API(hipMemcpyAsync, (TRACE_MCMD), dst, src, sizeBytes, kind, stream);
-    //printf("HIP: hipMemcpyAsync %lu bytes: %s\n", (unsigned long) sizeBytes, (kind == hipMemcpyDeviceToHost) ? "dev->host" : (kind == hipMemcpyHostToDevice) ? "host->dev" : "dev->dev");
-    //fflush(stdout);
 
     return ihipLogStatus(hip_internal::memcpyAsync(dst, src, sizeBytes, kind, stream));
 }
