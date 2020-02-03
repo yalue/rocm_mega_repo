@@ -7,11 +7,15 @@ simplify the process of obtaining and compiling a standalone version of the
 entire ROCm stack from source, with few to no changes requiring administrator
 access.
 
+For the time being, most of the ROCm sources are contained in the `master`
+branch, but the components I have personally modified are in the
+`cut_down_code` branch.
+
 About
 -----
 
-This contains all of the ROCm 2.9 source code, as downloaded by the repo tool.
-The source code was downloaded as follows:
+This contains the ROCm 3.0 source code, as downloaded by the repo tool. The
+source code was downloaded as follows:
 ```
 cd sources
 ./repo init -u https://github.com/RadeonOpenCompute/ROCm.git -b roc-2.9.0
@@ -57,67 +61,32 @@ Additionally, make sure you are running a version of the Linux kernel with the
 `amdkfd` module available, that the `video` group has RW access to `/dev/kfd`,
 and that your user is a member of the `video` group.
 
-NOTE: This repository's install script assumes that you do *not* have an
-existing ROCm installation. If you do, you may want to uninstall it (or
-alternatively, temporarily rename the `/opt/rocm` directory so its utilities
-won't be available) in case some of the newly compiled utilities end up with
-incorrect paths or environment variables.
+Finally, you will need to install the following packages from AMD's pre-built
+ROCm repositories. AMD's repositories currently contain version 3.0 of ROCm--
+the subsequent instructions in this README may not work if the versions in
+AMD's repositories have updated. If that happens, the source code versions in
+this repo's `sources/` directory will need to be updated to match the upstream
+versions and re-patched. Assuming that ROCm is still at version 3.0, install
+the following packages from AMD's repository (see
+[these instructions](https://github.com/RadeonOpenCompute/ROCm#Ubuntu) for
+doing so):
+```
+sudo apt install rocm-utils rocm-libs rocm-dev rocm-debug-agent rocm-cmake \
+    rocalution rocblas rocfft rocprim rocrand rocsparse rocthrust roctracer-dev
+```
 
-Compilation and Installation
-----------------------------
+Compilation and Installation (on top of an existing ROCm installation)
+----------------------------------------------------------------------
 
 You *should* be able to build everything using the included `install.sh`
-script:
-
- 1. Run `bash install.sh` and wait for it to finish (this may take hours). I'd
-    recommend saving its output to a log file to help you diagnose if something
-    goes wrong. I personally run the following command to log all stdout and
-    stderr output to `install_log.txt` while `install.sh` is running:
-    ```
-    stdbuf -oL bash install.sh 2>&1 | tee install_log.txt
-    ```
-
- 2. Add several environment variables to your `.bashrc` or whatever way you use
-    to set environment variables. If you use `.bashrc`, the following lines
-    should be sufficient:
-    ```
-    # Replace <YOUR INSTALLATION DIRECTORY> with the full path to the `install`
-    # directory created by install.sh.
-    export ROCM_PATH=<YOUR INSTALLATION DIRECTORY>
-    export HIP_PATH=$ROCM_PATH
-    export HSA_PATH=$ROCM_PATH/hsa
-    export HCC_HOME=$ROCM_PATH/hcc_home
-    export PATH=$PATH:$ROCM_PATH/bin
-    ```
-
- 3. Make sure your system is able to find the dynamic libraries. Assuming you
-    have set the above environment variables already, you can accomplish this
-    by running the following commands (at least on Ubuntu 18.04):
-    ```
-    echo $ROCM_PATH/lib | sudo tee /etc/ld.so.conf.d/ROCm.conf
-    echo $ROCM_PATH/hsa/lib | sudo tee -a /etc/ld.so.conf.d/ROCm.conf
-    sudo ldconfig
-    ```
-    If the above steps worked correctly, you should have a file at
-    `/etc/ld.so.conf.d/ROCm.conf` containing two lines--a path to the
-    `<...>/install/lib` directory, and a path to the `<...>/install/hsa/lib`
-    directories. Alternatively, you can add these paths to the
-    `LD_LIBRARY_PATH` environment variable using the means of your choice, for
-    example if you want to avoid requiring administrator access.
+script: `bash ./install.sh`.  Note that the script will prompt for `sudo`
+access at a few points, in order to write to `/opt/rocm`.
 
 Uninstallation
 --------------
 
-Removing this version of ROCm just requires undoing the steps taken in the
-installation setup described above:
-
- 1. Delete the `install` directory. If you followed the steps above, this is as
-    simple as `rm -rf $ROCM_PATH`.
-
- 2. Remove these environment variable definitions from your `.bashrc` (or other
-    environment configuration): `ROCM_PATH`, `HIP_PATH`, `HSA_PATH`, and
-    `HCC_HOME`.
-
- 3. If you followed the steps above, run `sudo rm /etc/ld.so.conf.d/ROCm.conf`,
-    and then run `sudo ldconfig` to update the shared-library search paths.
+Restoring an "original" version of ROCm will likely require re-installing the
+packages overwritten by this project. However, at least in the case of HIP and
+hcc, you may be able to restore old versions by retaining copies of the
+original `/opt/rocm/hip` and `/opt/rocm/hcc` directories.
 
