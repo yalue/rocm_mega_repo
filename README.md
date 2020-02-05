@@ -7,9 +7,11 @@ simplify the process of obtaining and compiling a standalone version of the
 entire ROCm stack from source, with few to no changes requiring administrator
 access.
 
-For the time being, most of the ROCm sources are contained in the `master`
-branch, but the components I have personally modified are in the
-`cut_down_code` branch.
+For the time being, I have excluded most of the ROCm code from the repository,
+keeping only the components I have modified. The commit tagged with
+`full_rocm_3.0_source` should contain the latest (mostly) working version of
+the repository that attempts to compile all of ROCm from source in a local
+directory.
 
 About
 -----
