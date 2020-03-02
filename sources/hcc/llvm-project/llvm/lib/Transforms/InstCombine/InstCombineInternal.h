@@ -601,6 +601,7 @@ private:
   Instruction *narrowMathIfNoOverflow(BinaryOperator &I);
   Instruction *narrowRotate(TruncInst &Trunc);
   Instruction *optimizeBitCastFromPhi(CastInst &CI, PHINode *PN);
+  Instruction *matchSAddSubSat(SelectInst &MinMax1);
 
   /// Determine if a pair of casts can be replaced by a single cast.
   ///
@@ -704,7 +705,7 @@ public:
   Instruction *eraseInstFromFunction(Instruction &I) {
     LLVM_DEBUG(dbgs() << "IC: ERASE " << I << '\n');
     assert(I.use_empty() && "Cannot erase instruction that is used!");
-    salvageDebugInfo(I);
+    salvageDebugInfoOrMarkUndef(I);
 
     // Make sure that we reprocess all operands now that we reduced their
     // use counts.

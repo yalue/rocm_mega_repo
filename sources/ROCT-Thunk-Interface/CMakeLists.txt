@@ -61,7 +61,11 @@ set ( BUILD_VERSION_PATCH ${VERSION_PATCH} )
 
 set ( LIB_VERSION_MAJOR 1)
 set ( LIB_VERSION_MINOR 0)
-set ( LIB_VERSION_PATCH 6)
+if (${ROCM_PATCH_VERSION})
+    set ( LIB_VERSION_PATCH ${ROCM_PATCH_VERSION} )
+else ()
+    set ( LIB_VERSION_PATCH 6)
+endif ()
 set ( LIB_VERSION_STRING "${LIB_VERSION_MAJOR}.${LIB_VERSION_MINOR}.${LIB_VERSION_PATCH}" )
 
 if ( DEFINED VERSION_BUILD AND NOT ${VERSION_BUILD} STREQUAL "" )
@@ -90,7 +94,8 @@ endif ()
 set ( HSAKMT_LINKER_SCRIPT "${CMAKE_CURRENT_SOURCE_DIR}/src/libhsakmt.ver" )
 
 ## Linker Flags
-set (HSAKMT_LINK_FLAGS "-Wl,--version-script=${HSAKMT_LINKER_SCRIPT} -Wl,-soname=${HSAKMT_COMPONENT}.so.${LIB_VERSION_MAJOR} -Wl,-z,nodelete -Wl,-no-undefined" )
+## Add --enable-new-dtags to generate DT_RUNPATH
+set (HSAKMT_LINK_FLAGS "-Wl,--enable-new-dtags -Wl,--version-script=${HSAKMT_LINKER_SCRIPT} -Wl,-soname=${HSAKMT_COMPONENT}.so.${LIB_VERSION_MAJOR} -Wl,-z,nodelete -Wl,-no-undefined" )
 
 ## Source files
 set ( HSAKMT_SRC "src/debug.c"
@@ -167,6 +172,7 @@ set ( CPACK_PACKAGE_VERSION_PATCH ${BUILD_VERSION_PATCH} )
 set ( CPACK_PACKAGE_CONTACT "Advanced Micro Devices Inc." )
 set ( CPACK_PACKAGE_DESCRIPTION_SUMMARY "HSAKMT library for AMD KFD support" )
 set ( CPACK_RESOURCE_FILE_LICENSE "${SOURCE_DIR}/LICENSE.md" )
+set ( CPACK_PACKAGE_FILE_NAME "${CPACK_PACKAGE_NAME}-${CPACK_PACKAGE_VERSION_MAJOR}.${CPACK_PACKAGE_VERSION_MINOR}.${CPACK_PACKAGE_VERSION_PATCH}.x86_64" )
 
 #checking for OS-version
 if( EXISTS "/etc/os-release" )

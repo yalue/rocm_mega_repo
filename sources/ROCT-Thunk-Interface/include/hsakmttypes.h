@@ -301,7 +301,12 @@ typedef struct _HsaNodeProperties
                                        // number hash created by the PSP
     HSAuint32       NumSdmaEngines;    // number of PCIe optimized SDMA engines
     HSAuint32       NumSdmaXgmiEngines;// number of XGMI optimized SDMA engines
-    HSAuint32       NumGws;            // number of GWS barriers
+
+    HSAuint8        NumSdmaQueuesPerEngine;// number of SDMA queue per one engine
+    HSAuint8        NumCpQueues; // number of Compute queues
+    HSAuint8        NumGws;            // number of GWS barriers
+    HSAuint8        Reserved2;
+
     HSAuint32       Domain;            // PCI domain of the GPU
     HSAuint8        Reserved[28];
 } HsaNodeProperties;
@@ -1257,7 +1262,8 @@ typedef enum _HSA_POINTER_TYPE {
     HSA_POINTER_UNKNOWN = 0,
     HSA_POINTER_ALLOCATED = 1,           // Allocated with hsaKmtAllocMemory (except scratch)
     HSA_POINTER_REGISTERED_USER = 2,     // Registered user pointer
-    HSA_POINTER_REGISTERED_GRAPHICS = 3  // Registered graphics buffer
+    HSA_POINTER_REGISTERED_GRAPHICS = 3, // Registered graphics buffer
+    HSA_POINTER_REGISTERED_SHARED = 4    // Registered shared buffer (IPC)
                                          // (hsaKmtRegisterGraphicsToNodes)
 } HSA_POINTER_TYPE;
 

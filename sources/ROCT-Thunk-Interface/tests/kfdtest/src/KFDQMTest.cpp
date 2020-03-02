@@ -28,7 +28,7 @@
 #include "PM4Queue.hpp"
 #include "PM4Packet.hpp"
 #include "SDMAPacket.hpp"
-#include "SDMAQueue.hpp"
+#include "XgmiOptimizedSDMAQueue.hpp"
 #include "AqlQueue.hpp"
 #include <algorithm>
 
@@ -212,6 +212,9 @@ TEST_F(KFDQMTest, AllSdmaQueues) {
 
     const unsigned int numSdmaQueues = m_numSdmaEngines * m_numSdmaQueuesPerEngine;
 
+    LOG() << "Regular SDMA engines number: " << m_numSdmaEngines
+            << " SDMA queues per engine: " << m_numSdmaQueuesPerEngine << std::endl;
+
     HsaMemoryBuffer destBuf(bufSize << 1 , defaultGPUNode, false);
     HsaMemoryBuffer srcBuf(bufSize, defaultGPUNode, false);
     destBuf.Fill(0xFF);
@@ -239,6 +242,143 @@ TEST_F(KFDQMTest, AllSdmaQueues) {
 
     for (unsigned int qidx = 0; qidx < numSdmaQueues; ++qidx)
         EXPECT_SUCCESS(queues[qidx].Destroy());
+
+    TEST_END
+}
+
+TEST_F(KFDQMTest, AllXgmiSdmaQueues) {
+    TEST_START(TESTPROFILE_RUNALL)
+
+    int defaultGPUNode = m_NodeInfo.HsaDefaultGPUNode();
+    int bufSize = PAGE_SIZE;
+    int j;
+    ASSERT_GE(defaultGPUNode, 0) << "failed to get default GPU Node";
+
+    const unsigned int numXgmiSdmaQueues =
+            m_numSdmaXgmiEngines * m_numSdmaQueuesPerEngine;
+
+    LOG() << "XGMI SDMA engines number: " << m_numSdmaXgmiEngines
+            << " SDMA queues per engine: " << m_numSdmaQueuesPerEngine << std::endl;
+
+    HsaMemoryBuffer destBuf(bufSize << 1 , defaultGPUNode, false);
+    HsaMemoryBuffer srcBuf(bufSize, defaultGPUNode, false);
+    destBuf.Fill(0xFF);
+
+    std::vector<XgmiOptimizedSDMAQueue> xgmiSdmaQueues(numXgmiSdmaQueues);
+
+    for (j = 0; j < numXgmiSdmaQueues; ++j)
+        ASSERT_SUCCESS(xgmiSdmaQueues[j].Create(defaultGPUNode));
+
+    for (j = 0; j < numXgmiSdmaQueues; ++j) {
+        destBuf.Fill(0x0);
+        srcBuf.Fill(j + 0xa0);
+        xgmiSdmaQueues[j].PlaceAndSubmitPacket(
+            SDMACopyDataPacket(xgmiSdmaQueues[j].GetFamilyId(),
+                    destBuf.As<unsigned int*>(), srcBuf.As<unsigned int*>(), bufSize));
+        xgmiSdmaQueues[j].PlaceAndSubmitPacket(
+            SDMAWriteDataPacket(xgmiSdmaQueues[j].GetFamilyId(),
+                    destBuf.As<unsigned int*>() + bufSize/4, 0x02020202));
+
+        xgmiSdmaQueues[j].Wait4PacketConsumption();
+
+        EXPECT_TRUE(WaitOnValue(destBuf.As<unsigned int*>() + bufSize/4, 0x02020202));
+
+        EXPECT_SUCCESS(memcmp(
+            destBuf.As<unsigned int*>(), srcBuf.As<unsigned int*>(), bufSize));
+    }
+
+    for (j = 0; j < numXgmiSdmaQueues; ++j)
+        EXPECT_SUCCESS(xgmiSdmaQueues[j].Destroy());
+
+    TEST_END
+}
+
+TEST_F(KFDQMTest, AllQueues) {
+    TEST_START(TESTPROFILE_RUNALL)
+
+    int defaultGPUNode = m_NodeInfo.HsaDefaultGPUNode();
+    int bufSize = PAGE_SIZE;
+    ASSERT_GE(defaultGPUNode, 0) << "failed to get default GPU Node";
+
+    unsigned int i, j;
+
+    const unsigned int numCpQueues = m_numCpQueues;
+    const unsigned int numSdmaQueues = m_numSdmaEngines * m_numSdmaQueuesPerEngine;
+    const unsigned int numXgmiSdmaQueues =
+            m_numSdmaXgmiEngines * m_numSdmaQueuesPerEngine;
+
+    HsaMemoryBuffer destBufCp(PAGE_SIZE, defaultGPUNode, false);
+    destBufCp.Fill(0xFF);
+
+    HsaMemoryBuffer destBuf(bufSize << 1 , defaultGPUNode, false);
+    HsaMemoryBuffer srcBuf(bufSize, defaultGPUNode, false);
+    destBuf.Fill(0xFF);
+
+    std::vector<PM4Queue> cpQueues(numCpQueues);
+    std::vector<SDMAQueue> sdmaQueues(numSdmaQueues);
+    std::vector<XgmiOptimizedSDMAQueue> xgmiSdmaQueues(numXgmiSdmaQueues);
+
+    for (i = 0; i < numCpQueues; ++i)
+        ASSERT_SUCCESS(cpQueues[i].Create(defaultGPUNode)) << " QueueId=" << i;
+
+    for (j = 0; j < numSdmaQueues; ++j)
+        ASSERT_SUCCESS(sdmaQueues[j].Create(defaultGPUNode));
+
+    for (j = 0; j < numXgmiSdmaQueues; ++j)
+        ASSERT_SUCCESS(xgmiSdmaQueues[j].Create(defaultGPUNode));
+
+
+    for (i = 0; i < numCpQueues; ++i) {
+        cpQueues[i].PlaceAndSubmitPacket(PM4WriteDataPacket(destBufCp.As<unsigned int*>()+i*2, i, i));
+
+        cpQueues[i].Wait4PacketConsumption();
+
+        EXPECT_TRUE(WaitOnValue(destBufCp.As<unsigned int*>()+i*2, i));
+    }
+
+    for (j = 0; j < numSdmaQueues; ++j) {
+        destBuf.Fill(0x0);
+        srcBuf.Fill(j + 0xa0);
+        sdmaQueues[j].PlaceAndSubmitPacket(
+            SDMACopyDataPacket(sdmaQueues[j].GetFamilyId(), destBuf.As<unsigned int*>(), srcBuf.As<unsigned int*>(), bufSize));
+        sdmaQueues[j].PlaceAndSubmitPacket(
+            SDMAWriteDataPacket(sdmaQueues[j].GetFamilyId(), destBuf.As<unsigned int*>() + bufSize/4, 0x02020202));
+
+        sdmaQueues[j].Wait4PacketConsumption();
+
+        EXPECT_TRUE(WaitOnValue(destBuf.As<unsigned int*>() + bufSize/4, 0x02020202));
+
+        EXPECT_SUCCESS(memcmp(
+            destBuf.As<unsigned int*>(), srcBuf.As<unsigned int*>(), bufSize));
+    }
+
+    for (j = 0; j < numXgmiSdmaQueues; ++j) {
+        destBuf.Fill(0x0);
+        srcBuf.Fill(j + 0xa0);
+        xgmiSdmaQueues[j].PlaceAndSubmitPacket(
+            SDMACopyDataPacket(xgmiSdmaQueues[j].GetFamilyId(),
+                    destBuf.As<unsigned int*>(), srcBuf.As<unsigned int*>(), bufSize));
+        xgmiSdmaQueues[j].PlaceAndSubmitPacket(
+            SDMAWriteDataPacket(xgmiSdmaQueues[j].GetFamilyId(),
+                    destBuf.As<unsigned int*>() + bufSize/4, 0x02020202));
+
+        xgmiSdmaQueues[j].Wait4PacketConsumption();
+
+        EXPECT_TRUE(WaitOnValue(destBuf.As<unsigned int*>() + bufSize/4, 0x02020202));
+
+        EXPECT_SUCCESS(memcmp(
+            destBuf.As<unsigned int*>(), srcBuf.As<unsigned int*>(), bufSize));
+    }
+
+
+    for (i = 0; i < numCpQueues; ++i)
+       EXPECT_SUCCESS(cpQueues[i].Destroy());
+
+    for (j = 0; j < numSdmaQueues; ++j)
+        EXPECT_SUCCESS(sdmaQueues[j].Destroy());
+
+    for (j = 0; j < numXgmiSdmaQueues; ++j)
+        EXPECT_SUCCESS(xgmiSdmaQueues[j].Destroy());
 
     TEST_END
 }
@@ -765,15 +905,24 @@ TEST_F(KFDQMTest, BasicCuMaskingEven) {
         int numCuPerShader = ActiveCU / numShaderEngines;
         double ratio;
 
-        /* Set Mask to 1 for a single CU */
-        mask[0] = 0x1;
-        for (int i = 1; i < maskNumDwords; i++)
-            mask[i] = 0x0;
+        /* In KFD we symmetrically map mask to all SEs:
+         * mask[0] bit0 -> se0 cu0;
+         * mask[0] bit1 -> se1 cu0;
+         * ... (if # SE is 4)
+         * mask[0] bit4 -> se0 cu1;
+         * ...
+         */
+        /* Set Mask to 1 CU per SE */
+        memset(mask, 0, maskNumDwords * sizeof(uint32_t));
+        for (int i = 0; i < numShaderEngines; i++) {
+            int maskIndex = (i / 32) % maskNumDwords;
+            mask[maskIndex] |= 1 << (i % 32);
+        }
 
         /* Execute once to get any HW optimizations out of the way */
         TimeConsumedwithCUMask(defaultGPUNode, mask, maskNumBits);
 
-        LOG() << "Getting baseline performance numbers (1 CU)" << std::endl;
+        LOG() << "Getting baseline performance numbers (1 CU per SE)" << std::endl;
         TimewithCU1 = GetAverageTimeConsumedwithCUMask(defaultGPUNode, mask, maskNumBits, 3);
 
         /* Each loop will add 1 more CU per SE. We use the mod and divide to handle
@@ -786,12 +935,12 @@ TEST_F(KFDQMTest, BasicCuMaskingEven) {
                 int maskIndex = (offset / 32) % maskNumDwords;
                 mask[maskIndex] |= 1 << (offset % 32);
             }
-            int nCUs = numShaderEngines * (x + 1);
+            int nCUs = x + 1;
 
             TimewithCU = TimeConsumedwithCUMask(defaultGPUNode, mask, maskNumBits);
             ratio = (double)(TimewithCU1) / ((double)(TimewithCU) * nCUs);
 
-            LOG() << "Expected performance of " << nCUs << " CUs vs 1 CU:" << std::endl;
+            LOG() << "Expected performance of " << nCUs << " CU(s)/SE vs 1 CU/SE:" << std::endl;
             LOG() << std::setprecision(2) << CuNegVariance << " <= " << std::fixed << std::setprecision(8)
                   << ratio << " <= " << std::setprecision(2) << CuPosVariance << std::endl;
 

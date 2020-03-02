@@ -437,13 +437,10 @@ MipsRegisterBankInfo::getInstrMapping(const MachineInstr &MI) const {
 
   switch (Opc) {
   case G_TRUNC:
-  case G_ADD:
-  case G_SUB:
-  case G_MUL:
   case G_UMULH:
   case G_ZEXTLOAD:
   case G_SEXTLOAD:
-  case G_GEP:
+  case G_PTR_ADD:
   case G_INTTOPTR:
   case G_PTRTOINT:
   case G_AND:
@@ -452,13 +449,20 @@ MipsRegisterBankInfo::getInstrMapping(const MachineInstr &MI) const {
   case G_SHL:
   case G_ASHR:
   case G_LSHR:
-  case G_SDIV:
-  case G_UDIV:
-  case G_SREM:
-  case G_UREM:
   case G_BRINDIRECT:
   case G_VASTART:
     OperandsMapping = &Mips::ValueMappings[Mips::GPRIdx];
+    break;
+  case G_ADD:
+  case G_SUB:
+  case G_MUL:
+  case G_SDIV:
+  case G_SREM:
+  case G_UDIV:
+  case G_UREM:
+    OperandsMapping = &Mips::ValueMappings[Mips::GPRIdx];
+    if (Op0Size == 128)
+      OperandsMapping = getMSAMapping(MF);
     break;
   case G_STORE:
   case G_LOAD:
@@ -542,6 +546,8 @@ MipsRegisterBankInfo::getInstrMapping(const MachineInstr &MI) const {
   case G_FABS:
   case G_FSQRT:
     OperandsMapping = getFprbMapping(Op0Size);
+    if (Op0Size == 128)
+      OperandsMapping = getMSAMapping(MF);
     break;
   case G_FCONSTANT:
     OperandsMapping = getOperandsMapping({getFprbMapping(Op0Size), nullptr});
@@ -632,7 +638,7 @@ void MipsRegisterBankInfo::setRegBank(MachineInstr &MI,
     MRI.setRegBank(Dest, getRegBank(Mips::GPRBRegBankID));
     break;
   }
-  case TargetOpcode::G_GEP: {
+  case TargetOpcode::G_PTR_ADD: {
     assert(MRI.getType(Dest).isPointer() && "Unexpected operand type.");
     MRI.setRegBank(Dest, getRegBank(Mips::GPRBRegBankID));
     break;

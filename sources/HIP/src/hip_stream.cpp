@@ -133,7 +133,7 @@ hipError_t hipStreamWaitEvent(hipStream_t stream, hipEvent_t event, unsigned int
     hipError_t e = hipSuccess;
 
     if (event == nullptr) {
-        e = hipErrorInvalidResourceHandle;
+        e = hipErrorInvalidHandle;
 
     } else {
         auto ecd = event->locked_copyCrit(); 
@@ -189,7 +189,7 @@ hipError_t hipStreamSynchronize(hipStream_t stream) {
 
 //---
 /**
- * @return #hipSuccess, #hipErrorInvalidResourceHandle
+ * @return #hipSuccess, #hipErrorInvalidHandle
  */
 hipError_t hipStreamDestroy(hipStream_t stream) {
     HIP_INIT_API(hipStreamDestroy, stream);
@@ -199,7 +199,7 @@ hipError_t hipStreamDestroy(hipStream_t stream) {
     //--- Drain the stream:
     if (stream == NULL) {
         if (!HIP_FORCE_NULL_STREAM) {
-            e = hipErrorInvalidResourceHandle;
+            e = hipErrorInvalidHandle;
         }
     } else {
         stream->locked_wait();
@@ -210,7 +210,7 @@ hipError_t hipStreamDestroy(hipStream_t stream) {
             ctx->locked_removeStream(stream);
             delete stream;
         } else {
-            e = hipErrorInvalidResourceHandle;
+            e = hipErrorInvalidHandle;
         }
     }
 
@@ -225,30 +225,11 @@ hipError_t hipStreamGetFlags(hipStream_t stream, unsigned int* flags) {
     if (flags == NULL) {
         return ihipLogStatus(hipErrorInvalidValue);
     } else if (stream == hipStreamNull) {
-        return ihipLogStatus(hipErrorInvalidResourceHandle);
+        return ihipLogStatus(hipErrorInvalidHandle);
     } else {
         *flags = stream->_flags;
         return ihipLogStatus(hipSuccess);
     }
-}
-
-hipError_t hipStreamSetComputeUnitMask(hipStream_t stream, uint64_t mask) {
-  HIP_INIT_API(hipStreamSetComputeUnitMask, stream, mask);
-  if ((mask & 0xffffffff) == 0) {
-    printf("WARNING: Ignoring attempt to set empty CU mask.\n");
-    return ihipLogStatus(hipErrorInvalidValue);
-  }
-  auto av = ((ihipStream_t *) stream)->locked_getAv();
-  std::vector<bool> mask_vector;
-  while (mask != 0) {
-    mask_vector.push_back((mask & 1) != 0);
-    mask = mask >> 1;
-  }
-  if (!av->set_cu_mask(mask_vector)) {
-    printf("Setting CU mask returned an error.\n");
-    return ihipLogStatus(hipErrorInvalidValue);
-  }
-  return ihipLogStatus(hipSuccess);
 }
 
 
@@ -259,7 +240,7 @@ hipError_t hipStreamGetPriority(hipStream_t stream, int* priority) {
     if (priority == NULL) {
         return ihipLogStatus(hipErrorInvalidValue);
     } else if (stream == hipStreamNull) {
-        return ihipLogStatus(hipErrorInvalidResourceHandle);
+        return ihipLogStatus(hipErrorInvalidHandle);
     } else {
 #if defined(__HCC__) && (__hcc_major__ < 3) && (__hcc_minor__ < 3)
         *priority = 0;

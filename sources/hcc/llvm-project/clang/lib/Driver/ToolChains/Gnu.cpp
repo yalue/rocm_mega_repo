@@ -663,6 +663,26 @@ void tools::gnutools::Linker::ConstructJob(Compilation &C,
       CmdArgs.emplace_back("--hcc-cov3");
     }
 
+    if (Arg *A = C.getArgs().getLastArg(options::OPT_O_Group)) {
+      StringRef OOpt = "3";
+      if (A->getOption().matches(options::OPT_O4) ||
+          A->getOption().matches(options::OPT_Ofast))
+        OOpt = "3";
+      else if (A->getOption().matches(options::OPT_O0))
+        OOpt = "0";
+      else if (A->getOption().matches(options::OPT_O)) {
+        // -Os, -Oz, and -O(anything else) map to -O2
+        OOpt = llvm::StringSwitch<const char *>(A->getValue())
+                   .Case("1", "1")
+                   .Case("2", "2")
+                   .Case("3", "3")
+                   .Case("s", "2")
+                   .Case("z", "2")
+                   .Default("2");
+      }
+      CmdArgs.emplace_back(C.getArgs().MakeArgString("-O" + OOpt));
+    }
+
     HCLinker->ConstructLinkerJob(C, JA, Output, Inputs, Args, LinkingOutput, CmdArgs);
     this->ConstructLinkerJob(C, JA, Output, Inputs, Args, LinkingOutput, CmdArgs);
 
@@ -1440,7 +1460,8 @@ bool clang::driver::findMIPSMultilibs(const Driver &D,
   addMultilibFlag(CPUName == "mips32r6", "march=mips32r6", Flags);
   addMultilibFlag(CPUName == "mips64", "march=mips64", Flags);
   addMultilibFlag(CPUName == "mips64r2" || CPUName == "mips64r3" ||
-                      CPUName == "mips64r5" || CPUName == "octeon",
+                      CPUName == "mips64r5" || CPUName == "octeon" ||
+                      CPUName == "octeon+",
                   "march=mips64r2", Flags);
   addMultilibFlag(CPUName == "mips64r6", "march=mips64r6", Flags);
   addMultilibFlag(isMicroMips(Args), "mmicromips", Flags);

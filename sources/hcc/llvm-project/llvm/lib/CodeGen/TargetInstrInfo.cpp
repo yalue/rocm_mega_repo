@@ -1123,16 +1123,14 @@ bool TargetInstrInfo::hasLowDefLatency(const TargetSchedModel &SchedModel,
 Optional<ParamLoadedValue>
 TargetInstrInfo::describeLoadedValue(const MachineInstr &MI) const {
   const MachineFunction *MF = MI.getMF();
-  const MachineOperand *Op = nullptr;
-  DIExpression *Expr = DIExpression::get(MF->getFunction().getContext(), {});;
-  const MachineOperand *SrcRegOp, *DestRegOp;
+  DIExpression *Expr = DIExpression::get(MF->getFunction().getContext(), {});
+  int64_t Offset;
 
-  if (isCopyInstr(MI, SrcRegOp, DestRegOp)) {
-    Op = SrcRegOp;
-    return ParamLoadedValue(*Op, Expr);
-  } else if (MI.isMoveImmediate()) {
-    Op = &MI.getOperand(1);
-    return ParamLoadedValue(*Op, Expr);
+  if (auto DestSrc = isCopyInstr(MI)) {
+    return ParamLoadedValue(*DestSrc->Source, Expr);
+  } else if (auto DestSrc = isAddImmediate(MI, Offset)) {
+    Expr = DIExpression::prepend(Expr, DIExpression::ApplyOffset, Offset);
+    return ParamLoadedValue(*DestSrc->Source, Expr);
   }
 
   return None;

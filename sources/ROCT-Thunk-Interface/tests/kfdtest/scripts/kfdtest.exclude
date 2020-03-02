@@ -18,6 +18,8 @@ FILTER[core_sws]=\
 "KFDQMTest.SubmitNopSdmaQueue:"\
 "KFDQMTest.SubmitPacketSdmaQueue:"\
 "KFDQMTest.AllSdmaQueues:"\
+"KFDQMTest.AllXgmiSdmaQueues:"\
+"KFDQMTest.AllQueues:"\
 "KFDEventTest.SignalEvent"
 
 # HWS mode
@@ -89,9 +91,8 @@ SDMA_BLACKLIST=\
 
 # Anything involving CP queue creation is failing on Kaveri. Separate them here for convenience (KFD-336)
 KV_QUEUE_BLACKLIST=\
-"KFDExceptionTest.InvalidBadAddress:"\
-"KFDExceptionTest.InvalidWriteAddress:"\
-"KFDExceptionTest.InvalidPPR*:"\
+"KFDExceptionTest.AddressFault:"\
+"KFDExceptionTest.PermissionFault:"\
 "KFDLocalMemoryTest.*:"\
 "KFDEventTest.Signal*Event*:"\
 "KFDQMTest.CreateQueueStressSingleThreaded:"\
@@ -122,7 +123,7 @@ FILTER[hawaii]=\
 FILTER[carrizo]=\
 "$BLACKLIST_ALL_ASICS:"\
 "$SDMA_BLACKLIST:"\
-"KFDExceptionTest.InvalidWriteAddress"
+"KFDExceptionTest.PermissionFault"
 
 # KFDPerfCountersTest.*Trace fail (KFD-339)
 # KFDMemoryTest.QueryPointerInfo/MemoryRegister* (KFD-341)
@@ -172,8 +173,6 @@ FILTER[vega20]=\
 "$BLACKLIST_ALL_ASICS:"\
 "$SDMA_BLACKLIST:"\
 "KFDEvictTest.BurstyTest:"\
-"KFDExceptionTest.InvalidBadAddress:"\
-"KFDExceptionTest.InvalidWriteAddress:"\
 "KFDQMTest.GPUDoorbellWrite"
 
 FILTER[raven]=\
@@ -188,9 +187,11 @@ FILTER[renoir]=\
 
 # KFDExceptionTest.* (KFD-435)
 # KFDEvictTest.BurstyTest (KFD-425)
+# KFQMTest.BasicCuMaskingEven (Issues with baseline measurement)
 FILTER[arcturus]=\
 "$BLACKLIST_ALL_ASICS:"\
 "KFDExceptionTest.FaultStorm:"\
+"KFDQMTest.BasicCuMaskingEven:"\
 "KFDEvictTest.BurstyTest"
 
 FILTER[navi10]=\
@@ -199,15 +200,12 @@ FILTER[navi10]=\
 "KFDEvictTest.BurstyTest:"\
 "KFDEvictTest.QueueTest:"\
 "KFDPerfCountersTest.*:"\
-"KFDExceptionTest.InvalidBadAddress:"\
-"KFDExceptionTest.InvalidWriteAddress:"\
 "KFDQMTest.GPUDoorbellWrite"
 
 FILTER[navi14]=\
 "$BLACKLIST_ALL_ASICS:"\
 "KFDQMTest.BasicCuMaskingEven:"\
 "KFDDBGTest.*:"\
-"KFDExceptionTest.*:"\
 "KFDPerfCountersTest.*:"\
 "KFDQMTest.CreateQueueStressSingleThreaded:"\
 "KFDPNPTest.DisableWithActiveProcess"

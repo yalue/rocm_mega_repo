@@ -45,8 +45,6 @@
 #include "core/inc/hsa_ext_amd_impl.h"
 #include "core/inc/hsa_table_interface.h"
 
-#include <cstdio>
-#include <cstdlib>
 #include <iostream>
 
 // Tools only APIs.
@@ -139,27 +137,6 @@ void HsaApiTable::LinkExts(void* ext_table, uint32_t table_id) {
   }
 }
 
-static void TestInterceptHandler(const void *pkts, uint64_t pkt_count,
-    uint64_t user_pkt_index, void *data,
-    hsa_amd_queue_intercept_packet_writer writer) {
-  printf("In intercept handler, got %d packets.\n", (int) pkt_count);
-  writer(pkts, pkt_count);
-}
-
-static hsa_status_t intercept_queue_helper_create(
-    hsa_agent_t agent_handle, uint32_t size, hsa_queue_type32_t type,
-    void (*callback)(hsa_status_t status, hsa_queue_t* source, void* data),
-    void* data, uint32_t private_segment_size, uint32_t group_segment_size,
-    hsa_queue_t** queue) {
-  hsa_status_t status = hsa_amd_queue_intercept_create(agent_handle, size,
-      type, callback, data, private_segment_size, group_segment_size, queue);
-  if (status != HSA_STATUS_SUCCESS) return status;
-  status = hsa_amd_queue_intercept_register(*queue, TestInterceptHandler,
-      NULL);
-  if (status != HSA_STATUS_SUCCESS) return status;
-  return HSA_STATUS_SUCCESS;
-}
-
 // Update Api table for Hsa Core Runtime
 void HsaApiTable::UpdateCore() {
 
@@ -180,13 +157,6 @@ void HsaApiTable::UpdateCore() {
       HSA::hsa_agent_get_exception_policies;
   core_api.hsa_agent_extension_supported_fn = HSA::hsa_agent_extension_supported;
   core_api.hsa_queue_create_fn = HSA::hsa_queue_create;
-
-  const char *intercept_queue_env = getenv("HSA_USE_INTERCEPT_QUEUE");
-  if (intercept_queue_env && (std::string(intercept_queue_env) == "ON")) {
-    printf("Using test intercept queue.\n");
-    core_api.hsa_queue_create_fn = intercept_queue_helper_create;
-  }
-
   core_api.hsa_soft_queue_create_fn = HSA::hsa_soft_queue_create;
   core_api.hsa_queue_destroy_fn = HSA::hsa_queue_destroy;
   core_api.hsa_queue_inactivate_fn = HSA::hsa_queue_inactivate;
