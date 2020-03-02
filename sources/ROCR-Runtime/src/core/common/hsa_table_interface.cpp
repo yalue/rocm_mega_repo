@@ -39,6 +39,7 @@
 // DEALINGS WITH THE SOFTWARE.
 //
 ////////////////////////////////////////////////////////////////////////////////
+#include <stdio.h>
 
 #include "hsa_api_trace.h"
 #include "core/inc/hsa_api_trace_int.h"
@@ -147,6 +148,7 @@ hsa_status_t HSA_API
                                       void* data),
                      void* data, uint32_t private_segment_size,
                      uint32_t group_segment_size, hsa_queue_t** queue) {
+  printf("Calling hsa_queue_create from table!\n");
   return coreApiTable->hsa_queue_create_fn(agent, size, type, callback, data,
                                           private_segment_size,
                                           group_segment_size, queue);
