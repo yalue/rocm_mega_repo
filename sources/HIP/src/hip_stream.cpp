@@ -233,6 +233,26 @@ hipError_t hipStreamGetFlags(hipStream_t stream, unsigned int* flags) {
 }
 
 
+hipError_t hipStreamSetComputeUnitMask(hipStream_t stream, uint64_t mask) {
+  HIP_INIT_API(hipStreamSetComputeUnitMask, stream, mask);
+  if ((mask & 0xffffffff) == 0) {
+    printf("WARNING: Ignoring attempt to set empty CU mask.\n");
+    return ihipLogStatus(hipErrorInvalidValue);
+  }
+  auto av = ((ihipStream_t *) stream)->locked_getAv();
+  std::vector<bool> mask_vector;
+  while (mask != 0) {
+    mask_vector.push_back((mask & 1) != 0);
+    mask = mask >> 1;
+  }
+  if (!av->set_cu_mask(mask_vector)) {
+    printf("Setting CU mask returned an error.\n");
+    return ihipLogStatus(hipErrorInvalidValue);
+  }
+  return ihipLogStatus(hipSuccess);
+}
+
+
 //--
 hipError_t hipStreamGetPriority(hipStream_t stream, int* priority) {
     HIP_INIT_API(hipStreamGetPriority, stream, priority);
