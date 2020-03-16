@@ -42,6 +42,10 @@
 
 cmake_minimum_required ( VERSION 3.5.0 )
 
+if (NOT AGS_PROJECT_PATH)
+  message(FATAL_ERROR "AGS_PROJECT_PATH must be specified")
+endif()
+
 ## Set core runtime module name and project name.
 set ( CORE_RUNTIME_NAME "hsa-runtime" )
 set ( CORE_RUNTIME_TARGET "${CORE_RUNTIME_NAME}64" )
@@ -106,6 +110,7 @@ include_directories ( ${CMAKE_CURRENT_SOURCE_DIR} )
 include_directories ( ${CMAKE_CURRENT_SOURCE_DIR}/inc )
 include_directories ( ${CMAKE_CURRENT_SOURCE_DIR}/core/inc )
 include_directories ( ${CMAKE_CURRENT_SOURCE_DIR}/libamdhsacode )
+include_directories ( ${AGS_PROJECT_PATH}/src )
 
 ## ROCr build internal versioning
 add_definitions ( -DROCR_BUILD_ID=${PACKAGE_VERSION_STRING} )
@@ -156,6 +161,8 @@ set ( SRCS "core/util/lnx/os_linux.cpp"
             "core/runtime/cache.cpp"
             "core/common/shared.cpp"
             "core/common/hsa_table_interface.cpp"
+            "core/common/ags_hsa_state.cpp"
+            "${AGS_PROJECT_PATH}/src/ags_communication.c"
             "loader/executable.cpp"
             "loader/loaders.cpp"
             "libamdhsacode/amd_elf_image.cpp"

@@ -40,8 +40,6 @@ mkdir build
 cd build
 cmake \
 	-DCMAKE_INSTALL_PREFIX=$ROCM_INSTALL_DIR \
-	-DHSAKMT_LIB_PATH:STRING=$ROCM_INSTALL_DIR/lib \
-	-DHSAKMT_INC_PATH:STRING=$ROCM_INSTALL_DIR/include \
 	..
 make -j8
 sudo make install
