@@ -30,31 +30,28 @@
 
 // Maintains the state of the current process' connection to AGS.
 typedef struct {
-  // A handle to AGS' main pipe, used mostly to notify AGS of process creation
-  // and exiting.
-  FILE *main_pipe;
-  // A handle to our process-specific pipe, created by AGS.
-  FILE *process_pipe;
+  // The file descriptor for our socket to AGS. Will be -1 if AGS isn't
+  // running.
+  int fd;
 } AGSHSAState;
 
-// This should be called to open the AGS main pipe and notify AGS of a new
-// application. Must only be called once, during HSA initialization. Returns
-// false on error. If AGS isn't running, this will simply return true, and all
-// other functions in this file no-ops and HSA should function as normal.
+// This should be called only once during application initialization. It
+// opens the AGS socket and sends the initial notification to AGS. Returns
+// false on error. If AGS isn't running (i.e. we can't connect to the server),
+// then AGS' state won't be allocated.
 bool InitializeAGSConnection(void);
 
 // This should be called when the HSA runtime is exiting. It sends the message
 // to AGS that the process is exiting, waits for the final message from AGS,
-// then closes the pipes and deletes the process-specific pipe. If AGS sets
-// prevent_default to true, then this returns false and sets the *result to the
-// value that hsa_shut_down should return.
+// then closes our end of the connection. If AGS sets prvent_default to true,
+// then this returns false and sets *result to the value that hsa_shut_down
+// should return.
 bool EndAGSConnection(hsa_status_t *result);
 
 // Returns a pointer to an initialized AGSHSAState object, if it exists, or
 // NULL if it does not. InitializeAGSConnection must be called first.
 AGSHSAState* GetAGSState(void);
 
-// Blocks until an AGS response is received on the per-process named pipe.
 // Fills in the AGSResponse struct as well as the data buffer, which the caller
 // must ensure is able to hold enough bytes for any possible response data
 // (the needed size will depend on context, and the caller should usually be

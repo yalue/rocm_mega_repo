@@ -39,7 +39,7 @@ rm -r build
 mkdir build
 cd build
 cmake \
-	-DCMAKE_INSTALL_PREFIX=$ROCM_INSTALL_DIR \
+	-DCMAKE_INSTALL_PREFIX=$ROCM_INSTALL_DIR/hsa \
 	..
 make -j8
 sudo make install

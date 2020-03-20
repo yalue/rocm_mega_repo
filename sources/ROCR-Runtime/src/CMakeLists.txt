@@ -120,6 +120,10 @@ set(CMAKE_INSTALL_RPATH "$ORIGIN;$ORIGIN/../../lib;$ORIGIN/../../lib64;$ORIGIN/.
 
 ## ------------------------- Linux Compiler and Linker options -------------------------
 set ( CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Werror -fexceptions -fno-rtti -fvisibility=hidden -Wno-error=sign-compare -Wno-sign-compare -Wno-write-strings -Wno-conversion-null -fno-math-errno -fno-threadsafe-statics -fmerge-all-constants -fms-extensions -Wno-error=comment -Wno-comment -Wno-error=pointer-arith -Wno-pointer-arith -Wno-error=unused-variable -Wno-error=unused-function" )
+
+set ( CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -DBUILD_MODIFIED_HSA_RUNTIME" )
+set ( CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -DBUILD_MODIFIED_HSA_RUNTIME" )
+
 if ( CMAKE_COMPILER_IS_GNUCXX )
     set ( CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wno-error=unused-but-set-variable")
 endif ()
