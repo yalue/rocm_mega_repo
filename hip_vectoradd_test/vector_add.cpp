@@ -104,6 +104,7 @@ static void SetupDevice(void) {
   printf("Setting device...\n");
   hipDeviceProp_t props;
   CheckHIPError(hipSetDevice(DEVICE_ID));
+  CheckHIPError(hipSetDeviceFlags(hipDeviceScheduleYield));
   CheckHIPError(hipGetDeviceProperties(&props, DEVICE_ID));
   printf("Running on device: %s\n", props.name);
   printf("Using AMD GPU architecture %d. Has %d multiprocessors, "
@@ -126,22 +127,21 @@ int main(int argc, char **argv) {
   block_count = VECTOR_LENGTH / 256;
   if ((VECTOR_LENGTH % 256) != 0) block_count++;
 
-  hipStream_t stream;
-  CheckHIPError(hipStreamCreate(&stream));
-  //CheckHIPError(hipStreamSetComputeUnitMask(stream, 7));
   // Do a warm-up iteration of the kernel before we take a time measurement.
   hipLaunchKernelGGL(GPUVectorAdd, block_count, 256, 0, 0, v);
   CheckHIPError(hipDeviceSynchronize());
-  // Reset the result vector.
+  // Reset the result vector before the actual run.
   CheckHIPError(hipMemset(v.device_result, 0, VECTOR_LENGTH *
     sizeof(uint64_t)));
+  CheckHIPError(hipDeviceSynchronize());
 
+  // Measure time on the GPU.
   start_time = CurrentSeconds();
-  hipLaunchKernelGGL(GPUVectorAdd, block_count, 256, 0, stream, v);
-  CheckHIPError(hipStreamSynchronize(stream));
+  hipLaunchKernelGGL(GPUVectorAdd, block_count, 256, 0, 0, v);
   CheckHIPError(hipDeviceSynchronize());
   end_time = CurrentSeconds();
   printf("GPU vector add took %f seconds.\n", end_time - start_time);
+
   // Just re-use one of the host "input" vectors to hold the output from the
   // device, so we can verify the results.
   CheckHIPError(hipMemcpy(v.host_a, v.device_result,
@@ -158,7 +158,7 @@ int main(int argc, char **argv) {
   if (all_ok) {
     printf("The device computation produced the correct result!\n");
   }
-  CheckHIPError(hipStreamDestroy(stream));
+
   CleanupVectors(&v);
   return 0;
 }
