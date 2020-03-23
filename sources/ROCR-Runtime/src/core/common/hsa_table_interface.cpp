@@ -60,23 +60,24 @@ const HsaApiTable* hsa_table_interface_get_table() {
 
 // Pass through stub functions
 hsa_status_t HSA_API hsa_init() {
-    AGSResponse response;
+    hsa_status_t ags_result = HSA_STATUS_SUCCESS;
+    bool ags_prevent_default = false;
     // If we already have initialized AGS, we also know that HSA has also been
     // initialized, so we can quit now (also we don't want to try re-sending
     // the initial message to AGS).
-    if (GetAGSState() != NULL) return HSA_STATUS_SUCCESS;
-    printf("Initializing connection to AGS...\n");
+    if (ags_state != NULL) return HSA_STATUS_SUCCESS;
     if (!InitializeAGSConnection()) {
         printf("Failed initializing AGS connection.\n");
         return HSA_STATUS_ERROR;
     }
-    if (GetAGSState()) {
-      printf("Got AGS state.\n");
-      // AGS was running, wait for the response on the per-process pipe.
-      if (!GetAGSResponse(&response, 0, NULL)) return HSA_STATUS_ERROR;
-      if (response.prevent_default) return (hsa_status_t) response.hsa_status;
-    } else {
-      printf("AGS not detected.\n");
+    // If we just allocated AGS' state, we still need to send an initial
+    // message to AGS.
+    if (ags_state) {
+      if (!SendInitialMessage(&ags_result, &ags_prevent_default)) {
+        printf("Failed sending initial message to AGS.\n");
+        return HSA_STATUS_ERROR;
+      }
+      if (ags_prevent_default) return ags_result;
     }
     return coreApiTable->hsa_init_fn();
 }

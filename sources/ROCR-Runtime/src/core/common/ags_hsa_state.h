@@ -1,6 +1,7 @@
 #ifndef AGS_HSA_STATE_H
 #define AGS_HSA_STATE_H
 #include <cstdlib>
+#include <cstdint>
 // This file contains the functions and struct definitions used for managing an
 // HSA application's connection to the Arbiter for GPU Sharing (AGS).
 #include <ags_communication.h>
@@ -33,13 +34,26 @@ typedef struct {
   // The file descriptor for our socket to AGS. Will be -1 if AGS isn't
   // running.
   int fd;
+  // Contains a unique ID to be associated with each request. Will be
+  // incremented after each request.
+  uint64_t request_id;
 } AGSHSAState;
 
-// This should be called only once during application initialization. It
-// opens the AGS socket and sends the initial notification to AGS. Returns
-// false on error. If AGS isn't running (i.e. we can't connect to the server),
-// then AGS' state won't be allocated.
+// A single AGS state instance, non-NULL if AGS is connected. Initialized by
+// InitializeAGSConnection.
+extern AGSHSAState *ags_state;
+
+// This should only be called once--during application initialization. It
+// opens the AGS socket and allocates space to hold AGS' state. Returns false
+// on error. If AGS isn't running (i.e. we can't connect to the server), then
+// AGS' state won't be allocated.
 bool InitializeAGSConnection(void);
+
+// Sends the initial message to AGS. Should generally be called once,
+// immediately after InitializeAGSConnection. Returns false on error. On
+// success, it returns true and sets the prevent_default and result fields from
+// AGS' response, to potentially prevent normal execution of hsa_init.
+bool SendInitialMessage(hsa_status_t *result, bool *prevent_default);
 
 // This should be called when the HSA runtime is exiting. It sends the message
 // to AGS that the process is exiting, waits for the final message from AGS,
@@ -47,10 +61,6 @@ bool InitializeAGSConnection(void);
 // then this returns false and sets *result to the value that hsa_shut_down
 // should return.
 bool EndAGSConnection(hsa_status_t *result);
-
-// Returns a pointer to an initialized AGSHSAState object, if it exists, or
-// NULL if it does not. InitializeAGSConnection must be called first.
-AGSHSAState* GetAGSState(void);
 
 // Fills in the AGSResponse struct as well as the data buffer, which the caller
 // must ensure is able to hold enough bytes for any possible response data
@@ -68,5 +78,9 @@ bool GetAGSResponse(AGSResponse *response, uint32_t data_size, void *data);
 // hsa_status specified in AGS' response.
 bool SendAGSPlaceholderRequest(const char *file, const char *func, int line,
     hsa_status_t *result);
+
+// A sanity-checking function to check that the response from AGS is for the
+// given request. Prints a message and exits on error.
+void VerifyRequestIDs(AGSRequestHeader *request, AGSResponse *response);
 
 #endif  // AGS_HSA_STATE_H
