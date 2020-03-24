@@ -5,6 +5,7 @@
 #include <cstdlib>
 #include <cstring>
 #include <string>
+#include <pthread.h>
 #include <ags_communication.h>
 #include "hsa.h"
 #include "ags_hsa_state.h"
@@ -13,12 +14,21 @@
 // InitializeAGSConnection.
 AGSHSAState *ags_state = NULL;
 
+void LockAGS(void) {
+  pthread_mutex_lock(&(ags_state->mutex));
+}
+
+void UnlockAGS(void) {
+  pthread_mutex_unlock(&(ags_state->mutex));
+}
+
 // Closes any connections to pipes and deletes the process-specific pipe if
 // possible.
-void CleanupAGSState(void) {
+static void CleanupAGSState(void) {
   if (!ags_state) return;
   close(ags_state->fd);
   ags_state->fd = -1;
+  pthread_mutex_destroy(&(ags_state->mutex));
   free(ags_state);
   ags_state = NULL;
 }
@@ -45,6 +55,7 @@ bool InitializeAGSConnection(void) {
   memset(ags_state, 0, sizeof(AGSHSAState));
   ags_state->fd = ags_fd;
   ags_state->request_id = 1;
+  pthread_mutex_init(&(ags_state->mutex), NULL);
   return true;
 }
 
@@ -60,17 +71,21 @@ bool SendInitialMessage(hsa_status_t *result, bool *prevent_default) {
   request.data_size = 0;
   request.request_id = ags_state->request_id++;
   printf("Sending initial request to AGS for PID %d.\n", (int) request.pid);
+  LockAGS();
   if (send(ags_state->fd, &request, sizeof(request), 0) != sizeof(request)) {
     printf("Failed notifying AGS of process creation: %s\n", strerror(errno));
+    UnlockAGS();
     CleanupAGSState();
     return false;
   }
   if (!GetAGSResponse(&response, 0, NULL)) {
     printf("Failed receiving initial response from AGS: %s\n",
       strerror(errno));
+    UnlockAGS();
     CleanupAGSState();
     return false;
   }
+  UnlockAGS();
   VerifyRequestIDs(&request, &response);
   *result = (hsa_status_t) response.hsa_status;
   *prevent_default = response.prevent_default;
@@ -87,17 +102,21 @@ bool EndAGSConnection(hsa_status_t *result) {
   request.request_type = AGS_PROCESS_QUITTING;
   request.data_size = 0;
   request.request_id = ags_state->request_id++;
+  LockAGS();
   if (send(ags_state->fd, &request, sizeof(request), 0) != sizeof(request)) {
     printf("Failed notifying AGS of process quitting: %s\n", strerror(errno));
+    UnlockAGS();
     CleanupAGSState();
     return true;
   }
   if (recv(ags_state->fd, &response, sizeof(response), 0) !=
     sizeof(response)) {
     printf("Failed receiving final response from AGS: %s\n", strerror(errno));
+    UnlockAGS();
     CleanupAGSState();
     return true;
   }
+  UnlockAGS();
   VerifyRequestIDs(&request, &response);
   CleanupAGSState();
   if (response.prevent_default) {
@@ -159,19 +178,27 @@ bool SendAGSPlaceholderRequest(const char *file, const char *func, int line,
   header.request_type = AGS_PLACEHOLDER_REQUEST;
   header.request_id = ags_state->request_id++;
 
+  LockAGS();
   if (send(ags_state->fd, &header, sizeof(header), 0) != sizeof(header)) {
     printf("Failed sending placeholder request header to AGS: %s\n",
       strerror(errno));
+    UnlockAGS();
     CleanupAGSState();
     return true;
   }
   if (send(ags_state->fd, data, header.data_size, 0) != header.data_size) {
     printf("Failed sending placeholder request data to AGS: %s\n",
       strerror(errno));
+    UnlockAGS();
     CleanupAGSState();
     return true;
   }
-  if (!GetAGSResponse(&response, 0, NULL)) return true;
+  if (!GetAGSResponse(&response, 0, NULL)) {
+    UnlockAGS();
+    CleanupAGSState();
+    return true;
+  }
+  UnlockAGS();
   VerifyRequestIDs(&header, &response);
   if (response.prevent_default) {
     *result = (hsa_status_t) response.hsa_status;

@@ -2,6 +2,7 @@
 #define AGS_HSA_STATE_H
 #include <cstdlib>
 #include <cstdint>
+#include <pthread.h>
 // This file contains the functions and struct definitions used for managing an
 // HSA application's connection to the Arbiter for GPU Sharing (AGS).
 #include <ags_communication.h>
@@ -37,11 +38,20 @@ typedef struct {
   // Contains a unique ID to be associated with each request. Will be
   // incremented after each request.
   uint64_t request_id;
+  // This is used to ensure that we wait for any pending response from AGS
+  // before trying to send a new request.
+  pthread_mutex_t mutex;
 } AGSHSAState;
 
 // A single AGS state instance, non-NULL if AGS is connected. Initialized by
 // InitializeAGSConnection.
 extern AGSHSAState *ags_state;
+
+// Acquire the AGS mutex.
+void LockAGS(void);
+
+// Release the AGS mutex.
+void UnlockAGS(void);
 
 // This should only be called once--during application initialization. It
 // opens the AGS socket and allocates space to hold AGS' state. Returns false
