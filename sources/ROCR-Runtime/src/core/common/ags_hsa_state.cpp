@@ -33,6 +33,73 @@ static void CleanupAGSState(void) {
   ags_state = NULL;
 }
 
+// A sanity-checking function to check that the response from AGS is for the
+// given request. Prints a message and exits on error.
+static void VerifyRequestIDs(AGSRequestHeader *request,
+    AGSResponse *response) {
+  if (request->request_id == response->request_id) return;
+  printf("Error: Response request_id doesn't match the request!\n");
+  printf("Request (data omitted):\n");
+  request->data_size = 0;
+  PrintRequestInformation(request, NULL, "  ");
+  printf("Request ID in response = %lu\n",
+    (unsigned long) response->request_id);
+  exit(1);
+}
+
+bool DoAGSTransaction(AGSRequestHeader *request, void *request_data,
+    AGSResponse *response, uint32_t response_data_size, void *response_data) {
+  if (!ags_state) {
+    printf("Called DoAGSTransaction when not connected to AGS.\n");
+    response->prevent_default = 0;
+    return false;
+  }
+  LockAGS();
+  if (send(ags_state->fd, request, sizeof(*request), 0) != sizeof(*request)) {
+    printf("Failed sending request to AGS: %s\n", strerror(errno));
+    UnlockAGS();
+    CleanupAGSState();
+    return false;
+  }
+  if (request->data_size != 0) {
+    if (send(ags_state->fd, request_data, request->data_size, 0) !=
+      request->data_size) {
+      printf("Failed sending request data to AGS: %s\n", strerror(errno));
+      UnlockAGS();
+      CleanupAGSState();
+      return false;
+    }
+  }
+  if (recv(ags_state->fd, response, sizeof(*response), 0) !=
+    sizeof(*response)) {
+    printf("Failed receiving response header from AGS: %s\n", strerror(errno));
+    UnlockAGS();
+    CleanupAGSState();
+    return false;
+  }
+  VerifyRequestIDs(request, response);
+  if (response->data_size == 0) {
+    UnlockAGS();
+    return true;
+  }
+  if (response->data_size > response_data_size) {
+    printf("Insufficient buffer size to receive %d-byte response from AGS.\n",
+      (int) response->data_size);
+    UnlockAGS();
+    CleanupAGSState();
+    return false;
+  }
+  if (recv(ags_state->fd, response_data, response->data_size, 0) !=
+    response->data_size) {
+    printf("Failed receiving response from AGS: %s\n", strerror(errno));
+    UnlockAGS();
+    CleanupAGSState();
+    return false;
+  }
+  UnlockAGS();
+  return true;
+}
+
 bool InitializeAGSConnection(void) {
   int ags_fd;
   //__asm__ __volatile__ ("int $3");
@@ -71,22 +138,10 @@ bool SendInitialMessage(hsa_status_t *result, bool *prevent_default) {
   request.data_size = 0;
   request.request_id = ags_state->request_id++;
   printf("Sending initial request to AGS for PID %d.\n", (int) request.pid);
-  LockAGS();
-  if (send(ags_state->fd, &request, sizeof(request), 0) != sizeof(request)) {
-    printf("Failed notifying AGS of process creation: %s\n", strerror(errno));
-    UnlockAGS();
-    CleanupAGSState();
+  if (!DoAGSTransaction(&request, NULL, &response, 0, NULL)) {
+    printf("Failed notifying AGS of process creation.\n");
     return false;
   }
-  if (!GetAGSResponse(&response, 0, NULL)) {
-    printf("Failed receiving initial response from AGS: %s\n",
-      strerror(errno));
-    UnlockAGS();
-    CleanupAGSState();
-    return false;
-  }
-  UnlockAGS();
-  VerifyRequestIDs(&request, &response);
   *result = (hsa_status_t) response.hsa_status;
   *prevent_default = response.prevent_default;
   return true;
@@ -102,51 +157,13 @@ bool EndAGSConnection(hsa_status_t *result) {
   request.request_type = AGS_PROCESS_QUITTING;
   request.data_size = 0;
   request.request_id = ags_state->request_id++;
-  LockAGS();
-  if (send(ags_state->fd, &request, sizeof(request), 0) != sizeof(request)) {
-    printf("Failed notifying AGS of process quitting: %s\n", strerror(errno));
-    UnlockAGS();
-    CleanupAGSState();
+  if (!DoAGSTransaction(&request, NULL, &response, 0, NULL)) {
+    printf("Failed notifying AGS of process ending.\n");
     return true;
   }
-  if (recv(ags_state->fd, &response, sizeof(response), 0) !=
-    sizeof(response)) {
-    printf("Failed receiving final response from AGS: %s\n", strerror(errno));
-    UnlockAGS();
-    CleanupAGSState();
-    return true;
-  }
-  UnlockAGS();
-  VerifyRequestIDs(&request, &response);
   CleanupAGSState();
   if (response.prevent_default) {
     *result = (hsa_status_t) response.hsa_status;
-    return false;
-  }
-  return true;
-}
-
-bool GetAGSResponse(AGSResponse *response, uint32_t data_size, void *data) {
-  if (!ags_state) {
-    memset(response, 0, sizeof(*response));
-    return true;
-  }
-  if (recv(ags_state->fd, response, sizeof(*response), 0) !=
-      sizeof(*response)) {
-    printf("Failed receiving response from AGS: %s\n", strerror(errno));
-    CleanupAGSState();
-    return false;
-  }
-  if (response->data_size == 0) return true;
-  if (response->data_size > data_size) {
-    printf("Insufficient buffer size to read data from pipe.\n");
-    CleanupAGSState();
-    return false;
-  }
-  if (recv(ags_state->fd, data, response->data_size, 0) !=
-    response->data_size) {
-    printf("Failed receiving response data: %s\n", strerror(errno));
-    CleanupAGSState();
     return false;
   }
   return true;
@@ -178,42 +195,13 @@ bool SendAGSPlaceholderRequest(const char *file, const char *func, int line,
   header.request_type = AGS_PLACEHOLDER_REQUEST;
   header.request_id = ags_state->request_id++;
 
-  LockAGS();
-  if (send(ags_state->fd, &header, sizeof(header), 0) != sizeof(header)) {
-    printf("Failed sending placeholder request header to AGS: %s\n",
-      strerror(errno));
-    UnlockAGS();
-    CleanupAGSState();
+  if (!DoAGSTransaction(&header, data, &response, 0, NULL)) {
+    printf("Failed sending placeholder request header to AGS.\n");
     return true;
   }
-  if (send(ags_state->fd, data, header.data_size, 0) != header.data_size) {
-    printf("Failed sending placeholder request data to AGS: %s\n",
-      strerror(errno));
-    UnlockAGS();
-    CleanupAGSState();
-    return true;
-  }
-  if (!GetAGSResponse(&response, 0, NULL)) {
-    UnlockAGS();
-    CleanupAGSState();
-    return true;
-  }
-  UnlockAGS();
-  VerifyRequestIDs(&header, &response);
   if (response.prevent_default) {
     *result = (hsa_status_t) response.hsa_status;
     return false;
   }
   return true;
-}
-
-void VerifyRequestIDs(AGSRequestHeader *request, AGSResponse *response) {
-  if (request->request_id == response->request_id) return;
-  printf("Error: Response request_id doesn't match the request!\n");
-  printf("Request (data omitted):\n");
-  request->data_size = 0;
-  PrintRequestInformation(request, NULL, "  ");
-  printf("Request ID in response = %lu\n",
-    (unsigned long) response->request_id);
-  exit(1);
 }

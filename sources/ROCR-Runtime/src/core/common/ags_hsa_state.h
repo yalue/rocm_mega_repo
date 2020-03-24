@@ -72,25 +72,19 @@ bool SendInitialMessage(hsa_status_t *result, bool *prevent_default);
 // should return.
 bool EndAGSConnection(hsa_status_t *result);
 
-// Fills in the AGSResponse struct as well as the data buffer, which the caller
-// must ensure is able to hold enough bytes for any possible response data
-// (the needed size will depend on context, and the caller should usually be
-// able to make a reasonable estimate, e.g. an expected struct holding
-// additional results from AGS). The actual data size will be held in the
-// response's data_size field; the data_size argument to this function instead
-// must contain the number of bytes the caller has allocated for the given
-// data buffer. Returns false on error. Fills in the response even if AGS isn't
-// connected, but fills in the prevent_default field to 0.
-bool GetAGSResponse(AGSResponse *response, uint32_t data_size, void *data);
+// This function takes care of sending a request to AGS and receiving the
+// response. Handles acquiring and releasing the AGS lock. Returns false on
+// error, cleaning up the AGS state and disconnecting from AGS. All buffers
+// must be allocated by the caller, and the response data buffer must be large
+// enough to hold all of the response data. Both request_data and response_data
+// may be NULL if they aren't needed.
+bool DoAGSTransaction(AGSRequestHeader *request, void *request_data,
+    AGSResponse *response, uint32_t response_data_size, void *response_data);
 
 // Sends a AGS_PLACEHOLDER_REQUEST. If the received response has
 // prevent_default set to 1, then this returns false and sets *result to the
 // hsa_status specified in AGS' response.
 bool SendAGSPlaceholderRequest(const char *file, const char *func, int line,
     hsa_status_t *result);
-
-// A sanity-checking function to check that the response from AGS is for the
-// given request. Prints a message and exits on error.
-void VerifyRequestIDs(AGSRequestHeader *request, AGSResponse *response);
 
 #endif  // AGS_HSA_STATE_H
