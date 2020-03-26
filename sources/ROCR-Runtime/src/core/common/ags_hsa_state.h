@@ -7,6 +7,12 @@
 // HSA application's connection to the Arbiter for GPU Sharing (AGS).
 #include <ags_communication.h>
 
+// If defined, ENABLE_FULL_AGS_INTERCEPTION will cause all of the HSA API
+// functions to execute in the context of AGS' process rather than the client
+// processes. If false, the HSA clients will only send placeholder requests to
+// AGS, which are useful for tracing and ensuring that nothing's broken.
+//#define ENABLE_FULL_AGS_INTERCEPTION (1)
+
 // Sends a placeholder request to AGS. Returns from the surrounding function if
 // AGS' response sets prevent_default (AGS should not do this, though). Allows
 // the surrounding function to continue as usual in all other cases, including
@@ -78,7 +84,7 @@ bool EndAGSConnection(hsa_status_t *result);
 // must be allocated by the caller, and the response data buffer must be large
 // enough to hold all of the response data. Both request_data and response_data
 // may be NULL if they aren't needed.
-bool DoAGSTransaction(AGSRequestHeader *request, void *request_data,
+bool DoAGSTransaction(AGSRequest *request, void *request_data,
     AGSResponse *response, uint32_t response_data_size, void *response_data);
 
 // Sends a AGS_PLACEHOLDER_REQUEST. If the received response has
@@ -86,5 +92,17 @@ bool DoAGSTransaction(AGSRequestHeader *request, void *request_data,
 // hsa_status specified in AGS' response.
 bool SendAGSPlaceholderRequest(const char *file, const char *func, int line,
     hsa_status_t *result);
+
+// Sends an AGS_HSA_ITERATE_AGENTS request. After receiving the response from
+// AGS, this returns false and sets *result to the result from AGS. Otherwise,
+// this returns true and the normal HSA function should continue.
+bool AGSHandleIterateAgents(hsa_status_t (*callback)(hsa_agent_t agent,
+    void *data), void *data, hsa_status_t *result);
+
+// Sends an AGS_AGENT_GET_INFO request. Returns the response from AGS to the
+// caller. The return boolean and result argument work like the other functions
+// here.
+bool AGSHandleAgentGetInfo(hsa_agent_t agent, hsa_agent_info_t attribute,
+    void *data, hsa_status_t *result);
 
 #endif  // AGS_HSA_STATE_H

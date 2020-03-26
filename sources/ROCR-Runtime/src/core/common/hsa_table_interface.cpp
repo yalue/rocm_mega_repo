@@ -133,14 +133,24 @@ hsa_status_t HSA_API hsa_system_get_major_extension_table(uint16_t extension,
 hsa_status_t HSA_API
     hsa_iterate_agents(hsa_status_t (*callback)(hsa_agent_t agent, void* data),
                        void* data) {
+#ifdef ENABLE_FULL_AGS_INTERCEPTION
+  hsa_status_t result;
+  if (!AGSHandleIterateAgents(callback, data, &result)) return result;
+#else
   DoAGSPlaceholderRequest();
+#endif
   return coreApiTable->hsa_iterate_agents_fn(callback, data);
 }
 
 hsa_status_t HSA_API hsa_agent_get_info(hsa_agent_t agent,
                                         hsa_agent_info_t attribute,
                                         void* value) {
+#ifdef ENABLE_FULL_AGS_INTERCEPTION
+  hsa_status_t result;
+  if (!AGSHandleAgentGetInfo(agent, attribute, value, &result)) return result;
+#else
   DoAGSPlaceholderRequest();
+#endif
   return coreApiTable->hsa_agent_get_info_fn(agent, attribute, value);
 }
 

@@ -35,7 +35,7 @@ static void CleanupAGSState(void) {
 
 // A sanity-checking function to check that the response from AGS is for the
 // given request. Prints a message and exits on error.
-static void VerifyRequestIDs(AGSRequestHeader *request,
+static void VerifyRequestIDs(AGSRequest *request,
     AGSResponse *response) {
   if (request->request_id == response->request_id) return;
   printf("Error: Response request_id doesn't match the request!\n");
@@ -47,14 +47,18 @@ static void VerifyRequestIDs(AGSRequestHeader *request,
   exit(1);
 }
 
-bool DoAGSTransaction(AGSRequestHeader *request, void *request_data,
+bool DoAGSTransaction(AGSRequest *request, void *request_data,
     AGSResponse *response, uint32_t response_data_size, void *response_data) {
   if (!ags_state) {
     printf("Called DoAGSTransaction when not connected to AGS.\n");
     response->prevent_default = 0;
     return false;
   }
+  request->pid = getpid();
+  request->tid = GetTID();
   LockAGS();
+  // We assign the request ID here, behind the lock.
+  request->request_id = ags_state->request_id++;
   if (send(ags_state->fd, request, sizeof(*request), 0) != sizeof(*request)) {
     printf("Failed sending request to AGS: %s\n", strerror(errno));
     UnlockAGS();
@@ -127,16 +131,13 @@ bool InitializeAGSConnection(void) {
 }
 
 bool SendInitialMessage(hsa_status_t *result, bool *prevent_default) {
-  AGSRequestHeader request;
+  AGSRequest request;
   AGSResponse response;
   *prevent_default = 0;
   if (!ags_state) return true;
   memset(&request, 0, sizeof(request));
-  request.pid = getpid();
-  request.tid = GetTID();
   request.request_type = AGS_NEW_PROCESS;
   request.data_size = 0;
-  request.request_id = ags_state->request_id++;
   printf("Sending initial request to AGS for PID %d.\n", (int) request.pid);
   if (!DoAGSTransaction(&request, NULL, &response, 0, NULL)) {
     printf("Failed notifying AGS of process creation.\n");
@@ -148,15 +149,12 @@ bool SendInitialMessage(hsa_status_t *result, bool *prevent_default) {
 }
 
 bool EndAGSConnection(hsa_status_t *result) {
-  AGSRequestHeader request;
+  AGSRequest request;
   AGSResponse response;
   if (!ags_state) return true;
   memset(&request, 0, sizeof(request));
-  request.pid = getpid();
-  request.tid = GetTID();
   request.request_type = AGS_PROCESS_QUITTING;
   request.data_size = 0;
-  request.request_id = ags_state->request_id++;
   if (!DoAGSTransaction(&request, NULL, &response, 0, NULL)) {
     printf("Failed notifying AGS of process ending.\n");
     return true;
@@ -171,7 +169,7 @@ bool EndAGSConnection(hsa_status_t *result) {
 
 bool SendAGSPlaceholderRequest(const char *file, const char *func, int line,
     hsa_status_t *result) {
-  AGSRequestHeader header;
+  AGSRequest header;
   AGSResponse response;
   char data[256];
 
@@ -190,10 +188,7 @@ bool SendAGSPlaceholderRequest(const char *file, const char *func, int line,
     printf("Warning: not enough buffer space to send placeholder request.\n");
     return true;
   }
-  header.pid = getpid();
-  header.tid = GetTID();
   header.request_type = AGS_PLACEHOLDER_REQUEST;
-  header.request_id = ags_state->request_id++;
 
   if (!DoAGSTransaction(&header, data, &response, 0, NULL)) {
     printf("Failed sending placeholder request header to AGS.\n");
@@ -205,3 +200,64 @@ bool SendAGSPlaceholderRequest(const char *file, const char *func, int line,
   }
   return true;
 }
+
+bool AGSHandleIterateAgents(hsa_status_t (*callback)(hsa_agent_t agent,
+    void *data), void *data, hsa_status_t *result) {
+  AGSRequest header;
+  AGSResponse response;
+  hsa_agent_t agents[AGS_MAX_HSA_AGENT_COUNT];
+  int agent_count = 0;
+  int i;
+  if (!ags_state) return true;
+  memset(&header, 0, sizeof(header));
+  header.request_type = AGS_HSA_ITERATE_AGENTS;
+  if (!DoAGSTransaction(&header, NULL, &response, sizeof(agents), agents)) {
+    printf("Failed getting hsa_iterate_agents response from AGS.\n");
+    return true;
+  }
+  if (!response.prevent_default) {
+    printf("AGS error: Expected prevent_default for hsa_iterate_agents.\n");
+    CleanupAGSState();
+    return true;
+  }
+  // At this point, AGS has already handled this request.
+  *result = (hsa_status_t) response.hsa_status;
+  if (response.hsa_status != HSA_STATUS_SUCCESS) {
+    return false;
+  }
+  agent_count = response.data_size / sizeof(hsa_agent_t);
+  for (i = 0; i < agent_count; i++) {
+    callback(agents[i], data);
+  }
+  return false;
+}
+
+bool AGSHandleAgentGetInfo(hsa_agent_t agent, hsa_agent_info_t attribute,
+    void *data, hsa_status_t *result) {
+  AGSRequest header;
+  AGSResponse response;
+  AGSAgentGetInfoRequest args;
+  uint8_t response_data[128];
+  if (!ags_state) return true;
+  args.agent = agent;
+  args.attribute = attribute;
+  header.request_type = AGS_HSA_AGENT_GET_INFO;
+  header.data_size = sizeof(args);
+  if (!DoAGSTransaction(&header, &args, &response, sizeof(response_data),
+    response_data)) {
+    printf("Failed getting hsa_agent_get_info response from AGS.\n");
+    return true;
+  }
+  if (!response.prevent_default) {
+    printf("AGS error: Expected prevent_default for hsa_agent_get_info.\n");
+    CleanupAGSState();
+    return true;
+  }
+  *result = (hsa_status_t) response.hsa_status;
+  if (response.hsa_status != HSA_STATUS_SUCCESS) {
+    return false;
+  }
+  memcpy(data, response_data, response.data_size);
+  return false;
+}
+
