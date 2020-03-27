@@ -1029,8 +1029,13 @@ hsa_status_t HSA_API
 
 hsa_status_t HSA_API
   hsa_amd_profiling_async_copy_enable(bool enable) {
+#ifdef ENABLE_FULL_AGS_INTERCEPTION
+  hsa_status_t r;
+  if (!AGSHandleAMDProfilingAsyncCopyEnable(enable, &r)) return r;
+#else
   DoAGSPlaceholderRequest();
-    return amdExtTable->hsa_amd_profiling_async_copy_enable_fn(enable);
+#endif
+  return amdExtTable->hsa_amd_profiling_async_copy_enable_fn(enable);
 }
 
 // Mirrors Amd Extension Apis
@@ -1164,7 +1169,15 @@ hsa_status_t HSA_API hsa_amd_memory_async_copy_rect(
 hsa_status_t HSA_API hsa_amd_agent_memory_pool_get_info(
     hsa_agent_t agent, hsa_amd_memory_pool_t memory_pool,
     hsa_amd_agent_memory_pool_info_t attribute, void* value) {
+#ifdef ENABLE_FULL_AGS_INTERCEPTION
+  hsa_status_t r;
+  if (!AGSHandleAMDAgentMemoryPoolGetInfo(agent, memory_pool, attribute, value,
+    &r)) {
+    return r;
+  }
+#else
   DoAGSPlaceholderRequest();
+#endif
   return amdExtTable->hsa_amd_agent_memory_pool_get_info_fn(
                                      agent, memory_pool, attribute, value);
 }

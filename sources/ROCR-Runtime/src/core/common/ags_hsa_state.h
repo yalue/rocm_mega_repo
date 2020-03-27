@@ -111,4 +111,11 @@ bool AGSHandleAgentIterateRegions(hsa_agent_t agent, hsa_status_t (*callback)(
 bool AGSHandleRegionGetInfo(hsa_region_t region, hsa_region_info_t attribute,
     void *data, hsa_status_t *result);
 
+bool AGSHandleAMDAgentMemoryPoolGetInfo(hsa_agent_t agent,
+    hsa_amd_memory_pool_t memory_pool,
+    hsa_amd_agent_memory_pool_info_t attribute, void *value,
+    hsa_status_t *result);
+
+bool AGSHandleAMDProfilingAsyncCopyEnable(bool value, hsa_status_t *result);
+
 #endif  // AGS_HSA_STATE_H

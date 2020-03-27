@@ -332,3 +332,67 @@ bool AGSHandleRegionGetInfo(hsa_region_t region, hsa_region_info_t attribute,
   memcpy(data, response_data, response.data_size);
   return false;
 }
+
+bool AGSHandleAMDAgentMemoryPoolGetInfo(hsa_agent_t agent,
+    hsa_amd_memory_pool_t memory_pool,
+    hsa_amd_agent_memory_pool_info_t attribute, void *value,
+    hsa_status_t *result) {
+  AGSRequest request;
+  AGSResponse response;
+  AGSAMDAgentMemoryPoolGetInfoRequest request_args;
+  void *response_data = NULL;
+  if (!ags_state) return true;
+
+  response_data = malloc(AGS_MAX_DATA_SIZE);
+  if (!response_data) {
+    printf("Failed allocating response data for amd_agent_memory_pool...\n");
+    CleanupAGSState();
+    return true;
+  }
+  memset(response_data, 0, AGS_MAX_DATA_SIZE);
+  request_args.agent = agent;
+  request_args.memory_pool = memory_pool;
+  request_args.attribute = attribute;
+  request.data_size = sizeof(request_args);
+  request.request_type = AGS_AMD_AGENT_MEMORY_POOL_GET_INFO;
+  if (!DoAGSTransaction(&request, &request_args, &response, AGS_MAX_DATA_SIZE,
+    response_data)) {
+    printf("Failed getting hsa_amd_agent_memory_pool_get_info response.\n");
+    CleanupAGSState();
+    free(response_data);
+    return true;
+  }
+  if (!response.prevent_default) {
+    printf("Error: Expected prevent_default for amd_agent_memory_pool...\n");
+    CleanupAGSState();
+    free(response_data);
+    return true;
+  }
+  *result = (hsa_status_t) response.hsa_status;
+  if (*result != HSA_STATUS_SUCCESS) {
+    free(response_data);
+    return false;
+  }
+  memcpy(value, response_data, response.data_size);
+  free(response_data);
+  return false;
+}
+
+bool AGSHandleAMDProfilingAsyncCopyEnable(bool value, hsa_status_t *result) {
+  AGSRequest request;
+  AGSResponse response;
+  if (!ags_state) return true;
+  uint8_t arg = 0;
+  if (value) arg = 1;
+  request.data_size = 1;
+  request.request_type = AGS_AMD_PROFILING_ASYNC_COPY_ENABLE;
+  if (!DoAGSTransaction(&request, &arg, &response, 0, NULL)) {
+    printf("Failed getting hsa_amd_profiling_async_copy_enable response.\n");
+    CleanupAGSState();
+    return true;
+  }
+  // Maybe I won't call this one an error if it doesn't set prevent_default,
+  // since it doesn't take any handle arguments that could cause crashes.
+  *result = (hsa_status_t) response.hsa_status;
+  return response.prevent_default == 0;
+}
