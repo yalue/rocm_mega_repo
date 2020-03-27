@@ -313,14 +313,24 @@ void HSA_API hsa_queue_store_read_index_screlease(const hsa_queue_t* queue, uint
 hsa_status_t HSA_API hsa_agent_iterate_regions(
     hsa_agent_t agent,
     hsa_status_t (*callback)(hsa_region_t region, void* data), void* data) {
+#ifdef ENABLE_FULL_AGS_INTERCEPTION
+  hsa_status_t r;
+  if (!AGSHandleAgentIterateRegions(agent, callback, data, &r)) return r;
+#else
   DoAGSPlaceholderRequest();
+#endif
   return coreApiTable->hsa_agent_iterate_regions_fn(agent, callback, data);
 }
 
 hsa_status_t HSA_API hsa_region_get_info(hsa_region_t region,
                                          hsa_region_info_t attribute,
                                          void* value) {
+#ifdef ENABLE_FULL_AGS_INTERCEPTION
+  hsa_status_t r;
+  if (!AGSHandleRegionGetInfo(region, attribute, value, &r)) return r;
+#else
   DoAGSPlaceholderRequest();
+#endif
   return coreApiTable->hsa_region_get_info_fn(region, attribute, value);
 }
 

@@ -254,10 +254,81 @@ bool AGSHandleAgentGetInfo(hsa_agent_t agent, hsa_agent_info_t attribute,
     return true;
   }
   *result = (hsa_status_t) response.hsa_status;
-  if (response.hsa_status != HSA_STATUS_SUCCESS) {
-    return false;
-  }
+  if (response.hsa_status != HSA_STATUS_SUCCESS) return false;
   memcpy(data, response_data, response.data_size);
   return false;
 }
 
+bool AGSHandleAgentIterateRegions(hsa_agent_t agent, hsa_status_t (*callback)(
+    hsa_region_t region, void *data), void *data, hsa_status_t *result) {
+  AGSRequest header;
+  AGSResponse response;
+  hsa_region_t *regions = NULL;
+  int result_buffer_size = AGS_MAX_HSA_REGION_COUNT * sizeof(hsa_region_t);
+  int region_count = 0;
+  int i;
+  if (!ags_state) return true;
+  regions = (hsa_region_t *) malloc(result_buffer_size);
+  if (!regions) {
+    printf("Failed allocating buffer for hsa_agent_iterate_regions result.\n");
+    return true;
+  }
+  memset(&header, 0, sizeof(header));
+  header.request_type = AGS_HSA_AGENT_ITERATE_REGIONS;
+  header.data_size = sizeof(agent);
+  if (!DoAGSTransaction(&header, &agent, &response, result_buffer_size,
+    regions)) {
+    printf("Failed getting hsa_agent_iterate_regions response from AGS.\n");
+    free(regions);
+    return true;
+  }
+  if (!response.prevent_default) {
+    printf("Error: Expected prevent_default for hsa_agent_iterate_regions.\n");
+    CleanupAGSState();
+    free(regions);
+    return true;
+  }
+
+  // At this point, AGS has already handled this request.
+  *result = (hsa_status_t) response.hsa_status;
+  if (response.hsa_status != HSA_STATUS_SUCCESS) {
+    free(regions);
+    return false;
+  }
+  region_count = response.data_size / sizeof(hsa_region_t);
+  for (i = 0; i < region_count; i++) {
+    callback(regions[i], data);
+  }
+  free(regions);
+  return false;
+}
+
+bool AGSHandleRegionGetInfo(hsa_region_t region, hsa_region_info_t attribute,
+    void *data, hsa_status_t *result) {
+  AGSRequest request;
+  AGSResponse response;
+  AGSRegionGetInfoRequest request_args;
+  uint8_t response_data[64];
+  if (!ags_state) return true;
+
+  request_args.region = region;
+  request_args.attribute = attribute;
+  request.data_size = sizeof(request_args);
+  request.request_type = AGS_HSA_REGION_GET_INFO;
+  if (!DoAGSTransaction(&request, &request_args, &response,
+    sizeof(response_data), response_data)) {
+    printf("Failed getting hsa_region_get_info response from AGS.\n");
+    CleanupAGSState();
+    return true;
+  }
+
+  if (!response.prevent_default) {
+    printf("Error: Expected prevent_default for hsa_region_get_info.\n");
+    CleanupAGSState();
+    return true;
+  }
+  *result = (hsa_status_t) response.hsa_status;
+  if (*result != HSA_STATUS_SUCCESS) return false;
+  memcpy(data, response_data, response.data_size);
+  return false;
+}

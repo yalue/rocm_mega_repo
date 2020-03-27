@@ -105,4 +105,10 @@ bool AGSHandleIterateAgents(hsa_status_t (*callback)(hsa_agent_t agent,
 bool AGSHandleAgentGetInfo(hsa_agent_t agent, hsa_agent_info_t attribute,
     void *data, hsa_status_t *result);
 
+bool AGSHandleAgentIterateRegions(hsa_agent_t agent, hsa_status_t (*callback)(
+    hsa_region_t region, void *data), void *data, hsa_status_t *result);
+
+bool AGSHandleRegionGetInfo(hsa_region_t region, hsa_region_info_t attribute,
+    void *data, hsa_status_t *result);
+
 #endif  // AGS_HSA_STATE_H
