@@ -446,3 +446,32 @@ bool AGSHandleAMDAgentIterateMemoryPools(hsa_agent_t agent,
   free(memory_pools);
   return false;
 }
+
+bool AGSHandleAMDMemoryPoolGetInfo(hsa_amd_memory_pool_t memory_pool,
+  hsa_amd_memory_pool_info_t attribute, void *value, hsa_status_t *result) {
+  AGSRequest request;
+  AGSResponse response;
+  AGSAMDMemoryPoolGetInfoRequest args;
+  uint8_t response_data[32];
+  if (!ags_state) return true;
+
+  args.memory_pool = memory_pool;
+  args.attribute = attribute;
+  request.data_size = sizeof(args);
+  request.request_type = AGS_AMD_MEMORY_POOL_GET_INFO;
+  if (!DoAGSTransaction(&request, &args, &response, sizeof(response_data),
+    response_data)) {
+    printf("Failed getting hsa_amd_memory_pool_get_info response.\n");
+    CleanupAGSState();
+    return true;
+  }
+
+  if (!response.prevent_default) {
+    printf("Expected prevent_default for hsa_amd_memory_pool_get_info.\n");
+    CleanupAGSState();
+    return true;
+  }
+  *result = (hsa_status_t) response.hsa_status;
+  memcpy(result, response_data, response.data_size);
+  return false;
+}

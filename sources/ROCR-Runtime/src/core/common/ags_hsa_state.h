@@ -122,4 +122,7 @@ bool AGSHandleAMDAgentIterateMemoryPools(hsa_agent_t agent,
     hsa_status_t (*callback)(hsa_amd_memory_pool_t memory_pool, void *data),
     void *data, hsa_status_t *result);
 
+bool AGSHandleAMDMemoryPoolGetInfo(hsa_amd_memory_pool_t memory_pool,
+  hsa_amd_memory_pool_info_t attribute, void *value, hsa_status_t *result);
+
 #endif  // AGS_HSA_STATE_H

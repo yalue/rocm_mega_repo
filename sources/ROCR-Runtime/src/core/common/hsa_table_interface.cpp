@@ -1110,7 +1110,14 @@ hsa_status_t HSA_API
     hsa_amd_memory_pool_get_info(hsa_amd_memory_pool_t memory_pool,
                                  hsa_amd_memory_pool_info_t attribute,
                                  void* value) {
+#ifdef ENABLE_FULL_AGS_INTERCEPTION
+  hsa_status_t r;
+  if (!AGSHandleAMDMemoryPoolGetInfo(memory_pool, attribute, value, &r)) {
+    return r;
+  }
+#else
   DoAGSPlaceholderRequest();
+#endif
   return amdExtTable->hsa_amd_memory_pool_get_info_fn(
                                      memory_pool, attribute, value);
 }
