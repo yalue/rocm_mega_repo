@@ -1120,7 +1120,14 @@ hsa_status_t HSA_API hsa_amd_agent_iterate_memory_pools(
     hsa_agent_t agent,
     hsa_status_t (*callback)(hsa_amd_memory_pool_t memory_pool, void* data),
     void* data) {
+#ifdef ENABLE_FULL_AGS_INTERCEPTION
+  hsa_status_t r;
+  if (!AGSHandleAMDAgentIterateMemoryPools(agent, callback, data, &r)) {
+    return r;
+  }
+#else
   DoAGSPlaceholderRequest();
+#endif
   return amdExtTable->hsa_amd_agent_iterate_memory_pools_fn(
                                      agent, callback, data);
 }

@@ -396,3 +396,53 @@ bool AGSHandleAMDProfilingAsyncCopyEnable(bool value, hsa_status_t *result) {
   *result = (hsa_status_t) response.hsa_status;
   return response.prevent_default == 0;
 }
+
+bool AGSHandleAMDAgentIterateMemoryPools(hsa_agent_t agent,
+    hsa_status_t (*callback)(hsa_amd_memory_pool_t memory_pool, void *data),
+    void *data, hsa_status_t *result) {
+  AGSRequest request;
+  AGSResponse response;
+  hsa_amd_memory_pool_t *memory_pools = NULL;
+  int response_data_size, memory_pool_count, i;
+  if (!ags_state) return true;
+
+  response_data_size = AGS_MAX_AMD_AGENT_MEMORY_POOLS *
+    sizeof(hsa_amd_memory_pool_t);
+  memory_pools = (hsa_amd_memory_pool_t *) malloc(response_data_size);
+  if (!memory_pools) {
+    printf("Failed allocating space for AMD agent memory pools.\n");
+    CleanupAGSState();
+    return true;
+  }
+  request.request_type = AGS_AMD_AGENT_ITERATE_MEMORY_POOLS;
+  request.data_size = sizeof(agent);
+  if (!DoAGSTransaction(&request, &agent, &response, response_data_size,
+    memory_pools)) {
+    printf("Failed getting hsa_amd_agent_iterate_memory_pools response.\n");
+    free(memory_pools);
+    CleanupAGSState();
+    return true;
+  }
+  if (!response.prevent_default) {
+    printf("Expected prevent_default for amd_agent_iterate_memory...\n");
+    free(memory_pools);
+    CleanupAGSState();
+    return true;
+  }
+
+  *result = (hsa_status_t) response.hsa_status;
+  if (*result != HSA_STATUS_SUCCESS) {
+    free(memory_pools);
+    return false;
+  }
+  memory_pool_count = response.data_size / sizeof(hsa_amd_memory_pool_t);
+  for (i = 0; i < memory_pool_count; i++) {
+    *result = callback(memory_pools[i], data);
+    if (*result != HSA_STATUS_SUCCESS) {
+      free(memory_pools);
+      return false;
+    }
+  }
+  free(memory_pools);
+  return false;
+}

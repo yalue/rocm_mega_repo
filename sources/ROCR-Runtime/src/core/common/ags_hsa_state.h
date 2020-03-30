@@ -11,7 +11,7 @@
 // functions to execute in the context of AGS' process rather than the client
 // processes. If false, the HSA clients will only send placeholder requests to
 // AGS, which are useful for tracing and ensuring that nothing's broken.
-//#define ENABLE_FULL_AGS_INTERCEPTION (1)
+#define ENABLE_FULL_AGS_INTERCEPTION (1)
 
 // Sends a placeholder request to AGS. Returns from the surrounding function if
 // AGS' response sets prevent_default (AGS should not do this, though). Allows
@@ -117,5 +117,9 @@ bool AGSHandleAMDAgentMemoryPoolGetInfo(hsa_agent_t agent,
     hsa_status_t *result);
 
 bool AGSHandleAMDProfilingAsyncCopyEnable(bool value, hsa_status_t *result);
+
+bool AGSHandleAMDAgentIterateMemoryPools(hsa_agent_t agent,
+    hsa_status_t (*callback)(hsa_amd_memory_pool_t memory_pool, void *data),
+    void *data, hsa_status_t *result);
 
 #endif  // AGS_HSA_STATE_H
