@@ -472,6 +472,6 @@ bool AGSHandleAMDMemoryPoolGetInfo(hsa_amd_memory_pool_t memory_pool,
     return true;
   }
   *result = (hsa_status_t) response.hsa_status;
-  memcpy(result, response_data, response.data_size);
+  memcpy(value, response_data, response.data_size);
   return false;
 }
