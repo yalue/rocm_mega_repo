@@ -475,3 +475,61 @@ bool AGSHandleAMDMemoryPoolGetInfo(hsa_amd_memory_pool_t memory_pool,
   memcpy(value, response_data, response.data_size);
   return false;
 }
+
+bool AGSHandleAMDMemoryPoolAllocate(hsa_amd_memory_pool_t memory_pool,
+    size_t size, uint32_t flags, void **ptr, hsa_status_t *result) {
+  AGSRequest request;
+  AGSResponse response;
+  AGSAMDMemoryPoolAllocateRequest args;
+  void *response_data;
+  if (!ags_state) return true;
+
+  args.memory_pool = memory_pool;
+  args.size = size;
+  args.flags = flags;
+  request.data_size = sizeof(args);
+  request.request_type = AGS_AMD_MEMORY_POOL_ALLOCATE;
+  if (!DoAGSTransaction(&request, &args, &response, sizeof(response_data),
+    &response_data)) {
+    printf("Failed getting hsa_amd_memory_pool_allocate response.\n");
+    CleanupAGSState();
+    return true;
+  }
+
+  if (!response.prevent_default) {
+    printf("Expected prevent_default for hsa_amd_memory_pool_allocate.\n");
+    CleanupAGSState();
+    return true;
+  }
+  *result = (hsa_status_t) response.hsa_status;
+  *ptr = response_data;
+  return false;
+}
+
+bool AGSHandleHSAMemoryAllocate(hsa_region_t region, size_t size, void **ptr,
+    hsa_status_t *result) {
+  AGSRequest request;
+  AGSResponse response;
+  AGSMemoryAllocateRequest args;
+  void *response_data;
+  if (!ags_state) return true;
+  args.region = region;
+  args.size = size;
+  request.data_size = sizeof(args);
+  request.request_type = AGS_HSA_MEMORY_ALLOCATE;
+  if (!DoAGSTransaction(&request, &args, &response, sizeof(response_data),
+    &response_data)) {
+    printf("Failed getting hsa_memory_allocate response.\n");
+    CleanupAGSState();
+    return true;
+  }
+
+  if (!response.prevent_default) {
+    printf("Expected prevent_default for hsa_memory_allocate.\n");
+    CleanupAGSState();
+    return true;
+  }
+  *result = (hsa_status_t) response.hsa_status;
+  *ptr = response_data;
+  return false;
+}

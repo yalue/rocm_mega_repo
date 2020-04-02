@@ -346,7 +346,12 @@ hsa_status_t HSA_API hsa_memory_deregister(void* address, size_t size) {
 
 hsa_status_t HSA_API
     hsa_memory_allocate(hsa_region_t region, size_t size, void** ptr) {
+#ifdef ENABLE_FULL_AGS_INTERCEPTION
+  hsa_status_t r;
+  if (!AGSHandleHSAMemoryAllocate(region, size, ptr, &r)) return r;
+#else
   DoAGSPlaceholderRequest();
+#endif
   return coreApiTable->hsa_memory_allocate_fn(region, size, ptr);
 }
 
@@ -1143,7 +1148,14 @@ hsa_status_t HSA_API hsa_amd_agent_iterate_memory_pools(
 hsa_status_t HSA_API
     hsa_amd_memory_pool_allocate(hsa_amd_memory_pool_t memory_pool, size_t size,
                                  uint32_t flags, void** ptr) {
+#ifdef ENABLE_FULL_AGS_INTERCEPTION
+  hsa_status_t r;
+  if (!AGSHandleAMDMemoryPoolAllocate(memory_pool, size, flags, ptr, &r)) {
+    return r;
+  }
+#else
   DoAGSPlaceholderRequest();
+#endif
   return amdExtTable->hsa_amd_memory_pool_allocate_fn(
                                      memory_pool, size, flags, ptr);
 }

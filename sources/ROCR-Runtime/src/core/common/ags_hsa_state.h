@@ -123,6 +123,12 @@ bool AGSHandleAMDAgentIterateMemoryPools(hsa_agent_t agent,
     void *data, hsa_status_t *result);
 
 bool AGSHandleAMDMemoryPoolGetInfo(hsa_amd_memory_pool_t memory_pool,
-  hsa_amd_memory_pool_info_t attribute, void *value, hsa_status_t *result);
+    hsa_amd_memory_pool_info_t attribute, void *value, hsa_status_t *result);
+
+bool AGSHandleAMDMemoryPoolAllocate(hsa_amd_memory_pool_t memory_pool,
+    size_t size, uint32_t flags, void **ptr, hsa_status_t *result);
+
+bool AGSHandleHSAMemoryAllocate(hsa_region_t region, size_t size, void **ptr,
+    hsa_status_t *result);
 
 #endif  // AGS_HSA_STATE_H
