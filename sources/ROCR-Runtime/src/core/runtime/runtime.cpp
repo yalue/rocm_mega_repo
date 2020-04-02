@@ -758,7 +758,13 @@ hsa_status_t Runtime::PtrInfo(void* ptr, hsa_amd_pointer_info_t* info, void* (*a
   {  // memory_lock protects access to the NMappedNodes array and fragment user data since these may
      // change with calls to memory APIs.
     ScopedAcquire<KernelMutex> lock(&memory_lock_);
-    hsaKmtQueryPointerInfo(ptr, &thunkInfo);
+
+    // We don't care if this returns an error code.
+    // The type will be HSA_EXT_POINTER_TYPE_UNKNOWN if so.
+    auto err = hsaKmtQueryPointerInfo(ptr, &thunkInfo);
+    assert(((err == HSAKMT_STATUS_SUCCESS) || (thunkInfo.Type == HSA_POINTER_UNKNOWN)) &&
+           "Thunk ptr info error and not type HSA_POINTER_UNKNOWN.");
+
     if (returnListData) {
       assert(thunkInfo.NMappedNodes <= agents_by_node_.size() &&
              "PointerInfo: Thunk returned more than all agents in NMappedNodes.");
@@ -798,8 +804,8 @@ hsa_status_t Runtime::PtrInfo(void* ptr, hsa_amd_pointer_info_t* info, void* (*a
 
   retInfo.size = Min(info->size, sizeof(hsa_amd_pointer_info_t));
 
-  // Temp: workaround thunk bug, IPC memory has garbage in Node.
-  // retInfo.agentOwner = agents_by_node_[thunkInfo.Node][0]->public_handle();
+  // IPC and Graphics memory may come from a node that does not have an agent in this process.
+  // Ex. ROCR_VISIBLE_DEVICES or peer GPU is not supported by ROCm.
   auto nodeAgents = agents_by_node_.find(thunkInfo.Node);
   if (nodeAgents != agents_by_node_.end())
     retInfo.agentOwner = nodeAgents->second[0]->public_handle();
@@ -1328,8 +1334,7 @@ void Runtime::LoadExtensions() {
   static const std::string kImageLib[] = {"hsa-ext-image.dll",
                                           "libhsa-ext-image.so.1"};
 #endif
-
-  /*
+/*
   // Update Hsa Api Table with handle of Image extension Apis
   extensions_.LoadFinalizer(kFinalizerLib[os_index(os::current_os)]);
   hsa_api_table_.LinkExts(&extensions_.finalizer_api,
@@ -1339,7 +1344,7 @@ void Runtime::LoadExtensions() {
   extensions_.LoadImage(kImageLib[os_index(os::current_os)]);
   hsa_api_table_.LinkExts(&extensions_.image_api,
                           core::HsaApiTable::HSA_EXT_IMAGE_API_TABLE_ID);
-  */
+*/
 }
 
 void Runtime::UnloadExtensions() { extensions_.Unload(); }

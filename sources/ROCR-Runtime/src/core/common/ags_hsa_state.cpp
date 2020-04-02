@@ -7,7 +7,7 @@
 #include <string>
 #include <pthread.h>
 #include <ags_communication.h>
-#include "hsa.h"
+#include "inc/hsa.h"
 #include "ags_hsa_state.h"
 
 // Tracks state of the connection to AGS. Initialized during
