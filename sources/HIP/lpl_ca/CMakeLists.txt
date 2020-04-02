@@ -14,7 +14,7 @@ install(TARGETS lpl RUNTIME DESTINATION bin)
 #-------------------------------------LPL--------------------------------------#
 
 #-------------------------------------CA---------------------------------------#
-add_executable(ca ca.cpp ${PROJECT_SOURCE_DIR}/src/code_object_bundle.cpp)
+add_executable(ca ca.cpp)
 set_target_properties(
     ca PROPERTIES
         CXX_STANDARD 11
@@ -26,7 +26,7 @@ target_include_directories(ca PUBLIC ${PROJECT_SOURCE_DIR}/src)
 find_library(
     hsart NAMES libhsa-runtime64.so libhsa-runtime64.so.1 HINTS ${HSA_PATH}/lib)
 target_link_libraries(ca PUBLIC ${hsart})
-target_compile_options(ca PUBLIC -Wall)
+target_compile_options(ca PUBLIC -DDISABLE_REDUCED_GPU_BLOB_COPY -Wall)
 
 install(TARGETS ca RUNTIME DESTINATION bin)
 #-------------------------------------CA---------------------------------------#

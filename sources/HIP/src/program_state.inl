@@ -1,6 +1,6 @@
 #include "../include/hip/hcc_detail/program_state.hpp"
 
-#include "../include/hip/hcc_detail/code_object_bundle.hpp"
+#include "code_object_bundle.inl"
 #include "../include/hip/hcc_detail/hsa_helpers.hpp"
 
 #if !defined(__cpp_exceptions)
@@ -245,7 +245,8 @@ public:
                     if (!valid(tmp)) break;
 
                     for (auto&& bundle : bundles(tmp)) {
-                        impl.code_object_blobs.second[elf][triple_to_hsa_isa(bundle.triple)].push_back(bundle.blob);
+                        if(bundle.blob.size())
+                            impl.code_object_blobs.second[elf][triple_to_hsa_isa(bundle.triple)].push_back(bundle.blob);
                     }
 
                     blob_it += tmp.bundled_code_size;
@@ -354,8 +355,11 @@ public:
 
             const auto it1 = get_symbol_addresses().find(x);
             if (it1 == get_symbol_addresses().cend()) {
-                hip_throw(std::runtime_error{
-                    "Global symbol: " + x + " is undefined."});
+                // For a unknown symbol, initialize it with a magic poison
+                hsa_executable_agent_global_variable_define(
+                    executable, agent, x.c_str(), 
+                    reinterpret_cast<void*>(0xDEADBEEFDEADBEEFull));
+                continue;
             }
 
             hsa_status_t status;
@@ -423,13 +427,23 @@ public:
           it = std::prev(code_readers.second.end());
         }
 
-        hsa_code_object_reader_create_from_memory(
-            it->first.data(), it->first.size(), it->second.get());
+        auto check_hsa_error = [](hsa_status_t s) {
+            if (s != HSA_STATUS_SUCCESS) {
+                const char* hsa_err_msg;
+                hsa_status_string(s, &hsa_err_msg);
+                hip_throw(std::runtime_error{
+                              std::string("error when loading code object: ") +
+                              hsa_err_msg});
+            }
+        };
 
-        hsa_executable_load_agent_code_object(
-            executable, agent, *it->second, nullptr, nullptr);
+        check_hsa_error(hsa_code_object_reader_create_from_memory(
+            it->first.data(), it->first.size(), it->second.get()));
 
-        hsa_executable_freeze(executable, nullptr);
+        check_hsa_error(hsa_executable_load_agent_code_object(
+            executable, agent, *it->second, nullptr, nullptr));
+
+        check_hsa_error(hsa_executable_freeze(executable, nullptr));
     }
 
 
@@ -608,7 +622,8 @@ public:
                 for (auto&& kernel_symbol : it->second) {
                     functions[aa].second.emplace(
                         function.first,
-                        Kernel_descriptor{kernel_object(kernel_symbol), it->first});
+                        Kernel_descriptor{kernel_object(kernel_symbol), it->first,
+                                          kernargs_size_align(function.first)});
                 }
             }
         }, agent);
@@ -667,11 +682,12 @@ public:
             auto dx1 = kernels_md.find("CodeProps", dx);
             dx = kernels_md.find("Args:", dx);
 
-            if (dx1 < dx) {
+            if (dx1 < dx || dx == std::string::npos) {
                 dx = dx1;
+                // create an empty kernarg laybout vector for kernels without any arg 
+                kernargs[fn];
                 continue;
             }
-            if (dx == std::string::npos) break;
 
             static constexpr decltype(kernels_md.size()) args_sz{5};
             dx = parse_args_v2(kernels_md, dx + args_sz, dx1, kernargs[fn]);
