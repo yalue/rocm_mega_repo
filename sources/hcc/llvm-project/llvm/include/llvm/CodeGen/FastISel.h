@@ -534,11 +534,17 @@ protected:
   bool selectCall(const User *I);
   bool selectIntrinsicCall(const IntrinsicInst *II);
   bool selectBitCast(const User *I);
+  bool selectFreeze(const User *I);
   bool selectCast(const User *I, unsigned Opcode);
   bool selectExtractValue(const User *U);
   bool selectInsertValue(const User *I);
   bool selectXRayCustomEvent(const CallInst *II);
   bool selectXRayTypedEvent(const CallInst *II);
+
+  bool shouldOptForSize(const MachineFunction *MF) const {
+    // TODO: Implement PGSO.
+    return MF->getFunction().hasOptSize();
+  }
 
 private:
   /// Handle PHI nodes in successor blocks.

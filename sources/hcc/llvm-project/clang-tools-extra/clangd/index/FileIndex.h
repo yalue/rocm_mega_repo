@@ -7,7 +7,7 @@
 //===----------------------------------------------------------------------===//
 //
 // FileIndex implements SymbolIndex for symbols from a set of files. Symbols are
-// maintained at source-file granuality (e.g. with ASTs), and files can be
+// maintained at source-file granularity (e.g. with ASTs), and files can be
 // updated dynamically.
 //
 //===----------------------------------------------------------------------===//
@@ -25,6 +25,7 @@
 #include <memory>
 
 namespace clang {
+class ASTContext;
 namespace clangd {
 class ParsedAST;
 
@@ -97,7 +98,7 @@ public:
 
   /// Update preamble symbols of file \p Path with all declarations in \p AST
   /// and macros in \p PP.
-  void updatePreamble(PathRef Path, ASTContext &AST,
+  void updatePreamble(PathRef Path, llvm::StringRef Version, ASTContext &AST,
                       std::shared_ptr<Preprocessor> PP,
                       const CanonicalIncludes &Includes);
 
@@ -139,9 +140,10 @@ using SlabTuple = std::tuple<SymbolSlab, RefSlab, RelationSlab>;
 /// Exposed to assist in unit tests.
 SlabTuple indexMainDecls(ParsedAST &AST);
 
-/// Idex declarations from \p AST and macros from \p PP that are declared in
+/// Index declarations from \p AST and macros from \p PP that are declared in
 /// included headers.
-SlabTuple indexHeaderSymbols(ASTContext &AST, std::shared_ptr<Preprocessor> PP,
+SlabTuple indexHeaderSymbols(llvm::StringRef Version, ASTContext &AST,
+                             std::shared_ptr<Preprocessor> PP,
                              const CanonicalIncludes &Includes);
 
 } // namespace clangd

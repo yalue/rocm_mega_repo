@@ -104,6 +104,8 @@ public:
 
 /// Subclass of DDGNode representing single or multi-instruction nodes.
 class SimpleDDGNode : public DDGNode {
+  friend class DDGBuilder;
+
 public:
   SimpleDDGNode() = delete;
   SimpleDDGNode(Instruction &I);
@@ -300,6 +302,7 @@ using DDGInfo = DependenceGraphInfo<DDGNode>;
 
 /// Data Dependency Graph
 class DataDependenceGraph : public DDGBase, public DDGInfo {
+  friend AbstractDependenceGraphBuilder<DataDependenceGraph>;
   friend class DDGBuilder;
 
 public:
@@ -311,7 +314,7 @@ public:
   DataDependenceGraph(DataDependenceGraph &&G)
       : DDGBase(std::move(G)), DDGInfo(std::move(G)) {}
   DataDependenceGraph(Function &F, DependenceInfo &DI);
-  DataDependenceGraph(const Loop &L, DependenceInfo &DI);
+  DataDependenceGraph(Loop &L, LoopInfo &LI, DependenceInfo &DI);
   ~DataDependenceGraph();
 
   /// If node \p N belongs to a pi-block return a pointer to the pi-block,
@@ -381,6 +384,18 @@ public:
     return *E;
   }
 
+  const NodeListType &getNodesInPiBlock(const DDGNode &N) final override {
+    auto *PiNode = dyn_cast<const PiBlockDDGNode>(&N);
+    assert(PiNode && "Expected a pi-block node.");
+    return PiNode->getNodes();
+  }
+
+  /// Return true if the two nodes \pSrc and \pTgt are both simple nodes and
+  /// the consecutive instructions after merging belong to the same basic block.
+  bool areNodesMergeable(const DDGNode &Src,
+                         const DDGNode &Tgt) const final override;
+  void mergeNodes(DDGNode &Src, DDGNode &Tgt) final override;
+  bool shouldSimplify() const final override;
   bool shouldCreatePiBlocks() const final override;
 };
 

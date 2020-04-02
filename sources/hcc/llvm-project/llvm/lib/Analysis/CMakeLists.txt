@@ -1,4 +1,4 @@
-add_llvm_library(LLVMAnalysis
+add_llvm_component_library(LLVMAnalysis
   AliasAnalysis.cpp
   AliasAnalysisEvaluator.cpp
   AliasAnalysisSummary.cpp
@@ -53,6 +53,7 @@ add_llvm_library(LLVMAnalysis
   LoopAccessAnalysis.cpp
   LoopAnalysisManager.cpp
   LoopCacheAnalysis.cpp
+  LoopNestAnalysis.cpp
   LoopUnrollAnalyzer.cpp
   LoopInfo.cpp
   LoopPass.cpp
@@ -70,7 +71,6 @@ add_llvm_library(LLVMAnalysis
   ObjCARCAnalysisUtils.cpp
   ObjCARCInstKind.cpp
   OptimizationRemarkEmitter.cpp
-  OrderedBasicBlock.cpp
   OrderedInstructions.cpp
   PHITransAddr.cpp
   PhiValues.cpp

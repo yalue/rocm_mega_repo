@@ -9,6 +9,7 @@
 #include "llvm/IR/User.h"
 #include "llvm/IR/Constant.h"
 #include "llvm/IR/GlobalValue.h"
+#include "llvm/IR/IntrinsicInst.h"
 
 namespace llvm {
 class BasicBlock;
@@ -105,6 +106,12 @@ MutableArrayRef<uint8_t> User::getDescriptor() {
       reinterpret_cast<uint8_t *>(DI) - DI->SizeInBytes, DI->SizeInBytes);
 }
 
+bool User::isDroppable() const {
+  if (const auto *Intr = dyn_cast<IntrinsicInst>(this))
+    return Intr->getIntrinsicID() == Intrinsic::assume;
+  return false;
+}
+
 //===----------------------------------------------------------------------===//
 //                         User operator new Implementations
 //===----------------------------------------------------------------------===//
@@ -162,7 +169,9 @@ void *User::operator new(size_t Size) {
 //                         User operator delete Implementation
 //===----------------------------------------------------------------------===//
 
-void User::operator delete(void *Usr) {
+// Repress memory sanitization, due to use-after-destroy by operator
+// delete. Bug report 24578 identifies this issue.
+LLVM_NO_SANITIZE_MEMORY_ATTRIBUTE void User::operator delete(void *Usr) {
   // Hung off uses use a single Use* before the User, while other subclasses
   // use a Use[] allocated prior to the user.
   User *Obj = static_cast<User *>(Usr);

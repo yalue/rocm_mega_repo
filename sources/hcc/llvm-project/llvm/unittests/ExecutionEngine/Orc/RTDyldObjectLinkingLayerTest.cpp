@@ -50,7 +50,7 @@ static bool testSetProcessAllSections(std::unique_ptr<MemoryBuffer> Obj,
   bool DebugSectionSeen = false;
 
   ExecutionSession ES;
-  auto &JD = ES.createJITDylib("main");
+  auto &JD = ES.createBareJITDylib("main");
   auto Foo = ES.intern("foo");
 
   RTDyldObjectLinkingLayer ObjLayer(ES, [&DebugSectionSeen]() {
@@ -63,8 +63,9 @@ static bool testSetProcessAllSections(std::unique_ptr<MemoryBuffer> Obj,
 
   ObjLayer.setProcessAllSections(ProcessAllSections);
   cantFail(ObjLayer.add(JD, std::move(Obj), ES.allocateVModule()));
-  ES.lookup(JITDylibSearchList({{&JD, false}}), {Foo}, SymbolState::Resolved,
-            OnResolveDoNothing, NoDependenciesToRegister);
+  ES.lookup(LookupKind::Static, makeJITDylibSearchOrder(&JD),
+            SymbolLookupSet(Foo), SymbolState::Resolved, OnResolveDoNothing,
+            NoDependenciesToRegister);
 
   return DebugSectionSeen;
 }
@@ -88,7 +89,7 @@ TEST(RTDyldObjectLinkingLayerTest, TestSetProcessAllSections) {
   if (!TM)
     return;
 
-  auto Obj = SimpleCompiler(*TM)(*M);
+  auto Obj = cantFail(SimpleCompiler(*TM)(*M));
 
   EXPECT_FALSE(testSetProcessAllSections(
       MemoryBuffer::getMemBufferCopy(Obj->getBuffer()), false))
@@ -114,7 +115,7 @@ TEST(RTDyldObjectLinkingLayerTest, TestOverrideObjectFlags) {
   public:
     FunkySimpleCompiler(TargetMachine &TM) : SimpleCompiler(TM) {}
 
-    CompileResult operator()(Module &M) {
+    Expected<CompileResult> operator()(Module &M) {
       auto *Foo = M.getFunction("foo");
       assert(Foo && "Expected function Foo not found");
       Foo->setVisibility(GlobalValue::HiddenVisibility);
@@ -150,17 +151,19 @@ TEST(RTDyldObjectLinkingLayerTest, TestOverrideObjectFlags) {
 
   // Create a simple stack and set the override flags option.
   ExecutionSession ES;
-  auto &JD = ES.createJITDylib("main");
+  auto &JD = ES.createBareJITDylib("main");
   auto Foo = ES.intern("foo");
   RTDyldObjectLinkingLayer ObjLayer(
       ES, []() { return std::make_unique<SectionMemoryManager>(); });
-  IRCompileLayer CompileLayer(ES, ObjLayer, FunkySimpleCompiler(*TM));
+  IRCompileLayer CompileLayer(ES, ObjLayer,
+                              std::make_unique<FunkySimpleCompiler>(*TM));
 
   ObjLayer.setOverrideObjectFlagsWithResponsibilityFlags(true);
 
   cantFail(CompileLayer.add(JD, std::move(M), ES.allocateVModule()));
   ES.lookup(
-      JITDylibSearchList({{&JD, false}}), {Foo}, SymbolState::Resolved,
+      LookupKind::Static, makeJITDylibSearchOrder(&JD), SymbolLookupSet(Foo),
+      SymbolState::Resolved,
       [](Expected<SymbolMap> R) { cantFail(std::move(R)); },
       NoDependenciesToRegister);
 }
@@ -182,7 +185,7 @@ TEST(RTDyldObjectLinkingLayerTest, TestAutoClaimResponsibilityForSymbols) {
   public:
     FunkySimpleCompiler(TargetMachine &TM) : SimpleCompiler(TM) {}
 
-    CompileResult operator()(Module &M) {
+    Expected<CompileResult> operator()(Module &M) {
       Function *BarImpl = Function::Create(
           FunctionType::get(Type::getVoidTy(M.getContext()), {}, false),
           GlobalValue::ExternalLinkage, "bar", &M);
@@ -215,17 +218,19 @@ TEST(RTDyldObjectLinkingLayerTest, TestAutoClaimResponsibilityForSymbols) {
 
   // Create a simple stack and set the override flags option.
   ExecutionSession ES;
-  auto &JD = ES.createJITDylib("main");
+  auto &JD = ES.createBareJITDylib("main");
   auto Foo = ES.intern("foo");
   RTDyldObjectLinkingLayer ObjLayer(
       ES, []() { return std::make_unique<SectionMemoryManager>(); });
-  IRCompileLayer CompileLayer(ES, ObjLayer, FunkySimpleCompiler(*TM));
+  IRCompileLayer CompileLayer(ES, ObjLayer,
+                              std::make_unique<FunkySimpleCompiler>(*TM));
 
   ObjLayer.setAutoClaimResponsibilityForObjectSymbols(true);
 
   cantFail(CompileLayer.add(JD, std::move(M), ES.allocateVModule()));
   ES.lookup(
-      JITDylibSearchList({{&JD, false}}), {Foo}, SymbolState::Resolved,
+      LookupKind::Static, makeJITDylibSearchOrder(&JD), SymbolLookupSet(Foo),
+      SymbolState::Resolved,
       [](Expected<SymbolMap> R) { cantFail(std::move(R)); },
       NoDependenciesToRegister);
 }

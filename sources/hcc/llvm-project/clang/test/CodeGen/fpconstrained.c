@@ -10,12 +10,12 @@ float f0, f1, f2;
 void foo() {
   // CHECK-LABEL: define {{.*}}void @foo()
 
-  // MAYTRAP: llvm.experimental.constrained.fadd.f32(float %0, float %1, metadata !"round.tonearest", metadata !"fpexcept.maytrap")
-  // EXCEPT: llvm.experimental.constrained.fadd.f32(float %0, float %1, metadata !"round.tonearest", metadata !"fpexcept.strict")
-  // FPMODELSTRICT: llvm.experimental.constrained.fadd.f32(float %0, float %1, metadata !"round.dynamic", metadata !"fpexcept.strict")
-  // STRICTEXCEPT: llvm.experimental.constrained.fadd.f32(float %0, float %1, metadata !"round.dynamic", metadata !"fpexcept.strict")
-  // STRICTNOEXCEPT: llvm.experimental.constrained.fadd.f32(float %0, float %1, metadata !"round.dynamic", metadata !"fpexcept.ignore")
-  // PRECISE: fadd contract float %0, %1
+  // MAYTRAP: llvm.experimental.constrained.fadd.f32(float %{{.*}}, float %{{.*}}, metadata !"round.tonearest", metadata !"fpexcept.maytrap")
+  // EXCEPT: llvm.experimental.constrained.fadd.f32(float %{{.*}}, float %{{.*}}, metadata !"round.tonearest", metadata !"fpexcept.strict")
+  // FPMODELSTRICT: llvm.experimental.constrained.fadd.f32(float %{{.*}}, float %{{.*}}, metadata !"round.dynamic", metadata !"fpexcept.strict")
+  // STRICTEXCEPT: llvm.experimental.constrained.fadd.f32(float %{{.*}}, float %{{.*}}, metadata !"round.dynamic", metadata !"fpexcept.strict")
+  // STRICTNOEXCEPT: llvm.experimental.constrained.fadd.f32(float %{{.*}}, float %{{.*}}, metadata !"round.dynamic", metadata !"fpexcept.ignore")
+  // PRECISE: fadd contract float %{{.*}}, %{{.*}}
   // FAST: fadd fast
   f0 = f1 + f2;
 

@@ -10,7 +10,6 @@
 #define LLD_ELF_INPUT_FILES_H
 
 #include "Config.h"
-#include "lld/Common/DWARF.h"
 #include "lld/Common/ErrorHandler.h"
 #include "lld/Common/LLVM.h"
 #include "lld/Common/Reproduce.h"
@@ -25,6 +24,7 @@
 #include <map>
 
 namespace llvm {
+struct DILineInfo;
 class TarWriter;
 namespace lto {
 class InputFile;
@@ -32,6 +32,7 @@ class InputFile;
 } // namespace llvm
 
 namespace lld {
+class DWARFCache;
 
 // Returns "<internal>", "foo.a(bar.o)" or "baz.o".
 std::string toString(const elf::InputFile *f);
@@ -199,7 +200,7 @@ public:
   ArrayRef<Symbol *> getGlobalSymbols();
 
   ObjFile(MemoryBufferRef m, StringRef archiveName) : ELFFileBase(ObjKind, m) {
-    this->archiveName = archiveName;
+    this->archiveName = std::string(archiveName);
   }
 
   void parse(bool ignoreComdats = false);
@@ -249,11 +250,14 @@ public:
   // SHT_LLVM_CALL_GRAPH_PROFILE table
   ArrayRef<Elf_CGProfile> cgProfile;
 
+  // Get cached DWARF information.
+  DWARFCache *getDwarf();
+
 private:
   void initializeSections(bool ignoreComdats);
   void initializeSymbols();
   void initializeJustSymbols();
-  void initializeDwarf();
+
   InputSectionBase *getRelocTarget(const Elf_Shdr &sec);
   InputSectionBase *createInputSection(const Elf_Shdr &sec);
   StringRef getSectionName(const Elf_Shdr &sec);
@@ -281,8 +285,8 @@ private:
   // reporting. Linker may find reasonable number of errors in a
   // single object file, so we cache debugging information in order to
   // parse it only once for each object file we link.
-  DWARFCache *dwarf;
-  llvm::once_flag initDwarfLine;
+  std::unique_ptr<DWARFCache> dwarf;
+  llvm::once_flag initDwarf;
 };
 
 // LazyObjFile is analogous to ArchiveFile in the sense that
@@ -297,7 +301,7 @@ public:
   LazyObjFile(MemoryBufferRef m, StringRef archiveName,
               uint64_t offsetInArchive)
       : InputFile(LazyObjKind, m), offsetInArchive(offsetInArchive) {
-    this->archiveName = archiveName;
+    this->archiveName = std::string(archiveName);
   }
 
   static bool classof(const InputFile *f) { return f->kind() == LazyObjKind; }
@@ -340,7 +344,7 @@ public:
 class SharedFile : public ELFFileBase {
 public:
   SharedFile(MemoryBufferRef m, StringRef defaultSoName)
-      : ELFFileBase(SharedKind, m), soName(defaultSoName),
+      : ELFFileBase(SharedKind, m), soName(std::string(defaultSoName)),
         isNeeded(!config->asNeeded) {}
 
   // This is actually a vector of Elf_Verdef pointers.

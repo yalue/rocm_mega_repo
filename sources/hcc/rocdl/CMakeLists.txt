@@ -9,16 +9,16 @@ cmake_minimum_required(VERSION 2.8)
 
 cmake_policy(SET CMP0011 NEW)
 
-# Build ROCM-Device-Libs with ccache if the package is present.
-set(ROCM_DEVICE_LIBS_CCACHE_BUILD OFF CACHE BOOL "Set to ON for a ccache enabled build")
-if(ROCM_DEVICE_LIBS_CCACHE_BUILD)
+# Optionally, build Device Libs with ccache.
+set(ROCM_CCACHE_BUILD OFF CACHE BOOL "Set to ON for a ccache enabled build")
+if (ROCM_CCACHE_BUILD)
   find_program(CCACHE_PROGRAM ccache)
-  if(CCACHE_PROGRAM)
+  if (CCACHE_PROGRAM)
     set_property(GLOBAL PROPERTY RULE_LAUNCH_COMPILE ${CCACHE_PROGRAM})
   else()
-    message(FATAL_ERROR "Unable to find the program ccache. Set ROCM_DEVICE_LIBS_CCACHE_BUILD to OFF")
-  endif()
-endif()
+    message(WARNING "Unable to find ccache. Falling back to real compiler")
+  endif() # if (CCACHE_PROGRAM)
+endif() # if (ROCM_CCACHE_BUILD)
 
 if(CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR)
 project(ROCm-Device-Libs)
@@ -41,7 +41,7 @@ if(CMAKE_INSTALL_PREFIX_INITIALIZED_TO_DEFAULT)
   set(CMAKE_INSTALL_PREFIX ${CMAKE_BINARY_DIR}/dist CACHE INTERNAL "Prefix prepended to install directories")
 endif()
 
-find_package(LLVM REQUIRED PATHS ${LLVM_DIR} "/opt/rocm/llvm" NO_DEFAULT_PATH)
+find_package(LLVM REQUIRED PATHS ${LLVM_DIR} "/opt/rocm/llvm")
 list(APPEND CMAKE_MODULE_PATH ${LLVM_CMAKE_DIR})
 include(AddLLVM)
 
@@ -99,7 +99,7 @@ set ( CPACK_GENERATOR "DEB;RPM" CACHE STRING "Default packaging generators." )
 
 ## Debian package values
 set ( CPACK_DEBIAN_PACKAGE_MAINTAINER "AMD" )
-set ( CPACK_PACKAGING_INSTALL_PREFIX "/opt/rocm" )
+set ( CPACK_PACKAGING_INSTALL_PREFIX "/opt/rocm" CACHE PATH "CPACK packaging path prefix default" )
 set ( CPACK_DEBIAN_PACKAGE_DEPENDS "" )
 
 include ( CPack )

@@ -33,6 +33,7 @@ namespace {
 class AArch64AsmBackend : public MCAsmBackend {
   static const unsigned PCRelFlagVal =
       MCFixupKindInfo::FKF_IsAlignedDownTo32Bits | MCFixupKindInfo::FKF_IsPCRel;
+protected:
   Triple TheTriple;
 
 public:
@@ -148,6 +149,19 @@ static unsigned AdrImmBits(unsigned Value) {
   unsigned lo2 = Value & 0x3;
   unsigned hi19 = (Value & 0x1ffffc) >> 2;
   return (hi19 << 5) | (lo2 << 29);
+}
+
+static bool valueFitsIntoFixupKind(unsigned Kind, uint64_t Value) {
+  unsigned NumBits;
+  switch(Kind) {
+  case FK_Data_1: NumBits = 8; break;
+  case FK_Data_2: NumBits = 16; break;
+  case FK_Data_4: NumBits = 32; break;
+  case FK_Data_8: NumBits = 64; break;
+  default: return true;
+  }
+  return isUIntN(NumBits, Value) ||
+    isIntN(NumBits, static_cast<int64_t>(Value));
 }
 
 static uint64_t adjustFixupValue(const MCFixup &Fixup, const MCValue &Target,
@@ -309,11 +323,14 @@ static uint64_t adjustFixupValue(const MCFixup &Fixup, const MCValue &Target,
     if (Value & 0x3)
       Ctx.reportError(Fixup.getLoc(), "fixup not sufficiently aligned");
     return (Value >> 2) & 0x3ffffff;
-  case FK_NONE:
   case FK_Data_1:
   case FK_Data_2:
   case FK_Data_4:
   case FK_Data_8:
+    if (!valueFitsIntoFixupKind(Fixup.getTargetKind(), Value))
+      Ctx.reportError(Fixup.getLoc(), "fixup value too large for data type!");
+    LLVM_FALLTHROUGH;
+  case FK_NONE:
   case FK_SecRel_2:
   case FK_SecRel_4:
     return Value;
@@ -528,7 +545,6 @@ enum CompactUnwindEncodings {
 // FIXME: This should be in a separate file.
 class DarwinAArch64AsmBackend : public AArch64AsmBackend {
   const MCRegisterInfo &MRI;
-  bool IsILP32;
 
   /// Encode compact unwind stack adjustment for frameless functions.
   /// See UNWIND_ARM64_FRAMELESS_STACK_SIZE_MASK in compact_unwind_encoding.h.
@@ -539,18 +555,15 @@ class DarwinAArch64AsmBackend : public AArch64AsmBackend {
 
 public:
   DarwinAArch64AsmBackend(const Target &T, const Triple &TT,
-                          const MCRegisterInfo &MRI, bool IsILP32)
-      : AArch64AsmBackend(T, TT, /*IsLittleEndian*/ true), MRI(MRI),
-        IsILP32(IsILP32) {}
+                          const MCRegisterInfo &MRI)
+      : AArch64AsmBackend(T, TT, /*IsLittleEndian*/ true), MRI(MRI) {}
 
   std::unique_ptr<MCObjectTargetWriter>
   createObjectTargetWriter() const override {
-    if (IsILP32)
-      return createAArch64MachObjectWriter(
-          MachO::CPU_TYPE_ARM64_32, MachO::CPU_SUBTYPE_ARM64_32_V8, true);
-    else
-      return createAArch64MachObjectWriter(MachO::CPU_TYPE_ARM64,
-                                           MachO::CPU_SUBTYPE_ARM64_ALL, false);
+    uint32_t CPUType = cantFail(MachO::getCPUType(TheTriple));
+    uint32_t CPUSubType = cantFail(MachO::getCPUSubType(TheTriple));
+    return createAArch64MachObjectWriter(CPUType, CPUSubType,
+                                         TheTriple.isArch32Bit());
   }
 
   /// Generate the compact unwind encoding from the CFI directives.
@@ -733,8 +746,7 @@ MCAsmBackend *llvm::createAArch64leAsmBackend(const Target &T,
                                               const MCTargetOptions &Options) {
   const Triple &TheTriple = STI.getTargetTriple();
   if (TheTriple.isOSBinFormatMachO()) {
-    const bool IsILP32 = TheTriple.isArch32Bit();
-    return new DarwinAArch64AsmBackend(T, TheTriple, MRI, IsILP32);
+    return new DarwinAArch64AsmBackend(T, TheTriple, MRI);
   }
 
   if (TheTriple.isOSBinFormatCOFF())

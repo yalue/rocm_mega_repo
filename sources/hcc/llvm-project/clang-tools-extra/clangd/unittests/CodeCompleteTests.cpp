@@ -29,7 +29,9 @@
 #include "gmock/gmock.h"
 #include "gtest/gtest.h"
 #include <condition_variable>
+#include <functional>
 #include <mutex>
+#include <vector>
 
 namespace clang {
 namespace clangd {
@@ -44,11 +46,6 @@ using ::testing::HasSubstr;
 using ::testing::IsEmpty;
 using ::testing::Not;
 using ::testing::UnorderedElementsAre;
-
-class IgnoreDiagnostics : public DiagnosticsConsumer {
-  void onDiagnosticsReady(PathRef File,
-                          std::vector<Diag> Diagnostics) override {}
-};
 
 // GMock helpers for matching completion items.
 MATCHER_P(Named, Name, "") { return arg.Name == Name; }
@@ -141,8 +138,9 @@ CodeCompleteResult completions(llvm::StringRef Text,
                                PathRef FilePath = "foo.cpp") {
   MockFSProvider FS;
   MockCompilationDatabase CDB;
-  IgnoreDiagnostics DiagConsumer;
-  ClangdServer Server(CDB, FS, DiagConsumer, ClangdServer::optsForTest());
+  // To make sure our tests for completiopns inside templates work on Windows.
+  CDB.ExtraClangFlags = {"-fno-delayed-template-parsing"};
+  ClangdServer Server(CDB, FS, ClangdServer::optsForTest());
   return completions(Server, Text, std::move(IndexSymbols), std::move(Opts),
                      FilePath);
 }
@@ -485,7 +483,7 @@ TEST(CompletionTest, Kinds) {
               AllOf(Has("function", CompletionItemKind::Function),
                     Has("variable", CompletionItemKind::Variable),
                     Has("int", CompletionItemKind::Keyword),
-                    Has("Struct", CompletionItemKind::Class),
+                    Has("Struct", CompletionItemKind::Struct),
                     Has("MACRO", CompletionItemKind::Text),
                     Has("indexFunction", CompletionItemKind::Function),
                     Has("indexVariable", CompletionItemKind::Variable),
@@ -533,6 +531,17 @@ TEST(CompletionTest, Kinds) {
           AllOf(Named("complete_variable"), Kind(CompletionItemKind::Variable)),
           AllOf(Named("complete_static_member"),
                 Kind(CompletionItemKind::Property))));
+
+   Results = completions(
+      R"cpp(
+        enum Color {
+          Red
+        };
+        Color u = ^
+      )cpp");
+   EXPECT_THAT(Results.Completions,
+               Contains(
+                   AllOf(Named("Red"), Kind(CompletionItemKind::EnumMember))));
 }
 
 TEST(CompletionTest, NoDuplicates) {
@@ -668,13 +677,12 @@ TEST(CompletionTest, IncludeInsertionPreprocessorIntegrationTests) {
   std::string BarHeader = testPath("sub/bar.h");
   FS.Files[BarHeader] = "";
 
-  IgnoreDiagnostics DiagConsumer;
-  ClangdServer Server(CDB, FS, DiagConsumer, ClangdServer::optsForTest());
+  ClangdServer Server(CDB, FS, ClangdServer::optsForTest());
   auto BarURI = URI::create(BarHeader).toString();
   Symbol Sym = cls("ns::X");
   Sym.CanonicalDeclaration.FileURI = BarURI.c_str();
   Sym.IncludeHeaders.emplace_back(BarURI, 1);
-  // Shoten include path based on search dirctory and insert.
+  // Shoten include path based on search directory and insert.
   auto Results = completions(Server,
                              R"cpp(
           int main() { ns::^ }
@@ -707,8 +715,7 @@ TEST(CompletionTest, NoIncludeInsertionWhenDeclFoundInFile) {
   MockFSProvider FS;
   MockCompilationDatabase CDB;
 
-  IgnoreDiagnostics DiagConsumer;
-  ClangdServer Server(CDB, FS, DiagConsumer, ClangdServer::optsForTest());
+  ClangdServer Server(CDB, FS, ClangdServer::optsForTest());
   Symbol SymX = cls("ns::X");
   Symbol SymY = cls("ns::Y");
   std::string BarHeader = testPath("bar.h");
@@ -717,7 +724,7 @@ TEST(CompletionTest, NoIncludeInsertionWhenDeclFoundInFile) {
   SymY.CanonicalDeclaration.FileURI = BarURI.c_str();
   SymX.IncludeHeaders.emplace_back("<bar>", 1);
   SymY.IncludeHeaders.emplace_back("<bar>", 1);
-  // Shoten include path based on search dirctory and insert.
+  // Shoten include path based on search directory and insert.
   auto Results = completions(Server,
                              R"cpp(
           namespace ns {
@@ -735,8 +742,7 @@ TEST(CompletionTest, NoIncludeInsertionWhenDeclFoundInFile) {
 TEST(CompletionTest, IndexSuppressesPreambleCompletions) {
   MockFSProvider FS;
   MockCompilationDatabase CDB;
-  IgnoreDiagnostics DiagConsumer;
-  ClangdServer Server(CDB, FS, DiagConsumer, ClangdServer::optsForTest());
+  ClangdServer Server(CDB, FS, ClangdServer::optsForTest());
 
   FS.Files[testPath("bar.h")] =
       R"cpp(namespace ns { struct preamble { int member; }; })cpp";
@@ -785,10 +791,9 @@ TEST(CompletionTest, CompletionInPreamble) {
 TEST(CompletionTest, DynamicIndexIncludeInsertion) {
   MockFSProvider FS;
   MockCompilationDatabase CDB;
-  IgnoreDiagnostics DiagConsumer;
   ClangdServer::Options Opts = ClangdServer::optsForTest();
   Opts.BuildDynamicSymbolIndex = true;
-  ClangdServer Server(CDB, FS, DiagConsumer, Opts);
+  ClangdServer Server(CDB, FS, Opts);
 
   FS.Files[testPath("foo_header.h")] = R"cpp(
     #pragma once
@@ -814,10 +819,9 @@ TEST(CompletionTest, DynamicIndexIncludeInsertion) {
 TEST(CompletionTest, DynamicIndexMultiFile) {
   MockFSProvider FS;
   MockCompilationDatabase CDB;
-  IgnoreDiagnostics DiagConsumer;
   auto Opts = ClangdServer::optsForTest();
   Opts.BuildDynamicSymbolIndex = true;
-  ClangdServer Server(CDB, FS, DiagConsumer, Opts);
+  ClangdServer Server(CDB, FS, Opts);
 
   FS.Files[testPath("foo.h")] = R"cpp(
       namespace ns { class XYZ {}; void foo(int x) {} }
@@ -875,12 +879,11 @@ TEST(CompletionTest, Documentation) {
 TEST(CompletionTest, CommentsFromSystemHeaders) {
   MockFSProvider FS;
   MockCompilationDatabase CDB;
-  IgnoreDiagnostics DiagConsumer;
 
   auto Opts = ClangdServer::optsForTest();
   Opts.BuildDynamicSymbolIndex = true;
 
-  ClangdServer Server(CDB, FS, DiagConsumer, Opts);
+  ClangdServer Server(CDB, FS, Opts);
 
   FS.Files[testPath("foo.h")] = R"cpp(
     #pragma GCC system_header
@@ -1030,6 +1033,31 @@ TEST(CompletionTest, DefaultArgs) {
                         SnippetSuffix("(${1:int A})"))));
 }
 
+TEST(CompletionTest, NoCrashWithTemplateParamsAndPreferredTypes) {
+  auto Completions = completions(R"cpp(
+template <template <class> class TT> int foo() {
+  int a = ^
+}
+)cpp")
+                         .Completions;
+  EXPECT_THAT(Completions, Contains(Named("TT")));
+}
+
+TEST(CompletionTest, RecordCCResultCallback) {
+  std::vector<CodeCompletion> RecordedCompletions;
+  CodeCompleteOptions Opts;
+  Opts.RecordCCResult = [&RecordedCompletions](const CodeCompletion &CC,
+                                               const SymbolQualitySignals &,
+                                               const SymbolRelevanceSignals &,
+                                               float Score) {
+    RecordedCompletions.push_back(CC);
+  };
+
+  completions("int xy1, xy2; int a = xy^", /*IndexSymbols=*/{}, Opts);
+  EXPECT_THAT(RecordedCompletions,
+              UnorderedElementsAre(Named("xy1"), Named("xy2")));
+}
+
 SignatureHelp signatures(llvm::StringRef Text, Position Point,
                          std::vector<Symbol> IndexSymbols = {}) {
   std::unique_ptr<SymbolIndex> Index;
@@ -1038,11 +1066,10 @@ SignatureHelp signatures(llvm::StringRef Text, Position Point,
 
   MockFSProvider FS;
   MockCompilationDatabase CDB;
-  IgnoreDiagnostics DiagConsumer;
   ClangdServer::Options Opts = ClangdServer::optsForTest();
   Opts.StaticIndex = Index.get();
 
-  ClangdServer Server(CDB, FS, DiagConsumer, Opts);
+  ClangdServer Server(CDB, FS, Opts);
   auto File = testPath("foo.cpp");
   runAddDocument(Server, File, Text);
   return llvm::cantFail(runSignatureHelp(Server, File, Point));
@@ -1074,7 +1101,7 @@ MATCHER_P(SigDoc, Doc, "") { return arg.documentation == Doc; }
 ///    foo([[int p1]], [[double p2]]) -> void
 Matcher<SignatureInformation> Sig(llvm::StringRef AnnotatedLabel) {
   llvm::Annotations A(AnnotatedLabel);
-  std::string Label = A.code();
+  std::string Label = std::string(A.code());
   std::vector<ExpectedParameter> Parameters;
   for (auto Range : A.ranges()) {
     Parameters.emplace_back();
@@ -1193,8 +1220,10 @@ public:
   void lookup(const LookupRequest &,
               llvm::function_ref<void(const Symbol &)>) const override {}
 
-  void refs(const RefsRequest &,
-            llvm::function_ref<void(const Ref &)>) const override {}
+  bool refs(const RefsRequest &,
+            llvm::function_ref<void(const Ref &)>) const override {
+    return false;
+  }
 
   void relations(const RelationsRequest &,
                  llvm::function_ref<void(const SymbolID &, const Symbol &)>)
@@ -1488,8 +1517,7 @@ TEST(CompletionTest, DocumentationFromChangedFileCrash) {
   FS.Files[FooCpp] = "";
 
   MockCompilationDatabase CDB;
-  IgnoreDiagnostics DiagConsumer;
-  ClangdServer Server(CDB, FS, DiagConsumer, ClangdServer::optsForTest());
+  ClangdServer Server(CDB, FS, ClangdServer::optsForTest());
 
   Annotations Source(R"cpp(
     #include "foo.h"
@@ -1498,7 +1526,7 @@ TEST(CompletionTest, DocumentationFromChangedFileCrash) {
     }
     int a = fun^
   )cpp");
-  Server.addDocument(FooCpp, Source.code(), WantDiagnostics::Yes);
+  Server.addDocument(FooCpp, Source.code(), "null", WantDiagnostics::Yes);
   // We need to wait for preamble to build.
   ASSERT_TRUE(Server.blockUntilIdleForTest());
 
@@ -1523,8 +1551,7 @@ TEST(CompletionTest, NonDocComments) {
   FS.Files[FooCpp] = "";
 
   MockCompilationDatabase CDB;
-  IgnoreDiagnostics DiagConsumer;
-  ClangdServer Server(CDB, FS, DiagConsumer, ClangdServer::optsForTest());
+  ClangdServer Server(CDB, FS, ClangdServer::optsForTest());
 
   Annotations Source(R"cpp(
     // We ignore namespace comments, for rationale see CodeCompletionStrings.h.
@@ -1565,7 +1592,7 @@ TEST(CompletionTest, NonDocComments) {
   // FIXME: Auto-completion in a template requires disabling delayed template
   // parsing.
   CDB.ExtraClangFlags.push_back("-fno-delayed-template-parsing");
-  runAddDocument(Server, FooCpp, Source.code(), WantDiagnostics::Yes);
+  runAddDocument(Server, FooCpp, Source.code(), "null", WantDiagnostics::Yes);
   CodeCompleteResult Completions = cantFail(runCodeComplete(
       Server, FooCpp, Source.point(), clangd::CodeCompleteOptions()));
 
@@ -1588,11 +1615,10 @@ TEST(CompletionTest, CompleteOnInvalidLine) {
   auto FooCpp = testPath("foo.cpp");
 
   MockCompilationDatabase CDB;
-  IgnoreDiagnostics DiagConsumer;
   MockFSProvider FS;
   FS.Files[FooCpp] = "// empty file";
 
-  ClangdServer Server(CDB, FS, DiagConsumer, ClangdServer::optsForTest());
+  ClangdServer Server(CDB, FS, ClangdServer::optsForTest());
   // Run completion outside the file range.
   Position Pos;
   Pos.line = 100;
@@ -1629,6 +1655,7 @@ TEST(CompletionTest, Render) {
   Include.Header = "\"foo.h\"";
   C.Kind = CompletionItemKind::Method;
   C.Score.Total = 1.0;
+  C.Score.ExcludingName = .5;
   C.Origin = SymbolOrigin::AST | SymbolOrigin::Static;
 
   CodeCompleteOptions Opts;
@@ -1646,6 +1673,7 @@ TEST(CompletionTest, Render) {
   EXPECT_THAT(R.additionalTextEdits, IsEmpty());
   EXPECT_EQ(R.sortText, sortText(1.0, "x"));
   EXPECT_FALSE(R.deprecated);
+  EXPECT_EQ(R.score, .5f);
 
   Opts.EnableSnippets = true;
   R = C.render(Opts);
@@ -1712,8 +1740,7 @@ TEST(CompletionTest, CodeCompletionContext) {
 TEST(CompletionTest, FixItForArrowToDot) {
   MockFSProvider FS;
   MockCompilationDatabase CDB;
-  IgnoreDiagnostics DiagConsumer;
-  ClangdServer Server(CDB, FS, DiagConsumer, ClangdServer::optsForTest());
+  ClangdServer Server(CDB, FS, ClangdServer::optsForTest());
 
   CodeCompleteOptions Opts;
   Opts.IncludeFixIts = true;
@@ -1752,8 +1779,7 @@ TEST(CompletionTest, FixItForArrowToDot) {
 TEST(CompletionTest, FixItForDotToArrow) {
   MockFSProvider FS;
   MockCompilationDatabase CDB;
-  IgnoreDiagnostics DiagConsumer;
-  ClangdServer Server(CDB, FS, DiagConsumer, ClangdServer::optsForTest());
+  ClangdServer Server(CDB, FS, ClangdServer::optsForTest());
 
   CodeCompleteOptions Opts;
   Opts.IncludeFixIts = true;
@@ -1832,8 +1858,7 @@ TEST(CompletionTest, RenderWithFixItNonMerged) {
 TEST(CompletionTest, CompletionTokenRange) {
   MockFSProvider FS;
   MockCompilationDatabase CDB;
-  IgnoreDiagnostics DiagConsumer;
-  ClangdServer Server(CDB, FS, DiagConsumer, ClangdServer::optsForTest());
+  ClangdServer Server(CDB, FS, ClangdServer::optsForTest());
 
   constexpr const char *TestCodes[] = {
       R"cpp(
@@ -1860,7 +1885,10 @@ TEST(CompletionTest, CompletionTokenRange) {
     Annotations TestCode(Text);
     auto Results = completions(Server, TestCode.code(), TestCode.point());
 
-    EXPECT_EQ(Results.Completions.size(), 1u);
+    if (Results.Completions.size() != 1) {
+      ADD_FAILURE() << "Results.Completions.size() != 1";
+      continue;
+    }
     EXPECT_THAT(Results.Completions.front().CompletionTokenRange,
                 TestCode.range());
   }
@@ -1987,10 +2015,9 @@ TEST(SignatureHelpTest, IndexDocumentation) {
 TEST(SignatureHelpTest, DynamicIndexDocumentation) {
   MockFSProvider FS;
   MockCompilationDatabase CDB;
-  IgnoreDiagnostics DiagConsumer;
   ClangdServer::Options Opts = ClangdServer::optsForTest();
   Opts.BuildDynamicSymbolIndex = true;
-  ClangdServer Server(CDB, FS, DiagConsumer, Opts);
+  ClangdServer Server(CDB, FS, Opts);
 
   FS.Files[testPath("foo.h")] = R"cpp(
     struct Foo {
@@ -2137,6 +2164,7 @@ TEST(GuessCompletionPrefix, Filters) {
            "some text [[scope::more::]][[identif]]^ier",
            "some text [[scope::]][[mor]]^e::identifier",
            "weird case foo::[[::bar::]][[baz]]^",
+           "/* [[]][[]]^ */",
        }) {
     Annotations F(Case);
     auto Offset = cantFail(positionToOffset(F.code(), F.point()));
@@ -2159,8 +2187,7 @@ TEST(GuessCompletionPrefix, Filters) {
 TEST(CompletionTest, EnableSpeculativeIndexRequest) {
   MockFSProvider FS;
   MockCompilationDatabase CDB;
-  IgnoreDiagnostics DiagConsumer;
-  ClangdServer Server(CDB, FS, DiagConsumer, ClangdServer::optsForTest());
+  ClangdServer Server(CDB, FS, ClangdServer::optsForTest());
 
   auto File = testPath("foo.cpp");
   Annotations Test(R"cpp(
@@ -2218,8 +2245,7 @@ TEST(CompletionTest, NoInsertIncludeIfOnePresent) {
   std::string FooHeader = testPath("foo.h");
   FS.Files[FooHeader] = "";
 
-  IgnoreDiagnostics DiagConsumer;
-  ClangdServer Server(CDB, FS, DiagConsumer, ClangdServer::optsForTest());
+  ClangdServer Server(CDB, FS, ClangdServer::optsForTest());
 
   std::string DeclFile = URI::create(testPath("foo")).toString();
   Symbol Sym = func("Func");
@@ -2249,8 +2275,7 @@ TEST(CompletionTest, MacroFromPreamble) {
   MockCompilationDatabase CDB;
   std::string FooHeader = testPath("foo.h");
   FS.Files[FooHeader] = "#define CLANGD_PREAMBLE_HEADER x\n";
-  IgnoreDiagnostics DiagConsumer;
-  ClangdServer Server(CDB, FS, DiagConsumer, ClangdServer::optsForTest());
+  ClangdServer Server(CDB, FS, ClangdServer::optsForTest());
   auto Results = completions(
       R"cpp(#include "foo.h"
           #define CLANGD_PREAMBLE_MAIN x
@@ -2278,6 +2303,15 @@ TEST(CompletionTest, DeprecatedResults) {
       completions(Body + "int main() { TestClang^ }").Completions,
       UnorderedElementsAre(AllOf(Named("TestClangd"), Not(Deprecated())),
                            AllOf(Named("TestClangc"), Deprecated())));
+}
+
+TEST(SignatureHelpTest, PartialSpec) {
+  const auto Results = signatures(R"cpp(
+      template <typename T> struct Foo {};
+      template <typename T> struct Foo<T*> { Foo(T); };
+      Foo<int*> F(^);)cpp");
+  EXPECT_THAT(Results.signatures, Contains(Sig("Foo([[T]])")));
+  EXPECT_EQ(0, Results.activeParameter);
 }
 
 TEST(SignatureHelpTest, InsideArgument) {
@@ -2370,8 +2404,7 @@ TEST(CompletionTest, IncludedCompletionKinds) {
   CDB.ExtraClangFlags = {SearchDirArg.c_str()};
   std::string BarHeader = testPath("sub/bar.h");
   FS.Files[BarHeader] = "";
-  IgnoreDiagnostics DiagConsumer;
-  ClangdServer Server(CDB, FS, DiagConsumer, ClangdServer::optsForTest());
+  ClangdServer Server(CDB, FS, ClangdServer::optsForTest());
   auto Results = completions(Server,
                              R"cpp(
         #include "^"
@@ -2449,6 +2482,26 @@ TEST(CompletionTest, NoCompletionsForNewNames) {
     )cpp",
                              {cls("naber"), cls("nx::naber")}, Opts);
   EXPECT_THAT(Results.Completions, UnorderedElementsAre());
+}
+
+TEST(CompletionTest, Lambda) {
+  clangd::CodeCompleteOptions Opts = {};
+
+  auto Results = completions(R"cpp(
+    void function() {
+      auto Lambda = [](int a, const double &b) {return 1.f;};
+      Lam^
+    }
+  )cpp",
+                             {}, Opts);
+
+  ASSERT_EQ(Results.Completions.size(), 1u);
+  const auto &A = Results.Completions.front();
+  EXPECT_EQ(A.Name, "Lambda");
+  EXPECT_EQ(A.Signature, "(int a, const double &b) const");
+  EXPECT_EQ(A.Kind, CompletionItemKind::Variable);
+  EXPECT_EQ(A.ReturnType, "float");
+  EXPECT_EQ(A.SnippetSuffix, "(${1:int a}, ${2:const double &b})");
 }
 
 TEST(CompletionTest, ObjectiveCMethodNoArguments) {
@@ -2640,6 +2693,39 @@ TEST(CompletionTest, DerivedMethodsAreAlwaysVisible) {
                          .Completions;
   EXPECT_THAT(Completions,
               ElementsAre(AllOf(ReturnType("int"), Named("size"))));
+}
+
+TEST(CompletionTest, NoCrashWithIncompleteLambda) {
+  auto Completions = completions("auto&& x = []{^").Completions;
+  // The completion of x itself can cause a problem: in the code completion
+  // callback, its type is not known, which affects the linkage calculation.
+  // A bad linkage value gets cached, and subsequently updated.
+  EXPECT_THAT(Completions, Contains(Named("x")));
+
+  auto Signatures = signatures("auto x() { x(^").signatures;
+  EXPECT_THAT(Signatures, Contains(Sig("x() -> auto")));
+}
+
+TEST(CompletionTest, CompletionRange) {
+  const char *WithRange = "auto x = [[abc]]^";
+  auto Completions = completions(WithRange);
+  EXPECT_EQ(Completions.CompletionRange, Annotations(WithRange).range());
+  Completions = completionsNoCompile(WithRange);
+  EXPECT_EQ(Completions.CompletionRange, Annotations(WithRange).range());
+
+  const char *EmptyRange = "auto x = [[]]^";
+  Completions = completions(EmptyRange);
+  EXPECT_EQ(Completions.CompletionRange, Annotations(EmptyRange).range());
+  Completions = completionsNoCompile(EmptyRange);
+  EXPECT_EQ(Completions.CompletionRange, Annotations(EmptyRange).range());
+
+  // Sema doesn't trigger at all here, while the no-sema completion runs
+  // heuristics as normal and reports a range. It'd be nice to be consistent.
+  const char *NoCompletion = "/* [[]]^ */";
+  Completions = completions(NoCompletion);
+  EXPECT_EQ(Completions.CompletionRange, llvm::None);
+  Completions = completionsNoCompile(NoCompletion);
+  EXPECT_EQ(Completions.CompletionRange, Annotations(NoCompletion).range());
 }
 
 TEST(NoCompileCompletionTest, Basic) {

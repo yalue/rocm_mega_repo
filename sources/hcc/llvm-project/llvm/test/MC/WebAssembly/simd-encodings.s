@@ -571,7 +571,31 @@ main:
     # CHECK: v128.andnot # encoding: [0xfd,0xd8,0x01]
     v128.andnot
 
-    # CHECK: i32x4.dot_i16x8_s # encoding: [0xfd,0xd9,0x01]
+    # CHECK: i8x16.avgr_u # encoding: [0xfd,0xd9,0x01]
+    i8x16.avgr_u
+
+    # CHECK: i16x8.avgr_u # encoding: [0xfd,0xda,0x01]
+    i16x8.avgr_u
+
+    # CHECK: i32x4.dot_i16x8_s # encoding: [0xfd,0xdb,0x01]
     i32x4.dot_i16x8_s
+
+    # CHECK: i8x16.abs # encoding: [0xfd,0xe1,0x01]
+    i8x16.abs
+
+    # CHECK: i16x8.abs # encoding: [0xfd,0xe2,0x01]
+    i16x8.abs
+
+    # CHECK: i32x4.abs # encoding: [0xfd,0xe3,0x01]
+    i32x4.abs
+
+    # CHECK: i8x16.bitmask # encoding: [0xfd,0xe4,0x01]
+    i8x16.bitmask
+
+    # CHECK: i16x8.bitmask # encoding: [0xfd,0xe5,0x01]
+    i16x8.bitmask
+
+    # CHECK: i32x4.bitmask # encoding: [0xfd,0xe6,0x01]
+    i32x4.bitmask
 
     end_function

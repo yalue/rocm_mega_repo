@@ -6,8 +6,8 @@
 //
 //===----------------------------------------------------------------------===//
 
-#ifndef liblldb_Target_h_
-#define liblldb_Target_h_
+#ifndef LLDB_TARGET_TARGET_H
+#define LLDB_TARGET_TARGET_H
 
 #include <list>
 #include <map>
@@ -35,6 +35,8 @@
 #include "lldb/lldb-public.h"
 
 namespace lldb_private {
+
+class ClangModulesDeclVendor;
 
 OptionEnumValues GetDynamicValueTypes();
 
@@ -203,38 +205,32 @@ public:
 
   void SetInjectLocalVariables(ExecutionContext *exe_ctx, bool b);
 
-  bool GetUseModernTypeLookup() const;
-
   void SetRequireHardwareBreakpoints(bool b);
 
   bool GetRequireHardwareBreakpoints() const;
 
+  bool GetAutoInstallMainExecutable() const;
+
+  void UpdateLaunchInfoFromProperties();
+
 private:
   // Callbacks for m_launch_info.
-  static void Arg0ValueChangedCallback(void *target_property_ptr,
-                                       OptionValue *);
-  static void RunArgsValueChangedCallback(void *target_property_ptr,
-                                          OptionValue *);
-  static void EnvVarsValueChangedCallback(void *target_property_ptr,
-                                          OptionValue *);
-  static void InheritEnvValueChangedCallback(void *target_property_ptr,
-                                             OptionValue *);
-  static void InputPathValueChangedCallback(void *target_property_ptr,
-                                            OptionValue *);
-  static void OutputPathValueChangedCallback(void *target_property_ptr,
-                                             OptionValue *);
-  static void ErrorPathValueChangedCallback(void *target_property_ptr,
-                                            OptionValue *);
-  static void DetachOnErrorValueChangedCallback(void *target_property_ptr,
-                                                OptionValue *);
-  static void DisableASLRValueChangedCallback(void *target_property_ptr,
-                                              OptionValue *);
-  static void DisableSTDIOValueChangedCallback(void *target_property_ptr,
-                                               OptionValue *);
+  void Arg0ValueChangedCallback();
+  void RunArgsValueChangedCallback();
+  void EnvVarsValueChangedCallback();
+  void InputPathValueChangedCallback();
+  void OutputPathValueChangedCallback();
+  void ErrorPathValueChangedCallback();
+  void DetachOnErrorValueChangedCallback();
+  void DisableASLRValueChangedCallback();
+  void DisableSTDIOValueChangedCallback();
+
+  Environment ComputeEnvironment() const;
 
   // Member variables.
   ProcessLaunchInfo m_launch_info;
   std::unique_ptr<TargetExperimentalProperties> m_experimental_properties_up;
+  Target *m_target;
 };
 
 class EvaluateExpressionOptions {
@@ -906,8 +902,8 @@ public:
   /// The target call at present just consults the Platform's call of the
   /// same name.
   ///
-  /// \param[in] module_sp
-  ///     A shared pointer reference to the module that checked.
+  /// \param[in] module_spec
+  ///     Path to the module.
   ///
   /// \return \b true if the module should be excluded, \b false otherwise.
   bool ModuleIsExcludedForUnconstrainedSearches(const FileSpec &module_spec);
@@ -1067,10 +1063,6 @@ public:
                                                  const char *name,
                                                  Status &error);
 
-  ClangASTContext *GetScratchClangASTContext(bool create_on_demand = true);
-
-  lldb::ClangASTImporterSP GetClangASTImporter();
-
   // Install any files through the platform that need be to installed prior to
   // launching or attaching.
   Status Install(ProcessLaunchInfo *launch_info);
@@ -1107,11 +1099,6 @@ public:
       std::string *fixed_expression = nullptr, ValueObject *ctx_obj = nullptr);
 
   lldb::ExpressionVariableSP GetPersistentVariable(ConstString name);
-
-  /// Return the next available number for numbered persistent variables.
-  unsigned GetNextPersistentVariableIndex() {
-    return m_next_persistent_variable_index++;
-  }
 
   lldb::addr_t GetPersistentSymbol(ConstString name);
 
@@ -1317,8 +1304,7 @@ protected:
   typedef std::map<lldb::LanguageType, lldb::REPLSP> REPLMap;
   REPLMap m_repl_map;
 
-  lldb::ClangASTImporterSP m_ast_importer_sp;
-  lldb::ClangModulesDeclVendorUP m_clang_modules_decl_vendor_up;
+  std::unique_ptr<ClangModulesDeclVendor> m_clang_modules_decl_vendor_up;
 
   lldb::SourceManagerUP m_source_manager_up;
 
@@ -1379,4 +1365,4 @@ private:
 
 } // namespace lldb_private
 
-#endif // liblldb_Target_h_
+#endif // LLDB_TARGET_TARGET_H

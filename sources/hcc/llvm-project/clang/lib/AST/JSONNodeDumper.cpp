@@ -1,4 +1,5 @@
 #include "clang/AST/JSONNodeDumper.h"
+#include "clang/Basic/SourceManager.h"
 #include "clang/Lex/Lexer.h"
 #include "llvm/ADT/StringSwitch.h"
 
@@ -202,13 +203,19 @@ void JSONNodeDumper::writeBareSourceLocation(SourceLocation Loc,
   PresumedLoc Presumed = SM.getPresumedLoc(Loc);
   unsigned ActualLine = IsSpelling ? SM.getSpellingLineNumber(Loc)
                                    : SM.getExpansionLineNumber(Loc);
+  StringRef ActualFile = SM.getBufferName(Loc);
+
   if (Presumed.isValid()) {
     JOS.attribute("offset", SM.getDecomposedLoc(Loc).second);
-    if (LastLocFilename != Presumed.getFilename()) {
-      JOS.attribute("file", Presumed.getFilename());
+    if (LastLocFilename != ActualFile) {
+      JOS.attribute("file", ActualFile);
       JOS.attribute("line", ActualLine);
     } else if (LastLocLine != ActualLine)
       JOS.attribute("line", ActualLine);
+
+    StringRef PresumedFile = Presumed.getFilename();
+    if (PresumedFile != ActualFile && LastLocPresumedFilename != PresumedFile)
+      JOS.attribute("presumedFile", PresumedFile);
 
     unsigned PresumedLine = Presumed.getLine();
     if (ActualLine != PresumedLine && LastLocPresumedLine != PresumedLine)
@@ -217,7 +224,8 @@ void JSONNodeDumper::writeBareSourceLocation(SourceLocation Loc,
     JOS.attribute("col", Presumed.getColumn());
     JOS.attribute("tokLen",
                   Lexer::MeasureTokenLength(Loc, SM, Ctx.getLangOpts()));
-    LastLocFilename = Presumed.getFilename();
+    LastLocFilename = ActualFile;
+    LastLocPresumedFilename = PresumedFile;
     LastLocPresumedLine = PresumedLine;
     LastLocLine = ActualLine;
 
@@ -688,8 +696,12 @@ void JSONNodeDumper::VisitMemberPointerType(const MemberPointerType *MPT) {
 }
 
 void JSONNodeDumper::VisitNamedDecl(const NamedDecl *ND) {
-  if (ND && ND->getDeclName())
+  if (ND && ND->getDeclName()) {
     JOS.attribute("name", ND->getNameAsString());
+    std::string MangledName = ASTNameGen.getName(ND);
+    if (!MangledName.empty())
+      JOS.attribute("mangledName", MangledName);
+  }
 }
 
 void JSONNodeDumper::VisitTypedefDecl(const TypedefDecl *TD) {
@@ -874,12 +886,6 @@ void JSONNodeDumper::VisitLinkageSpecDecl(const LinkageSpecDecl *LSD) {
   switch (LSD->getLanguage()) {
   case LinkageSpecDecl::lang_c: Lang = "C"; break;
   case LinkageSpecDecl::lang_cxx: Lang = "C++"; break;
-  case LinkageSpecDecl::lang_cxx_11:
-    Lang = "C++11";
-    break;
-  case LinkageSpecDecl::lang_cxx_14:
-    Lang = "C++14";
-    break;
   }
   JOS.attribute("language", Lang);
   attributeOnlyIfTrue("hasBraces", LSD->hasBraces());
@@ -992,7 +998,7 @@ void JSONNodeDumper::VisitObjCPropertyDecl(const ObjCPropertyDecl *D) {
   case ObjCPropertyDecl::Required: JOS.attribute("control", "required"); break;
   case ObjCPropertyDecl::Optional: JOS.attribute("control", "optional"); break;
   }
-  
+
   ObjCPropertyDecl::PropertyAttributeKind Attrs = D->getPropertyAttributes();
   if (Attrs != ObjCPropertyDecl::OBJC_PR_noattr) {
     if (Attrs & ObjCPropertyDecl::OBJC_PR_getter)
@@ -1013,6 +1019,7 @@ void JSONNodeDumper::VisitObjCPropertyDecl(const ObjCPropertyDecl *D) {
     attributeOnlyIfTrue("unsafe_unretained",
                         Attrs & ObjCPropertyDecl::OBJC_PR_unsafe_unretained);
     attributeOnlyIfTrue("class", Attrs & ObjCPropertyDecl::OBJC_PR_class);
+    attributeOnlyIfTrue("direct", Attrs & ObjCPropertyDecl::OBJC_PR_direct);
     attributeOnlyIfTrue("nullability",
                         Attrs & ObjCPropertyDecl::OBJC_PR_nullability);
     attributeOnlyIfTrue("null_resettable",
@@ -1327,7 +1334,16 @@ void JSONNodeDumper::VisitExprWithCleanups(const ExprWithCleanups *EWC) {
   if (EWC->getNumObjects()) {
     JOS.attributeArray("cleanups", [this, EWC] {
       for (const ExprWithCleanups::CleanupObject &CO : EWC->getObjects())
-        JOS.value(createBareDeclRef(CO));
+        if (auto *BD = CO.dyn_cast<BlockDecl *>()) {
+          JOS.value(createBareDeclRef(BD));
+        } else if (auto *CLE = CO.dyn_cast<CompoundLiteralExpr *>()) {
+          llvm::json::Object Obj;
+          Obj["id"] = createPointerRepresentation(CLE);
+          Obj["kind"] = CLE->getStmtClassName();
+          JOS.value(std::move(Obj));
+        } else {
+          llvm_unreachable("unexpected cleanup object type");
+        }
     });
   }
 }
@@ -1511,6 +1527,9 @@ void JSONNodeDumper::visitInlineCommandComment(
     break;
   case comments::InlineCommandComment::RenderMonospaced:
     JOS.attribute("renderKind", "monospaced");
+    break;
+  case comments::InlineCommandComment::RenderAnchor:
+    JOS.attribute("renderKind", "anchor");
     break;
   }
 

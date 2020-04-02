@@ -50,7 +50,10 @@ bool CallLowering::lowerCall(MachineIRBuilder &MIRBuilder, ImmutableCallSite CS,
     ++i;
   }
 
-  if (const Function *F = CS.getCalledFunction())
+  // Try looking through a bitcast from one function type to another.
+  // Commonly happens with calls to objc_msgSend().
+  const Value *CalleeV = CS.getCalledValue()->stripPointerCasts();
+  if (const Function *F = dyn_cast<Function>(CalleeV))
     Info.Callee = MachineOperand::CreateGA(F, 0);
   else
     Info.Callee = MachineOperand::CreateReg(GetCalleeReg(), false);
@@ -65,7 +68,11 @@ bool CallLowering::lowerCall(MachineIRBuilder &MIRBuilder, ImmutableCallSite CS,
   Info.SwiftErrorVReg = SwiftErrorVReg;
   Info.IsMustTailCall = CS.isMustTailCall();
   Info.IsTailCall = CS.isTailCall() &&
-                    isInTailCallPosition(CS, MIRBuilder.getMF().getTarget());
+                    isInTailCallPosition(CS, MIRBuilder.getMF().getTarget()) &&
+                    (MIRBuilder.getMF()
+                         .getFunction()
+                         .getFnAttribute("disable-tail-calls")
+                         .getValueAsString() != "true");
   Info.IsVarArg = CS.getFunctionType()->isVarArg();
   return lowerCall(MIRBuilder, Info);
 }
@@ -235,7 +242,7 @@ bool CallLowering::handleAssignments(CCState &CCInfo,
             if (Part == 0) {
               Flags.setSplit();
             } else {
-              Flags.setOrigAlign(Align::None());
+              Flags.setOrigAlign(Align(1));
               if (Part == NumParts - 1)
                 Flags.setSplitEnd();
             }
@@ -268,7 +275,7 @@ bool CallLowering::handleAssignments(CCState &CCInfo,
           if (PartIdx == 0) {
             Flags.setSplit();
           } else {
-            Flags.setOrigAlign(Align::None());
+            Flags.setOrigAlign(Align(1));
             if (PartIdx == NumParts - 1)
               Flags.setSplitEnd();
           }
@@ -465,7 +472,7 @@ Register CallLowering::ValueHandler::extendRegister(Register ValReg,
     return ValReg;
   case CCValAssign::AExt: {
     auto MIB = MIRBuilder.buildAnyExt(LocTy, ValReg);
-    return MIB->getOperand(0).getReg();
+    return MIB.getReg(0);
   }
   case CCValAssign::SExt: {
     Register NewReg = MRI.createGenericVirtualRegister(LocTy);

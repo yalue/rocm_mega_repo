@@ -105,6 +105,11 @@ protected:
   Optional<DestSourcePair>
   isCopyInstrImpl(const MachineInstr &MI) const override;
 
+  /// Specialization of \ref TargetInstrInfo::describeLoadedValue, used to
+  /// enhance debug entry value descriptions for ARM targets.
+  Optional<ParamLoadedValue> describeLoadedValue(const MachineInstr &MI,
+                                                 Register Reg) const override;
+
 public:
   // Return whether the target has an explicit NOP encoding.
   bool hasNOP() const;
@@ -145,6 +150,11 @@ public:
 
   // Predication support.
   bool isPredicated(const MachineInstr &MI) const override;
+
+  // MIR printer helper function to annotate Operands with a comment.
+  std::string createMIROperandComment(const MachineInstr &MI,
+                                      const MachineOperand &Op,
+                                      unsigned OpIdx) const override;
 
   ARMCC::CondCodes getPredicate(const MachineInstr &MI) const {
     int PIdx = MI.findFirstPredOperandIdx();
@@ -202,18 +212,18 @@ public:
                     const ARMSubtarget &Subtarget) const;
 
   void copyPhysReg(MachineBasicBlock &MBB, MachineBasicBlock::iterator I,
-                   const DebugLoc &DL, unsigned DestReg, unsigned SrcReg,
+                   const DebugLoc &DL, MCRegister DestReg, MCRegister SrcReg,
                    bool KillSrc) const override;
 
   void storeRegToStackSlot(MachineBasicBlock &MBB,
                            MachineBasicBlock::iterator MBBI,
-                           unsigned SrcReg, bool isKill, int FrameIndex,
+                           Register SrcReg, bool isKill, int FrameIndex,
                            const TargetRegisterClass *RC,
                            const TargetRegisterInfo *TRI) const override;
 
   void loadRegFromStackSlot(MachineBasicBlock &MBB,
                             MachineBasicBlock::iterator MBBI,
-                            unsigned DestReg, int FrameIndex,
+                            Register DestReg, int FrameIndex,
                             const TargetRegisterClass *RC,
                             const TargetRegisterInfo *TRI) const override;
 
@@ -455,8 +465,8 @@ public:
     return MI.getOperand(3).getReg();
   }
 
-  Optional<DestSourcePair> isAddImmediate(const MachineInstr &MI,
-                                          int64_t &Offset) const override;
+  Optional<RegImmPair> isAddImmediate(const MachineInstr &MI,
+                                      Register Reg) const override;
 };
 
 /// Get the operands corresponding to the given \p Pred value. By default, the
@@ -488,6 +498,28 @@ bool isUncondBranchOpcode(int Opc) {
   return Opc == ARM::B || Opc == ARM::tB || Opc == ARM::t2B;
 }
 
+// This table shows the VPT instruction variants, i.e. the different
+// mask field encodings, see also B5.6. Predication/conditional execution in
+// the ArmARM.
+
+
+inline static unsigned getARMVPTBlockMask(unsigned NumInsts) {
+  switch (NumInsts) {
+  case 1:
+    return ARMVCC::T;
+  case 2:
+    return ARMVCC::TT;
+  case 3:
+    return ARMVCC::TTT;
+  case 4:
+    return ARMVCC::TTTT;
+  default:
+    break;
+  };
+  llvm_unreachable("Unexpected number of instruction in a VPT block");
+}
+
+
 static inline bool isVPTOpcode(int Opc) {
   return Opc == ARM::MVE_VPTv16i8 || Opc == ARM::MVE_VPTv16u8 ||
          Opc == ARM::MVE_VPTv16s8 || Opc == ARM::MVE_VPTv8i16 ||
@@ -501,6 +533,109 @@ static inline bool isVPTOpcode(int Opc) {
          Opc == ARM::MVE_VPTv4u32r || Opc == ARM::MVE_VPTv4s32r ||
          Opc == ARM::MVE_VPTv4f32r || Opc == ARM::MVE_VPTv8f16r ||
          Opc == ARM::MVE_VPST;
+}
+
+static inline
+unsigned VCMPOpcodeToVPT(unsigned Opcode) {
+  switch (Opcode) {
+  default:
+    return 0;
+  case ARM::MVE_VCMPf32:
+    return ARM::MVE_VPTv4f32;
+  case ARM::MVE_VCMPf16:
+    return ARM::MVE_VPTv8f16;
+  case ARM::MVE_VCMPi8:
+    return ARM::MVE_VPTv16i8;
+  case ARM::MVE_VCMPi16:
+    return ARM::MVE_VPTv8i16;
+  case ARM::MVE_VCMPi32:
+    return ARM::MVE_VPTv4i32;
+  case ARM::MVE_VCMPu8:
+    return ARM::MVE_VPTv16u8;
+  case ARM::MVE_VCMPu16:
+    return ARM::MVE_VPTv8u16;
+  case ARM::MVE_VCMPu32:
+    return ARM::MVE_VPTv4u32;
+  case ARM::MVE_VCMPs8:
+    return ARM::MVE_VPTv16s8;
+  case ARM::MVE_VCMPs16:
+    return ARM::MVE_VPTv8s16;
+  case ARM::MVE_VCMPs32:
+    return ARM::MVE_VPTv4s32;
+
+  case ARM::MVE_VCMPf32r:
+    return ARM::MVE_VPTv4f32r;
+  case ARM::MVE_VCMPf16r:
+    return ARM::MVE_VPTv8f16r;
+  case ARM::MVE_VCMPi8r:
+    return ARM::MVE_VPTv16i8r;
+  case ARM::MVE_VCMPi16r:
+    return ARM::MVE_VPTv8i16r;
+  case ARM::MVE_VCMPi32r:
+    return ARM::MVE_VPTv4i32r;
+  case ARM::MVE_VCMPu8r:
+    return ARM::MVE_VPTv16u8r;
+  case ARM::MVE_VCMPu16r:
+    return ARM::MVE_VPTv8u16r;
+  case ARM::MVE_VCMPu32r:
+    return ARM::MVE_VPTv4u32r;
+  case ARM::MVE_VCMPs8r:
+    return ARM::MVE_VPTv16s8r;
+  case ARM::MVE_VCMPs16r:
+    return ARM::MVE_VPTv8s16r;
+  case ARM::MVE_VCMPs32r:
+    return ARM::MVE_VPTv4s32r;
+  }
+}
+
+static inline
+unsigned VCTPOpcodeToLSTP(unsigned Opcode, bool IsDoLoop) {
+  switch (Opcode) {
+  default:
+    llvm_unreachable("unhandled vctp opcode");
+    break;
+  case ARM::MVE_VCTP8:
+    return IsDoLoop ? ARM::MVE_DLSTP_8 : ARM::MVE_WLSTP_8;
+  case ARM::MVE_VCTP16:
+    return IsDoLoop ? ARM::MVE_DLSTP_16 : ARM::MVE_WLSTP_16;
+  case ARM::MVE_VCTP32:
+    return IsDoLoop ? ARM::MVE_DLSTP_32 : ARM::MVE_WLSTP_32;
+  case ARM::MVE_VCTP64:
+    return IsDoLoop ? ARM::MVE_DLSTP_64 : ARM::MVE_WLSTP_64;
+  }
+  return 0;
+}
+
+static inline unsigned getTailPredVectorWidth(unsigned Opcode) {
+  switch (Opcode) {
+  default:
+    llvm_unreachable("unhandled vctp opcode");
+  case ARM::MVE_VCTP8:  return 16;
+  case ARM::MVE_VCTP16: return 8;
+  case ARM::MVE_VCTP32: return 4;
+  case ARM::MVE_VCTP64: return 2;
+  }
+  return 0;
+}
+
+static inline
+bool isVCTP(MachineInstr *MI) {
+  switch (MI->getOpcode()) {
+  default:
+    break;
+  case ARM::MVE_VCTP8:
+  case ARM::MVE_VCTP16:
+  case ARM::MVE_VCTP32:
+  case ARM::MVE_VCTP64:
+    return true;
+  }
+  return false;
+}
+
+static inline
+bool isLoopStart(MachineInstr &MI) {
+  return MI.getOpcode() == ARM::t2DoLoopStart ||
+         MI.getOpcode() == ARM::t2WhileLoopStart;
 }
 
 static inline
@@ -528,6 +663,17 @@ static inline bool isPopOpcode(int Opc) {
 static inline bool isPushOpcode(int Opc) {
   return Opc == ARM::tPUSH || Opc == ARM::t2STMDB_UPD ||
          Opc == ARM::STMDB_UPD || Opc == ARM::VSTMDDB_UPD;
+}
+
+static inline bool isSubImmOpcode(int Opc) {
+  return Opc == ARM::SUBri ||
+         Opc == ARM::tSUBi3 || Opc == ARM::tSUBi8 ||
+         Opc == ARM::tSUBSi3 || Opc == ARM::tSUBSi8 ||
+         Opc == ARM::t2SUBri || Opc == ARM::t2SUBri12 || Opc == ARM::t2SUBSri;
+}
+
+static inline bool isMovRegOpcode(int Opc) {
+  return Opc == ARM::MOVr || Opc == ARM::tMOVr || Opc == ARM::t2MOVr;
 }
 
 /// isValidCoprocessorNumber - decide whether an explicit coprocessor

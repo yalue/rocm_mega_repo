@@ -10,11 +10,12 @@
 //
 //===----------------------------------------------------------------------===//
 
-#include "clang/Parse/Parser.h"
 #include "clang/AST/ASTContext.h"
 #include "clang/AST/PrettyDeclStackTrace.h"
 #include "clang/Basic/CharInfo.h"
+#include "clang/Basic/TargetInfo.h"
 #include "clang/Parse/ParseDiagnostic.h"
+#include "clang/Parse/Parser.h"
 #include "clang/Parse/RAIIObjectsForParser.h"
 #include "clang/Sema/DeclSpec.h"
 #include "clang/Sema/Scope.h"
@@ -822,6 +823,7 @@ static void diagnoseRedundantPropertyNullability(Parser &P,
 ///   property-attribute:
 ///     getter '=' identifier
 ///     setter '=' identifier ':'
+///     direct
 ///     readonly
 ///     readwrite
 ///     assign
@@ -954,6 +956,8 @@ void Parser::ParseObjCPropertyAttribute(ObjCDeclSpec &DS) {
       DS.setPropertyAttributes(ObjCDeclSpec::DQ_PR_null_resettable);
     } else if (II->isStr("class")) {
       DS.setPropertyAttributes(ObjCDeclSpec::DQ_PR_class);
+    } else if (II->isStr("direct")) {
+      DS.setPropertyAttributes(ObjCDeclSpec::DQ_PR_direct);
     } else {
       Diag(AttrName, diag::err_objc_expected_property_attr) << II;
       SkipUntil(tok::r_paren, StopAtSemi);

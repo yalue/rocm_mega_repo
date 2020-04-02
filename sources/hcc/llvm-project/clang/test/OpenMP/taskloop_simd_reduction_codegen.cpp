@@ -1,6 +1,6 @@
-// RUN: %clang_cc1 -fopenmp -x c++ %s -verify -debug-info-kind=limited -emit-llvm -o - -triple powerpc64le-unknown-linux-gnu -std=c++98 | FileCheck %s
+// RUN: %clang_cc1 -fopenmp -x c++ %s -verify -debug-info-kind=limited -emit-llvm -o - -triple powerpc64le-unknown-linux-gnu -fnoopenmp-use-tls -std=c++98 | FileCheck %s
 
-// RUN: %clang_cc1 -fopenmp-simd -x c++ %s -verify -debug-info-kind=limited -emit-llvm -o - -triple powerpc64le-unknown-linux-gnu -std=c++98 | FileCheck --check-prefix SIMD-ONLY0 %s
+// RUN: %clang_cc1 -fopenmp-simd -x c++ %s -verify -debug-info-kind=limited -emit-llvm -o - -triple powerpc64le-unknown-linux-gnu -fnoopenmp-use-tls -std=c++98 | FileCheck --check-prefix SIMD-ONLY0 %s
 // SIMD-ONLY0-NOT: {{__kmpc|__tgt}}
 // expected-no-diagnostics
 
@@ -147,7 +147,7 @@ sum = 0.0;
 // CHECK:    [[DIV:%.*]] = sdiv i32 [[ADD11]], 1
 // CHECK:    [[SUB12:%.*]] = sub nsw i32 [[DIV]], 1
 // CHECK:    store i32 [[SUB12]], i32* [[DOTCAPTURE_EXPR_9]],
-// CHECK:    [[TMP65:%.*]] = call i8* @__kmpc_omp_task_alloc(%struct.ident_t* %{{.+}}, i32 [[TMP0]], i32 1, i64 888, i64 72, i32 (i32, i8*)* bitcast (i32 (i32, %struct.kmp_task_t_with_privates*)* @{{.+}} to i32 (i32, i8*)*))
+// CHECK:    [[TMP65:%.*]] = call i8* @__kmpc_omp_task_alloc(%struct.ident_t* %{{.+}}, i32 [[TMP0]], i32 1, i64 888, i64 40, i32 (i32, i8*)* bitcast (i32 (i32, %struct.kmp_task_t_with_privates*)* @{{.+}} to i32 (i32, i8*)*))
 // CHECK:    call void @__kmpc_taskloop(%struct.ident_t* %{{.+}}, i32 [[TMP0]], i8* [[TMP65]], i32 1, i64* %{{.+}}, i64* %{{.+}}, i64 %{{.+}}, i32 1, i32 0, i64 0, i8* null)
 // CHECK:    call void @__kmpc_end_taskgroup(%struct.ident_t*
 

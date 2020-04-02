@@ -204,6 +204,13 @@ public:
   /// Whether the driver is generating diagnostics for debugging purposes.
   unsigned CCGenDiagnostics : 1;
 
+  /// Pointer to the ExecuteCC1Tool function, if available.
+  /// When the clangDriver lib is used through clang.exe, this provides a
+  /// shortcut for executing the -cc1 command-line directly, in the same
+  /// process.
+  typedef int (*CC1ToolFunc)(SmallVectorImpl<const char *> &ArgV);
+  CC1ToolFunc CC1Main = nullptr;
+
 private:
   /// Raw target triple.
   std::string TargetTriple;
@@ -246,6 +253,9 @@ private:
   /// created targeting that triple. The driver owns all the ToolChain objects
   /// stored in it, and will clean them up when torn down.
   mutable llvm::StringMap<std::unique_ptr<ToolChain>> ToolChains;
+
+  /// Number of parallel jobs.
+  unsigned NumParallelJobs;
 
 private:
   /// TranslateInputArgs - Create a new derived argument list from the input
@@ -333,9 +343,7 @@ public:
       return InstalledDir.c_str();
     return Dir.c_str();
   }
-  void setInstalledDir(StringRef Value) {
-    InstalledDir = Value;
-  }
+  void setInstalledDir(StringRef Value) { InstalledDir = std::string(Value); }
 
   bool isSaveTempsEnabled() const { return SaveTemps != SaveTempsNone; }
   bool isSaveTempsObj() const { return SaveTemps == SaveTempsObj; }
@@ -549,6 +557,12 @@ public:
   /// Get the specific kind of LTO being performed.
   LTOKind getLTOMode() const { return LTOMode; }
 
+  /// Get the number of parallel jobs.
+  unsigned getNumberOfParallelJobs() const { return NumParallelJobs; }
+
+  /// Set the number of parallel jobs.
+  void setNumberOfParallelJobs(unsigned N) { NumParallelJobs = N; }
+
 private:
 
   /// Tries to load options from configuration file.
@@ -619,6 +633,9 @@ public:
 /// \return True if the last defined optimization level is -Ofast.
 /// And False otherwise.
 bool isOptimizationLevelFast(const llvm::opt::ArgList &Args);
+
+/// \return True if the argument combination will end up generating remarks.
+bool willEmitRemarks(const llvm::opt::ArgList &Args);
 
 } // end namespace driver
 } // end namespace clang

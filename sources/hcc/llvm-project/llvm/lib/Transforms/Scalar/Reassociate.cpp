@@ -30,7 +30,6 @@
 #include "llvm/ADT/SmallVector.h"
 #include "llvm/ADT/Statistic.h"
 #include "llvm/Analysis/GlobalsModRef.h"
-#include "llvm/Transforms/Utils/Local.h"
 #include "llvm/Analysis/ValueTracking.h"
 #include "llvm/IR/Argument.h"
 #include "llvm/IR/BasicBlock.h"
@@ -50,12 +49,14 @@
 #include "llvm/IR/User.h"
 #include "llvm/IR/Value.h"
 #include "llvm/IR/ValueHandle.h"
+#include "llvm/InitializePasses.h"
 #include "llvm/Pass.h"
 #include "llvm/Support/Casting.h"
 #include "llvm/Support/Debug.h"
 #include "llvm/Support/ErrorHandling.h"
 #include "llvm/Support/raw_ostream.h"
 #include "llvm/Transforms/Scalar.h"
+#include "llvm/Transforms/Utils/Local.h"
 #include <algorithm>
 #include <cassert>
 #include <utility>
@@ -173,7 +174,7 @@ void ReassociatePass::BuildRankMap(Function &F,
                       << "\n");
   }
 
-  // Traverse basic blocks in ReversePostOrder
+  // Traverse basic blocks in ReversePostOrder.
   for (BasicBlock *BB : RPOT) {
     unsigned BBRank = RankMap[BB] = ++Rank << 16;
 
@@ -253,15 +254,15 @@ static BinaryOperator *CreateMul(Value *S1, Value *S2, const Twine &Name,
   }
 }
 
-static BinaryOperator *CreateNeg(Value *S1, const Twine &Name,
-                                 Instruction *InsertBefore, Value *FlagsOp) {
+static Instruction *CreateNeg(Value *S1, const Twine &Name,
+                              Instruction *InsertBefore, Value *FlagsOp) {
   if (S1->getType()->isIntOrIntVectorTy())
     return BinaryOperator::CreateNeg(S1, Name, InsertBefore);
-  else {
-    BinaryOperator *Res = BinaryOperator::CreateFNeg(S1, Name, InsertBefore);
-    Res->setFastMathFlags(cast<FPMathOperator>(FlagsOp)->getFastMathFlags());
-    return Res;
-  }
+
+  if (auto *FMFSource = dyn_cast<Instruction>(FlagsOp))
+    return UnaryOperator::CreateFNegFMF(S1, FMFSource, Name, InsertBefore);
+
+  return UnaryOperator::CreateFNeg(S1, Name, InsertBefore);
 }
 
 /// Replace 0-X with X*-1.
@@ -913,7 +914,7 @@ static Value *NegateValue(Value *V, Instruction *BI,
 
   // Insert a 'neg' instruction that subtracts the value from zero to get the
   // negation.
-  BinaryOperator *NewNeg = CreateNeg(V, V->getName() + ".neg", BI, BI);
+  Instruction *NewNeg = CreateNeg(V, V->getName() + ".neg", BI, BI);
   ToRedo.insert(NewNeg);
   return NewNeg;
 }
@@ -1075,7 +1076,7 @@ Value *ReassociatePass::RemoveFactorFromExpression(Value *V, Value *Factor) {
         const APFloat &F1 = FC1->getValueAPF();
         APFloat F2(FC2->getValueAPF());
         F2.changeSign();
-        if (F1.compare(F2) == APFloat::cmpEqual) {
+        if (F1 == F2) {
           FoundFactor = NeedsNegate = true;
           Factors.erase(Factors.begin() + i);
           break;
@@ -1898,6 +1899,7 @@ void ReassociatePass::RecursivelyEraseDeadInsts(Instruction *I,
   ValueRankMap.erase(I);
   Insts.remove(I);
   RedoInsts.remove(I);
+  llvm::salvageDebugInfoOrMarkUndef(*I);
   I->eraseFromParent();
   for (auto Op : Ops)
     if (Instruction *OpInst = dyn_cast<Instruction>(Op))
@@ -1914,6 +1916,7 @@ void ReassociatePass::EraseInst(Instruction *I) {
   // Erase the dead instruction.
   ValueRankMap.erase(I);
   RedoInsts.remove(I);
+  llvm::salvageDebugInfoOrMarkUndef(*I);
   I->eraseFromParent();
   // Optimize its operands.
   SmallPtrSet<Instruction *, 8> Visited; // Detect self-referential nodes.

@@ -19,6 +19,7 @@
 #include "clang/AST/ExprObjC.h"
 #include "clang/AST/RecursiveASTVisitor.h"
 #include "clang/Basic/SourceManager.h"
+#include "clang/Basic/TargetInfo.h"
 #include "clang/Sema/DeclSpec.h"
 #include "clang/Sema/Lookup.h"
 #include "clang/Sema/Scope.h"
@@ -3239,6 +3240,9 @@ bool Sema::MatchTwoMethodDeclarations(const ObjCMethodDecl *left,
   if (left->isHidden() || right->isHidden())
     return false;
 
+  if (left->isDirectMethod() != right->isDirectMethod())
+    return false;
+
   if (getLangOpts().ObjCAutoRefCount &&
       (left->hasAttr<NSReturnsRetainedAttr>()
          != right->hasAttr<NSReturnsRetainedAttr>() ||
@@ -3428,6 +3432,9 @@ void Sema::AddMethodToGlobalPool(ObjCMethodDecl *Method, bool impl,
 static bool isAcceptableMethodMismatch(ObjCMethodDecl *chosen,
                                        ObjCMethodDecl *other) {
   if (!chosen->isInstanceMethod())
+    return false;
+
+  if (chosen->isDirectMethod() != other->isDirectMethod())
     return false;
 
   Selector sel = chosen->getSelector();
@@ -4339,6 +4346,18 @@ private:
 };
 } // end anonymous namespace
 
+void Sema::CheckObjCMethodDirectOverrides(ObjCMethodDecl *method,
+                                          ObjCMethodDecl *overridden) {
+  if (const auto *attr = overridden->getAttr<ObjCDirectAttr>()) {
+    Diag(method->getLocation(), diag::err_objc_override_direct_method);
+    Diag(attr->getLocation(), diag::note_previous_declaration);
+  } else if (const auto *attr = method->getAttr<ObjCDirectAttr>()) {
+    Diag(attr->getLocation(), diag::err_objc_direct_on_override)
+        << isa<ObjCProtocolDecl>(overridden->getDeclContext());
+    Diag(overridden->getLocation(), diag::note_previous_declaration);
+  }
+}
+
 void Sema::CheckObjCMethodOverrides(ObjCMethodDecl *ObjCMethod,
                                     ObjCInterfaceDecl *CurrentClass,
                                     ResultTypeCompatibilityKind RTC) {
@@ -4357,8 +4376,8 @@ void Sema::CheckObjCMethodOverrides(ObjCMethodDecl *ObjCMethod,
       if (isa<ObjCProtocolDecl>(overridden->getDeclContext()) ||
           CurrentClass != overridden->getClassInterface() ||
           overridden->isOverriding()) {
+        CheckObjCMethodDirectOverrides(ObjCMethod, overridden);
         hasOverriddenMethodsInBaseOrProtocol = true;
-
       } else if (isa<ObjCImplDecl>(ObjCMethod->getDeclContext())) {
         // OverrideSearch will return as "overridden" the same method in the
         // interface. For hasOverriddenMethodsInBaseOrProtocol, we need to
@@ -4382,6 +4401,7 @@ void Sema::CheckObjCMethodOverrides(ObjCMethodDecl *ObjCMethod,
               for (ObjCMethodDecl *SuperOverridden : overrides) {
                 if (isa<ObjCProtocolDecl>(SuperOverridden->getDeclContext()) ||
                     CurrentClass != SuperOverridden->getClassInterface()) {
+                  CheckObjCMethodDirectOverrides(ObjCMethod, SuperOverridden);
                   hasOverriddenMethodsInBaseOrProtocol = true;
                   overridden->setOverriding(true);
                   break;
@@ -4561,6 +4581,62 @@ static void checkObjCMethodX86VectorTypes(Sema &SemaRef,
       << (Triple.isMacOSX() ? "macOS 10.11" : "iOS 9");
 }
 
+static void mergeObjCDirectMembers(Sema &S, Decl *CD, ObjCMethodDecl *Method) {
+  if (!Method->isDirectMethod() && !Method->hasAttr<UnavailableAttr>() &&
+      CD->hasAttr<ObjCDirectMembersAttr>()) {
+    Method->addAttr(
+        ObjCDirectAttr::CreateImplicit(S.Context, Method->getLocation()));
+  }
+}
+
+static void checkObjCDirectMethodClashes(Sema &S, ObjCInterfaceDecl *IDecl,
+                                         ObjCMethodDecl *Method,
+                                         ObjCImplDecl *ImpDecl = nullptr) {
+  auto Sel = Method->getSelector();
+  bool isInstance = Method->isInstanceMethod();
+  bool diagnosed = false;
+
+  auto diagClash = [&](const ObjCMethodDecl *IMD) {
+    if (diagnosed || IMD->isImplicit())
+      return;
+    if (Method->isDirectMethod() || IMD->isDirectMethod()) {
+      S.Diag(Method->getLocation(), diag::err_objc_direct_duplicate_decl)
+          << Method->isDirectMethod() << /* method */ 0 << IMD->isDirectMethod()
+          << Method->getDeclName();
+      S.Diag(IMD->getLocation(), diag::note_previous_declaration);
+      diagnosed = true;
+    }
+  };
+
+  // Look for any other declaration of this method anywhere we can see in this
+  // compilation unit.
+  //
+  // We do not use IDecl->lookupMethod() because we have specific needs:
+  //
+  // - we absolutely do not need to walk protocols, because
+  //   diag::err_objc_direct_on_protocol has already been emitted
+  //   during parsing if there's a conflict,
+  //
+  // - when we do not find a match in a given @interface container,
+  //   we need to attempt looking it up in the @implementation block if the
+  //   translation unit sees it to find more clashes.
+
+  if (auto *IMD = IDecl->getMethod(Sel, isInstance))
+    diagClash(IMD);
+  else if (auto *Impl = IDecl->getImplementation())
+    if (Impl != ImpDecl)
+      if (auto *IMD = IDecl->getImplementation()->getMethod(Sel, isInstance))
+        diagClash(IMD);
+
+  for (const auto *Cat : IDecl->visible_categories())
+    if (auto *IMD = Cat->getMethod(Sel, isInstance))
+      diagClash(IMD);
+    else if (auto CatImpl = Cat->getImplementation())
+      if (CatImpl != ImpDecl)
+        if (auto *IMD = Cat->getMethod(Sel, isInstance))
+          diagClash(IMD);
+}
+
 Decl *Sema::ActOnMethodDeclaration(
     Scope *S, SourceLocation MethodLoc, SourceLocation EndLoc,
     tok::TokenKind MethodType, ObjCDeclSpec &ReturnQT, ParsedType ReturnType,
@@ -4713,6 +4789,20 @@ Decl *Sema::ActOnMethodDeclaration(
         }
     }
 
+    // A method is either tagged direct explicitly, or inherits it from its
+    // canonical declaration.
+    //
+    // We have to do the merge upfront and not in mergeInterfaceMethodToImpl()
+    // because IDecl->lookupMethod() returns more possible matches than just
+    // the canonical declaration.
+    if (!ObjCMethod->isDirectMethod()) {
+      const ObjCMethodDecl *CanonicalMD = ObjCMethod->getCanonicalDecl();
+      if (const auto *attr = CanonicalMD->getAttr<ObjCDirectAttr>()) {
+        ObjCMethod->addAttr(
+            ObjCDirectAttr::CreateImplicit(Context, attr->getLocation()));
+      }
+    }
+
     // Merge information from the @interface declaration into the
     // @implementation.
     if (ObjCInterfaceDecl *IDecl = ImpDecl->getClassInterface()) {
@@ -4720,12 +4810,64 @@ Decl *Sema::ActOnMethodDeclaration(
                                           ObjCMethod->isInstanceMethod())) {
         mergeInterfaceMethodToImpl(*this, ObjCMethod, IMD);
 
+        // The Idecl->lookupMethod() above will find declarations for ObjCMethod
+        // in one of these places:
+        //
+        // (1) the canonical declaration in an @interface container paired
+        //     with the ImplDecl,
+        // (2) non canonical declarations in @interface not paired with the
+        //     ImplDecl for the same Class,
+        // (3) any superclass container.
+        //
+        // Direct methods only allow for canonical declarations in the matching
+        // container (case 1).
+        //
+        // Direct methods overriding a superclass declaration (case 3) is
+        // handled during overrides checks in CheckObjCMethodOverrides().
+        //
+        // We deal with same-class container mismatches (Case 2) here.
+        if (IDecl == IMD->getClassInterface()) {
+          auto diagContainerMismatch = [&] {
+            int decl = 0, impl = 0;
+
+            if (auto *Cat = dyn_cast<ObjCCategoryDecl>(IMD->getDeclContext()))
+              decl = Cat->IsClassExtension() ? 1 : 2;
+
+            if (isa<ObjCCategoryImplDecl>(ImpDecl))
+              impl = 1 + (decl != 0);
+
+            Diag(ObjCMethod->getLocation(),
+                 diag::err_objc_direct_impl_decl_mismatch)
+                << decl << impl;
+            Diag(IMD->getLocation(), diag::note_previous_declaration);
+          };
+
+          if (const auto *attr = ObjCMethod->getAttr<ObjCDirectAttr>()) {
+            if (ObjCMethod->getCanonicalDecl() != IMD) {
+              diagContainerMismatch();
+            } else if (!IMD->isDirectMethod()) {
+              Diag(attr->getLocation(), diag::err_objc_direct_missing_on_decl);
+              Diag(IMD->getLocation(), diag::note_previous_declaration);
+            }
+          } else if (const auto *attr = IMD->getAttr<ObjCDirectAttr>()) {
+            if (ObjCMethod->getCanonicalDecl() != IMD) {
+              diagContainerMismatch();
+            } else {
+              ObjCMethod->addAttr(
+                  ObjCDirectAttr::CreateImplicit(Context, attr->getLocation()));
+            }
+          }
+        }
+
         // Warn about defining -dealloc in a category.
         if (isa<ObjCCategoryImplDecl>(ImpDecl) && IMD->isOverriding() &&
             ObjCMethod->getSelector().getMethodFamily() == OMF_dealloc) {
           Diag(ObjCMethod->getLocation(), diag::warn_dealloc_in_category)
             << ObjCMethod->getDeclName();
         }
+      } else {
+        mergeObjCDirectMembers(*this, ClassDecl, ObjCMethod);
+        checkObjCDirectMethodClashes(*this, IDecl, ObjCMethod, ImpDecl);
       }
 
       // Warn if a method declared in a protocol to which a category or
@@ -4745,6 +4887,19 @@ Decl *Sema::ActOnMethodDeclaration(
           }
     }
   } else {
+    if (!isa<ObjCProtocolDecl>(ClassDecl)) {
+      mergeObjCDirectMembers(*this, ClassDecl, ObjCMethod);
+
+      ObjCInterfaceDecl *IDecl = dyn_cast<ObjCInterfaceDecl>(ClassDecl);
+      if (!IDecl)
+        IDecl = cast<ObjCCategoryDecl>(ClassDecl)->getClassInterface();
+      // For valid code, we should always know the primary interface
+      // declaration by now, however for invalid code we'll keep parsing
+      // but we won't find the primary interface and IDecl will be nil.
+      if (IDecl)
+        checkObjCDirectMethodClashes(*this, IDecl, ObjCMethod);
+    }
+
     cast<DeclContext>(ClassDecl)->addDecl(ObjCMethod);
   }
 
@@ -4829,6 +4984,9 @@ Decl *Sema::ActOnMethodDeclaration(
       ObjCMethod->dropAttr<AvailabilityAttr>();
     }
   }
+
+  // Insert the invisible arguments, self and _cmd!
+  ObjCMethod->createImplicitParams(Context, ObjCMethod->getClassInterface());
 
   ActOnDocumentableDecl(ObjCMethod);
 

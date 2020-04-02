@@ -23,8 +23,11 @@
 #include "clang/Basic/LangOptions.h"
 #include "clang/Basic/SourceLocation.h"
 #include "clang/Basic/SourceManager.h"
+#include "clang/Tooling/Syntax/Tokens.h"
 #include "llvm/ADT/None.h"
 #include "llvm/ADT/Optional.h"
+#include "llvm/ADT/STLExtras.h"
+#include "llvm/Support/Base64.h"
 #include "llvm/Support/Casting.h"
 #include <algorithm>
 
@@ -97,6 +100,8 @@ llvm::Optional<HighlightingKind> kindForDecl(const NamedDecl *D) {
   if (isa<TemplateTemplateParmDecl>(D) || isa<TemplateTypeParmDecl>(D) ||
       isa<NonTypeTemplateParmDecl>(D))
     return HighlightingKind::TemplateParameter;
+  if (isa<ConceptDecl>(D))
+    return HighlightingKind::Concept;
   return llvm::None;
 }
 llvm::Optional<HighlightingKind> kindForType(const Type *TP) {
@@ -124,43 +129,42 @@ llvm::Optional<HighlightingKind> kindForReference(const ReferenceLoc &R) {
   return Result;
 }
 
+// For a macro usage `DUMP(foo)`, we want:
+//  - DUMP --> "macro"
+//  - foo --> "variable".
+SourceLocation getHighlightableSpellingToken(SourceLocation L,
+                                             const SourceManager &SM) {
+  if (L.isFileID())
+    return SM.isWrittenInMainFile(L) ? L : SourceLocation{};
+  // Tokens expanded from the macro body contribute no highlightings.
+  if (!SM.isMacroArgExpansion(L))
+    return {};
+  // Tokens expanded from macro args are potentially highlightable.
+  return getHighlightableSpellingToken(SM.getImmediateSpellingLoc(L), SM);
+}
+
 /// Consumes source locations and maps them to text ranges for highlightings.
 class HighlightingsBuilder {
 public:
-  HighlightingsBuilder(const SourceManager &SourceMgr,
-                       const LangOptions &LangOpts)
-      : SourceMgr(SourceMgr), LangOpts(LangOpts) {}
+  HighlightingsBuilder(const ParsedAST &AST)
+      : TB(AST.getTokens()), SourceMgr(AST.getSourceManager()),
+        LangOpts(AST.getLangOpts()) {}
 
   void addToken(HighlightingToken T) { Tokens.push_back(T); }
 
   void addToken(SourceLocation Loc, HighlightingKind Kind) {
+    Loc = getHighlightableSpellingToken(Loc, SourceMgr);
     if (Loc.isInvalid())
       return;
-    if (Loc.isMacroID()) {
-      // Only intereseted in highlighting arguments in macros (DEF_X(arg)).
-      if (!SourceMgr.isMacroArgExpansion(Loc))
-        return;
-      Loc = SourceMgr.getSpellingLoc(Loc);
-    }
+    const auto *Tok = TB.spelledTokenAt(Loc);
+    assert(Tok);
 
-    // Non top level decls that are included from a header are not filtered by
-    // topLevelDecls. (example: method declarations being included from
-    // another file for a class from another file).
-    // There are also cases with macros where the spelling loc will not be in
-    // the main file and the highlighting would be incorrect.
-    if (!isInsideMainFile(Loc, SourceMgr))
-      return;
-
-    auto Range = getTokenRange(SourceMgr, LangOpts, Loc);
-    if (!Range) {
-      // R should always have a value, if it doesn't something is very wrong.
-      elog("Tried to add semantic token with an invalid range");
-      return;
-    }
-    Tokens.push_back(HighlightingToken{Kind, *Range});
+    auto Range = halfOpenToRange(SourceMgr,
+                                 Tok->range(SourceMgr).toCharRange(SourceMgr));
+    Tokens.push_back(HighlightingToken{Kind, std::move(Range)});
   }
 
-  std::vector<HighlightingToken> collect() && {
+  std::vector<HighlightingToken> collect(ParsedAST &AST) && {
     // Initializer lists can give duplicates of tokens, therefore all tokens
     // must be deduplicated.
     llvm::sort(Tokens);
@@ -187,10 +191,27 @@ public:
       // the end of the Tokens).
       TokRef = TokRef.drop_front(Conflicting.size());
     }
+    // Add tokens indicating lines skipped by the preprocessor.
+    for (const Range &R : AST.getMacros().SkippedRanges) {
+      // Create one token for each line in the skipped range, so it works
+      // with line-based diffing.
+      assert(R.start.line <= R.end.line);
+      for (int Line = R.start.line; Line < R.end.line; ++Line) {
+        // Don't bother computing the offset for the end of the line, just use
+        // zero. The client will treat this highlighting kind specially, and
+        // highlight the entire line visually (i.e. not just to where the text
+        // on the line ends, but to the end of the screen).
+        NonConflicting.push_back({HighlightingKind::InactiveCode,
+                                  {Position{Line, 0}, Position{Line, 0}}});
+      }
+    }
+    // Re-sort the tokens because that's what the diffing expects.
+    llvm::sort(NonConflicting);
     return NonConflicting;
   }
 
 private:
+  const syntax::TokenBuffer &TB;
   const SourceManager &SourceMgr;
   const LangOptions &LangOpts;
   std::vector<HighlightingToken> Tokens;
@@ -241,40 +262,28 @@ public:
     return true;
   }
 
+  bool VisitDependentTemplateSpecializationTypeLoc(
+      DependentTemplateSpecializationTypeLoc L) {
+    H.addToken(L.getTemplateNameLoc(), HighlightingKind::DependentType);
+    return true;
+  }
+
+  // findExplicitReferences will walk nested-name-specifiers and
+  // find anything that can be resolved to a Decl. However, non-leaf
+  // components of nested-name-specifiers which are dependent names
+  // (kind "Identifier") cannot be resolved to a decl, so we visit
+  // them here.
+  bool TraverseNestedNameSpecifierLoc(NestedNameSpecifierLoc Q) {
+    if (NestedNameSpecifier *NNS = Q.getNestedNameSpecifier()) {
+      if (NNS->getKind() == NestedNameSpecifier::Identifier)
+        H.addToken(Q.getLocalBeginLoc(), HighlightingKind::DependentType);
+    }
+    return RecursiveASTVisitor::TraverseNestedNameSpecifierLoc(Q);
+  }
+
 private:
   HighlightingsBuilder &H;
 };
-
-// Encode binary data into base64.
-// This was copied from compiler-rt/lib/fuzzer/FuzzerUtil.cpp.
-// FIXME: Factor this out into llvm/Support?
-std::string encodeBase64(const llvm::SmallVectorImpl<char> &Bytes) {
-  static const char Table[] = "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
-                              "abcdefghijklmnopqrstuvwxyz"
-                              "0123456789+/";
-  std::string Res;
-  size_t I;
-  for (I = 0; I + 2 < Bytes.size(); I += 3) {
-    uint32_t X = (Bytes[I] << 16) + (Bytes[I + 1] << 8) + Bytes[I + 2];
-    Res += Table[(X >> 18) & 63];
-    Res += Table[(X >> 12) & 63];
-    Res += Table[(X >> 6) & 63];
-    Res += Table[X & 63];
-  }
-  if (I + 1 == Bytes.size()) {
-    uint32_t X = (Bytes[I] << 16);
-    Res += Table[(X >> 18) & 63];
-    Res += Table[(X >> 12) & 63];
-    Res += "==";
-  } else if (I + 2 == Bytes.size()) {
-    uint32_t X = (Bytes[I] << 16) + (Bytes[I + 1] << 8);
-    Res += Table[(X >> 18) & 63];
-    Res += Table[(X >> 12) & 63];
-    Res += Table[(X >> 6) & 63];
-    Res += "=";
-  }
-  return Res;
-}
 
 void write32be(uint32_t I, llvm::raw_ostream &OS) {
   std::array<char, 4> Buf;
@@ -303,7 +312,7 @@ takeLine(ArrayRef<HighlightingToken> AllTokens,
 std::vector<HighlightingToken> getSemanticHighlightings(ParsedAST &AST) {
   auto &C = AST.getASTContext();
   // Add highlightings for AST nodes.
-  HighlightingsBuilder Builder(AST.getSourceManager(), C.getLangOpts());
+  HighlightingsBuilder Builder(AST);
   // Highlight 'decltype' and 'auto' as their underlying types.
   CollectExtraHighlightings(Builder).TraverseAST(C);
   // Highlight all decls and references coming from the AST.
@@ -311,10 +320,15 @@ std::vector<HighlightingToken> getSemanticHighlightings(ParsedAST &AST) {
     if (auto Kind = kindForReference(R))
       Builder.addToken(R.NameLoc, *Kind);
   });
-  // Add highlightings for macro expansions.
-  for (const auto &M : AST.getMacros().Ranges)
+  // Add highlightings for macro references.
+  for (const auto &SIDToRefs : AST.getMacros().MacroRefs) {
+    for (const auto &M : SIDToRefs.second)
+      Builder.addToken({HighlightingKind::Macro, M});
+  }
+  for (const auto &M : AST.getMacros().UnknownMacros)
     Builder.addToken({HighlightingKind::Macro, M});
-  return std::move(Builder).collect();
+
+  return std::move(Builder).collect(AST);
 }
 
 llvm::raw_ostream &operator<<(llvm::raw_ostream &OS, HighlightingKind K) {
@@ -351,10 +365,14 @@ llvm::raw_ostream &operator<<(llvm::raw_ostream &OS, HighlightingKind K) {
     return OS << "Namespace";
   case HighlightingKind::TemplateParameter:
     return OS << "TemplateParameter";
+  case HighlightingKind::Concept:
+    return OS << "Concept";
   case HighlightingKind::Primitive:
     return OS << "Primitive";
   case HighlightingKind::Macro:
     return OS << "Macro";
+  case HighlightingKind::InactiveCode:
+    return OS << "InactiveCode";
   }
   llvm_unreachable("invalid HighlightingKind");
 }
@@ -399,8 +417,19 @@ diffHighlightings(ArrayRef<HighlightingToken> New,
        LineNumber = NextLineNumber()) {
     NewLine = takeLine(New, NewLine.end(), LineNumber);
     OldLine = takeLine(Old, OldLine.end(), LineNumber);
-    if (NewLine != OldLine)
-      DiffedLines.push_back({LineNumber, NewLine});
+    if (NewLine != OldLine) {
+      DiffedLines.push_back({LineNumber, NewLine, /*IsInactive=*/false});
+
+      // Turn a HighlightingKind::InactiveCode token into the IsInactive flag.
+      auto &AddedLine = DiffedLines.back();
+      llvm::erase_if(AddedLine.Tokens, [&](const HighlightingToken &T) {
+        if (T.Kind == HighlightingKind::InactiveCode) {
+          AddedLine.IsInactive = true;
+          return true;
+        }
+        return false;
+      });
+    }
   }
 
   return DiffedLines;
@@ -416,14 +445,15 @@ bool operator==(const LineHighlightings &L, const LineHighlightings &R) {
   return std::tie(L.Line, L.Tokens) == std::tie(R.Line, R.Tokens);
 }
 
-std::vector<SemanticHighlightingInformation>
-toSemanticHighlightingInformation(llvm::ArrayRef<LineHighlightings> Tokens) {
+std::vector<TheiaSemanticHighlightingInformation>
+toTheiaSemanticHighlightingInformation(
+    llvm::ArrayRef<LineHighlightings> Tokens) {
   if (Tokens.size() == 0)
     return {};
 
   // FIXME: Tokens might be multiple lines long (block comments) in this case
   // this needs to add multiple lines for those tokens.
-  std::vector<SemanticHighlightingInformation> Lines;
+  std::vector<TheiaSemanticHighlightingInformation> Lines;
   Lines.reserve(Tokens.size());
   for (const auto &Line : Tokens) {
     llvm::SmallVector<char, 128> LineByteTokens;
@@ -439,7 +469,7 @@ toSemanticHighlightingInformation(llvm::ArrayRef<LineHighlightings> Tokens) {
       write16be(static_cast<int>(Token.Kind), OS);
     }
 
-    Lines.push_back({Line.Line, encodeBase64(LineByteTokens)});
+    Lines.push_back({Line.Line, encodeBase64(LineByteTokens), Line.IsInactive});
   }
 
   return Lines;
@@ -480,10 +510,14 @@ llvm::StringRef toTextMateScope(HighlightingKind Kind) {
     return "entity.name.namespace.cpp";
   case HighlightingKind::TemplateParameter:
     return "entity.name.type.template.cpp";
+  case HighlightingKind::Concept:
+    return "entity.name.type.concept.cpp";
   case HighlightingKind::Primitive:
     return "storage.type.primitive.cpp";
   case HighlightingKind::Macro:
     return "entity.name.function.preprocessor.cpp";
+  case HighlightingKind::InactiveCode:
+    return "meta.disabled";
   }
   llvm_unreachable("unhandled HighlightingKind");
 }

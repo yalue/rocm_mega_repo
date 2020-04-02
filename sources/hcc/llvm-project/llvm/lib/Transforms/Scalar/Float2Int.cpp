@@ -11,6 +11,8 @@
 //
 //===----------------------------------------------------------------------===//
 
+#include "llvm/InitializePasses.h"
+#include "llvm/Support/CommandLine.h"
 #define DEBUG_TYPE "float2int"
 
 #include "llvm/Transforms/Scalar/Float2Int.h"
@@ -325,7 +327,7 @@ void Float2IntPass::walkForwards() {
 
         APFloat NewF = F;
         auto Res = NewF.roundToIntegral(APFloat::rmNearestTiesToEven);
-        if (Res != APFloat::opOK || NewF.compare(F) != APFloat::cmpEqual) {
+        if (Res != APFloat::opOK || NewF != F) {
           seen(I, badRange());
           Abort = true;
           break;

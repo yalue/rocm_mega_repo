@@ -157,6 +157,10 @@ public:
     return Val.getSExtValue();
   }
 
+  /// Return the constant as an llvm::Align. Note that this method can assert if
+  /// the value does not fit in 64 bits or is not a power of two.
+  inline Align getAlignValue() const { return Align(getZExtValue()); }
+
   /// A helper method that can be used to determine if the constant contained
   /// within is equal to a constant.  This only works for very small values,
   /// because this is all that can be represented with all types.
@@ -388,7 +392,7 @@ public:
 /// use operands.
 class ConstantAggregate : public Constant {
 protected:
-  ConstantAggregate(CompositeType *T, ValueTy VT, ArrayRef<Constant *> V);
+  ConstantAggregate(Type *T, ValueTy VT, ArrayRef<Constant *> V);
 
 public:
   /// Transparently provide more efficient getOperand methods.
@@ -456,8 +460,7 @@ public:
   static Constant *get(StructType *T, ArrayRef<Constant*> V);
 
   template <typename... Csts>
-  static typename std::enable_if<are_base_of<Constant, Csts...>::value,
-                                 Constant *>::type
+  static std::enable_if_t<are_base_of<Constant, Csts...>::value, Constant *>
   get(StructType *T, Csts *... Vs) {
     SmallVector<Constant *, 8> Values({Vs...});
     return get(T, Values);
@@ -514,7 +517,7 @@ private:
 
 public:
   /// Return a ConstantVector with the specified constant in each element.
-  static Constant *getSplat(unsigned NumElts, Constant *Elt);
+  static Constant *getSplat(ElementCount EC, Constant *Elt);
 
   /// Specialize the getType() method to always return a VectorType,
   /// which reduces the amount of casting needed in parts of the compiler.
@@ -522,9 +525,10 @@ public:
     return cast<VectorType>(Value::getType());
   }
 
-  /// If this is a splat constant, meaning that all of the elements have the
-  /// same value, return that value. Otherwise return NULL.
-  Constant *getSplatValue() const;
+  /// If all elements of the vector constant have the same value, return that
+  /// value. Otherwise, return nullptr. Ignore undefined elements by setting
+  /// AllowUndefs to true.
+  Constant *getSplatValue(bool AllowUndefs = false) const;
 
   /// Methods for support type inquiry through isa, cast, and dyn_cast:
   static bool classof(const Value *V) {
@@ -1250,7 +1254,7 @@ public:
   /// which would take a ConstantExpr parameter, but that would have spread
   /// implementation details of ConstantExpr outside of Constants.cpp, which
   /// would make it harder to remove ConstantExprs altogether.
-  Instruction *getAsInstruction();
+  Instruction *getAsInstruction() const;
 
   /// Methods for support type inquiry through isa, cast, and dyn_cast:
   static bool classof(const Value *V) {

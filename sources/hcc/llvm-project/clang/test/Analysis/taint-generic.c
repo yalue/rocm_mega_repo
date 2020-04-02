@@ -1,11 +1,11 @@
-// RUN: %clang_analyze_cc1 -Wno-format-security -verify %s \
+// RUN: %clang_analyze_cc1 -Wno-format-security -Wno-pointer-to-int-cast -verify %s \
 // RUN:   -analyzer-checker=alpha.security.taint \
 // RUN:   -analyzer-checker=core \
 // RUN:   -analyzer-checker=alpha.security.ArrayBoundV2 \
 // RUN:   -analyzer-config \
 // RUN:     alpha.security.taint.TaintPropagation:Config=%S/Inputs/taint-generic-config.yaml
 
-// RUN: %clang_analyze_cc1 -Wno-format-security -verify %s \
+// RUN: %clang_analyze_cc1 -Wno-format-security -Wno-pointer-to-int-cast -verify %s \
 // RUN:   -DFILE_IS_STRUCT \
 // RUN:   -analyzer-checker=alpha.security.taint \
 // RUN:   -analyzer-checker=core \
@@ -13,7 +13,7 @@
 // RUN:   -analyzer-config \
 // RUN:     alpha.security.taint.TaintPropagation:Config=%S/Inputs/taint-generic-config.yaml
 
-// RUN: not %clang_analyze_cc1 -verify %s \
+// RUN: not %clang_analyze_cc1 -Wno-pointer-to-int-cast -verify %s \
 // RUN:   -analyzer-checker=alpha.security.taint \
 // RUN:   -analyzer-config \
 // RUN:     alpha.security.taint.TaintPropagation:Config=justguessit \
@@ -55,6 +55,8 @@ extern struct _FILE *stdin;
 #else
 extern FILE *stdin;
 #endif
+
+#define bool _Bool
 
 int fscanf(FILE *restrict stream, const char *restrict format, ...);
 int sprintf(char *str, const char *format, ...);
@@ -346,6 +348,7 @@ void mySource2(int*);
 void myScanf(const char*, ...);
 int myPropagator(int, int*);
 int mySnprintf(char*, size_t, const char*, ...);
+bool isOutOfRange(const int*);
 void mySink(int, int, int);
 
 void testConfigurationSources1() {
@@ -370,6 +373,13 @@ void testConfigurationPropagation() {
   int y;
   myPropagator(x, &y);
   Buffer[y] = 1; // expected-warning {{Out of bound memory access }}
+}
+
+void testConfigurationFilter() {
+  int x = mySource1();
+  if (isOutOfRange(&x)) // the filter function
+    return;
+  Buffer[x] = 1; // no-warning
 }
 
 void testConfigurationSinks() {

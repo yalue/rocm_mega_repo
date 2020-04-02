@@ -6,8 +6,8 @@
 //
 //===----------------------------------------------------------------------===//
 
-#ifndef liblldb_ExpressionParser_h_
-#define liblldb_ExpressionParser_h_
+#ifndef LLDB_EXPRESSION_EXPRESSIONPARSER_H
+#define LLDB_EXPRESSION_EXPRESSIONPARSER_H
 
 #include "lldb/Utility/CompletionRequest.h"
 #include "lldb/Utility/Status.h"
@@ -29,7 +29,7 @@ public:
   ///
   /// Initializes class variables.
   ///
-  /// \param[in] exe_scope,
+  /// \param[in] exe_scope
   ///     If non-NULL, an execution context scope that can help to
   ///     correctly create an expression with a valid process for
   ///     optional tuning Objective-C runtime support. Can be NULL.
@@ -133,4 +133,4 @@ protected:
 };
 }
 
-#endif // liblldb_ExpressionParser_h_
+#endif // LLDB_EXPRESSION_EXPRESSIONPARSER_H

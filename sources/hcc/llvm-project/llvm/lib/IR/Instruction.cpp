@@ -97,6 +97,15 @@ void Instruction::moveBefore(BasicBlock &BB,
   BB.getInstList().splice(I, getParent()->getInstList(), getIterator());
 }
 
+bool Instruction::comesBefore(const Instruction *Other) const {
+  assert(Parent && Other->Parent &&
+         "instructions without BB parents have no order");
+  assert(Parent == Other->Parent && "cross-BB instruction order comparison");
+  if (!Parent->isInstrOrderValid())
+    Parent->renumberInstructions();
+  return Order < Other->Order;
+}
+
 void Instruction::setHasNoUnsignedWrap(bool b) {
   cast<OverflowingBinaryOperator>(this)->setHasNoUnsignedWrap(b);
 }
@@ -307,7 +316,6 @@ const char *Instruction::getOpcodeName(unsigned OpCode) {
 
   // Standard unary operators...
   case FNeg: return "fneg";
-  case Freeze: return "freeze";
 
   // Standard binary operators...
   case Add: return "add";
@@ -369,6 +377,7 @@ const char *Instruction::getOpcodeName(unsigned OpCode) {
   case InsertValue:    return "insertvalue";
   case LandingPad:     return "landingpad";
   case CleanupPad:     return "cleanuppad";
+  case Freeze:         return "freeze";
 
   default: return "<Invalid operator> ";
   }

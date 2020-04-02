@@ -37,7 +37,7 @@ HCCInstallationDetector::HCCInstallationDetector(const Driver &D, const llvm::op
 
   if (Args.hasArg(options::OPT_hcc_path_EQ))
     HCCPathCandidates.push_back(
-      Args.getLastArgValue(options::OPT_hcc_path_EQ));
+      std::string(Args.getLastArgValue(options::OPT_hcc_path_EQ)));
 
   HCCPathCandidates.push_back(InstallPath + "/..");
   HCCPathCandidates.push_back(BinPath + "/..");

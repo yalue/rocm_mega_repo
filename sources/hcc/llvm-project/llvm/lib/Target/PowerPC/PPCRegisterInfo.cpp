@@ -149,13 +149,6 @@ PPCRegisterInfo::getCalleeSavedRegs(const MachineFunction *MF) const {
     return CSR_64_AllRegs_SaveList;
   }
 
-  if (Subtarget.isDarwinABI())
-    return TM.isPPC64()
-               ? (Subtarget.hasAltivec() ? CSR_Darwin64_Altivec_SaveList
-                                         : CSR_Darwin64_SaveList)
-               : (Subtarget.hasAltivec() ? CSR_Darwin32_Altivec_SaveList
-                                         : CSR_Darwin32_SaveList);
-
   if (TM.isPPC64() && MF->getInfo<PPCFunctionInfo>()->isSplitCSR())
     return CSR_SRV464_TLS_PE_SaveList;
 
@@ -198,8 +191,6 @@ const MCPhysReg *
 PPCRegisterInfo::getCalleeSavedRegsViaCopy(const MachineFunction *MF) const {
   assert(MF && "Invalid MachineFunction pointer.");
   const PPCSubtarget &Subtarget = MF->getSubtarget<PPCSubtarget>();
-  if (Subtarget.isDarwinABI())
-    return nullptr;
   if (!TM.isPPC64())
     return nullptr;
   if (MF->getFunction().getCallingConv() != CallingConv::CXX_FAST_TLS)
@@ -231,11 +222,6 @@ PPCRegisterInfo::getCallPreservedMask(const MachineFunction &MF,
     return CSR_64_AllRegs_RegMask;
   }
 
-  if (Subtarget.isDarwinABI())
-    return TM.isPPC64() ? (Subtarget.hasAltivec() ? CSR_Darwin64_Altivec_RegMask
-                                                  : CSR_Darwin64_RegMask)
-                        : (Subtarget.hasAltivec() ? CSR_Darwin32_Altivec_RegMask
-                                                  : CSR_Darwin32_RegMask);
   if (Subtarget.isAIXABI()) {
     assert(!Subtarget.hasAltivec() && "Altivec is not implemented on AIX yet.");
     return TM.isPPC64() ? CSR_AIX64_RegMask : CSR_AIX32_RegMask;
@@ -295,8 +281,7 @@ BitVector PPCRegisterInfo::getReservedRegs(const MachineFunction &MF) const {
   markSuperRegs(Reserved, PPC::LR8);
   markSuperRegs(Reserved, PPC::RM);
 
-  if (!Subtarget.isDarwinABI() || !Subtarget.hasAltivec())
-    markSuperRegs(Reserved, PPC::VRSAVE);
+  markSuperRegs(Reserved, PPC::VRSAVE);
 
   // The SVR4 ABI reserves r2 and r13
   if (Subtarget.isSVR4ABI()) {
@@ -380,7 +365,7 @@ bool PPCRegisterInfo::requiresFrameIndexScavenging(const MachineFunction &MF) co
     // This is eiher:
     // 1) A fixed frame index object which we know are aligned so
     // as long as we have a valid DForm/DSForm/DQForm (non XForm) we don't
-    // need to consider the alignement here.
+    // need to consider the alignment here.
     // 2) A not fixed object but in that case we now know that the min required
     // alignment is no more than 1 based on the previous check.
     if (InstrInfo->isXFormMemOp(Opcode))
@@ -513,9 +498,9 @@ void PPCRegisterInfo::lowerDynamicAlloc(MachineBasicBlock::iterator II) const {
 
   // Get stack alignments.
   const PPCFrameLowering *TFI = getFrameLowering(MF);
-  unsigned TargetAlign = TFI->getStackAlignment();
-  unsigned MaxAlign = MFI.getMaxAlignment();
-  assert((maxCallFrameSize & (MaxAlign-1)) == 0 &&
+  Align TargetAlign = TFI->getStackAlign();
+  Align MaxAlign = MFI.getMaxAlign();
+  assert(isAligned(MaxAlign, maxCallFrameSize) &&
          "Maximum call-frame size not sufficiently aligned");
 
   // Determine the previous frame's address.  If FrameSize can't be
@@ -560,7 +545,7 @@ void PPCRegisterInfo::lowerDynamicAlloc(MachineBasicBlock::iterator II) const {
       // Unfortunately, there is no andi, only andi., and we can't insert that
       // here because we might clobber cr0 while it is live.
       BuildMI(MBB, II, dl, TII.get(PPC::LI8), NegSizeReg)
-        .addImm(~(MaxAlign-1));
+          .addImm(~(MaxAlign.value() - 1));
 
       unsigned NegSizeReg1 = NegSizeReg;
       NegSizeReg = MF.getRegInfo().createVirtualRegister(G8RC);
@@ -585,7 +570,7 @@ void PPCRegisterInfo::lowerDynamicAlloc(MachineBasicBlock::iterator II) const {
       // Unfortunately, there is no andi, only andi., and we can't insert that
       // here because we might clobber cr0 while it is live.
       BuildMI(MBB, II, dl, TII.get(PPC::LI), NegSizeReg)
-        .addImm(~(MaxAlign-1));
+          .addImm(~(MaxAlign.value() - 1));
 
       unsigned NegSizeReg1 = NegSizeReg;
       NegSizeReg = MF.getRegInfo().createVirtualRegister(GPRC);
@@ -787,6 +772,21 @@ void PPCRegisterInfo::lowerCRBitSpilling(MachineBasicBlock::iterator II,
     SpillsKnownBit = true;
     break;
   default:
+    // On Power9, we can use SETB to extract the LT bit. This only works for
+    // the LT bit since SETB produces -1/1/0 for LT/GT/<neither>. So the value
+    // of the bit we care about (32-bit sign bit) will be set to the value of
+    // the LT bit (regardless of the other bits in the CR field).
+    if (Subtarget.isISA3_0()) {
+      if (SrcReg == PPC::CR0LT || SrcReg == PPC::CR1LT ||
+          SrcReg == PPC::CR2LT || SrcReg == PPC::CR3LT ||
+          SrcReg == PPC::CR4LT || SrcReg == PPC::CR5LT ||
+          SrcReg == PPC::CR6LT || SrcReg == PPC::CR7LT) {
+        BuildMI(MBB, II, dl, TII.get(LP64 ? PPC::SETB8 : PPC::SETB), Reg)
+          .addReg(getCRFromCRBit(SrcReg), RegState::Undef);
+        break;
+      }
+    }
+
     // We need to move the CR field that contains the CR bit we are spilling.
     // The super register may not be explicitly defined (i.e. it can be defined
     // by a CR-logical that only defines the subreg) so we state that the CR
@@ -926,19 +926,16 @@ void PPCRegisterInfo::lowerVRSAVERestore(MachineBasicBlock::iterator II,
 
 bool PPCRegisterInfo::hasReservedSpillSlot(const MachineFunction &MF,
                                            unsigned Reg, int &FrameIdx) const {
-  const PPCSubtarget &Subtarget = MF.getSubtarget<PPCSubtarget>();
-  // For the nonvolatile condition registers (CR2, CR3, CR4) in an SVR4
-  // ABI, return true to prevent allocating an additional frame slot.
-  // For 64-bit, the CR save area is at SP+8; the value of FrameIdx = 0
-  // is arbitrary and will be subsequently ignored.  For 32-bit, we have
-  // previously created the stack slot if needed, so return its FrameIdx.
-  if (Subtarget.isSVR4ABI() && PPC::CR2 <= Reg && Reg <= PPC::CR4) {
-    if (TM.isPPC64())
-      FrameIdx = 0;
-    else {
-      const PPCFunctionInfo *FI = MF.getInfo<PPCFunctionInfo>();
-      FrameIdx = FI->getCRSpillFrameIndex();
-    }
+  // For the nonvolatile condition registers (CR2, CR3, CR4) return true to
+  // prevent allocating an additional frame slot.
+  // For 64-bit ELF and AIX, the CR save area is in the linkage area at SP+8,
+  // for 32-bit AIX the CR save area is in the linkage area at SP+4.
+  // We have created a FrameIndex to that spill slot to keep the CalleSaveInfos
+  // valid.
+  // For 32-bit ELF, we have previously created the stack slot if needed, so
+  // return its FrameIdx.
+  if (PPC::CR2 <= Reg && Reg <= PPC::CR4) {
+    FrameIdx = MF.getInfo<PPCFunctionInfo>()->getCRSpillFrameIndex();
     return true;
   }
   return false;

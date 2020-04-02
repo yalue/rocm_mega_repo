@@ -42,7 +42,7 @@ declare void @outgoing_stack_args_fn(<4 x half>)
 define void @test_outgoing_stack_args([8 x <2 x double>], <4 x half> %arg) {
   ; COMMON-LABEL: name: test_outgoing_stack_args
   ; COMMON:   [[FRAME_INDEX:%[0-9]+]]:_(p0) = G_FRAME_INDEX %fixed-stack.0
-  ; COMMON:   [[LOAD:%[0-9]+]]:_(<4 x s16>) = G_LOAD [[FRAME_INDEX]](p0) :: (invariant load 8 from %fixed-stack.0, align 1)
+  ; COMMON:   [[LOAD:%[0-9]+]]:_(<4 x s16>) = G_LOAD [[FRAME_INDEX]](p0) :: (invariant load 8 from %fixed-stack.0, align 16)
   ; COMMON:   $d0 = COPY [[LOAD]](<4 x s16>)
   ; COMMON:   TCRETURNdi @outgoing_stack_args_fn, 0, csr_aarch64_aapcs, implicit $sp, implicit $d0
   tail call void @outgoing_stack_args_fn(<4 x half> %arg)
@@ -137,7 +137,7 @@ define void @test_varargs_3([8 x <2 x double>], <4 x half> %arg) {
   ; WINDOWS:   [[COPY6:%[0-9]+]]:_(<2 x s64>) = COPY $q6
   ; WINDOWS:   [[COPY7:%[0-9]+]]:_(<2 x s64>) = COPY $q7
   ; WINDOWS:   [[FRAME_INDEX:%[0-9]+]]:_(p0) = G_FRAME_INDEX %fixed-stack.0
-  ; WINDOWS:   [[LOAD:%[0-9]+]]:_(<4 x s16>) = G_LOAD [[FRAME_INDEX]](p0) :: (invariant load 8 from %fixed-stack.0, align 1)
+  ; WINDOWS:   [[LOAD:%[0-9]+]]:_(<4 x s16>) = G_LOAD [[FRAME_INDEX]](p0) :: (invariant load 8 from %fixed-stack.0, align 16)
   ; WINDOWS:   [[C:%[0-9]+]]:_(s32) = G_CONSTANT i32 42
   ; WINDOWS:   [[C1:%[0-9]+]]:_(s64) = G_FCONSTANT double 1.000000e+00
   ; WINDOWS:   [[C2:%[0-9]+]]:_(s64) = G_CONSTANT i64 12
@@ -170,7 +170,7 @@ define void @test_byval(i8* byval %ptr) {
   ; COMMON-LABEL: name: test_byval
   ; COMMON: bb.1 (%ir-block.0):
   ; COMMON:   [[FRAME_INDEX:%[0-9]+]]:_(p0) = G_FRAME_INDEX %fixed-stack.0
-  ; COMMON:   [[LOAD:%[0-9]+]]:_(p0) = G_LOAD [[FRAME_INDEX]](p0) :: (invariant load 8 from %fixed-stack.0, align 1)
+  ; COMMON:   [[LOAD:%[0-9]+]]:_(p0) = G_LOAD [[FRAME_INDEX]](p0) :: (invariant load 8 from %fixed-stack.0, align 16)
   ; COMMON:   ADJCALLSTACKDOWN 0, 0, implicit-def $sp, implicit $sp
   ; COMMON:   BL @simple_fn, csr_aarch64_aapcs, implicit-def $lr, implicit $sp
   ; COMMON:   ADJCALLSTACKUP 0, 0, implicit-def $sp, implicit $sp
@@ -190,23 +190,6 @@ define void @test_inreg(i8* inreg %ptr) {
   ; COMMON:   ADJCALLSTACKUP 0, 0, implicit-def $sp, implicit $sp
   ; COMMON:   RET_ReallyLR
   tail call void @simple_fn()
-  ret void
-}
-
-; Shouldn't tail call when the OS doesn't support it. Windows supports this,
-; so we should be able to tail call there.
-declare extern_weak void @extern_weak_fn()
-define void @test_extern_weak() {
-  ; DARWIN-LABEL: name: test_extern_weak
-  ; DARWIN: bb.1 (%ir-block.0):
-  ; DARWIN:   ADJCALLSTACKDOWN 0, 0, implicit-def $sp, implicit $sp
-  ; DARWIN:   BL @extern_weak_fn, csr_aarch64_aapcs, implicit-def $lr, implicit $sp
-  ; DARWIN:   ADJCALLSTACKUP 0, 0, implicit-def $sp, implicit $sp
-  ; DARWIN:   RET_ReallyLR
-  ; WINDOWS-LABEL: name: test_extern_weak
-  ; WINDOWS: bb.1 (%ir-block.0):
-  ; WINDOWS:   TCRETURNdi @extern_weak_fn, 0, csr_aarch64_aapcs, implicit $sp
-  tail call void @extern_weak_fn()
   ret void
 }
 

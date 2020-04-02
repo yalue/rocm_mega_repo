@@ -205,7 +205,6 @@ def VPTPredROperand : AsmOperandClass {
   let Name = "VPTPredR";
   let PredicateMethod = "isVPTPred";
 }
-def undef_tied_input;
 
 // Operand classes for the cluster of MC operands describing a
 // VPT-predicated MVE instruction.
@@ -409,6 +408,7 @@ class InstTemplate<AddrMode am, int sz, IndexMode im,
   bit thumbArithFlagSetting = 0;
 
   bit validForTailPredication = 0;
+  bit retainsPreviousHalfElement = 0;
 
   // If this is a pseudo instruction, mark it isCodeGenOnly.
   let isCodeGenOnly = !eq(!cast<string>(f), "Pseudo");
@@ -422,6 +422,7 @@ class InstTemplate<AddrMode am, int sz, IndexMode im,
   let TSFlags{18-15} = D.Value;
   let TSFlags{19}    = thumbArithFlagSetting;
   let TSFlags{20}    = validForTailPredication;
+  let TSFlags{21}    = retainsPreviousHalfElement;
 
   let Constraints = cstr;
   let Itinerary = itin;

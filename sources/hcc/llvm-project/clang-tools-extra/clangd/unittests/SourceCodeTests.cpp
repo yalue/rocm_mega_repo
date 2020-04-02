@@ -27,7 +27,6 @@ namespace {
 
 using llvm::Failed;
 using llvm::HasValue;
-using ::testing::UnorderedElementsAreArray;
 
 MATCHER_P2(Pos, Line, Col, "") {
   return arg.line == int(Line) && arg.character == int(Col);
@@ -36,18 +35,18 @@ MATCHER_P2(Pos, Line, Col, "") {
 MATCHER_P(MacroName, Name, "") { return arg.Name == Name; }
 
 /// A helper to make tests easier to read.
-Position position(int line, int character) {
+Position position(int Line, int Character) {
   Position Pos;
-  Pos.line = line;
-  Pos.character = character;
+  Pos.line = Line;
+  Pos.character = Character;
   return Pos;
 }
 
-Range range(const std::pair<int, int> p1, const std::pair<int, int> p2) {
-  Range range;
-  range.start = position(p1.first, p1.second);
-  range.end = position(p2.first, p2.second);
-  return range;
+Range range(const std::pair<int, int> &P1, const std::pair<int, int> &P2) {
+  Range Range;
+  Range.start = position(P1.first, P1.second);
+  Range.end = position(P2.first, P2.second);
+  return Range;
 }
 
 TEST(SourceCodeTests, lspLength) {
@@ -216,8 +215,9 @@ TEST(SourceCodeTests, PositionToOffset) {
     for (unsigned I = 0; I <= L.Length; ++I)
       EXPECT_THAT_EXPECTED(positionToOffset(File, position(L.Number, I)),
                            llvm::HasValue(L.Offset + I));
-    EXPECT_THAT_EXPECTED(positionToOffset(File, position(L.Number, L.Length+1)),
-                         llvm::HasValue(L.Offset + L.Length));
+    EXPECT_THAT_EXPECTED(
+        positionToOffset(File, position(L.Number, L.Length + 1)),
+        llvm::HasValue(L.Offset + L.Length));
     EXPECT_THAT_EXPECTED(
         positionToOffset(File, position(L.Number, L.Length + 1), false),
         llvm::Failed()); // out of range
@@ -313,60 +313,6 @@ TEST(SourceCodeTests, SourceLocationInMainFile) {
   }
 }
 
-TEST(SourceCodeTests, GetBeginningOfIdentifier) {
-  std::string Preamble = R"cpp(
-struct Bar { int func(); };
-#define MACRO(X) void f() { X; }
-Bar* bar;
-  )cpp";
-  // First ^ is the expected beginning, last is the search position.
-  for (const std::string &Text : std::vector<std::string>{
-           "int ^f^oo();", // inside identifier
-           "int ^foo();",  // beginning of identifier
-           "int ^foo^();", // end of identifier
-           "int foo(^);",  // non-identifier
-           "^int foo();",  // beginning of file (can't back up)
-           "int ^f0^0();", // after a digit (lexing at N-1 is wrong)
-           "/^/ comments", // non-interesting token
-           "void f(int abc) { abc ^ ++; }",    // whitespace
-           "void f(int abc) { ^abc^++; }",     // range of identifier
-           "void f(int abc) { ++^abc^; }",     // range of identifier
-           "void f(int abc) { ++^abc; }",      // range of identifier
-           "void f(int abc) { ^+^+abc; }",     // range of operator
-           "void f(int abc) { ^abc^ ++; }",    // range of identifier
-           "void f(int abc) { abc ^++^; }",    // range of operator
-           "void f(int abc) { ^++^ abc; }",    // range of operator
-           "void f(int abc) { ++ ^abc^; }",    // range of identifier
-           "void f(int abc) { ^++^/**/abc; }", // range of operator
-           "void f(int abc) { ++/**/^abc; }",  // range of identifier
-           "void f(int abc) { ^abc^/**/++; }", // range of identifier
-           "void f(int abc) { abc/**/^++; }",  // range of operator
-           "void f() {^ }", // outside of identifier and operator
-           "int ^λλ^λ();",  // UTF-8 handled properly when backing up
-
-           // identifier in macro arg
-           "MACRO(bar->^func())",  // beginning of identifier
-           "MACRO(bar->^fun^c())", // inside identifier
-           "MACRO(bar->^func^())", // end of identifier
-           "MACRO(^bar->func())",  // begin identifier
-           "MACRO(^bar^->func())", // end identifier
-           "^MACRO(bar->func())",  // beginning of macro name
-           "^MAC^RO(bar->func())", // inside macro name
-           "^MACRO^(bar->func())", // end of macro name
-       }) {
-    std::string WithPreamble = Preamble + Text;
-    Annotations TestCase(WithPreamble);
-    auto AST = TestTU::withCode(TestCase.code()).build();
-    const auto &SourceMgr = AST.getSourceManager();
-    SourceLocation Actual = getBeginningOfIdentifier(
-        TestCase.points().back(), SourceMgr, AST.getASTContext().getLangOpts());
-    Position ActualPos = offsetToPosition(
-        TestCase.code(),
-        SourceMgr.getFileOffset(SourceMgr.getSpellingLoc(Actual)));
-    EXPECT_EQ(TestCase.points().front(), ActualPos) << Text;
-  }
-}
-
 TEST(SourceCodeTests, CollectIdentifiers) {
   auto Style = format::getLLVMStyle();
   auto IDs = collectIdentifiers(R"cpp(
@@ -390,10 +336,10 @@ TEST(SourceCodeTests, CollectWords) {
   // this is a comment
   std::string getSomeText() { return "magic word"; }
   )cpp");
-  std::set<std::string> ActualWords(Words.keys().begin(), Words.keys().end());
-  std::set<std::string> ExpectedWords = {"define",  "fizz",    "buzz",  "this",
-                                         "comment", "string", "some", "text",
-                                         "return",  "magic",  "word"};
+  std::set<StringRef> ActualWords(Words.keys().begin(), Words.keys().end());
+  std::set<StringRef> ExpectedWords = {"define",  "fizz",   "buzz", "this",
+                                       "comment", "string", "some", "text",
+                                       "return",  "magic",  "word"};
   EXPECT_EQ(ActualWords, ExpectedWords);
 }
 
@@ -468,9 +414,10 @@ TEST(SourceCodeTests, VisibleNamespaces) {
           {""},
       },
   };
-  for (const auto& Case : Cases) {
+  for (const auto &Case : Cases) {
     EXPECT_EQ(Case.second,
-              visibleNamespaces(Case.first, format::getLLVMStyle()))
+              visibleNamespaces(Case.first, format::getFormattingLangOpts(
+                                                format::getLLVMStyle())))
         << Case.first;
   }
 }
@@ -482,14 +429,30 @@ TEST(SourceCodeTests, GetMacros) {
    )cpp");
   TestTU TU = TestTU::withCode(Code.code());
   auto AST = TU.build();
-  auto Loc = getBeginningOfIdentifier(Code.point(), AST.getSourceManager(),
-                                      AST.getASTContext().getLangOpts());
-  auto Result = locateMacroAt(Loc, AST.getPreprocessor());
+  auto CurLoc = sourceLocationInMainFile(AST.getSourceManager(), Code.point());
+  ASSERT_TRUE(bool(CurLoc));
+  const auto *Id = syntax::spelledIdentifierTouching(*CurLoc, AST.getTokens());
+  ASSERT_TRUE(Id);
+  auto Result = locateMacroAt(*Id, AST.getPreprocessor());
   ASSERT_TRUE(Result);
   EXPECT_THAT(*Result, MacroName("MACRO"));
 }
 
-TEST(SourceCodeTests, IsInsideMainFile){
+TEST(SourceCodeTests, WorksAtBeginOfFile) {
+  Annotations Code("^MACRO");
+  TestTU TU = TestTU::withCode(Code.code());
+  TU.HeaderCode = "#define MACRO int x;";
+  auto AST = TU.build();
+  auto CurLoc = sourceLocationInMainFile(AST.getSourceManager(), Code.point());
+  ASSERT_TRUE(bool(CurLoc));
+  const auto *Id = syntax::spelledIdentifierTouching(*CurLoc, AST.getTokens());
+  ASSERT_TRUE(Id);
+  auto Result = locateMacroAt(*Id, AST.getPreprocessor());
+  ASSERT_TRUE(Result);
+  EXPECT_THAT(*Result, MacroName("MACRO"));
+}
+
+TEST(SourceCodeTests, IsInsideMainFile) {
   TestTU TU;
   TU.HeaderCode = R"cpp(
     #define DEFINE_CLASS(X) class X {};
@@ -500,23 +463,28 @@ TEST(SourceCodeTests, IsInsideMainFile){
     class Header {};
   )cpp";
   TU.Code = R"cpp(
+    #define DEFINE_MAIN4 class Main4{};
     class Main1 {};
     DEFINE_CLASS(Main2)
     DEFINE_YY
     class Main {};
+    DEFINE_MAIN4
   )cpp";
   TU.ExtraArgs.push_back("-DHeader=Header3");
   TU.ExtraArgs.push_back("-DMain=Main3");
   auto AST = TU.build();
-  const auto& SM = AST.getSourceManager();
+  const auto &SM = AST.getSourceManager();
   auto DeclLoc = [&AST](llvm::StringRef Name) {
     return findDecl(AST, Name).getLocation();
   };
   for (const auto *HeaderDecl : {"Header1", "Header2", "Header3"})
-    EXPECT_FALSE(isInsideMainFile(DeclLoc(HeaderDecl), SM));
+    EXPECT_FALSE(isInsideMainFile(DeclLoc(HeaderDecl), SM)) << HeaderDecl;
 
-  for (const auto *MainDecl : {"Main1", "Main2", "Main3", "YY"})
-    EXPECT_TRUE(isInsideMainFile(DeclLoc(MainDecl), SM));
+  for (const auto *MainDecl : {"Main1", "Main2", "Main3", "Main4", "YY"})
+    EXPECT_TRUE(isInsideMainFile(DeclLoc(MainDecl), SM)) << MainDecl;
+
+  // Main4 is *spelled* in the preamble, but in the main-file part of it.
+  EXPECT_TRUE(isInsideMainFile(SM.getSpellingLoc(DeclLoc("Main4")), SM));
 }
 
 // Test for functions toHalfOpenFileRange and getHalfOpenFileRange
@@ -549,7 +517,7 @@ TEST(SourceCodeTests, HalfOpenFileRange) {
   ParsedAST AST = TestTU::withCode(Test.code()).build();
   llvm::errs() << Test.code();
   const SourceManager &SM = AST.getSourceManager();
-  const LangOptions &LangOpts = AST.getASTContext().getLangOpts();
+  const LangOptions &LangOpts = AST.getLangOpts();
   // Turn a SourceLocation into a pair of positions
   auto SourceRangeToRange = [&SM](SourceRange SrcRange) {
     return Range{sourceLocToPosition(SM, SrcRange.getBegin()),
@@ -589,8 +557,7 @@ TEST(SourceCodeTests, HalfOpenFileRangePathologicalPreprocessor) {
   const auto &Body = cast<CompoundStmt>(Func.getBody());
   const auto &Loop = cast<WhileStmt>(*Body->child_begin());
   llvm::Optional<SourceRange> Range = toHalfOpenFileRange(
-      AST.getSourceManager(), AST.getASTContext().getLangOpts(),
-      Loop->getSourceRange());
+      AST.getSourceManager(), AST.getLangOpts(), Loop->getSourceRange());
   ASSERT_TRUE(Range) << "Failed to get file range";
   EXPECT_EQ(AST.getSourceManager().getFileOffset(Range->getBegin()),
             Test.llvm::Annotations::range().Begin);
@@ -609,7 +576,7 @@ $foo^#include "foo.inc"
   TU.AdditionalFiles["foo.inc"] = "int foo;\n";
   TU.AdditionalFiles["bar.inc"] = "int bar;\n";
   auto AST = TU.build();
-  const auto& SM = AST.getSourceManager();
+  const auto &SM = AST.getSourceManager();
 
   FileID Foo = SM.getFileID(findDecl(AST, "foo").getLocation());
   EXPECT_EQ(SM.getFileOffset(includeHashLoc(Foo, SM)),
@@ -673,8 +640,9 @@ TEST(SourceCodeTests, GetEligiblePoints) {
   for (auto Case : Cases) {
     Annotations Test(Case.Code);
 
-    auto Res = getEligiblePoints(Test.code(), Case.FullyQualifiedName,
-                                 format::getLLVMStyle());
+    auto Res = getEligiblePoints(
+        Test.code(), Case.FullyQualifiedName,
+        format::getFormattingLangOpts(format::getLLVMStyle()));
     EXPECT_THAT(Res.EligiblePoints, testing::ElementsAreArray(Test.points()))
         << Test.code();
     EXPECT_EQ(Res.EnclosingNamespace, Case.EnclosingNamespace) << Test.code();
@@ -699,6 +667,30 @@ o foo2;
   LangOpts.CPlusPlus = true;
   EXPECT_EQ(Code.ranges(),
             collectIdentifierRanges("Foo", Code.code(), LangOpts));
+}
+
+TEST(SourceCodeTests, isHeaderFile) {
+  // Without lang options.
+  EXPECT_TRUE(isHeaderFile("foo.h"));
+  EXPECT_TRUE(isHeaderFile("foo.hh"));
+  EXPECT_TRUE(isHeaderFile("foo.hpp"));
+
+  EXPECT_FALSE(isHeaderFile("foo.cpp"));
+  EXPECT_FALSE(isHeaderFile("foo.c++"));
+  EXPECT_FALSE(isHeaderFile("foo.cxx"));
+  EXPECT_FALSE(isHeaderFile("foo.cc"));
+  EXPECT_FALSE(isHeaderFile("foo.c"));
+  EXPECT_FALSE(isHeaderFile("foo.mm"));
+  EXPECT_FALSE(isHeaderFile("foo.m"));
+
+  // With lang options
+  LangOptions LangOpts;
+  LangOpts.IsHeaderFile = true;
+  EXPECT_TRUE(isHeaderFile("string", LangOpts));
+  // Emulate cases where there is no "-x header" flag for a .h file, we still
+  // want to treat it as a header.
+  LangOpts.IsHeaderFile = false;
+  EXPECT_TRUE(isHeaderFile("header.h", LangOpts));
 }
 
 } // namespace

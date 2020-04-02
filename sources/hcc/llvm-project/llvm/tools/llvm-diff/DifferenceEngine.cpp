@@ -14,6 +14,7 @@
 #include "DifferenceEngine.h"
 #include "llvm/ADT/DenseMap.h"
 #include "llvm/ADT/DenseSet.h"
+#include "llvm/ADT/SmallString.h"
 #include "llvm/ADT/SmallVector.h"
 #include "llvm/ADT/StringSet.h"
 #include "llvm/IR/CFG.h"
@@ -732,5 +733,14 @@ void DifferenceEngine::diff(Module *L, Module *R) {
 
 bool DifferenceEngine::equivalentAsOperands(GlobalValue *L, GlobalValue *R) {
   if (globalValueOracle) return (*globalValueOracle)(L, R);
+
+  if (isa<GlobalVariable>(L) && isa<GlobalVariable>(R)) {
+    GlobalVariable *GVL = cast<GlobalVariable>(L);
+    GlobalVariable *GVR = cast<GlobalVariable>(R);
+    if (GVL->hasLocalLinkage() && GVL->hasUniqueInitializer() &&
+        GVR->hasLocalLinkage() && GVR->hasUniqueInitializer())
+      return GVL->getInitializer() == GVR->getInitializer();
+  }
+
   return L->getName() == R->getName();
 }

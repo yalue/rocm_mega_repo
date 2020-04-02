@@ -7,8 +7,9 @@
 //===----------------------------------------------------------------------===//
 
 #include "IndexingContext.h"
-#include "clang/Index/IndexDataConsumer.h"
+#include "clang/AST/Attr.h"
 #include "clang/AST/DeclVisitor.h"
+#include "clang/Index/IndexDataConsumer.h"
 
 using namespace clang;
 using namespace index;
@@ -79,7 +80,7 @@ public:
            !MD->isSynthesizedAccessorStub();
   }
 
-  
+
   void handleDeclarator(const DeclaratorDecl *D,
                         const NamedDecl *Parent = nullptr,
                         bool isIBType = false) {
@@ -89,6 +90,12 @@ public:
                                  Parent->getLexicalDeclContext(),
                                  /*isBase=*/false, isIBType);
     IndexCtx.indexNestedNameSpecifierLoc(D->getQualifierLoc(), Parent);
+    auto IndexDefaultParmeterArgument = [&](const ParmVarDecl *Parm,
+                                            const NamedDecl *Parent) {
+      if (Parm->hasDefaultArg() && !Parm->hasUninstantiatedDefaultArg() &&
+          !Parm->hasUnparsedDefaultArg())
+        IndexCtx.indexBody(Parm->getDefaultArg(), Parent);
+    };
     if (IndexCtx.shouldIndexFunctionLocalSymbols()) {
       if (const ParmVarDecl *Parm = dyn_cast<ParmVarDecl>(D)) {
         auto *DC = Parm->getDeclContext();
@@ -105,7 +112,8 @@ public:
       } else if (const FunctionDecl *FD = dyn_cast<FunctionDecl>(D)) {
         if (IndexCtx.shouldIndexParametersInDeclarations() ||
             FD->isThisDeclarationADefinition()) {
-          for (auto PI : FD->parameters()) {
+          for (const auto *PI : FD->parameters()) {
+            IndexDefaultParmeterArgument(PI, D);
             IndexCtx.handleDecl(PI);
           }
         }
@@ -115,9 +123,7 @@ public:
       if (const auto *FD = dyn_cast<FunctionDecl>(D)) {
         if (FD->isThisDeclarationADefinition()) {
           for (const auto *PV : FD->parameters()) {
-            if (PV->hasDefaultArg() && !PV->hasUninstantiatedDefaultArg() &&
-                !PV->hasUnparsedDefaultArg())
-              IndexCtx.indexBody(PV->getDefaultArg(), D);
+            IndexDefaultParmeterArgument(PV, D);
           }
         }
       }

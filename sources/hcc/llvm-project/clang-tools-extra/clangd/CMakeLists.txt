@@ -30,7 +30,7 @@ if(CLANG_BUILT_STANDALONE)
 endif()
 
 set(CLANGD_ATOMIC_LIB "")
-if(NOT HAVE_CXX_ATOMICS64_WITHOUT_LIB)
+if(NOT HAVE_CXX_ATOMICS_WITHOUT_LIB OR NOT HAVE_CXX_ATOMICS64_WITHOUT_LIB)
   list(APPEND CLANGD_ATOMIC_LIB "atomic")
 endif()
 
@@ -41,6 +41,8 @@ add_clang_library(clangDaemon
   ClangdServer.cpp
   CodeComplete.cpp
   CodeCompletionStrings.cpp
+  CollectMacros.cpp
+  CompileCommands.cpp
   Compiler.cpp
   Context.cpp
   Diagnostics.cpp
@@ -57,9 +59,11 @@ add_clang_library(clangDaemon
   GlobalCompilationDatabase.cpp
   Headers.cpp
   HeaderSourceSwitch.cpp
+  Hover.cpp
   IncludeFixer.cpp
   JSONTransport.cpp
   Logger.cpp
+  PathMapping.cpp
   Protocol.cpp
   Quality.cpp
   ParsedAST.cpp
@@ -68,6 +72,7 @@ add_clang_library(clangDaemon
   Selection.cpp
   SemanticHighlighting.cpp
   SemanticSelection.cpp
+  Shutdown.cpp
   SourceCode.cpp
   QueryDriverDatabase.cpp
   Threading.cpp

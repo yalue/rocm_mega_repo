@@ -6,8 +6,8 @@
 //
 //===----------------------------------------------------------------------===//
 
-#ifndef liblldb_Thread_h_
-#define liblldb_Thread_h_
+#ifndef LLDB_TARGET_THREAD_H
+#define LLDB_TARGET_THREAD_H
 
 #include <memory>
 #include <mutex>
@@ -128,10 +128,6 @@ public:
 
   /// Constructor
   ///
-  /// \param [in] process
-  ///
-  /// \param [in] tid
-  ///
   /// \param [in] use_invalid_index_id
   ///     Optional parameter, defaults to false.  The only subclass that
   ///     is likely to set use_invalid_index_id == true is the HistoryThread
@@ -181,8 +177,6 @@ public:
   /// to force the thread to run (e.g. the "thread continue" command, or are
   /// resetting the state
   /// (e.g. in SBThread::Resume()), then pass true to override_suspend.
-  /// \return
-  ///    The User resume state for this thread.
   void SetResumeState(lldb::StateType state, bool override_suspend = false) {
     if (m_resume_state == lldb::eStateSuspended && !override_suspend)
       return;
@@ -219,6 +213,12 @@ public:
   virtual void DidStop();
 
   virtual void RefreshStateAfterStop() = 0;
+
+  void SelectMostRelevantFrame();
+
+  std::string GetStopDescription();
+
+  std::string GetStopDescriptionRaw();
 
   void WillStop();
 
@@ -760,6 +760,8 @@ public:
   ///    \b true if we will stop other threads while we single step this one.
   ///
   /// \param[in] stop_vote
+  ///    See standard meanings for the stop & run votes in ThreadPlan.h.
+  ///
   /// \param[in] run_vote
   ///    See standard meanings for the stop & run votes in ThreadPlan.h.
   ///
@@ -807,11 +809,13 @@ public:
   ///    \b true if we will stop other threads while we single step this one.
   ///
   /// \param[in] stop_vote
+  ///    See standard meanings for the stop & run votes in ThreadPlan.h.
   ///
   /// \param[in] run_vote
   ///    See standard meanings for the stop & run votes in ThreadPlan.h.
   ///
   /// \param[in] frame_idx
+  ///     The fame index.
   ///
   /// \param[out] status
   ///     A status with an error if queuing failed.
@@ -899,7 +903,7 @@ public:
 
   virtual lldb::ThreadPlanSP
   QueueThreadPlanForStepScripted(bool abort_other_plans, const char *class_name,
-                                 StructuredData::ObjectSP extra_args_sp,  
+                                 StructuredData::ObjectSP extra_args_sp,
                                  bool stop_other_threads, Status &status);
 
   // Thread Plan accessors:
@@ -1004,7 +1008,7 @@ public:
   /// including the plan in that matches \a thread_index counting only
   /// the non-Private plans.
   ///
-  /// \param[in] up_to_plan_sp
+  /// \param[in] thread_index
   ///   Discard all plans up to and including this user plan given by this
   ///   index.
   ///
@@ -1102,9 +1106,9 @@ public:
   // right even if you have not calculated this yourself, or if it disagrees
   // with what you might have calculated.
   virtual lldb::StopInfoSP GetPrivateStopInfo();
-  
+
   // Calculate the stop info that will be shown to lldb clients.  For instance,
-  // a "step out" is implemented by running to a breakpoint on the function 
+  // a "step out" is implemented by running to a breakpoint on the function
   // return PC, so the process plugin initially sets the stop info to a
   // StopInfoBreakpoint. But once we've run the ShouldStop machinery, we
   // discover that there's a completed ThreadPlanStepOut, and that's really
@@ -1151,7 +1155,7 @@ public:
   /// Some Thread subclasses may maintain a token to help with providing
   /// an extended backtrace.  The SystemRuntime plugin will set/request this.
   ///
-  /// \param [in] token
+  /// \param [in] token The extended backtrace token.
   virtual void SetExtendedBacktraceToken(uint64_t token) {}
 
   /// Gets the extended backtrace token for this thread
@@ -1191,7 +1195,7 @@ protected:
 
   typedef std::vector<lldb::ThreadPlanSP> plan_stack;
 
-  virtual lldb_private::Unwind *GetUnwinder();
+  virtual Unwind &GetUnwinder();
 
   // Check to see whether the thread is still at the last breakpoint hit that
   // stopped it.
@@ -1277,4 +1281,4 @@ private:
 
 } // namespace lldb_private
 
-#endif // liblldb_Thread_h_
+#endif // LLDB_TARGET_THREAD_H

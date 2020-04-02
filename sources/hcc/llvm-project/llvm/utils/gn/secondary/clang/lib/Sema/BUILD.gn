@@ -9,6 +9,8 @@ static_library("Sema") {
   configs += [ "//llvm/utils/gn/build:clang_code" ]
   deps = [
     ":OpenCLBuiltins",
+    "//clang/include/clang/Basic:arm_cde_builtin_aliases",
+    "//clang/include/clang/Basic:arm_cde_builtin_sema",
     "//clang/include/clang/Basic:arm_mve_builtin_aliases",
     "//clang/include/clang/Basic:arm_mve_builtin_sema",
     "//clang/include/clang/Sema:AttrParsedAttrImpl",
@@ -21,6 +23,7 @@ static_library("Sema") {
     "//clang/lib/Basic",
     "//clang/lib/Edit",
     "//clang/lib/Lex",
+    "//llvm/lib/Frontend/OpenMP",
     "//llvm/lib/Support",
   ]
   sources = [
@@ -37,6 +40,7 @@ static_library("Sema") {
     "Sema.cpp",
     "SemaAccess.cpp",
     "SemaAttr.cpp",
+    "SemaAvailability.cpp",
     "SemaCUDA.cpp",
     "SemaCXXScopeSpec.cpp",
     "SemaCast.cpp",

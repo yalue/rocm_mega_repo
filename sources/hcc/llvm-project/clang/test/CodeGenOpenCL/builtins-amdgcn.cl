@@ -461,7 +461,7 @@ void test_read_exec_hi(global uint* out) {
 }
 
 // CHECK-LABEL: @test_dispatch_ptr
-// CHECK: call i8 addrspace(4)* @llvm.amdgcn.dispatch.ptr()
+// CHECK: call align 4 dereferenceable(64) i8 addrspace(4)* @llvm.amdgcn.dispatch.ptr()
 void test_dispatch_ptr(__constant unsigned char ** out)
 {
   *out = __builtin_amdgcn_dispatch_ptr();
@@ -596,7 +596,7 @@ kernel void test_mbcnt_hi(global uint* out, uint src0, uint src1) {
 }
 
 // CHECK-LABEL: @test_alignbit(
-// CHECK: tail call i32 @llvm.amdgcn.alignbit(i32 %src0, i32 %src1, i32 %src2)
+// CHECK: tail call i32 @llvm.fshr.i32(i32 %src0, i32 %src1, i32 %src2)
 kernel void test_alignbit(global uint* out, uint src0, uint src1, uint src2) {
   *out = __builtin_amdgcn_alignbit(src0, src1, src2);
 }

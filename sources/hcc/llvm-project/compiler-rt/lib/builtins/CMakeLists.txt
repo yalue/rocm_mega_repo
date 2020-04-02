@@ -26,6 +26,16 @@ if (CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR)
   include(AddCompilerRT)
 endif()
 
+if (COMPILER_RT_STANDALONE_BUILD)
+  # When compiler-rt is being built standalone, possibly as a cross-compilation
+  # target, the target may or may not want position independent code. This
+  # option provides an avenue through which the flag may be controlled when an
+  # LLVM configuration is not being utilized.
+  option(COMPILER_RT_BUILTINS_ENABLE_PIC
+    "Turns on or off -fPIC for the builtin library source"
+    ON)
+endif()
+
 include(builtin-config-ix)
 
 # TODO: Need to add a mechanism for logging errors when builtin source files are
@@ -240,6 +250,13 @@ set(x86_ARCH_SOURCES
   mulxc3.c
   powixf2.c
 )
+
+if (NOT MSVC)
+  set(x86_ARCH_SOURCES
+    ${x86_ARCH_SOURCES}
+    i386/fp_mode.c
+  )
+endif ()
 
 if (NOT MSVC)
   set(x86_64_SOURCES
@@ -468,6 +485,7 @@ set(armv7_SOURCES ${arm_SOURCES})
 set(armv7s_SOURCES ${arm_SOURCES})
 set(armv7k_SOURCES ${arm_SOURCES})
 set(arm64_SOURCES ${aarch64_SOURCES})
+set(arm64e_SOURCES ${aarch64_SOURCES})
 
 # macho_embedded archs
 set(armv6m_SOURCES ${thumb1_SOURCES})
@@ -475,7 +493,6 @@ set(armv7m_SOURCES ${arm_SOURCES})
 set(armv7em_SOURCES ${arm_SOURCES})
 
 # hexagon arch
-set(hexagon_SOURCES ${GENERIC_SOURCES} ${GENERIC_TF_SOURCES})
 set(hexagon_SOURCES
   hexagon/common_entry_exit_abi1.S
   hexagon/common_entry_exit_abi2.S
@@ -507,6 +524,8 @@ set(hexagon_SOURCES
   hexagon/udivsi3.S
   hexagon/umoddi3.S
   hexagon/umodsi3.S
+  ${GENERIC_SOURCES}
+  ${GENERIC_TF_SOURCES}
 )
 
 
@@ -519,6 +538,7 @@ set(mips64el_SOURCES ${GENERIC_TF_SOURCES}
 
 set(powerpc64_SOURCES
   ppc/divtc3.c
+  ppc/fixtfti.c
   ppc/fixtfdi.c
   ppc/fixunstfti.c
   ppc/fixunstfdi.c
@@ -572,7 +592,9 @@ else ()
   # These flags would normally be added to CMAKE_C_FLAGS by the llvm
   # cmake step. Add them manually if this is a standalone build.
   if(COMPILER_RT_STANDALONE_BUILD)
-    append_list_if(COMPILER_RT_HAS_FPIC_FLAG -fPIC BUILTIN_CFLAGS)
+    if(COMPILER_RT_BUILTINS_ENABLE_PIC)
+      append_list_if(COMPILER_RT_HAS_FPIC_FLAG -fPIC BUILTIN_CFLAGS)
+    endif()
     append_list_if(COMPILER_RT_HAS_FNO_BUILTIN_FLAG -fno-builtin BUILTIN_CFLAGS)
     if(NOT ANDROID)
       append_list_if(COMPILER_RT_HAS_VISIBILITY_HIDDEN_FLAG -fvisibility=hidden BUILTIN_CFLAGS)

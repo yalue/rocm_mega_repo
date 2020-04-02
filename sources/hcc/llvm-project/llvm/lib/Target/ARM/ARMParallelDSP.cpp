@@ -14,23 +14,23 @@
 //
 //===----------------------------------------------------------------------===//
 
-#include "llvm/ADT/Statistic.h"
+#include "ARM.h"
+#include "ARMSubtarget.h"
 #include "llvm/ADT/SmallPtrSet.h"
+#include "llvm/ADT/Statistic.h"
 #include "llvm/Analysis/AliasAnalysis.h"
 #include "llvm/Analysis/LoopAccessAnalysis.h"
-#include "llvm/Analysis/OrderedBasicBlock.h"
+#include "llvm/CodeGen/TargetPassConfig.h"
 #include "llvm/IR/Instructions.h"
+#include "llvm/IR/IntrinsicsARM.h"
 #include "llvm/IR/NoFolder.h"
-#include "llvm/Transforms/Scalar.h"
-#include "llvm/Transforms/Utils/BasicBlockUtils.h"
+#include "llvm/IR/PatternMatch.h"
 #include "llvm/Pass.h"
 #include "llvm/PassRegistry.h"
 #include "llvm/PassSupport.h"
 #include "llvm/Support/Debug.h"
-#include "llvm/IR/PatternMatch.h"
-#include "llvm/CodeGen/TargetPassConfig.h"
-#include "ARM.h"
-#include "ARMSubtarget.h"
+#include "llvm/Transforms/Scalar.h"
+#include "llvm/Transforms/Utils/BasicBlockUtils.h"
 
 using namespace llvm;
 using namespace PatternMatch;
@@ -351,7 +351,6 @@ bool ARMParallelDSP::RecordMemoryOps(BasicBlock *BB) {
   SmallVector<Instruction*, 8> Writes;
   LoadPairs.clear();
   WideLoads.clear();
-  OrderedBasicBlock OrderedBB(BB);
 
   // Collect loads and instruction that may write to memory. For now we only
   // record loads which are simple, sign-extended and have a single user.
@@ -383,7 +382,7 @@ bool ARMParallelDSP::RecordMemoryOps(BasicBlock *BB) {
       if (!isModOrRefSet(intersectModRef(AA->getModRefInfo(Write, ReadLoc),
           ModRefInfo::ModRef)))
         continue;
-      if (OrderedBB.dominates(Write, Read))
+      if (Write->comesBefore(Read))
         RAWDeps[Read].insert(Write);
     }
   }
@@ -391,8 +390,9 @@ bool ARMParallelDSP::RecordMemoryOps(BasicBlock *BB) {
   // Check whether there's not a write between the two loads which would
   // prevent them from being safely merged.
   auto SafeToPair = [&](LoadInst *Base, LoadInst *Offset) {
-    LoadInst *Dominator = OrderedBB.dominates(Base, Offset) ? Base : Offset;
-    LoadInst *Dominated = OrderedBB.dominates(Base, Offset) ? Offset : Base;
+    bool BaseFirst = Base->comesBefore(Offset);
+    LoadInst *Dominator = BaseFirst ? Base : Offset;
+    LoadInst *Dominated = BaseFirst ? Offset : Base;
 
     if (RAWDeps.count(Dominated)) {
       InstSet &WritesBefore = RAWDeps[Dominated];
@@ -400,7 +400,7 @@ bool ARMParallelDSP::RecordMemoryOps(BasicBlock *BB) {
       for (auto Before : WritesBefore) {
         // We can't move the second load backward, past a write, to merge
         // with the first load.
-        if (OrderedBB.dominates(Dominator, Before))
+        if (Dominator->comesBefore(Before))
           return false;
       }
     }
@@ -704,12 +704,11 @@ void ARMParallelDSP::InsertParallelMACs(Reduction &R) {
   }
 
   // Roughly sort the mul pairs in their program order.
-  OrderedBasicBlock OrderedBB(R.getRoot()->getParent());
-  llvm::sort(R.getMulPairs(), [&OrderedBB](auto &PairA, auto &PairB) {
-               const Instruction *A = PairA.first->Root;
-               const Instruction *B = PairB.first->Root;
-               return OrderedBB.dominates(A, B);
-             });
+  llvm::sort(R.getMulPairs(), [](auto &PairA, auto &PairB) {
+    const Instruction *A = PairA.first->Root;
+    const Instruction *B = PairB.first->Root;
+    return A->comesBefore(B);
+  });
 
   IntegerType *Ty = IntegerType::get(M->getContext(), 32);
   for (auto &Pair : R.getMulPairs()) {
@@ -771,8 +770,7 @@ LoadInst* ARMParallelDSP::CreateWideLoad(MemInstList &Loads,
   const unsigned AddrSpace = DomLoad->getPointerAddressSpace();
   Value *VecPtr = IRB.CreateBitCast(Base->getPointerOperand(),
                                     LoadTy->getPointerTo(AddrSpace));
-  LoadInst *WideLoad = IRB.CreateAlignedLoad(LoadTy, VecPtr,
-                                             Base->getAlignment());
+  LoadInst *WideLoad = IRB.CreateAlignedLoad(LoadTy, VecPtr, Base->getAlign());
 
   // Make sure everything is in the correct order in the basic block.
   MoveBefore(Base->getPointerOperand(), VecPtr);

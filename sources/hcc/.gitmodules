@@ -1,8 +1,0 @@
-[submodule "rocdl"]
-	path = rocdl
-	url = http://github.com/RadeonOpenCompute/ROCm-Device-Libs.git
-        branch = master
-[submodule "llvm-project"]
-	path = llvm-project
-	url = https://github.com/RadeonOpenCompute/llvm-project
-	branch = amd-stg-open-hcc

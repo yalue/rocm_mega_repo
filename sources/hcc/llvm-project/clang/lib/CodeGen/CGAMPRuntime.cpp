@@ -15,6 +15,7 @@
 
 #include "CodeGenFunction.h"
 #include "CGAMPRuntime.h"
+#include "clang/AST/Attr.h"
 #include "clang/AST/Decl.h"
 #include "clang/AST/ExprCXX.h"
 #include "CGCall.h"

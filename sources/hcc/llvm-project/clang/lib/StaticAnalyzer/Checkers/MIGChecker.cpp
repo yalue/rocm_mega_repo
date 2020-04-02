@@ -21,6 +21,7 @@
 //
 //===----------------------------------------------------------------------===//
 
+#include "clang/AST/Attr.h"
 #include "clang/Analysis/AnyCall.h"
 #include "clang/StaticAnalyzer/Checkers/BuiltinCheckerRegistration.h"
 #include "clang/StaticAnalyzer/Core/BugReporter/BugType.h"
@@ -209,15 +210,16 @@ void MIGChecker::checkPostCall(const CallEvent &Call, CheckerContext &C) const {
   if (!PVD || State->contains<RefCountedParameters>(PVD))
     return;
 
-  const NoteTag *T = C.getNoteTag([this, PVD](BugReport &BR) -> std::string {
-    if (&BR.getBugType() != &BT)
-      return "";
-    SmallString<64> Str;
-    llvm::raw_svector_ostream OS(Str);
-    OS << "Value passed through parameter '" << PVD->getName()
-       << "\' is deallocated";
-    return OS.str();
-  });
+  const NoteTag *T =
+    C.getNoteTag([this, PVD](PathSensitiveBugReport &BR) -> std::string {
+        if (&BR.getBugType() != &BT)
+          return "";
+        SmallString<64> Str;
+        llvm::raw_svector_ostream OS(Str);
+        OS << "Value passed through parameter '" << PVD->getName()
+           << "\' is deallocated";
+        return std::string(OS.str());
+      });
   C.addTransition(State->set<ReleasedParameter>(true), T);
 }
 

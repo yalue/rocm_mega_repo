@@ -358,9 +358,10 @@ SDValue MSP430TargetLowering::LowerOperation(SDValue Op,
   }
 }
 
-// Set transforms into shift amounts above 2 as not profitable
-unsigned MSP430TargetLowering::getShiftAmountThreshold(EVT VT) const {
-  return 2;
+// Define non profitable transforms into shifts
+bool MSP430TargetLowering::shouldAvoidTransformToShift(EVT VT,
+                                                       unsigned Amount) const {
+  return !(Amount == 8 || Amount == 9 || Amount<=2);
 }
 
 // Implemented to verify test case assertions in
@@ -862,13 +863,11 @@ SDValue MSP430TargetLowering::LowerCCCCallTo(
 
       if (Flags.isByVal()) {
         SDValue SizeNode = DAG.getConstant(Flags.getByValSize(), dl, MVT::i16);
-        MemOp = DAG.getMemcpy(Chain, dl, PtrOff, Arg, SizeNode,
-                              Flags.getByValAlign(),
-                              /*isVolatile*/false,
-                              /*AlwaysInline=*/true,
-                              /*isTailCall=*/false,
-                              MachinePointerInfo(),
-                              MachinePointerInfo());
+        MemOp = DAG.getMemcpy(
+            Chain, dl, PtrOff, Arg, SizeNode, Flags.getNonZeroByValAlign(),
+            /*isVolatile*/ false,
+            /*AlwaysInline=*/true,
+            /*isTailCall=*/false, MachinePointerInfo(), MachinePointerInfo());
       } else {
         MemOp = DAG.getStore(Chain, dl, Arg, PtrOff, MachinePointerInfo());
       }

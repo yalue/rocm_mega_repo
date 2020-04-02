@@ -1238,21 +1238,18 @@ bool TwoAddressInstructionPass::tryInstructionCommute(MachineInstr *MI,
                                         Dist)) {
       MadeChange = true;
       ++NumCommuted;
-      if (AggressiveCommute) {
+      if (AggressiveCommute)
         ++NumAggrCommuted;
-        // There might be more than two commutable operands, update BaseOp and
-        // continue scanning.
-        // FIXME: This assumes that the new instruction's operands are in the
-        // same positions and were simply swapped.
-        BaseOpReg = OtherOpReg;
-        BaseOpKilled = OtherOpKilled;
-        // Resamples OpsNum in case the number of operands was reduced. This
-        // happens with X86.
-        OpsNum = MI->getDesc().getNumOperands();
-        continue;
-      }
-      // If this was a commute based on kill, we won't do better continuing.
-      return MadeChange;
+
+      // There might be more than two commutable operands, update BaseOp and
+      // continue scanning.
+      // FIXME: This assumes that the new instruction's operands are in the
+      // same positions and were simply swapped.
+      BaseOpReg = OtherOpReg;
+      BaseOpKilled = OtherOpKilled;
+      // Resamples OpsNum in case the number of operands was reduced. This
+      // happens with X86.
+      OpsNum = MI->getDesc().getNumOperands();
     }
   }
   return MadeChange;
@@ -1287,7 +1284,7 @@ tryInstructionTransform(MachineBasicBlock::iterator &mi,
   bool Commuted = tryInstructionCommute(&MI, DstIdx, SrcIdx, regBKilled, Dist);
 
   // If the instruction is convertible to 3 Addr, instead
-  // of returning try 3 Addr transformation aggresively and
+  // of returning try 3 Addr transformation aggressively and
   // use this variable to check later. Because it might be better.
   // For example, we can just use `leal (%rsi,%rdi), %eax` and `ret`
   // instead of the following code.

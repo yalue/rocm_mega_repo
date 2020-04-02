@@ -40,6 +40,7 @@
 #include "llvm/Support/raw_ostream.h"
 #include "llvm/Testing/Support/Annotations.h"
 #include "llvm/Testing/Support/SupportHelpers.h"
+#include "gmock/gmock.h"
 #include <cassert>
 #include <cstdlib>
 #include <gmock/gmock.h>
@@ -58,6 +59,7 @@ using ::testing::ElementsAre;
 using ::testing::Field;
 using ::testing::Matcher;
 using ::testing::Not;
+using ::testing::Pointee;
 using ::testing::StartsWith;
 
 namespace {
@@ -152,11 +154,17 @@ public:
     }
   }
 
-  /// Add a new file, run syntax::tokenize() on it and return the results.
+  /// Add a new file, run syntax::tokenize() on the range if any, run it on the
+  /// whole file otherwise and return the results.
   std::vector<syntax::Token> tokenize(llvm::StringRef Text) {
+    llvm::Annotations Annot(Text);
+    auto FID = SourceMgr->createFileID(
+        llvm::MemoryBuffer::getMemBufferCopy(Annot.code()));
     // FIXME: pass proper LangOptions.
+    if (Annot.ranges().empty())
+      return syntax::tokenize(FID, *SourceMgr, LangOptions());
     return syntax::tokenize(
-        SourceMgr->createFileID(llvm::MemoryBuffer::getMemBufferCopy(Text)),
+        syntax::FileRange(FID, Annot.range().Begin, Annot.range().End),
         *SourceMgr, LangOptions());
   }
 
@@ -257,6 +265,20 @@ TEST_F(TokenCollectorTest, RawMode) {
               ElementsAre(Kind(tok::kw_int),
                           AllOf(HasText("a"), Kind(tok::identifier)),
                           Kind(tok::semi)));
+  EXPECT_THAT(tokenize("int [[main() {]]}"),
+              ElementsAre(AllOf(HasText("main"), Kind(tok::identifier)),
+                          Kind(tok::l_paren), Kind(tok::r_paren),
+                          Kind(tok::l_brace)));
+  EXPECT_THAT(tokenize("int [[main() {   ]]}"),
+              ElementsAre(AllOf(HasText("main"), Kind(tok::identifier)),
+                          Kind(tok::l_paren), Kind(tok::r_paren),
+                          Kind(tok::l_brace)));
+  // First token is partially parsed, last token is fully included even though
+  // only a part of it is contained in the range.
+  EXPECT_THAT(tokenize("int m[[ain() {ret]]urn 0;}"),
+              ElementsAre(AllOf(HasText("ain"), Kind(tok::identifier)),
+                          Kind(tok::l_paren), Kind(tok::r_paren),
+                          Kind(tok::l_brace), Kind(tok::kw_return)));
 }
 
 TEST_F(TokenCollectorTest, Basic) {
@@ -342,6 +364,12 @@ TEST_F(TokenCollectorTest, Locations) {
                   AllOf(Kind(tok::equal), RangeIs(Code.range("r3"))),
                   AllOf(Kind(tok::string_literal), RangeIs(Code.range("r4"))),
                   AllOf(Kind(tok::semi), RangeIs(Code.range("r5")))));
+
+  auto StartLoc = SourceMgr->getLocForStartOfFile(SourceMgr->getMainFileID());
+  for (auto &R : Code.ranges()) {
+    EXPECT_THAT(Buffer.spelledTokenAt(StartLoc.getLocWithOffset(R.Begin)),
+                Pointee(RangeIs(R)));
+  }
 }
 
 TEST_F(TokenCollectorTest, MacroDirectives) {
@@ -663,6 +691,20 @@ TEST_F(TokenBufferTest, SpelledByExpanded) {
               ValueIs(SameRange(findSpelled("not_mapped"))));
 }
 
+TEST_F(TokenBufferTest, ExpandedTokensForRange) {
+  recordTokens(R"cpp(
+    #define SIGN(X) X##_washere
+    A SIGN(B) C SIGN(D) E SIGN(F) G
+  )cpp");
+
+  SourceRange R(findExpanded("C").front().location(),
+                findExpanded("F_washere").front().location());
+  // Sanity check: expanded and spelled tokens are stored separately.
+  EXPECT_THAT(Buffer.expandedTokens(R),
+              SameRange(findExpanded("C D_washere E F_washere")));
+  EXPECT_THAT(Buffer.expandedTokens(SourceRange()), testing::IsEmpty());
+}
+
 TEST_F(TokenBufferTest, ExpansionStartingAt) {
   // Object-like macro expansions.
   recordTokens(R"cpp(
@@ -755,7 +797,7 @@ TEST_F(TokenBufferTest, TokensToFileRange) {
   // We don't test assertion failures because death tests are slow.
 }
 
-TEST_F(TokenBufferTest, macroExpansions) {
+TEST_F(TokenBufferTest, MacroExpansions) {
   llvm::Annotations Code(R"cpp(
     #define FOO B
     #define FOO2 BA
@@ -778,4 +820,45 @@ TEST_F(TokenBufferTest, macroExpansions) {
     ActualMacroRanges.push_back(Expansion->range(SM));
   EXPECT_EQ(ExpectedMacroRanges, ActualMacroRanges);
 }
+
+TEST_F(TokenBufferTest, Touching) {
+  llvm::Annotations Code("^i^nt^ ^a^b^=^1;^");
+  recordTokens(Code.code());
+
+  auto Touching = [&](int Index) {
+    SourceLocation Loc = SourceMgr->getComposedLoc(SourceMgr->getMainFileID(),
+                                                   Code.points()[Index]);
+    return spelledTokensTouching(Loc, Buffer);
+  };
+  auto Identifier = [&](int Index) {
+    SourceLocation Loc = SourceMgr->getComposedLoc(SourceMgr->getMainFileID(),
+                                                   Code.points()[Index]);
+    const syntax::Token *Tok = spelledIdentifierTouching(Loc, Buffer);
+    return Tok ? Tok->text(*SourceMgr) : "";
+  };
+
+  EXPECT_THAT(Touching(0), SameRange(findSpelled("int")));
+  EXPECT_EQ(Identifier(0), "");
+  EXPECT_THAT(Touching(1), SameRange(findSpelled("int")));
+  EXPECT_EQ(Identifier(1), "");
+  EXPECT_THAT(Touching(2), SameRange(findSpelled("int")));
+  EXPECT_EQ(Identifier(2), "");
+
+  EXPECT_THAT(Touching(3), SameRange(findSpelled("ab")));
+  EXPECT_EQ(Identifier(3), "ab");
+  EXPECT_THAT(Touching(4), SameRange(findSpelled("ab")));
+  EXPECT_EQ(Identifier(4), "ab");
+
+  EXPECT_THAT(Touching(5), SameRange(findSpelled("ab =")));
+  EXPECT_EQ(Identifier(5), "ab");
+
+  EXPECT_THAT(Touching(6), SameRange(findSpelled("= 1")));
+  EXPECT_EQ(Identifier(6), "");
+
+  EXPECT_THAT(Touching(7), SameRange(findSpelled(";")));
+  EXPECT_EQ(Identifier(7), "");
+
+  ASSERT_EQ(Code.points().size(), 8u);
+}
+
 } // namespace

@@ -120,11 +120,11 @@ multiclass XX3Form_Rcr<bits<6> opcode, bits<7> xo, string asmbase,
                        !strconcat(asmbase, !strconcat(" ", asmstr)), itin,
                        [(set OutTy:$XT, (Int InTy:$XA, InTy:$XB))]>;
     let Defs = [CR6] in
-    def o    : XX3Form_Rc<opcode, xo, (outs vsrc:$XT), (ins vsrc:$XA, vsrc:$XB),
+    def _rec    : XX3Form_Rc<opcode, xo, (outs vsrc:$XT), (ins vsrc:$XA, vsrc:$XB),
                        !strconcat(asmbase, !strconcat(". ", asmstr)), itin,
                        [(set InTy:$XT,
                                 (InTy (PPCvcmp_o InTy:$XA, InTy:$XB, xo)))]>,
-                       isDOT;
+                       isRecordForm;
   }
 }
 
@@ -213,53 +213,53 @@ let hasSideEffects = 0 in { // VSX instructions don't have side effects.
     }
   } // mayStore
 
-  let Uses = [RM] in {
+  let Uses = [RM], mayRaiseFPException = 1 in {
   // Add/Mul Instructions
   let isCommutable = 1 in {
     def XSADDDP : XX3Form<60, 32,
                           (outs vsfrc:$XT), (ins vsfrc:$XA, vsfrc:$XB),
                           "xsadddp $XT, $XA, $XB", IIC_VecFP,
-                          [(set f64:$XT, (fadd f64:$XA, f64:$XB))]>;
+                          [(set f64:$XT, (any_fadd f64:$XA, f64:$XB))]>;
     def XSMULDP : XX3Form<60, 48,
                           (outs vsfrc:$XT), (ins vsfrc:$XA, vsfrc:$XB),
                           "xsmuldp $XT, $XA, $XB", IIC_VecFP,
-                          [(set f64:$XT, (fmul f64:$XA, f64:$XB))]>;
+                          [(set f64:$XT, (any_fmul f64:$XA, f64:$XB))]>;
 
     def XVADDDP : XX3Form<60, 96,
                           (outs vsrc:$XT), (ins vsrc:$XA, vsrc:$XB),
                           "xvadddp $XT, $XA, $XB", IIC_VecFP,
-                          [(set v2f64:$XT, (fadd v2f64:$XA, v2f64:$XB))]>;
+                          [(set v2f64:$XT, (any_fadd v2f64:$XA, v2f64:$XB))]>;
 
     def XVADDSP : XX3Form<60, 64,
                           (outs vsrc:$XT), (ins vsrc:$XA, vsrc:$XB),
                           "xvaddsp $XT, $XA, $XB", IIC_VecFP,
-                          [(set v4f32:$XT, (fadd v4f32:$XA, v4f32:$XB))]>;
+                          [(set v4f32:$XT, (any_fadd v4f32:$XA, v4f32:$XB))]>;
 
     def XVMULDP : XX3Form<60, 112,
                           (outs vsrc:$XT), (ins vsrc:$XA, vsrc:$XB),
                           "xvmuldp $XT, $XA, $XB", IIC_VecFP,
-                          [(set v2f64:$XT, (fmul v2f64:$XA, v2f64:$XB))]>;
+                          [(set v2f64:$XT, (any_fmul v2f64:$XA, v2f64:$XB))]>;
 
     def XVMULSP : XX3Form<60, 80,
                           (outs vsrc:$XT), (ins vsrc:$XA, vsrc:$XB),
                           "xvmulsp $XT, $XA, $XB", IIC_VecFP,
-                          [(set v4f32:$XT, (fmul v4f32:$XA, v4f32:$XB))]>;
+                          [(set v4f32:$XT, (any_fmul v4f32:$XA, v4f32:$XB))]>;
   }
 
   // Subtract Instructions
   def XSSUBDP : XX3Form<60, 40,
                         (outs vsfrc:$XT), (ins vsfrc:$XA, vsfrc:$XB),
                         "xssubdp $XT, $XA, $XB", IIC_VecFP,
-                        [(set f64:$XT, (fsub f64:$XA, f64:$XB))]>;
+                        [(set f64:$XT, (any_fsub f64:$XA, f64:$XB))]>;
 
   def XVSUBDP : XX3Form<60, 104,
                         (outs vsrc:$XT), (ins vsrc:$XA, vsrc:$XB),
                         "xvsubdp $XT, $XA, $XB", IIC_VecFP,
-                        [(set v2f64:$XT, (fsub v2f64:$XA, v2f64:$XB))]>;
+                        [(set v2f64:$XT, (any_fsub v2f64:$XA, v2f64:$XB))]>;
   def XVSUBSP : XX3Form<60, 72,
                         (outs vsrc:$XT), (ins vsrc:$XA, vsrc:$XB),
                         "xvsubsp $XT, $XA, $XB", IIC_VecFP,
-                        [(set v4f32:$XT, (fsub v4f32:$XA, v4f32:$XB))]>;
+                        [(set v4f32:$XT, (any_fsub v4f32:$XA, v4f32:$XB))]>;
 
   // FMA Instructions
   let BaseName = "XSMADDADP" in {
@@ -458,7 +458,7 @@ let hasSideEffects = 0 in { // VSX instructions don't have side effects.
   def XSDIVDP : XX3Form<60, 56,
                         (outs vsfrc:$XT), (ins vsfrc:$XA, vsfrc:$XB),
                         "xsdivdp $XT, $XA, $XB", IIC_FPDivD,
-                        [(set f64:$XT, (fdiv f64:$XA, f64:$XB))]>;
+                        [(set f64:$XT, (any_fdiv f64:$XA, f64:$XB))]>;
   def XSSQRTDP : XX2Form<60, 75,
                         (outs vsfrc:$XT), (ins vsfrc:$XB),
                         "xssqrtdp $XT, $XB", IIC_FPSqrtD,
@@ -483,11 +483,11 @@ let hasSideEffects = 0 in { // VSX instructions don't have side effects.
   def XVDIVDP : XX3Form<60, 120,
                         (outs vsrc:$XT), (ins vsrc:$XA, vsrc:$XB),
                         "xvdivdp $XT, $XA, $XB", IIC_FPDivD,
-                        [(set v2f64:$XT, (fdiv v2f64:$XA, v2f64:$XB))]>;
+                        [(set v2f64:$XT, (any_fdiv v2f64:$XA, v2f64:$XB))]>;
   def XVDIVSP : XX3Form<60, 88,
                         (outs vsrc:$XT), (ins vsrc:$XA, vsrc:$XB),
                         "xvdivsp $XT, $XA, $XB", IIC_FPDivS,
-                        [(set v4f32:$XT, (fdiv v4f32:$XA, v4f32:$XB))]>;
+                        [(set v4f32:$XT, (any_fdiv v4f32:$XA, v4f32:$XB))]>;
 
   def XVSQRTDP : XX2Form<60, 203,
                         (outs vsrc:$XT), (ins vsrc:$XB),
@@ -835,7 +835,7 @@ let hasSideEffects = 0 in { // VSX instructions don't have side effects.
                         [(set vsrc:$XT,
                               (int_ppc_vsx_xvminsp vsrc:$XA, vsrc:$XB))]>;
   } // isCommutable
-} // Uses = [RM]
+} // Uses = [RM], mayRaiseFPException
 
   // Logical Instructions
   let isCommutable = 1 in
@@ -1341,6 +1341,21 @@ def DWToSPExtractConv {
   dag BVS = (v4f32 (build_vector El0SS1, El1SS1, El0SS2, El1SS2));
 }
 
+def WToDPExtractConv {
+  dag El0S = (f64 (PPCfcfid (PPCmtvsra (extractelt v4i32:$A, 0))));
+  dag El1S = (f64 (PPCfcfid (PPCmtvsra (extractelt v4i32:$A, 1))));
+  dag El2S = (f64 (PPCfcfid (PPCmtvsra (extractelt v4i32:$A, 2))));
+  dag El3S = (f64 (PPCfcfid (PPCmtvsra (extractelt v4i32:$A, 3))));
+  dag El0U = (f64 (PPCfcfidu (PPCmtvsrz (extractelt v4i32:$A, 0))));
+  dag El1U = (f64 (PPCfcfidu (PPCmtvsrz (extractelt v4i32:$A, 1))));
+  dag El2U = (f64 (PPCfcfidu (PPCmtvsrz (extractelt v4i32:$A, 2))));
+  dag El3U = (f64 (PPCfcfidu (PPCmtvsrz (extractelt v4i32:$A, 3))));
+  dag BV02S = (v2f64 (build_vector El0S, El2S));
+  dag BV13S = (v2f64 (build_vector El1S, El3S));
+  dag BV02U = (v2f64 (build_vector El0U, El2U));
+  dag BV13U = (v2f64 (build_vector El1U, El3U));
+}
+
 // The following VSX instructions were introduced in Power ISA 2.07
 /* FIXME: if the operands are v2i64, these patterns will not match.
    we should define new patterns or otherwise match the same patterns
@@ -1451,24 +1466,26 @@ let AddedComplexity = 400 in { // Prefer VSX patterns over non-VSX patterns.
             (SELECT_VSSRC (CRXOR $lhs, $rhs), $tval, $fval)>;
 
   // VSX Elementary Scalar FP arithmetic (SP)
+  let mayRaiseFPException = 1 in {
   let isCommutable = 1 in {
     def XSADDSP : XX3Form<60, 0,
                           (outs vssrc:$XT), (ins vssrc:$XA, vssrc:$XB),
                           "xsaddsp $XT, $XA, $XB", IIC_VecFP,
-                          [(set f32:$XT, (fadd f32:$XA, f32:$XB))]>;
+                          [(set f32:$XT, (any_fadd f32:$XA, f32:$XB))]>;
     def XSMULSP : XX3Form<60, 16,
                           (outs vssrc:$XT), (ins vssrc:$XA, vssrc:$XB),
                           "xsmulsp $XT, $XA, $XB", IIC_VecFP,
-                          [(set f32:$XT, (fmul f32:$XA, f32:$XB))]>;
+                          [(set f32:$XT, (any_fmul f32:$XA, f32:$XB))]>;
   } // isCommutable
   def XSSUBSP : XX3Form<60, 8,
                         (outs vssrc:$XT), (ins vssrc:$XA, vssrc:$XB),
                         "xssubsp $XT, $XA, $XB", IIC_VecFP,
-                        [(set f32:$XT, (fsub f32:$XA, f32:$XB))]>;
+                        [(set f32:$XT, (any_fsub f32:$XA, f32:$XB))]>;
   def XSDIVSP : XX3Form<60, 24,
                         (outs vssrc:$XT), (ins vssrc:$XA, vssrc:$XB),
                         "xsdivsp $XT, $XA, $XB", IIC_FPDivS,
-                        [(set f32:$XT, (fdiv f32:$XA, f32:$XB))]>;
+                        [(set f32:$XT, (any_fdiv f32:$XA, f32:$XB))]>;
+  } // mayRaiseFPException
   def XSRESP : XX2Form<60, 26,
                         (outs vssrc:$XT), (ins vssrc:$XB),
                         "xsresp $XT, $XB", IIC_VecFP,
@@ -1961,7 +1978,7 @@ def VectorExtractions {
       - The order of elements after the move to GPR is reversed, so we invert
         the bits of the index prior to truncating to the range 0-7
   */
-  dag BE_VBYTE_PERM_VEC = (v16i8 (LVSL ZERO8, (ANDIo8 $Idx, 8)));
+  dag BE_VBYTE_PERM_VEC = (v16i8 (LVSL ZERO8, (ANDI8_rec $Idx, 8)));
   dag BE_VBYTE_PERMUTE = (v16i8 (VPERM $S, $S, BE_VBYTE_PERM_VEC));
   dag BE_MV_VBYTE = (MFVSRD
                       (EXTRACT_SUBREG
@@ -1980,7 +1997,7 @@ def VectorExtractions {
         the bits of the index prior to truncating to the range 0-3
   */
   dag BE_VHALF_PERM_VEC = (v16i8 (LVSL ZERO8,
-                                       (RLDICR (ANDIo8 $Idx, 4), 1, 62)));
+                                       (RLDICR (ANDI8_rec $Idx, 4), 1, 62)));
   dag BE_VHALF_PERMUTE = (v16i8 (VPERM $S, $S, BE_VHALF_PERM_VEC));
   dag BE_MV_VHALF = (MFVSRD
                       (EXTRACT_SUBREG
@@ -1998,7 +2015,7 @@ def VectorExtractions {
         the bits of the index prior to truncating to the range 0-1
   */
   dag BE_VWORD_PERM_VEC = (v16i8 (LVSL ZERO8,
-                                       (RLDICR (ANDIo8 $Idx, 2), 2, 61)));
+                                       (RLDICR (ANDI8_rec $Idx, 2), 2, 61)));
   dag BE_VWORD_PERMUTE = (v16i8 (VPERM $S, $S, BE_VWORD_PERM_VEC));
   dag BE_MV_VWORD = (MFVSRD
                       (EXTRACT_SUBREG
@@ -2014,7 +2031,7 @@ def VectorExtractions {
       element indices.
   */
   dag BE_VDWORD_PERM_VEC = (v16i8 (LVSL ZERO8,
-                                        (RLDICR (ANDIo8 $Idx, 1), 3, 60)));
+                                        (RLDICR (ANDI8_rec $Idx, 1), 3, 60)));
   dag BE_VDWORD_PERMUTE = (v16i8 (VPERM $S, $S, BE_VDWORD_PERM_VEC));
   dag BE_VARIABLE_DWORD =
         (MFVSRD (EXTRACT_SUBREG
@@ -2526,6 +2543,51 @@ def : Pat<(i64 (bitconvert f64:$S)),
 // (move to FPR, nothing else needed)
 def : Pat<(f64 (bitconvert i64:$S)),
           (f64 (MTVSRD $S))>;
+
+// Rounding to integer.
+def : Pat<(i64 (lrint f64:$S)),
+          (i64 (MFVSRD (FCTID $S)))>;
+def : Pat<(i64 (lrint f32:$S)),
+          (i64 (MFVSRD (FCTID (COPY_TO_REGCLASS $S, F8RC))))>;
+def : Pat<(i64 (llrint f64:$S)),
+          (i64 (MFVSRD (FCTID $S)))>;
+def : Pat<(i64 (llrint f32:$S)),
+          (i64 (MFVSRD (FCTID (COPY_TO_REGCLASS $S, F8RC))))>;
+def : Pat<(i64 (lround f64:$S)),
+          (i64 (MFVSRD (FCTID (XSRDPI $S))))>;
+def : Pat<(i64 (lround f32:$S)),
+          (i64 (MFVSRD (FCTID (XSRDPI (COPY_TO_REGCLASS $S, VSFRC)))))>;
+def : Pat<(i64 (llround f64:$S)),
+          (i64 (MFVSRD (FCTID (XSRDPI $S))))>;
+def : Pat<(i64 (llround f32:$S)),
+          (i64 (MFVSRD (FCTID (XSRDPI (COPY_TO_REGCLASS $S, VSFRC)))))>;
+}
+
+let Predicates = [HasVSX] in {
+// Rounding for single precision.
+def : Pat<(f32 (fround f32:$S)),
+          (f32 (COPY_TO_REGCLASS (XSRDPI
+                                   (COPY_TO_REGCLASS $S, VSFRC)), VSSRC))>;
+def : Pat<(f32 (fnearbyint f32:$S)),
+          (f32 (COPY_TO_REGCLASS (XSRDPIC
+                                   (COPY_TO_REGCLASS $S, VSFRC)), VSSRC))>;
+def : Pat<(f32 (ffloor f32:$S)),
+          (f32 (COPY_TO_REGCLASS (XSRDPIM
+                                   (COPY_TO_REGCLASS $S, VSFRC)), VSSRC))>;
+def : Pat<(f32 (fceil f32:$S)),
+          (f32 (COPY_TO_REGCLASS (XSRDPIP
+                                   (COPY_TO_REGCLASS $S, VSFRC)), VSSRC))>;
+def : Pat<(f32 (ftrunc f32:$S)),
+          (f32 (COPY_TO_REGCLASS (XSRDPIZ
+                                   (COPY_TO_REGCLASS $S, VSFRC)), VSSRC))>;
+def : Pat<(f32 (frint f32:$S)),
+          (f32 (COPY_TO_REGCLASS (XSRDPIC
+                                   (COPY_TO_REGCLASS $S, VSFRC)), VSSRC))>;
+def : Pat<(v4f32 (frint v4f32:$S)), (v4f32 (XVRSPIC $S))>;
+
+// Rounding for double precision.
+def : Pat<(f64 (frint f64:$S)), (f64 (XSRDPIC $S))>;
+def : Pat<(v2f64 (frint v2f64:$S)), (v2f64 (XVRDPIC $S))>;
 }
 
 // Materialize a zero-vector of long long
@@ -2551,7 +2613,7 @@ let AddedComplexity = 400, Predicates = [HasP9Vector] in {
   // [PO VRT XO VRB XO RO], Round to Odd version of [PO VRT XO VRB XO /]
   class X_VT5_XO5_VB5_Ro<bits<6> opcode, bits<5> xo2, bits<10> xo, string opc,
                          list<dag> pattern>
-    : X_VT5_XO5_VB5<opcode, xo2, xo, opc, pattern>, isDOT;
+    : X_VT5_XO5_VB5<opcode, xo2, xo, opc, pattern>, isRecordForm;
 
   // [PO VRT XO VRB XO /], but the VRB is only used the left 64 bits (or less),
   // So we use different operand class for VRB
@@ -2569,7 +2631,7 @@ let AddedComplexity = 400, Predicates = [HasP9Vector] in {
   // [PO VRT XO VRB XO RO], Round to Odd version of [PO VRT XO VRB XO /]
   class X_VT5_XO5_VB5_VSFR_Ro<bits<6> opcode, bits<5> xo2, bits<10> xo, string opc,
                          list<dag> pattern>
-    : X_VT5_XO5_VB5_VSFR<opcode, xo2, xo, opc, pattern>, isDOT;
+    : X_VT5_XO5_VB5_VSFR<opcode, xo2, xo, opc, pattern>, isRecordForm;
 
   // [PO T XO B XO BX /]
   class XX2_RT5_XO5_XB6<bits<6> opcode, bits<5> xo2, bits<9> xo, string opc,
@@ -2599,7 +2661,7 @@ let AddedComplexity = 400, Predicates = [HasP9Vector] in {
   // [PO VRT VRA VRB XO RO], Round to Odd version of [PO VRT VRA VRB XO /]
   class X_VT5_VA5_VB5_Ro<bits<6> opcode, bits<10> xo, string opc,
                          list<dag> pattern>
-    : X_VT5_VA5_VB5<opcode, xo, opc, pattern>, isDOT;
+    : X_VT5_VA5_VB5<opcode, xo, opc, pattern>, isRecordForm;
 
   // [PO VRT VRA VRB XO /]
   class X_VT5_VA5_VB5_FMA<bits<6> opcode, bits<10> xo, string opc,
@@ -2611,7 +2673,7 @@ let AddedComplexity = 400, Predicates = [HasP9Vector] in {
   // [PO VRT VRA VRB XO RO], Round to Odd version of [PO VRT VRA VRB XO /]
   class X_VT5_VA5_VB5_FMA_Ro<bits<6> opcode, bits<10> xo, string opc,
                           list<dag> pattern>
-    : X_VT5_VA5_VB5_FMA<opcode, xo, opc, pattern>, isDOT;
+    : X_VT5_VA5_VB5_FMA<opcode, xo, opc, pattern>, isRecordForm;
 
   //===--------------------------------------------------------------------===//
   // Quad-Precision Scalar Move Instructions:
@@ -2633,16 +2695,18 @@ let AddedComplexity = 400, Predicates = [HasP9Vector] in {
   // Quad-Precision Scalar Floating-Point Arithmetic Instructions:
 
   // Add/Divide/Multiply/Subtract
+  let mayRaiseFPException = 1 in {
   let isCommutable = 1 in {
   def XSADDQP   : X_VT5_VA5_VB5   <63,   4, "xsaddqp",
-                                   [(set f128:$vT, (fadd f128:$vA, f128:$vB))]>;
+                                   [(set f128:$vT, (any_fadd f128:$vA, f128:$vB))]>;
   def XSMULQP   : X_VT5_VA5_VB5   <63,  36, "xsmulqp",
-                                   [(set f128:$vT, (fmul f128:$vA, f128:$vB))]>;
+                                   [(set f128:$vT, (any_fmul f128:$vA, f128:$vB))]>;
   }
   def XSSUBQP   : X_VT5_VA5_VB5   <63, 516, "xssubqp" ,
-                                   [(set f128:$vT, (fsub f128:$vA, f128:$vB))]>;
+                                   [(set f128:$vT, (any_fsub f128:$vA, f128:$vB))]>;
   def XSDIVQP   : X_VT5_VA5_VB5   <63, 548, "xsdivqp",
-                                   [(set f128:$vT, (fdiv f128:$vA, f128:$vB))]>;
+                                   [(set f128:$vT, (any_fdiv f128:$vA, f128:$vB))]>;
+  } // mayRaiseFPException
   // Square-Root
   def XSSQRTQP  : X_VT5_XO5_VB5   <63, 27, 804, "xssqrtqp",
                                    [(set f128:$vT, (fsqrt f128:$vB))]>;
@@ -2948,18 +3012,16 @@ let AddedComplexity = 400, Predicates = [HasP9Vector] in {
 
   // Vector Byte-Reverse H/W/D/Q Word
   def XXBRH : XX2_XT6_XO5_XB6<60,  7, 475, "xxbrh", vsrc, []>;
-  def XXBRW : XX2_XT6_XO5_XB6<60, 15, 475, "xxbrw", vsrc, []>;
-  def XXBRD : XX2_XT6_XO5_XB6<60, 23, 475, "xxbrd", vsrc, []>;
+  def XXBRW : XX2_XT6_XO5_XB6<60, 15, 475, "xxbrw", vsrc,
+    [(set v4i32:$XT, (bswap v4i32:$XB))]>;
+  def XXBRD : XX2_XT6_XO5_XB6<60, 23, 475, "xxbrd", vsrc,
+    [(set v2i64:$XT, (bswap v2i64:$XB))]>;
   def XXBRQ : XX2_XT6_XO5_XB6<60, 31, 475, "xxbrq", vsrc, []>;
 
   // Vector Reverse
-  def : Pat<(v8i16 (PPCxxreverse v8i16 :$A)),
+  def : Pat<(v8i16 (bswap v8i16 :$A)),
             (v8i16 (COPY_TO_REGCLASS (XXBRH (COPY_TO_REGCLASS $A, VSRC)), VRRC))>;
-  def : Pat<(v4i32 (PPCxxreverse v4i32 :$A)),
-            (v4i32 (XXBRW $A))>;
-  def : Pat<(v2i64 (PPCxxreverse v2i64 :$A)),
-            (v2i64 (XXBRD $A))>;
-  def : Pat<(v1i128 (PPCxxreverse v1i128 :$A)),
+  def : Pat<(v1i128 (bswap v1i128 :$A)),
             (v1i128 (COPY_TO_REGCLASS (XXBRQ (COPY_TO_REGCLASS $A, VSRC)), VRRC))>;
 
   // Vector Permute
@@ -3924,8 +3986,20 @@ def DblToULongLoad {
   dag A = (i64 (PPCmfvsr (PPCfctiduz (f64 (load xoaddr:$A)))));
 }
 
+// FP load dags (for f32 -> v4f32)
+def LoadFP {
+  dag A = (f32 (load xoaddr:$A));
+  dag B = (f32 (load xoaddr:$B));
+  dag C = (f32 (load xoaddr:$C));
+  dag D = (f32 (load xoaddr:$D));
+}
+
 // FP merge dags (for f32 -> v4f32)
 def MrgFP {
+  dag LD32A = (COPY_TO_REGCLASS (LIWZX xoaddr:$A), VSRC);
+  dag LD32B = (COPY_TO_REGCLASS (LIWZX xoaddr:$B), VSRC);
+  dag LD32C = (COPY_TO_REGCLASS (LIWZX xoaddr:$C), VSRC);
+  dag LD32D = (COPY_TO_REGCLASS (LIWZX xoaddr:$D), VSRC);
   dag AC = (XVCVDPSP (XXPERMDI (COPY_TO_REGCLASS $A, VSRC),
                                (COPY_TO_REGCLASS $C, VSRC), 0));
   dag BD = (XVCVDPSP (XXPERMDI (COPY_TO_REGCLASS $B, VSRC),
@@ -4081,7 +4155,18 @@ let AddedComplexity = 400 in {
               (v2f64 (XXPERMDI
                         (COPY_TO_REGCLASS $A, VSRC),
                         (COPY_TO_REGCLASS $B, VSRC), 0))>;
-
+    // Using VMRGEW to assemble the final vector would be a lower latency
+    // solution. However, we choose to go with the slightly higher latency
+    // XXPERMDI for 2 reasons:
+    // 1. This is likely to occur in unrolled loops where regpressure is high,
+    //    so we want to use the latter as it has access to all 64 VSX registers.
+    // 2. Using Altivec instructions in this sequence would likely cause the
+    //    allocation of Altivec registers even for the loads which in turn would
+    //    force the use of LXSIWZX for the loads, adding a cycle of latency to
+    //    each of the loads which would otherwise be able to use LFIWZX.
+    def : Pat<(v4f32 (build_vector LoadFP.A, LoadFP.B, LoadFP.C, LoadFP.D)),
+              (v4f32 (XXPERMDI (XXMRGHW MrgFP.LD32A, MrgFP.LD32B),
+                               (XXMRGHW MrgFP.LD32C, MrgFP.LD32D), 3))>;
     def : Pat<(v4f32 (build_vector f32:$A, f32:$B, f32:$C, f32:$D)),
               (VMRGEW MrgFP.AC, MrgFP.BD)>;
     def : Pat<(v4f32 (build_vector DblToFlt.A0, DblToFlt.A1,
@@ -4101,6 +4186,41 @@ let AddedComplexity = 400 in {
     def : Pat<(v4i32 (build_vector ExtDbl.A0U, ExtDbl.A1U,
                                    ExtDbl.B0U, ExtDbl.B1U)),
               (v4i32 (VMRGEW MrgWords.CVA0B0U, MrgWords.CVA1B1U))>;
+    def : Pat<(v2f64 (build_vector (f64 (fpextend (extractelt v4f32:$A, 0))),
+                                   (f64 (fpextend (extractelt v4f32:$A, 1))))),
+              (v2f64 (XVCVSPDP (XXMRGHW $A, $A)))>;
+    def : Pat<(v2f64 (build_vector (f64 (fpextend (extractelt v4f32:$A, 1))),
+                                   (f64 (fpextend (extractelt v4f32:$A, 0))))),
+              (v2f64 (XXPERMDI (XVCVSPDP (XXMRGHW $A, $A)),
+                               (XVCVSPDP (XXMRGHW $A, $A)), 2))>;
+    def : Pat<(v2f64 (build_vector (f64 (fpextend (extractelt v4f32:$A, 0))),
+                                   (f64 (fpextend (extractelt v4f32:$A, 2))))),
+              (v2f64 (XVCVSPDP $A))>;
+    def : Pat<(v2f64 (build_vector (f64 (fpextend (extractelt v4f32:$A, 1))),
+                                   (f64 (fpextend (extractelt v4f32:$A, 3))))),
+              (v2f64 (XVCVSPDP (XXSLDWI $A, $A, 3)))>;
+    def : Pat<(v2f64 (build_vector (f64 (fpextend (extractelt v4f32:$A, 2))),
+                                   (f64 (fpextend (extractelt v4f32:$A, 3))))),
+              (v2f64 (XVCVSPDP (XXMRGLW $A, $A)))>;
+    def : Pat<(v2f64 (build_vector (f64 (fpextend (extractelt v4f32:$A, 3))),
+                                   (f64 (fpextend (extractelt v4f32:$A, 2))))),
+              (v2f64 (XXPERMDI (XVCVSPDP (XXMRGLW $A, $A)),
+                               (XVCVSPDP (XXMRGLW $A, $A)), 2))>;
+    def : Pat<(v2f64 (build_vector (f64 (fpextend (extractelt v4f32:$A, 0))),
+                                   (f64 (fpextend (extractelt v4f32:$B, 0))))),
+              (v2f64 (XVCVSPDP (XXPERMDI $A, $B, 0)))>;
+    def : Pat<(v2f64 (build_vector (f64 (fpextend (extractelt v4f32:$A, 3))),
+                                   (f64 (fpextend (extractelt v4f32:$B, 3))))),
+              (v2f64 (XVCVSPDP (XXSLDWI (XXPERMDI $A, $B, 3),
+                                        (XXPERMDI $A, $B, 3), 1)))>;
+    def : Pat<WToDPExtractConv.BV02S,
+              (v2f64 (XVCVSXWDP $A))>;
+    def : Pat<WToDPExtractConv.BV13S,
+              (v2f64 (XVCVSXWDP (XXSLDWI $A, $A, 3)))>;
+    def : Pat<WToDPExtractConv.BV02U,
+              (v2f64 (XVCVUXWDP $A))>;
+    def : Pat<WToDPExtractConv.BV13U,
+              (v2f64 (XVCVUXWDP (XXSLDWI $A, $A, 3)))>;
   }
 
   let Predicates = [IsLittleEndian, HasP8Vector] in {
@@ -4148,7 +4268,18 @@ let AddedComplexity = 400 in {
               (v2f64 (XXPERMDI
                         (COPY_TO_REGCLASS $B, VSRC),
                         (COPY_TO_REGCLASS $A, VSRC), 0))>;
-
+    // Using VMRGEW to assemble the final vector would be a lower latency
+    // solution. However, we choose to go with the slightly higher latency
+    // XXPERMDI for 2 reasons:
+    // 1. This is likely to occur in unrolled loops where regpressure is high,
+    //    so we want to use the latter as it has access to all 64 VSX registers.
+    // 2. Using Altivec instructions in this sequence would likely cause the
+    //    allocation of Altivec registers even for the loads which in turn would
+    //    force the use of LXSIWZX for the loads, adding a cycle of latency to
+    //    each of the loads which would otherwise be able to use LFIWZX.
+    def : Pat<(v4f32 (build_vector LoadFP.A, LoadFP.B, LoadFP.C, LoadFP.D)),
+              (v4f32 (XXPERMDI (XXMRGHW MrgFP.LD32D, MrgFP.LD32C),
+                               (XXMRGHW MrgFP.LD32B, MrgFP.LD32A), 3))>;
     def : Pat<(v4f32 (build_vector f32:$D, f32:$C, f32:$B, f32:$A)),
               (VMRGEW MrgFP.AC, MrgFP.BD)>;
     def : Pat<(v4f32 (build_vector DblToFlt.A0, DblToFlt.A1,
@@ -4168,6 +4299,41 @@ let AddedComplexity = 400 in {
     def : Pat<(v4i32 (build_vector ExtDbl.A0U, ExtDbl.A1U,
                                    ExtDbl.B0U, ExtDbl.B1U)),
               (v4i32 (VMRGEW MrgWords.CVB1A1U, MrgWords.CVB0A0U))>;
+    def : Pat<(v2f64 (build_vector (f64 (fpextend (extractelt v4f32:$A, 0))),
+                                   (f64 (fpextend (extractelt v4f32:$A, 1))))),
+              (v2f64 (XVCVSPDP (XXMRGLW $A, $A)))>;
+    def : Pat<(v2f64 (build_vector (f64 (fpextend (extractelt v4f32:$A, 1))),
+                                   (f64 (fpextend (extractelt v4f32:$A, 0))))),
+              (v2f64 (XXPERMDI (XVCVSPDP (XXMRGLW $A, $A)),
+                               (XVCVSPDP (XXMRGLW $A, $A)), 2))>;
+    def : Pat<(v2f64 (build_vector (f64 (fpextend (extractelt v4f32:$A, 0))),
+                                   (f64 (fpextend (extractelt v4f32:$A, 2))))),
+              (v2f64 (XVCVSPDP (XXSLDWI $A, $A, 1)))>;
+    def : Pat<(v2f64 (build_vector (f64 (fpextend (extractelt v4f32:$A, 1))),
+                                   (f64 (fpextend (extractelt v4f32:$A, 3))))),
+              (v2f64 (XVCVSPDP $A))>;
+    def : Pat<(v2f64 (build_vector (f64 (fpextend (extractelt v4f32:$A, 2))),
+                                   (f64 (fpextend (extractelt v4f32:$A, 3))))),
+              (v2f64 (XVCVSPDP (XXMRGHW $A, $A)))>;
+    def : Pat<(v2f64 (build_vector (f64 (fpextend (extractelt v4f32:$A, 3))),
+                                   (f64 (fpextend (extractelt v4f32:$A, 2))))),
+              (v2f64 (XXPERMDI (XVCVSPDP (XXMRGHW $A, $A)),
+                               (XVCVSPDP (XXMRGHW $A, $A)), 2))>;
+    def : Pat<(v2f64 (build_vector (f64 (fpextend (extractelt v4f32:$A, 0))),
+                                   (f64 (fpextend (extractelt v4f32:$B, 0))))),
+              (v2f64 (XVCVSPDP (XXSLDWI (XXPERMDI $B, $A, 3),
+                                        (XXPERMDI $B, $A, 3), 1)))>;
+    def : Pat<(v2f64 (build_vector (f64 (fpextend (extractelt v4f32:$A, 3))),
+                                   (f64 (fpextend (extractelt v4f32:$B, 3))))),
+              (v2f64 (XVCVSPDP (XXPERMDI $B, $A, 0)))>;
+    def : Pat<WToDPExtractConv.BV02S,
+              (v2f64 (XVCVSXWDP (XXSLDWI $A, $A, 1)))>;
+    def : Pat<WToDPExtractConv.BV13S,
+              (v2f64 (XVCVSXWDP $A))>;
+    def : Pat<WToDPExtractConv.BV02U,
+              (v2f64 (XVCVUXWDP (XXSLDWI $A, $A, 1)))>;
+    def : Pat<WToDPExtractConv.BV13U,
+              (v2f64 (XVCVUXWDP $A))>;
   }
 
   let Predicates = [HasDirectMove] in {
@@ -4315,19 +4481,6 @@ let AddedComplexity = 400 in {
               (v4i32 (VEXTSB2W $A))>;
     def : Pat<(v2i64 (build_vector ByteToDWord.BE_A0, ByteToDWord.BE_A1)),
               (v2i64 (VEXTSB2D $A))>;
-  }
-
-  let Predicates = [HasP9Altivec] in {
-    def: Pat<(v2i64 (PPCSExtVElems v16i8:$A)),
-              (v2i64 (VEXTSB2D $A))>;
-    def: Pat<(v2i64 (PPCSExtVElems v8i16:$A)),
-              (v2i64 (VEXTSH2D $A))>;
-    def: Pat<(v2i64 (PPCSExtVElems v4i32:$A)),
-              (v2i64 (VEXTSW2D $A))>;
-    def: Pat<(v4i32 (PPCSExtVElems v16i8:$A)),
-              (v4i32 (VEXTSB2W $A))>;
-    def: Pat<(v4i32 (PPCSExtVElems v8i16:$A)),
-              (v4i32 (VEXTSH2W $A))>;
   }
 }
 

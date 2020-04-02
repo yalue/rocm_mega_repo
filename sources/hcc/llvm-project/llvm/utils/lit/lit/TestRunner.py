@@ -1105,6 +1105,25 @@ def getDefaultSubstitutions(test, tmpDir, tmpBase, normalize_slashes=False):
             ('%/T', tmpDir.replace('\\', '/')),
             ])
 
+    # "%{/[STpst]:regex_replacement}" should be normalized like "%/[STpst]" but we're
+    # also in a regex replacement context of a s@@@ regex.
+    def regex_escape(s):
+        s = s.replace('@', '\@')
+        s = s.replace('&', '\&')
+        return s
+    substitutions.extend([
+            ('%{/s:regex_replacement}',
+             regex_escape(sourcepath.replace('\\', '/'))),
+            ('%{/S:regex_replacement}',
+             regex_escape(sourcedir.replace('\\', '/'))),
+            ('%{/p:regex_replacement}',
+             regex_escape(sourcedir.replace('\\', '/'))),
+            ('%{/t:regex_replacement}',
+             regex_escape(tmpBase.replace('\\', '/')) + '.tmp'),
+            ('%{/T:regex_replacement}',
+             regex_escape(tmpDir.replace('\\', '/'))),
+            ])
+
     # "%:[STpst]" are normalized paths without colons and without a leading
     # slash.
     substitutions.extend([
@@ -1116,6 +1135,18 @@ def getDefaultSubstitutions(test, tmpDir, tmpBase, normalize_slashes=False):
             ])
     return substitutions
 
+def _memoize(f):
+    cache = {}  # Intentionally unbounded, see applySubstitutions()
+    def memoized(x):
+        if x not in cache:
+            cache[x] = f(x)
+        return cache[x]
+    return memoized
+
+@_memoize
+def _caching_re_compile(r):
+    return re.compile(r)
+
 def applySubstitutions(script, substitutions):
     """Apply substitutions to the script.  Allow full regular expression syntax.
     Replace each matching occurrence of regular expression pattern a with
@@ -1125,7 +1156,14 @@ def applySubstitutions(script, substitutions):
         for a,b in substitutions:
             if kIsWindows:
                 b = b.replace("\\","\\\\")
-            ln = re.sub(a, b, ln)
+            # re.compile() has a built-in LRU cache with 512 entries. In some
+            # test suites lit ends up thrashing that cache, which made e.g.
+            # check-llvm run 50% slower.  Use an explicit, unbounded cache
+            # to prevent that from happening.  Since lit is fairly
+            # short-lived, since the set of substitutions is fairly small, and
+            # since thrashing has such bad consequences, not bounding the cache
+            # seems reasonable.
+            ln = _caching_re_compile(a).sub(b, ln)
 
         # Strip the trailing newline and any extra whitespace.
         return ln.strip()
@@ -1144,13 +1182,15 @@ class ParserKind(object):
     LIST: A keyword taking a comma-separated list of values.
     BOOLEAN_EXPR: A keyword taking a comma-separated list of 
         boolean expressions. Ex 'XFAIL:'
+    INTEGER: A keyword taking a single integer. Ex 'ALLOW_RETRIES:'
     CUSTOM: A keyword with custom parsing semantics.
     """
     TAG = 0
     COMMAND = 1
     LIST = 2
     BOOLEAN_EXPR = 3
-    CUSTOM = 4
+    INTEGER = 4
+    CUSTOM = 5
 
     @staticmethod
     def allowedKeywordSuffixes(value):
@@ -1158,6 +1198,7 @@ class ParserKind(object):
                  ParserKind.COMMAND:      [':'],
                  ParserKind.LIST:         [':'],
                  ParserKind.BOOLEAN_EXPR: [':'],
+                 ParserKind.INTEGER:      [':'],
                  ParserKind.CUSTOM:       [':', '.']
                } [value]
 
@@ -1167,6 +1208,7 @@ class ParserKind(object):
                  ParserKind.COMMAND:      'COMMAND',
                  ParserKind.LIST:         'LIST',
                  ParserKind.BOOLEAN_EXPR: 'BOOLEAN_EXPR',
+                 ParserKind.INTEGER:      'INTEGER',
                  ParserKind.CUSTOM:       'CUSTOM'
                } [value]
 
@@ -1209,6 +1251,8 @@ class IntegratedTestKeywordParser(object):
             self.parser = self._handleList
         elif kind == ParserKind.BOOLEAN_EXPR:
             self.parser = self._handleBooleanExpr
+        elif kind == ParserKind.INTEGER:
+            self.parser = self._handleSingleInteger
         elif kind == ParserKind.TAG:
             self.parser = self._handleTag
         elif kind == ParserKind.CUSTOM:
@@ -1274,6 +1318,18 @@ class IntegratedTestKeywordParser(object):
         return output
 
     @staticmethod
+    def _handleSingleInteger(line_number, line, output):
+        """A parser for INTEGER type keywords"""
+        if output is None:
+            output = []
+        try:
+            n = int(line)
+        except ValueError:
+            raise ValueError("INTEGER parser requires the input to be an integer (got {})".format(line))
+        output.append(n)
+        return output
+
+    @staticmethod
     def _handleBooleanExpr(line_number, line, output):
         """A parser for BOOLEAN_EXPR type keywords"""
         parts = [s.strip() for s in line.split(',') if s.strip() != '']
@@ -1290,25 +1346,11 @@ class IntegratedTestKeywordParser(object):
                 BooleanExpression.evaluate(s, [])
         return output
 
-    @staticmethod
-    def _handleRequiresAny(line_number, line, output):
-        """A custom parser to transform REQUIRES-ANY: into REQUIRES:"""
-
-        # Extract the conditions specified in REQUIRES-ANY: as written.
-        conditions = []
-        IntegratedTestKeywordParser._handleList(line_number, line, conditions)
-
-        # Output a `REQUIRES: a || b || c` expression in its place.
-        expression = ' || '.join(conditions)
-        IntegratedTestKeywordParser._handleBooleanExpr(line_number,
-                                                       expression, output)
-        return output
-
 def parseIntegratedTestScript(test, additional_parsers=[],
                               require_script=True):
     """parseIntegratedTestScript - Scan an LLVM/Clang style integrated test
-    script and extract the lines to 'RUN' as well as 'XFAIL' and 'REQUIRES'
-    and 'UNSUPPORTED' information.
+    script and extract the lines to 'RUN' as well as 'XFAIL', 'REQUIRES',
+    'UNSUPPORTED' and 'ALLOW_RETRIES' information.
 
     If additional parsers are specified then the test is also scanned for the
     keywords they specify and all matches are passed to the custom parser.
@@ -1327,11 +1369,9 @@ def parseIntegratedTestScript(test, additional_parsers=[],
                                     initial_value=test.xfails),
         IntegratedTestKeywordParser('REQUIRES:', ParserKind.BOOLEAN_EXPR,
                                     initial_value=test.requires),
-        IntegratedTestKeywordParser('REQUIRES-ANY:', ParserKind.CUSTOM,
-                                    IntegratedTestKeywordParser._handleRequiresAny, 
-                                    initial_value=test.requires), 
         IntegratedTestKeywordParser('UNSUPPORTED:', ParserKind.BOOLEAN_EXPR,
                                     initial_value=test.unsupported),
+        IntegratedTestKeywordParser('ALLOW_RETRIES:', ParserKind.INTEGER),
         IntegratedTestKeywordParser('END.', ParserKind.TAG)
     ]
     keyword_parsers = {p.keyword: p for p in builtin_parsers}
@@ -1391,6 +1431,14 @@ def parseIntegratedTestScript(test, additional_parsers=[],
             "Test does not support the following features "
             "and/or targets: %s" % msg)
 
+    # Handle ALLOW_RETRIES:
+    allowed_retries = keyword_parsers['ALLOW_RETRIES:'].getValue()
+    if allowed_retries:
+        if len(allowed_retries) > 1:
+            return lit.Test.Result(Test.UNRESOLVED,
+                                   "Test has more than one ALLOW_RETRIES lines")
+        test.allowed_retries = allowed_retries[0]
+
     # Enforce limit_to_features.
     if not test.isWithinFeatureLimits():
         msg = ', '.join(test.config.limit_to_features)
@@ -1440,13 +1488,17 @@ def _runShTest(test, litConfig, useExternalSh, script, tmpBase):
 
 
 def executeShTest(test, litConfig, useExternalSh,
-                  extra_substitutions=[]):
+                  extra_substitutions=[],
+                  preamble_commands=[]):
     if test.config.unsupported:
         return lit.Test.Result(Test.UNSUPPORTED, 'Test is unsupported')
 
-    script = parseIntegratedTestScript(test)
-    if isinstance(script, lit.Test.Result):
-        return script
+    script = list(preamble_commands)
+    parsed = parseIntegratedTestScript(test, require_script=not script)
+    if isinstance(parsed, lit.Test.Result):
+        return parsed
+    script += parsed
+
     if litConfig.noExecute:
         return lit.Test.Result(Test.PASS)
 
@@ -1456,10 +1508,8 @@ def executeShTest(test, litConfig, useExternalSh,
                                              normalize_slashes=useExternalSh)
     script = applySubstitutions(script, substitutions)
 
-    # Re-run failed tests up to test_retry_attempts times.
-    attempts = 1
-    if hasattr(test.config, 'test_retry_attempts'):
-        attempts += test.config.test_retry_attempts
+    # Re-run failed tests up to test.allowed_retries times.
+    attempts = test.allowed_retries + 1
     for i in range(attempts):
         res = _runShTest(test, litConfig, useExternalSh, script, tmpBase)
         if res.code != Test.FAIL:

@@ -6,17 +6,11 @@
 //
 //===----------------------------------------------------------------------===//
 
-#ifndef liblldb_CommandObjectBreakpoint_h_
-#define liblldb_CommandObjectBreakpoint_h_
-
-#include <utility>
-#include <vector>
+#ifndef LLDB_SOURCE_COMMANDS_COMMANDOBJECTBREAKPOINT_H
+#define LLDB_SOURCE_COMMANDS_COMMANDOBJECTBREAKPOINT_H
 
 #include "lldb/Breakpoint/BreakpointName.h"
-#include "lldb/Core/Address.h"
 #include "lldb/Interpreter/CommandObjectMultiword.h"
-#include "lldb/Interpreter/Options.h"
-#include "lldb/lldb-private.h"
 
 namespace lldb_private {
 
@@ -51,4 +45,4 @@ private:
 
 } // namespace lldb_private
 
-#endif // liblldb_CommandObjectBreakpoint_h_
+#endif // LLDB_SOURCE_COMMANDS_COMMANDOBJECTBREAKPOINT_H

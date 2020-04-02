@@ -5,11 +5,8 @@
 // SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
 //
 //===----------------------------------------------------------------------===//
-// This pass lowers coroutine intrinsics that hide the details of the exact
-// calling convention for coroutine resume and destroy functions and details of
-// the structure of the coroutine frame.
-//===----------------------------------------------------------------------===//
 
+#include "llvm/Transforms/Coroutines/CoroEarly.h"
 #include "CoroInternal.h"
 #include "llvm/IR/CallSite.h"
 #include "llvm/IR/IRBuilder.h"
@@ -22,7 +19,7 @@ using namespace llvm;
 #define DEBUG_TYPE "coro-early"
 
 namespace {
-// Created on demand if CoroEarly pass has work to do.
+// Created on demand if the coro-early pass has work to do.
 class Lowerer : public coro::LowererBase {
   IRBuilder<> Builder;
   PointerType *const AnyResumeFnPtrTy;
@@ -98,7 +95,7 @@ void Lowerer::lowerCoroDone(IntrinsicInst *II) {
 
   Builder.SetInsertPoint(II);
   auto *BCI = Builder.CreateBitCast(Operand, FramePtrTy);
-  auto *Load = Builder.CreateLoad(BCI);
+  auto *Load = Builder.CreateLoad(FrameTy, BCI);
   auto *Cond = Builder.CreateICmpEQ(Load, NullPtr);
 
   II->replaceAllUsesWith(Cond);
@@ -219,16 +216,30 @@ bool Lowerer::lowerEarlyIntrinsics(Function &F) {
   return Changed;
 }
 
-//===----------------------------------------------------------------------===//
-//                              Top Level Driver
-//===----------------------------------------------------------------------===//
+static bool declaresCoroEarlyIntrinsics(const Module &M) {
+  return coro::declaresIntrinsics(
+      M, {"llvm.coro.id", "llvm.coro.id.retcon", "llvm.coro.id.retcon.once",
+          "llvm.coro.destroy", "llvm.coro.done", "llvm.coro.end",
+          "llvm.coro.noop", "llvm.coro.free", "llvm.coro.promise",
+          "llvm.coro.resume", "llvm.coro.suspend"});
+}
+
+PreservedAnalyses CoroEarlyPass::run(Function &F, FunctionAnalysisManager &) {
+  Module &M = *F.getParent();
+  if (!declaresCoroEarlyIntrinsics(M) || !Lowerer(M).lowerEarlyIntrinsics(F))
+    return PreservedAnalyses::all();
+
+  PreservedAnalyses PA;
+  PA.preserveSet<CFGAnalyses>();
+  return PA;
+}
 
 namespace {
 
-struct CoroEarly : public FunctionPass {
+struct CoroEarlyLegacy : public FunctionPass {
   static char ID; // Pass identification, replacement for typeid.
-  CoroEarly() : FunctionPass(ID) {
-    initializeCoroEarlyPass(*PassRegistry::getPassRegistry());
+  CoroEarlyLegacy() : FunctionPass(ID) {
+    initializeCoroEarlyLegacyPass(*PassRegistry::getPassRegistry());
   }
 
   std::unique_ptr<Lowerer> L;
@@ -236,17 +247,7 @@ struct CoroEarly : public FunctionPass {
   // This pass has work to do only if we find intrinsics we are going to lower
   // in the module.
   bool doInitialization(Module &M) override {
-    if (coro::declaresIntrinsics(M, {"llvm.coro.id",
-                                     "llvm.coro.id.retcon",
-                                     "llvm.coro.id.retcon.once",
-                                     "llvm.coro.destroy",
-                                     "llvm.coro.done",
-                                     "llvm.coro.end",
-                                     "llvm.coro.noop", 
-                                     "llvm.coro.free",
-                                     "llvm.coro.promise",
-                                     "llvm.coro.resume",
-                                     "llvm.coro.suspend"}))
+    if (declaresCoroEarlyIntrinsics(M))
       L = std::make_unique<Lowerer>(M);
     return false;
   }
@@ -267,8 +268,8 @@ struct CoroEarly : public FunctionPass {
 };
 }
 
-char CoroEarly::ID = 0;
-INITIALIZE_PASS(CoroEarly, "coro-early", "Lower early coroutine intrinsics",
-                false, false)
+char CoroEarlyLegacy::ID = 0;
+INITIALIZE_PASS(CoroEarlyLegacy, "coro-early",
+                "Lower early coroutine intrinsics", false, false)
 
-Pass *llvm::createCoroEarlyPass() { return new CoroEarly(); }
+Pass *llvm::createCoroEarlyLegacyPass() { return new CoroEarlyLegacy(); }

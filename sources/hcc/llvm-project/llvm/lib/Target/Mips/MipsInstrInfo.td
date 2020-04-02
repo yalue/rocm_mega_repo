@@ -156,69 +156,69 @@ def MipsSDR : SDNode<"MipsISD::SDR", SDTStore,
 // Mips Instruction Predicate Definitions.
 //===----------------------------------------------------------------------===//
 def HasMips2     :    Predicate<"Subtarget->hasMips2()">,
-                      AssemblerPredicate<"FeatureMips2">;
+                      AssemblerPredicate<(all_of FeatureMips2)>;
 def HasMips3_32  :    Predicate<"Subtarget->hasMips3_32()">,
-                      AssemblerPredicate<"FeatureMips3_32">;
+                      AssemblerPredicate<(all_of FeatureMips3_32)>;
 def HasMips3_32r2 :   Predicate<"Subtarget->hasMips3_32r2()">,
-                      AssemblerPredicate<"FeatureMips3_32r2">;
+                      AssemblerPredicate<(all_of FeatureMips3_32r2)>;
 def HasMips3     :    Predicate<"Subtarget->hasMips3()">,
-                      AssemblerPredicate<"FeatureMips3">;
+                      AssemblerPredicate<(all_of FeatureMips3)>;
 def NotMips3     :    Predicate<"!Subtarget->hasMips3()">,
-                      AssemblerPredicate<"!FeatureMips3">;
+                      AssemblerPredicate<(all_of (not FeatureMips3))>;
 def HasMips4_32  :    Predicate<"Subtarget->hasMips4_32()">,
-                      AssemblerPredicate<"FeatureMips4_32">;
+                      AssemblerPredicate<(all_of FeatureMips4_32)>;
 def NotMips4_32  :    Predicate<"!Subtarget->hasMips4_32()">,
-                      AssemblerPredicate<"!FeatureMips4_32">;
+                      AssemblerPredicate<(all_of (not FeatureMips4_32))>;
 def HasMips4_32r2 :   Predicate<"Subtarget->hasMips4_32r2()">,
-                      AssemblerPredicate<"FeatureMips4_32r2">;
+                      AssemblerPredicate<(all_of FeatureMips4_32r2)>;
 def HasMips5_32r2 :   Predicate<"Subtarget->hasMips5_32r2()">,
-                      AssemblerPredicate<"FeatureMips5_32r2">;
+                      AssemblerPredicate<(all_of FeatureMips5_32r2)>;
 def HasMips32    :    Predicate<"Subtarget->hasMips32()">,
-                      AssemblerPredicate<"FeatureMips32">;
+                      AssemblerPredicate<(all_of FeatureMips32)>;
 def HasMips32r2  :    Predicate<"Subtarget->hasMips32r2()">,
-                      AssemblerPredicate<"FeatureMips32r2">;
+                      AssemblerPredicate<(all_of FeatureMips32r2)>;
 def HasMips32r5  :    Predicate<"Subtarget->hasMips32r5()">,
-                      AssemblerPredicate<"FeatureMips32r5">;
+                      AssemblerPredicate<(all_of FeatureMips32r5)>;
 def HasMips32r6  :    Predicate<"Subtarget->hasMips32r6()">,
-                      AssemblerPredicate<"FeatureMips32r6">;
+                      AssemblerPredicate<(all_of FeatureMips32r6)>;
 def NotMips32r6  :    Predicate<"!Subtarget->hasMips32r6()">,
-                      AssemblerPredicate<"!FeatureMips32r6">;
+                      AssemblerPredicate<(all_of (not FeatureMips32r6))>;
 def IsGP64bit    :    Predicate<"Subtarget->isGP64bit()">,
-                      AssemblerPredicate<"FeatureGP64Bit">;
+                      AssemblerPredicate<(all_of FeatureGP64Bit)>;
 def IsGP32bit    :    Predicate<"!Subtarget->isGP64bit()">,
-                      AssemblerPredicate<"!FeatureGP64Bit">;
+                      AssemblerPredicate<(all_of (not FeatureGP64Bit))>;
 def IsPTR64bit    :   Predicate<"Subtarget->isABI_N64()">,
-                      AssemblerPredicate<"FeaturePTR64Bit">;
+                      AssemblerPredicate<(all_of FeaturePTR64Bit)>;
 def IsPTR32bit    :   Predicate<"!Subtarget->isABI_N64()">,
-                      AssemblerPredicate<"!FeaturePTR64Bit">;
+                      AssemblerPredicate<(all_of (not FeaturePTR64Bit))>;
 def HasMips64    :    Predicate<"Subtarget->hasMips64()">,
-                      AssemblerPredicate<"FeatureMips64">;
+                      AssemblerPredicate<(all_of FeatureMips64)>;
 def NotMips64    :    Predicate<"!Subtarget->hasMips64()">,
-                      AssemblerPredicate<"!FeatureMips64">;
+                      AssemblerPredicate<(all_of (not FeatureMips64))>;
 def HasMips64r2  :    Predicate<"Subtarget->hasMips64r2()">,
-                      AssemblerPredicate<"FeatureMips64r2">;
+                      AssemblerPredicate<(all_of FeatureMips64r2)>;
 def HasMips64r5  :    Predicate<"Subtarget->hasMips64r5()">,
-                      AssemblerPredicate<"FeatureMips64r5">;
+                      AssemblerPredicate<(all_of FeatureMips64r5)>;
 def HasMips64r6  :    Predicate<"Subtarget->hasMips64r6()">,
-                      AssemblerPredicate<"FeatureMips64r6">;
+                      AssemblerPredicate<(all_of FeatureMips64r6)>;
 def NotMips64r6  :    Predicate<"!Subtarget->hasMips64r6()">,
-                      AssemblerPredicate<"!FeatureMips64r6">;
+                      AssemblerPredicate<(all_of (not FeatureMips64r6))>;
 def InMips16Mode :    Predicate<"Subtarget->inMips16Mode()">,
-                      AssemblerPredicate<"FeatureMips16">;
+                      AssemblerPredicate<(all_of FeatureMips16)>;
 def NotInMips16Mode : Predicate<"!Subtarget->inMips16Mode()">,
-                      AssemblerPredicate<"!FeatureMips16">;
+                      AssemblerPredicate<(all_of (not FeatureMips16))>;
 def HasCnMips    :    Predicate<"Subtarget->hasCnMips()">,
-                      AssemblerPredicate<"FeatureCnMips">;
+                      AssemblerPredicate<(all_of FeatureCnMips)>;
 def NotCnMips    :    Predicate<"!Subtarget->hasCnMips()">,
-                      AssemblerPredicate<"!FeatureCnMips">;
+                      AssemblerPredicate<(all_of (not FeatureCnMips))>;
 def HasCnMipsP   :    Predicate<"Subtarget->hasCnMipsP()">,
-                      AssemblerPredicate<"FeatureCnMipsP">;
+                      AssemblerPredicate<(all_of FeatureCnMipsP)>;
 def NotCnMipsP   :    Predicate<"!Subtarget->hasCnMipsP()">,
-                      AssemblerPredicate<"!FeatureCnMipsP">;
+                      AssemblerPredicate<(all_of (not FeatureCnMipsP))>;
 def IsSym32     :     Predicate<"Subtarget->hasSym32()">,
-                      AssemblerPredicate<"FeatureSym32">;
+                      AssemblerPredicate<(all_of FeatureSym32)>;
 def IsSym64     :     Predicate<"!Subtarget->hasSym32()">,
-                      AssemblerPredicate<"!FeatureSym32">;
+                      AssemblerPredicate<(all_of (not FeatureSym32))>;
 def IsN64       :     Predicate<"Subtarget->isABI_N64()">;
 def IsNotN64    :     Predicate<"!Subtarget->isABI_N64()">;
 def RelocNotPIC :     Predicate<"!TM.isPositionIndependent()">;
@@ -227,34 +227,34 @@ def NoNaNsFPMath :    Predicate<"TM.Options.NoNaNsFPMath">;
 def UseAbs :          Predicate<"Subtarget->inAbs2008Mode() ||"
                                 "TM.Options.NoNaNsFPMath">;
 def HasStdEnc :       Predicate<"Subtarget->hasStandardEncoding()">,
-                      AssemblerPredicate<"!FeatureMips16">;
+                      AssemblerPredicate<(all_of (not FeatureMips16))>;
 def NotDSP :          Predicate<"!Subtarget->hasDSP()">;
 def InMicroMips    :  Predicate<"Subtarget->inMicroMipsMode()">,
-                      AssemblerPredicate<"FeatureMicroMips">;
+                      AssemblerPredicate<(all_of FeatureMicroMips)>;
 def NotInMicroMips :  Predicate<"!Subtarget->inMicroMipsMode()">,
-                      AssemblerPredicate<"!FeatureMicroMips">;
+                      AssemblerPredicate<(all_of (not FeatureMicroMips))>;
 def IsLE           :  Predicate<"Subtarget->isLittle()">;
 def IsBE           :  Predicate<"!Subtarget->isLittle()">;
 def IsNotNaCl    :    Predicate<"!Subtarget->isTargetNaCl()">;
-def UseTCCInDIV    :  AssemblerPredicate<"FeatureUseTCCInDIV">;
+def UseTCCInDIV    :  AssemblerPredicate<(all_of FeatureUseTCCInDIV)>;
 def HasEVA       :    Predicate<"Subtarget->hasEVA()">,
-                      AssemblerPredicate<"FeatureEVA">;
+                      AssemblerPredicate<(all_of FeatureEVA)>;
 def HasMSA : Predicate<"Subtarget->hasMSA()">,
-             AssemblerPredicate<"FeatureMSA">;
+             AssemblerPredicate<(all_of FeatureMSA)>;
 def HasMadd4 : Predicate<"!Subtarget->disableMadd4()">,
-               AssemblerPredicate<"!FeatureMadd4">;
+               AssemblerPredicate<(all_of (not FeatureMadd4))>;
 def HasMT  : Predicate<"Subtarget->hasMT()">,
-             AssemblerPredicate<"FeatureMT">;
+             AssemblerPredicate<(all_of FeatureMT)>;
 def UseIndirectJumpsHazard : Predicate<"Subtarget->useIndirectJumpsHazard()">,
-                            AssemblerPredicate<"FeatureUseIndirectJumpsHazard">;
+                            AssemblerPredicate<(all_of FeatureUseIndirectJumpsHazard)>;
 def NoIndirectJumpGuards : Predicate<"!Subtarget->useIndirectJumpsHazard()">,
-                           AssemblerPredicate<"!FeatureUseIndirectJumpsHazard">;
+                           AssemblerPredicate<(all_of (not FeatureUseIndirectJumpsHazard))>;
 def HasCRC   : Predicate<"Subtarget->hasCRC()">,
-               AssemblerPredicate<"FeatureCRC">;
+               AssemblerPredicate<(all_of FeatureCRC)>;
 def HasVirt  : Predicate<"Subtarget->hasVirt()">,
-               AssemblerPredicate<"FeatureVirt">;
+               AssemblerPredicate<(all_of FeatureVirt)>;
 def HasGINV  : Predicate<"Subtarget->hasGINV()">,
-               AssemblerPredicate<"FeatureGINV">;
+               AssemblerPredicate<(all_of FeatureGINV)>;
 // TODO: Add support for FPOpFusion::Standard
 def AllowFPOpFusion : Predicate<"TM.Options.AllowFPOpFusion =="
                                 " FPOpFusion::Fast">;
@@ -959,8 +959,7 @@ foreach I = {16} in
 // Like uimm16_64 but coerces simm16 to uimm16.
 def uimm16_relaxed : Operand<i32> {
   let PrintMethod = "printUImm<16>";
-  let ParserMatchClass =
-      !cast<AsmOperandClass>("UImm16RelaxedAsmOperandClass");
+  let ParserMatchClass = UImm16RelaxedAsmOperandClass;
 }
 
 foreach I = {5} in
@@ -980,14 +979,12 @@ foreach I = {16} in
 // Like uimm16_64 but coerces simm16 to uimm16.
 def uimm16_64_relaxed : Operand<i64> {
   let PrintMethod = "printUImm<16>";
-  let ParserMatchClass =
-      !cast<AsmOperandClass>("UImm16RelaxedAsmOperandClass");
+  let ParserMatchClass = UImm16RelaxedAsmOperandClass;
 }
 
 def uimm16_altrelaxed : Operand<i32> {
   let PrintMethod = "printUImm<16>";
-  let ParserMatchClass =
-      !cast<AsmOperandClass>("UImm16AltRelaxedAsmOperandClass");
+  let ParserMatchClass = UImm16AltRelaxedAsmOperandClass;
 }
 // Like uimm5 but reports a less confusing error for 32-63 when
 // an instruction alias permits that.
@@ -1060,22 +1057,22 @@ foreach I = {16, 32} in
 // Like simm16 but coerces uimm16 to simm16.
 def simm16_relaxed : Operand<i32> {
   let DecoderMethod = "DecodeSImmWithOffsetAndScale<16>";
-  let ParserMatchClass = !cast<AsmOperandClass>("SImm16RelaxedAsmOperandClass");
+  let ParserMatchClass = SImm16RelaxedAsmOperandClass;
 }
 
 def simm16_64 : Operand<i64> {
   let DecoderMethod = "DecodeSImmWithOffsetAndScale<16>";
-  let ParserMatchClass = !cast<AsmOperandClass>("SImm16AsmOperandClass");
+  let ParserMatchClass = SImm16AsmOperandClass;
 }
 
 // like simm32 but coerces simm32 to uimm32.
 def uimm32_coerced : Operand<i32> {
-  let ParserMatchClass = !cast<AsmOperandClass>("UImm32CoercedAsmOperandClass");
+  let ParserMatchClass = UImm32CoercedAsmOperandClass;
 }
 // Like simm32 but coerces uimm32 to simm32.
 def simm32_relaxed : Operand<i32> {
   let DecoderMethod = "DecodeSImmWithOffsetAndScale<32>";
-  let ParserMatchClass = !cast<AsmOperandClass>("SImm32RelaxedAsmOperandClass");
+  let ParserMatchClass = SImm32RelaxedAsmOperandClass;
 }
 
 // This is almost the same as a uimm7 but 0x7f is interpreted as -1.
@@ -1089,59 +1086,14 @@ def MipsMemAsmOperand : AsmOperandClass {
   let ParserMethod = "parseMemOperand";
 }
 
-def MipsMemSimm9AsmOperand : AsmOperandClass {
-  let Name = "MemOffsetSimm9";
+class MipsMemSimmAsmOperand<int Width, int Shift = 0> : AsmOperandClass {
+  let Name = "MemOffsetSimm" # Width # "_" # Shift;
   let SuperClasses = [MipsMemAsmOperand];
   let RenderMethod = "addMemOperands";
   let ParserMethod = "parseMemOperand";
-  let PredicateMethod = "isMemWithSimmOffset<9>";
-  let DiagnosticType = "MemSImm9";
-}
-
-def MipsMemSimm10AsmOperand : AsmOperandClass {
-  let Name = "MemOffsetSimm10";
-  let SuperClasses = [MipsMemAsmOperand];
-  let RenderMethod = "addMemOperands";
-  let ParserMethod = "parseMemOperand";
-  let PredicateMethod = "isMemWithSimmOffset<10>";
-  let DiagnosticType = "MemSImm10";
-}
-
-def MipsMemSimm12AsmOperand : AsmOperandClass {
-  let Name = "MemOffsetSimm12";
-  let SuperClasses = [MipsMemAsmOperand];
-  let RenderMethod = "addMemOperands";
-  let ParserMethod = "parseMemOperand";
-  let PredicateMethod = "isMemWithSimmOffset<12>";
-  let DiagnosticType = "MemSImm12";
-}
-
-foreach I = {1, 2, 3} in
-  def MipsMemSimm10Lsl # I # AsmOperand : AsmOperandClass {
-    let Name = "MemOffsetSimm10_" # I;
-    let SuperClasses = [MipsMemAsmOperand];
-    let RenderMethod = "addMemOperands";
-    let ParserMethod = "parseMemOperand";
-    let PredicateMethod = "isMemWithSimmOffset<10, " # I # ">";
-    let DiagnosticType = "MemSImm10Lsl" # I;
-  }
-
-def MipsMemSimm11AsmOperand : AsmOperandClass {
-  let Name = "MemOffsetSimm11";
-  let SuperClasses = [MipsMemAsmOperand];
-  let RenderMethod = "addMemOperands";
-  let ParserMethod = "parseMemOperand";
-  let PredicateMethod = "isMemWithSimmOffset<11>";
-  let DiagnosticType = "MemSImm11";
-}
-
-def MipsMemSimm16AsmOperand : AsmOperandClass {
-  let Name = "MemOffsetSimm16";
-  let SuperClasses = [MipsMemAsmOperand];
-  let RenderMethod = "addMemOperands";
-  let ParserMethod = "parseMemOperand";
-  let PredicateMethod = "isMemWithSimmOffset<16>";
-  let DiagnosticType = "MemSImm16";
+  let PredicateMethod = "isMemWithSimmOffset<" # Width # ", " # Shift # ">";
+  let DiagnosticType = !if(!eq(Shift, 0), "MemSImm" # Width,
+                                          "MemSImm" # Width # "Lsl" # Shift);
 }
 
 def MipsMemSimmPtrAsmOperand : AsmOperandClass {
@@ -1188,43 +1140,25 @@ def simm12 : Operand<i32> {
   let DecoderMethod = "DecodeSimm12";
 }
 
-def mem_simm9 : mem_generic {
+def mem_simm9_exp : mem_generic {
   let MIOperandInfo = (ops ptr_rc, simm9);
-  let EncoderMethod = "getMemEncoding";
-  let ParserMatchClass = MipsMemSimm9AsmOperand;
+  let ParserMatchClass = MipsMemSimmPtrAsmOperand;
+  let OperandNamespace = "MipsII";
+  let OperandType = "OPERAND_MEM_SIMM9";
 }
 
-def mem_simm10 : mem_generic {
-  let MIOperandInfo = (ops ptr_rc, simm10);
-  let EncoderMethod = "getMemEncoding";
-  let ParserMatchClass = MipsMemSimm10AsmOperand;
-}
+foreach I = {9, 10, 11, 12, 16} in
+  def mem_simm # I : mem_generic {
+    let MIOperandInfo = (ops ptr_rc, !cast<Operand>("simm" # I));
+    let ParserMatchClass = MipsMemSimmAsmOperand<I>;
+  }
 
 foreach I = {1, 2, 3} in
   def mem_simm10_lsl # I : mem_generic {
     let MIOperandInfo = (ops ptr_rc, !cast<Operand>("simm10_lsl" # I));
     let EncoderMethod = "getMemEncoding<" # I  # ">";
-    let ParserMatchClass =
-            !cast<AsmOperandClass>("MipsMemSimm10Lsl" # I # "AsmOperand");
+    let ParserMatchClass = MipsMemSimmAsmOperand<10, I>;
   }
-
-def mem_simm11 : mem_generic {
-  let MIOperandInfo = (ops ptr_rc, simm11);
-  let EncoderMethod = "getMemEncoding";
-  let ParserMatchClass = MipsMemSimm11AsmOperand;
-}
-
-def mem_simm12 : mem_generic {
-  let MIOperandInfo = (ops ptr_rc, simm12);
-  let EncoderMethod = "getMemEncoding";
-  let ParserMatchClass = MipsMemSimm12AsmOperand;
-}
-
-def mem_simm16 : mem_generic {
-  let MIOperandInfo = (ops ptr_rc, simm16);
-  let EncoderMethod = "getMemEncoding";
-  let ParserMatchClass = MipsMemSimm16AsmOperand;
-}
 
 def mem_simmptr : mem_generic {
   let ParserMatchClass = MipsMemSimmPtrAsmOperand;
@@ -1272,6 +1206,7 @@ def immSExt8  : PatLeaf<(imm), [{ return isInt<8>(N->getSExtValue()); }]>;
 // Node immediate fits as 16-bit sign extended on target immediate.
 // e.g. addi, andi
 def immSExt16  : PatLeaf<(imm), [{ return isInt<16>(N->getSExtValue()); }]>;
+def imm32SExt16  : IntImmLeaf<i32, [{ return isInt<16>(Imm.getSExtValue()); }]>;
 
 // Node immediate fits as 7-bit zero extended on target immediate.
 def immZExt7 : PatLeaf<(imm), [{ return isUInt<7>(N->getZExtValue()); }]>;
@@ -1287,6 +1222,9 @@ def immZExt16  : PatLeaf<(imm), [{
   else
     return (uint64_t)N->getZExtValue() == (unsigned short)N->getZExtValue();
 }], LO16>;
+def imm32ZExt16  : IntImmLeaf<i32, [{
+  return (uint32_t)Imm.getZExtValue() == (unsigned short)Imm.getZExtValue();
+}]>;
 
 // Immediate can be loaded with LUi (32-bit int with lower 16-bit cleared).
 def immSExt32Low16Zero : PatLeaf<(imm), [{
@@ -1933,10 +1871,11 @@ class MTC3OP<string asmstr, RegisterOperand RO, RegisterOperand RD,
 class TrapBase<Instruction RealInst>
   : PseudoSE<(outs), (ins), [(trap)], II_TRAP>,
     PseudoInstExpansion<(RealInst 0, 0)> {
-  let isBarrier = 1;
-  let isTerminator = 1;
+  let mayStore = 0;
+  let mayLoad = 0;
+  let hasSideEffects = 1;
+  let isTrap = 1;
   let isCodeGenOnly = 1;
-  let isCTI = 1;
 }
 
 //===----------------------------------------------------------------------===//
@@ -1987,6 +1926,18 @@ let usesCustomInserter = 1 in {
   def ATOMIC_CMP_SWAP_I16  : AtomicCmpSwap<atomic_cmp_swap_16, GPR32>;
   def ATOMIC_CMP_SWAP_I32  : AtomicCmpSwap<atomic_cmp_swap_32, GPR32>;
 
+  def ATOMIC_LOAD_MIN_I8   : Atomic2Ops<atomic_load_min_8, GPR32>;
+  def ATOMIC_LOAD_MIN_I16  : Atomic2Ops<atomic_load_min_16, GPR32>;
+  def ATOMIC_LOAD_MIN_I32  : Atomic2Ops<atomic_load_min_32, GPR32>;
+  def ATOMIC_LOAD_MAX_I8   : Atomic2Ops<atomic_load_max_8, GPR32>;
+  def ATOMIC_LOAD_MAX_I16  : Atomic2Ops<atomic_load_max_16, GPR32>;
+  def ATOMIC_LOAD_MAX_I32  : Atomic2Ops<atomic_load_max_32, GPR32>;
+  def ATOMIC_LOAD_UMIN_I8  : Atomic2Ops<atomic_load_umin_8, GPR32>;
+  def ATOMIC_LOAD_UMIN_I16 : Atomic2Ops<atomic_load_umin_16, GPR32>;
+  def ATOMIC_LOAD_UMIN_I32 : Atomic2Ops<atomic_load_umin_32, GPR32>;
+  def ATOMIC_LOAD_UMAX_I8  : Atomic2Ops<atomic_load_umax_8, GPR32>;
+  def ATOMIC_LOAD_UMAX_I16 : Atomic2Ops<atomic_load_umax_16, GPR32>;
+  def ATOMIC_LOAD_UMAX_I32 : Atomic2Ops<atomic_load_umax_32, GPR32>;
 }
 
 def ATOMIC_LOAD_ADD_I8_POSTRA   : Atomic2OpsSubwordPostRA<GPR32>;
@@ -2015,6 +1966,19 @@ def ATOMIC_SWAP_I32_POSTRA : Atomic2OpsPostRA<GPR32>;
 def ATOMIC_CMP_SWAP_I8_POSTRA : AtomicCmpSwapSubwordPostRA<GPR32>;
 def ATOMIC_CMP_SWAP_I16_POSTRA : AtomicCmpSwapSubwordPostRA<GPR32>;
 def ATOMIC_CMP_SWAP_I32_POSTRA : AtomicCmpSwapPostRA<GPR32>;
+
+def ATOMIC_LOAD_MIN_I8_POSTRA   : Atomic2OpsSubwordPostRA<GPR32>;
+def ATOMIC_LOAD_MIN_I16_POSTRA  : Atomic2OpsSubwordPostRA<GPR32>;
+def ATOMIC_LOAD_MIN_I32_POSTRA  : Atomic2OpsPostRA<GPR32>;
+def ATOMIC_LOAD_MAX_I8_POSTRA   : Atomic2OpsSubwordPostRA<GPR32>;
+def ATOMIC_LOAD_MAX_I16_POSTRA  : Atomic2OpsSubwordPostRA<GPR32>;
+def ATOMIC_LOAD_MAX_I32_POSTRA  : Atomic2OpsPostRA<GPR32>;
+def ATOMIC_LOAD_UMIN_I8_POSTRA  : Atomic2OpsSubwordPostRA<GPR32>;
+def ATOMIC_LOAD_UMIN_I16_POSTRA : Atomic2OpsSubwordPostRA<GPR32>;
+def ATOMIC_LOAD_UMIN_I32_POSTRA : Atomic2OpsPostRA<GPR32>;
+def ATOMIC_LOAD_UMAX_I8_POSTRA  : Atomic2OpsSubwordPostRA<GPR32>;
+def ATOMIC_LOAD_UMAX_I16_POSTRA : Atomic2OpsSubwordPostRA<GPR32>;
+def ATOMIC_LOAD_UMAX_I32_POSTRA : Atomic2OpsPostRA<GPR32>;
 
 /// Pseudo instructions for loading and storing accumulator registers.
 let isPseudo = 1, isCodeGenOnly = 1, hasNoSchedulingInfo = 1 in {
@@ -2058,17 +2022,17 @@ def LONG_BRANCH_ADDiu2Op : PseudoSE<(outs GPR32Opnd:$dst),
 /// Arithmetic Instructions (ALU Immediate)
 let AdditionalPredicates = [NotInMicroMips] in {
   def ADDiu : MMRel, StdMMR6Rel, ArithLogicI<"addiu", simm16_relaxed, GPR32Opnd,
-                                             II_ADDIU, immSExt16, add>,
+                                             II_ADDIU, imm32SExt16, add>,
               ADDI_FM<0x9>, IsAsCheapAsAMove, ISA_MIPS1;
 
   def ANDi : MMRel, StdMMR6Rel,
-             ArithLogicI<"andi", uimm16, GPR32Opnd, II_ANDI, immZExt16, and>,
+             ArithLogicI<"andi", uimm16, GPR32Opnd, II_ANDI, imm32ZExt16, and>,
              ADDI_FM<0xc>, ISA_MIPS1;
   def ORi  : MMRel, StdMMR6Rel,
-             ArithLogicI<"ori", uimm16, GPR32Opnd, II_ORI, immZExt16, or>,
+             ArithLogicI<"ori", uimm16, GPR32Opnd, II_ORI, imm32ZExt16, or>,
              ADDI_FM<0xd>, ISA_MIPS1;
   def XORi : MMRel, StdMMR6Rel,
-             ArithLogicI<"xori", uimm16, GPR32Opnd, II_XORI, immZExt16, xor>,
+             ArithLogicI<"xori", uimm16, GPR32Opnd, II_XORI, imm32ZExt16, xor>,
              ADDI_FM<0xe>, ISA_MIPS1;
   def ADDi  : MMRel, ArithLogicI<"addi", simm16_relaxed, GPR32Opnd, II_ADDI>,
               ADDI_FM<0x8>, ISA_MIPS1_NOT_32R6_64R6;
@@ -2625,6 +2589,22 @@ def : MipsInstAlias<"seq $rd, $imm",
                     (SEQIMacro GPR32Opnd:$rd, GPR32Opnd:$rd, simm32:$imm), 0>,
                     NOT_ASE_CNMIPS;
 
+def SNEMacro : MipsAsmPseudoInst<(outs GPR32Opnd:$rd),
+                                 (ins GPR32Opnd:$rs, GPR32Opnd:$rt),
+                                 "sne $rd, $rs, $rt">, NOT_ASE_CNMIPS;
+
+def : MipsInstAlias<"sne $rd, $rs",
+                    (SNEMacro GPR32Opnd:$rd, GPR32Opnd:$rd, GPR32Opnd:$rs), 0>,
+                    NOT_ASE_CNMIPS;
+
+def SNEIMacro : MipsAsmPseudoInst<(outs GPR32Opnd:$rd),
+                                  (ins GPR32Opnd:$rs, simm32_relaxed:$imm),
+                                  "sne $rd, $rs, $imm">, NOT_ASE_CNMIPS;
+
+def : MipsInstAlias<"sne $rd, $imm",
+                    (SNEIMacro GPR32Opnd:$rd, GPR32Opnd:$rd, simm32:$imm), 0>,
+                    NOT_ASE_CNMIPS;
+
 def MULImmMacro : MipsAsmPseudoInst<(outs), (ins GPR32Opnd:$rd, GPR32Opnd:$rs,
                                                  simm32_relaxed:$imm),
                                     "mul\t$rd, $rs, $imm">,
@@ -2768,6 +2748,34 @@ let AdditionalPredicates = [NotInMicroMips] in {
                                   (ins GPR32Opnd:$rs, uimm32_coerced:$imm),
                                   "sgtu\t$rd, $rs, $imm">, GPR_32;
   def : MipsInstAlias<"sgtu $rs, $imm", (SGTUImm GPR32Opnd:$rs,
+                                                 GPR32Opnd:$rs,
+                                                 uimm32_coerced:$imm), 0>,
+        GPR_32;
+
+  def SLE : MipsAsmPseudoInst<(outs GPR32Opnd:$rd),
+                              (ins GPR32Opnd:$rs, GPR32Opnd:$rt),
+                              "sle\t$rd, $rs, $rt">, ISA_MIPS1;
+  def : MipsInstAlias<"sle $rs, $rt",
+                      (SLE GPR32Opnd:$rs, GPR32Opnd:$rs, GPR32Opnd:$rt), 0>,
+        ISA_MIPS1;
+  def SLEImm : MipsAsmPseudoInst<(outs GPR32Opnd:$rd),
+                                 (ins GPR32Opnd:$rs, simm32:$imm),
+                                 "sle\t$rd, $rs, $imm">, GPR_32;
+  def : MipsInstAlias<"sle $rs, $imm", (SLEImm GPR32Opnd:$rs,
+                                               GPR32Opnd:$rs,
+                                               simm32:$imm), 0>,
+        GPR_32;
+
+  def SLEU : MipsAsmPseudoInst<(outs GPR32Opnd:$rd),
+                               (ins GPR32Opnd:$rs, GPR32Opnd:$rt),
+                               "sleu\t$rd, $rs, $rt">, ISA_MIPS1;
+  def : MipsInstAlias<"sleu $rs, $rt",
+                      (SLEU GPR32Opnd:$rs, GPR32Opnd:$rs, GPR32Opnd:$rt), 0>,
+        ISA_MIPS1;
+  def SLEUImm : MipsAsmPseudoInst<(outs GPR32Opnd:$rd),
+                                  (ins GPR32Opnd:$rs, uimm32_coerced:$imm),
+                                  "sleu\t$rd, $rs, $imm">, GPR_32;
+  def : MipsInstAlias<"sleu $rs, $imm", (SLEUImm GPR32Opnd:$rs,
                                                  GPR32Opnd:$rs,
                                                  uimm32_coerced:$imm), 0>,
         GPR_32;

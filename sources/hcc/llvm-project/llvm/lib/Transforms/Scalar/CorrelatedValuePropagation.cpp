@@ -37,6 +37,7 @@
 #include "llvm/IR/PassManager.h"
 #include "llvm/IR/Type.h"
 #include "llvm/IR/Value.h"
+#include "llvm/InitializePasses.h"
 #include "llvm/Pass.h"
 #include "llvm/Support/Casting.h"
 #include "llvm/Support/CommandLine.h"
@@ -309,9 +310,10 @@ static bool processCmp(CmpInst *Cmp, LazyValueInfo *LVI) {
   // the comparison is testing local values.  While LVI can sometimes reason
   // about such cases, it's not its primary purpose.  We do make sure to do
   // the block local query for uses from terminator instructions, but that's
-  // handled in the code for each terminator.
+  // handled in the code for each terminator. As an exception, we allow phi
+  // nodes, for which LVI can thread the condition into predecessors.
   auto *I = dyn_cast<Instruction>(Op0);
-  if (I && I->getParent() == Cmp->getParent())
+  if (I && I->getParent() == Cmp->getParent() && !isa<PHINode>(I))
     return false;
 
   LazyValueInfo::Tristate Result =

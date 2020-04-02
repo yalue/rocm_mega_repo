@@ -6,8 +6,8 @@
 //
 //===----------------------------------------------------------------------===//
 
-#ifndef liblldb_SearchFilter_h_
-#define liblldb_SearchFilter_h_
+#ifndef LLDB_CORE_SEARCHFILTER_H
+#define LLDB_CORE_SEARCHFILTER_H
 
 #include "lldb/Core/FileSpecList.h"
 #include "lldb/Utility/StructuredData.h"
@@ -84,7 +84,7 @@ class SearchFilter {
 public:
   /// The basic constructor takes a Target, which gives the space to search.
   ///
-  /// \param[in] target
+  /// \param[in] target_sp
   ///    The Target that provides the module list to search.
   SearchFilter(const lldb::TargetSP &target_sp);
 
@@ -102,7 +102,7 @@ public:
 
   /// Call this method with a Module to see if that module passes the filter.
   ///
-  /// \param[in] module
+  /// \param[in] module_sp
   ///    The Module to check against the filter.
   ///
   /// \return
@@ -187,10 +187,10 @@ public:
   /// Standard "Dump" method.  At present it does nothing.
   virtual void Dump(Stream *s) const;
 
-  lldb::SearchFilterSP CopyForBreakpoint(Breakpoint &breakpoint);
+  lldb::SearchFilterSP CreateCopy(lldb::TargetSP& target_sp);
 
   static lldb::SearchFilterSP
-  CreateFromStructuredData(Target &target,
+  CreateFromStructuredData(const lldb::TargetSP& target_sp,
                            const StructuredData::Dictionary &data_dict,
                            Status &error);
 
@@ -261,13 +261,13 @@ protected:
                                                const SymbolContext &context,
                                                Searcher &searcher);
 
-  virtual lldb::SearchFilterSP DoCopyForBreakpoint(Breakpoint &breakpoint) = 0;
+  virtual lldb::SearchFilterSP DoCreateCopy() = 0;
 
   void SetTarget(lldb::TargetSP &target_sp) { m_target_sp = target_sp; }
 
-  lldb::TargetSP
-      m_target_sp; // Every filter has to be associated with a target for
-                   // now since you need a starting place for the search.
+  lldb::TargetSP m_target_sp; // Every filter has to be associated with
+                              // a target for now since you need a starting
+                              // place for the search.
 private:
   unsigned char SubclassID;
 };
@@ -288,14 +288,14 @@ public:
   bool ModulePasses(const lldb::ModuleSP &module_sp) override;
 
   static lldb::SearchFilterSP
-  CreateFromStructuredData(Target &target,
+  CreateFromStructuredData(const lldb::TargetSP& target_sp,
                            const StructuredData::Dictionary &data_dict,
                            Status &error);
 
   StructuredData::ObjectSP SerializeToStructuredData() override;
 
 protected:
-  lldb::SearchFilterSP DoCopyForBreakpoint(Breakpoint &breakpoint) override;
+  lldb::SearchFilterSP DoCreateCopy() override;
 };
 
 /// \class SearchFilterByModule SearchFilter.h "lldb/Core/SearchFilter.h" This
@@ -306,7 +306,7 @@ public:
   /// The basic constructor takes a Target, which gives the space to search,
   /// and the module to restrict the search to.
   ///
-  /// \param[in] target
+  /// \param[in] targetSP
   ///    The Target that provides the module list to search.
   ///
   /// \param[in] module
@@ -334,14 +334,14 @@ public:
   void Search(Searcher &searcher) override;
 
   static lldb::SearchFilterSP
-  CreateFromStructuredData(Target &target,
+  CreateFromStructuredData(const lldb::TargetSP& target_sp,
                            const StructuredData::Dictionary &data_dict,
                            Status &error);
 
   StructuredData::ObjectSP SerializeToStructuredData() override;
 
 protected:
-  lldb::SearchFilterSP DoCopyForBreakpoint(Breakpoint &breakpoint) override;
+  lldb::SearchFilterSP DoCreateCopy() override;
 
 private:
   FileSpec m_module_spec;
@@ -352,10 +352,10 @@ public:
   /// The basic constructor takes a Target, which gives the space to search,
   /// and the module list to restrict the search to.
   ///
-  /// \param[in] target
+  /// \param[in] targetSP
   ///    The Target that provides the module list to search.
   ///
-  /// \param[in] module
+  /// \param[in] module_list
   ///    The Module that limits the search.
   SearchFilterByModuleList(const lldb::TargetSP &targetSP,
                            const FileSpecList &module_list);
@@ -365,8 +365,6 @@ public:
                            enum FilterTy filter_ty);
 
   ~SearchFilterByModuleList() override;
-
-  SearchFilterByModuleList &operator=(const SearchFilterByModuleList &rhs);
 
   bool ModulePasses(const lldb::ModuleSP &module_sp) override;
 
@@ -387,7 +385,7 @@ public:
   void Search(Searcher &searcher) override;
 
   static lldb::SearchFilterSP
-  CreateFromStructuredData(Target &target,
+  CreateFromStructuredData(const lldb::TargetSP& target_sp,
                            const StructuredData::Dictionary &data_dict,
                            Status &error);
 
@@ -396,7 +394,7 @@ public:
   void SerializeUnwrapped(StructuredData::DictionarySP &options_dict_sp);
 
 protected:
-  lldb::SearchFilterSP DoCopyForBreakpoint(Breakpoint &breakpoint) override;
+  lldb::SearchFilterSP DoCreateCopy() override;
 
 protected:
   FileSpecList m_module_spec_list;
@@ -406,22 +404,11 @@ class SearchFilterByModuleListAndCU : public SearchFilterByModuleList {
 public:
   /// The basic constructor takes a Target, which gives the space to search,
   /// and the module list to restrict the search to.
-  ///
-  /// \param[in] target
-  ///    The Target that provides the module list to search.
-  ///
-  /// \param[in] module
-  ///    The Module that limits the search.
   SearchFilterByModuleListAndCU(const lldb::TargetSP &targetSP,
                                 const FileSpecList &module_list,
                                 const FileSpecList &cu_list);
 
-  SearchFilterByModuleListAndCU(const SearchFilterByModuleListAndCU &rhs);
-
   ~SearchFilterByModuleListAndCU() override;
-
-  SearchFilterByModuleListAndCU &
-  operator=(const SearchFilterByModuleListAndCU &rhs);
 
   bool AddressPasses(Address &address) override;
 
@@ -438,14 +425,14 @@ public:
   void Search(Searcher &searcher) override;
 
   static lldb::SearchFilterSP
-  CreateFromStructuredData(Target &target,
+  CreateFromStructuredData(const lldb::TargetSP& target_sp,
                            const StructuredData::Dictionary &data_dict,
                            Status &error);
 
   StructuredData::ObjectSP SerializeToStructuredData() override;
 
 protected:
-  lldb::SearchFilterSP DoCopyForBreakpoint(Breakpoint &breakpoint) override;
+  lldb::SearchFilterSP DoCreateCopy() override;
 
 private:
   FileSpecList m_cu_spec_list;
@@ -453,4 +440,4 @@ private:
 
 } // namespace lldb_private
 
-#endif // liblldb_SearchFilter_h_
+#endif // LLDB_CORE_SEARCHFILTER_H

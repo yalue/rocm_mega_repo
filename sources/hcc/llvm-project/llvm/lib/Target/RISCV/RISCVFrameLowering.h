@@ -40,15 +40,29 @@ public:
 
   bool hasFP(const MachineFunction &MF) const override;
 
+  bool hasBP(const MachineFunction &MF) const;
+
   bool hasReservedCallFrame(const MachineFunction &MF) const override;
   MachineBasicBlock::iterator
   eliminateCallFramePseudoInstr(MachineFunction &MF, MachineBasicBlock &MBB,
                                 MachineBasicBlock::iterator MI) const override;
+  bool spillCalleeSavedRegisters(MachineBasicBlock &MBB,
+                                 MachineBasicBlock::iterator MI,
+                                 ArrayRef<CalleeSavedInfo> CSI,
+                                 const TargetRegisterInfo *TRI) const override;
+  bool
+  restoreCalleeSavedRegisters(MachineBasicBlock &MBB,
+                              MachineBasicBlock::iterator MI,
+                              MutableArrayRef<CalleeSavedInfo> CSI,
+                              const TargetRegisterInfo *TRI) const override;
 
   // Get the first stack adjustment amount for SplitSPAdjust.
   // Return 0 if we don't want to to split the SP adjustment in prologue and
   // epilogue.
   uint64_t getFirstSPAdjustAmount(const MachineFunction &MF) const;
+
+  bool canUseAsPrologue(const MachineBasicBlock &MBB) const override;
+  bool canUseAsEpilogue(const MachineBasicBlock &MBB) const override;
 
 protected:
   const RISCVSubtarget &STI;

@@ -1,4 +1,4 @@
-//===-- ObjectFileMachO.cpp -------------------------------------*- C++ -*-===//
+//===-- ObjectFileMachO.cpp -----------------------------------------------===//
 //
 // Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
 // See https://llvm.org/LICENSE.txt for license information.
@@ -65,6 +65,8 @@
 using namespace lldb;
 using namespace lldb_private;
 using namespace llvm::MachO;
+
+LLDB_PLUGIN_DEFINE(ObjectFileMachO)
 
 // Some structure definitions needed for parsing the dyld shared cache files
 // found on iOS devices.
@@ -479,12 +481,13 @@ public:
       switch (flavor) {
       case GPRAltRegSet:
       case GPRRegSet:
-        for (uint32_t i = 0; i < count; ++i) {
+        // On ARM, the CPSR register is also included in the count but it is
+        // not included in gpr.r so loop until (count-1).
+        for (uint32_t i = 0; i < (count - 1); ++i) {
           gpr.r[i] = data.GetU32(&offset);
         }
-
-        // Note that gpr.cpsr is also copied by the above loop; this loop
-        // technically extends one element past the end of the gpr.r[] array.
+        // Save cpsr explicitly.
+        gpr.cpsr = data.GetU32(&offset);
 
         SetError(GPRRegSet, Read, 0);
         offset = next_thread_state;
@@ -1132,7 +1135,9 @@ AddressClass ObjectFileMachO::GetAddressClass(lldb::addr_t file_addr) {
         case eSectionTypeDWARFDebugLine:
         case eSectionTypeDWARFDebugLineStr:
         case eSectionTypeDWARFDebugLoc:
+        case eSectionTypeDWARFDebugLocDwo:
         case eSectionTypeDWARFDebugLocLists:
+        case eSectionTypeDWARFDebugLocListsDwo:
         case eSectionTypeDWARFDebugMacInfo:
         case eSectionTypeDWARFDebugMacro:
         case eSectionTypeDWARFDebugNames:
@@ -1140,10 +1145,12 @@ AddressClass ObjectFileMachO::GetAddressClass(lldb::addr_t file_addr) {
         case eSectionTypeDWARFDebugPubTypes:
         case eSectionTypeDWARFDebugRanges:
         case eSectionTypeDWARFDebugRngLists:
+        case eSectionTypeDWARFDebugRngListsDwo:
         case eSectionTypeDWARFDebugStr:
         case eSectionTypeDWARFDebugStrDwo:
         case eSectionTypeDWARFDebugStrOffsets:
         case eSectionTypeDWARFDebugStrOffsetsDwo:
+        case eSectionTypeDWARFDebugTuIndex:
         case eSectionTypeDWARFDebugTypes:
         case eSectionTypeDWARFDebugTypesDwo:
         case eSectionTypeDWARFAppleNames:
@@ -1863,9 +1870,15 @@ public:
           m_section_infos[n_sect].vm_range.SetByteSize(
               section_sp->GetByteSize());
         } else {
+          const char *filename = "<unknown>";
+          SectionSP first_section_sp(m_section_list->GetSectionAtIndex(0));
+          if (first_section_sp)
+            filename = first_section_sp->GetObjectFile()->GetFileSpec().GetPath().c_str();
+
           Host::SystemLog(Host::eSystemLogError,
-                          "error: unable to find section for section %u\n",
-                          n_sect);
+                          "error: unable to find section %d for a symbol in %s, corrupt file?\n",
+                          n_sect, 
+                          filename);
         }
       }
       if (m_section_infos[n_sect].vm_range.Contains(file_addr)) {
@@ -2538,8 +2551,7 @@ size_t ObjectFileMachO::ParseSymtab() {
 
     // Next we need to determine the correct path for the dyld shared cache.
 
-    ArchSpec header_arch;
-    GetArchitecture(header_arch);
+    ArchSpec header_arch = GetArchitecture();
     char dsc_path[PATH_MAX];
     char dsc_path_development[PATH_MAX];
 
@@ -3494,8 +3506,8 @@ size_t ObjectFileMachO::ParseSymtab() {
                               N_FUN_addr_to_sym_idx.equal_range(nlist.n_value);
                           if (range.first != range.second) {
                             bool found_it = false;
-                            for (const auto pos = range.first;
-                                 pos != range.second; ++pos) {
+                            for (auto pos = range.first; pos != range.second;
+                                 ++pos) {
                               if (sym[sym_idx].GetMangled().GetName(
                                       lldb::eLanguageTypeUnknown,
                                       Mangled::ePreferMangled) ==
@@ -3539,8 +3551,8 @@ size_t ObjectFileMachO::ParseSymtab() {
                               nlist.n_value);
                           if (range.first != range.second) {
                             bool found_it = false;
-                            for (const auto pos = range.first;
-                                 pos != range.second; ++pos) {
+                            for (auto pos = range.first; pos != range.second;
+                                 ++pos) {
                               if (sym[sym_idx].GetMangled().GetName(
                                       lldb::eLanguageTypeUnknown,
                                       Mangled::ePreferMangled) ==
@@ -3893,10 +3905,7 @@ size_t ObjectFileMachO::ParseSymtab() {
               // filename, so here we combine it with the first one if we are
               // minimizing the symbol table
               const char *so_path =
-                  sym[sym_idx - 1]
-                      .GetMangled()
-                      .GetDemangledName(lldb::eLanguageTypeUnknown)
-                      .AsCString();
+                  sym[sym_idx - 1].GetMangled().GetDemangledName().AsCString();
               if (so_path && so_path[0]) {
                 std::string full_so_path(so_path);
                 const size_t double_slash_pos = full_so_path.find("//");
@@ -4288,11 +4297,10 @@ size_t ObjectFileMachO::ParseSymtab() {
       }
 
       if (is_gsym) {
-        const char *gsym_name =
-            sym[sym_idx]
-                .GetMangled()
-                .GetName(lldb::eLanguageTypeUnknown, Mangled::ePreferMangled)
-                .GetCString();
+        const char *gsym_name = sym[sym_idx]
+                                    .GetMangled()
+                                    .GetName(Mangled::ePreferMangled)
+                                    .GetCString();
         if (gsym_name)
           N_GSYM_name_to_sym_idx[gsym_name] = sym_idx;
       }
@@ -4356,10 +4364,9 @@ size_t ObjectFileMachO::ParseSymtab() {
           if (range.first != range.second) {
             for (ValueToSymbolIndexMap::const_iterator pos = range.first;
                  pos != range.second; ++pos) {
-              if (sym[sym_idx].GetMangled().GetName(lldb::eLanguageTypeUnknown,
-                                                    Mangled::ePreferMangled) ==
+              if (sym[sym_idx].GetMangled().GetName(Mangled::ePreferMangled) ==
                   sym[pos->second].GetMangled().GetName(
-                      lldb::eLanguageTypeUnknown, Mangled::ePreferMangled)) {
+                      Mangled::ePreferMangled)) {
                 m_nlist_idx_to_sym_idx[nlist_idx] = pos->second;
                 // We just need the flags from the linker symbol, so put these
                 // flags into the N_FUN flags to avoid duplicate symbols in the
@@ -4392,10 +4399,9 @@ size_t ObjectFileMachO::ParseSymtab() {
           if (range.first != range.second) {
             for (ValueToSymbolIndexMap::const_iterator pos = range.first;
                  pos != range.second; ++pos) {
-              if (sym[sym_idx].GetMangled().GetName(lldb::eLanguageTypeUnknown,
-                                                    Mangled::ePreferMangled) ==
+              if (sym[sym_idx].GetMangled().GetName(Mangled::ePreferMangled) ==
                   sym[pos->second].GetMangled().GetName(
-                      lldb::eLanguageTypeUnknown, Mangled::ePreferMangled)) {
+                      Mangled::ePreferMangled)) {
                 m_nlist_idx_to_sym_idx[nlist_idx] = pos->second;
                 // We just need the flags from the linker symbol, so put these
                 // flags into the N_STSYM flags to avoid duplicate symbols in
@@ -4410,8 +4416,7 @@ size_t ObjectFileMachO::ParseSymtab() {
             // Combine N_GSYM stab entries with the non stab symbol.
             const char *gsym_name = sym[sym_idx]
                                         .GetMangled()
-                                        .GetName(lldb::eLanguageTypeUnknown,
-                                                 Mangled::ePreferMangled)
+                                        .GetName(Mangled::ePreferMangled)
                                         .GetCString();
             if (gsym_name) {
               ConstNameToSymbolIndexMap::const_iterator pos =

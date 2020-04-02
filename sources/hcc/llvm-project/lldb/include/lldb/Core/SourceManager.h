@@ -6,8 +6,8 @@
 //
 //===----------------------------------------------------------------------===//
 
-#ifndef liblldb_SourceManager_h_
-#define liblldb_SourceManager_h_
+#ifndef LLDB_CORE_SOURCEMANAGER_H
+#define LLDB_CORE_SOURCEMANAGER_H
 
 #include "lldb/Utility/FileSpec.h"
 #include "lldb/lldb-defines.h"
@@ -53,8 +53,6 @@ public:
     uint32_t GetLineOffset(uint32_t line);
 
     bool LineIsValid(uint32_t line);
-
-    bool FileSpecMatches(const FileSpec &file_spec);
 
     const FileSpec &GetFileSpec() { return m_file_spec; }
 
@@ -164,4 +162,4 @@ bool operator==(const SourceManager::File &lhs, const SourceManager::File &rhs);
 
 } // namespace lldb_private
 
-#endif // liblldb_SourceManager_h_
+#endif // LLDB_CORE_SOURCEMANAGER_H

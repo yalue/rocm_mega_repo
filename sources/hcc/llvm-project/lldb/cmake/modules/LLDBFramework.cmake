@@ -59,8 +59,7 @@ list(REMOVE_ITEM root_public_headers ${root_private_headers})
 set(lldb_header_staging ${CMAKE_CURRENT_BINARY_DIR}/FrameworkHeaders)
 foreach(header
     ${public_headers}
-    ${root_public_headers}
-    ${LLDB_SOURCE_DIR}/include/lldb/Utility/SharingPtr.h)
+    ${root_public_headers})
 
   get_filename_component(basename ${header} NAME)
   set(staged_header ${lldb_header_staging}/${basename})
@@ -120,3 +119,8 @@ if(NOT IOS)
     COMMENT "LLDB.framework: copy clang vendor-specific headers"
   )
 endif()
+
+# Add an rpath pointing to the directory where LLDB.framework is installed.
+# This allows frameworks (relying on @rpath) to be installed in the same folder and found at runtime.
+set_property(TARGET liblldb APPEND PROPERTY INSTALL_RPATH
+  "@loader_path/../../../")

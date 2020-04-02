@@ -134,7 +134,7 @@ ScheduleHazardRecognizer *ARMBaseInstrInfo::
 CreateTargetPostRAHazardRecognizer(const InstrItineraryData *II,
                                    const ScheduleDAG *DAG) const {
   if (Subtarget.isThumb2() || Subtarget.hasVFP2Base())
-    return (ScheduleHazardRecognizer *)new ARMHazardRecognizer(II, DAG);
+    return new ARMHazardRecognizer(II, DAG);
   return TargetInstrInfo::CreateTargetPostRAHazardRecognizer(II, DAG);
 }
 
@@ -495,6 +495,24 @@ bool ARMBaseInstrInfo::isPredicated(const MachineInstr &MI) const {
   return PIdx != -1 && MI.getOperand(PIdx).getImm() != ARMCC::AL;
 }
 
+std::string ARMBaseInstrInfo::createMIROperandComment(const MachineInstr &MI,
+                                                      const MachineOperand &Op,
+                                                      unsigned OpIdx) const {
+  // Only support immediates for now.
+  if (Op.getType() != MachineOperand::MO_Immediate)
+    return std::string();
+
+  // And print its corresponding condition code if the immediate is a
+  // predicate.
+  int FirstPredOp = MI.findFirstPredOperandIdx();
+  if (FirstPredOp != (int) OpIdx)
+    return std::string();
+
+  std::string CC = "CC::";
+  CC += ARMCondCodeToString((ARMCC::CondCodes)Op.getImm());
+  return CC;
+}
+
 bool ARMBaseInstrInfo::PredicateInstruction(
     MachineInstr &MI, ArrayRef<MachineOperand> Pred) const {
   unsigned Opc = MI.getOpcode();
@@ -829,8 +847,8 @@ void llvm::addPredicatedMveVpredROp(MachineInstrBuilder &MIB,
 
 void ARMBaseInstrInfo::copyPhysReg(MachineBasicBlock &MBB,
                                    MachineBasicBlock::iterator I,
-                                   const DebugLoc &DL, unsigned DestReg,
-                                   unsigned SrcReg, bool KillSrc) const {
+                                   const DebugLoc &DL, MCRegister DestReg,
+                                   MCRegister SrcReg, bool KillSrc) const {
   bool GPRDest = ARM::GPRRegClass.contains(DestReg);
   bool GPRSrc = ARM::GPRRegClass.contains(SrcReg);
 
@@ -1009,6 +1027,36 @@ ARMBaseInstrInfo::isCopyInstrImpl(const MachineInstr &MI) const {
   return DestSourcePair{MI.getOperand(0), MI.getOperand(1)};
 }
 
+Optional<ParamLoadedValue>
+ARMBaseInstrInfo::describeLoadedValue(const MachineInstr &MI,
+                                      Register Reg) const {
+  if (auto DstSrcPair = isCopyInstrImpl(MI)) {
+    Register DstReg = DstSrcPair->Destination->getReg();
+
+    // TODO: We don't handle cases where the forwarding reg is narrower/wider
+    // than the copy registers. Consider for example:
+    //
+    //   s16 = VMOVS s0
+    //   s17 = VMOVS s1
+    //   call @callee(d0)
+    //
+    // We'd like to describe the call site value of d0 as d8, but this requires
+    // gathering and merging the descriptions for the two VMOVS instructions.
+    //
+    // We also don't handle the reverse situation, where the forwarding reg is
+    // narrower than the copy destination:
+    //
+    //   d8 = VMOVD d0
+    //   call @callee(s1)
+    //
+    // We need to produce a fragment description (the call site value of s1 is
+    // /not/ just d8).
+    if (DstReg != Reg)
+      return None;
+  }
+  return TargetInstrInfo::describeLoadedValue(MI, Reg);
+}
+
 const MachineInstrBuilder &
 ARMBaseInstrInfo::AddDReg(MachineInstrBuilder &MIB, unsigned Reg,
                           unsigned SubIdx, unsigned State,
@@ -1023,7 +1071,7 @@ ARMBaseInstrInfo::AddDReg(MachineInstrBuilder &MIB, unsigned Reg,
 
 void ARMBaseInstrInfo::
 storeRegToStackSlot(MachineBasicBlock &MBB, MachineBasicBlock::iterator I,
-                    unsigned SrcReg, bool isKill, int FI,
+                    Register SrcReg, bool isKill, int FI,
                     const TargetRegisterClass *RC,
                     const TargetRegisterInfo *TRI) const {
   MachineFunction &MF = *MBB.getParent();
@@ -1264,7 +1312,7 @@ unsigned ARMBaseInstrInfo::isStoreToStackSlotPostFE(const MachineInstr &MI,
 
 void ARMBaseInstrInfo::
 loadRegFromStackSlot(MachineBasicBlock &MBB, MachineBasicBlock::iterator I,
-                     unsigned DestReg, int FI,
+                     Register DestReg, int FI,
                      const TargetRegisterClass *RC,
                      const TargetRegisterInfo *TRI) const {
   DebugLoc DL;
@@ -2723,25 +2771,6 @@ static bool isSuitableForMask(MachineInstr *&MI, unsigned SrcReg,
   return false;
 }
 
-/// getSwappedCondition - assume the flags are set by MI(a,b), return
-/// the condition code if we modify the instructions such that flags are
-/// set by MI(b,a).
-inline static ARMCC::CondCodes getSwappedCondition(ARMCC::CondCodes CC) {
-  switch (CC) {
-  default: return ARMCC::AL;
-  case ARMCC::EQ: return ARMCC::EQ;
-  case ARMCC::NE: return ARMCC::NE;
-  case ARMCC::HS: return ARMCC::LS;
-  case ARMCC::LO: return ARMCC::HI;
-  case ARMCC::HI: return ARMCC::LO;
-  case ARMCC::LS: return ARMCC::HS;
-  case ARMCC::GE: return ARMCC::LE;
-  case ARMCC::LT: return ARMCC::GT;
-  case ARMCC::GT: return ARMCC::LT;
-  case ARMCC::LE: return ARMCC::GE;
-  }
-}
-
 /// getCmpToAddCondition - assume the flags are set by CMP(a,b), return
 /// the condition code if we modify the instructions such that flags are
 /// set by ADD(a,b,X).
@@ -3276,22 +3305,26 @@ bool ARMBaseInstrInfo::FoldImmediate(MachineInstr &UseMI, MachineInstr &DefMI,
       }
       break;
     case ARM::t2ADDrr:
-    case ARM::t2SUBrr:
+    case ARM::t2SUBrr: {
       if (UseOpc == ARM::t2SUBrr && Commute)
         return false;
 
       // ADD/SUB are special because they're essentially the same operation, so
       // we can handle a larger range of immediates.
+      const bool ToSP = DefMI.getOperand(0).getReg() == ARM::SP;
+      const unsigned t2ADD = ToSP ? ARM::t2ADDspImm : ARM::t2ADDri;
+      const unsigned t2SUB = ToSP ? ARM::t2SUBspImm : ARM::t2SUBri;
       if (ARM_AM::isT2SOImmTwoPartVal(ImmVal))
-        NewUseOpc = UseOpc == ARM::t2ADDrr ? ARM::t2ADDri : ARM::t2SUBri;
+        NewUseOpc = UseOpc == ARM::t2ADDrr ? t2ADD : t2SUB;
       else if (ARM_AM::isT2SOImmTwoPartVal(-ImmVal)) {
         ImmVal = -ImmVal;
-        NewUseOpc = UseOpc == ARM::t2ADDrr ? ARM::t2SUBri : ARM::t2ADDri;
+        NewUseOpc = UseOpc == ARM::t2ADDrr ? t2SUB : t2ADD;
       } else
         return false;
       SOImmValV1 = (uint32_t)ARM_AM::getT2SOImmTwoPartFirst(ImmVal);
       SOImmValV2 = (uint32_t)ARM_AM::getT2SOImmTwoPartSecond(ImmVal);
       break;
+    }
     case ARM::t2ORRrr:
     case ARM::t2EORrr:
       if (!ARM_AM::isT2SOImmTwoPartVal(ImmVal))
@@ -3311,7 +3344,8 @@ bool ARMBaseInstrInfo::FoldImmediate(MachineInstr &UseMI, MachineInstr &DefMI,
   unsigned OpIdx = Commute ? 2 : 1;
   Register Reg1 = UseMI.getOperand(OpIdx).getReg();
   bool isKill = UseMI.getOperand(OpIdx).isKill();
-  Register NewReg = MRI->createVirtualRegister(MRI->getRegClass(Reg));
+  const TargetRegisterClass *TRC = MRI->getRegClass(Reg);
+  Register NewReg = MRI->createVirtualRegister(TRC);
   BuildMI(*UseMI.getParent(), UseMI, UseMI.getDebugLoc(), get(NewUseOpc),
           NewReg)
       .addReg(Reg1, getKillRegState(isKill))
@@ -3323,6 +3357,18 @@ bool ARMBaseInstrInfo::FoldImmediate(MachineInstr &UseMI, MachineInstr &DefMI,
   UseMI.getOperand(1).setIsKill();
   UseMI.getOperand(2).ChangeToImmediate(SOImmValV2);
   DefMI.eraseFromParent();
+  // FIXME: t2ADDrr should be split, as different rulles apply when writing to SP.
+  // Just as t2ADDri, that was split to [t2ADDri, t2ADDspImm].
+  // Then the below code will not be needed, as the input/output register
+  // classes will be rgpr or gprSP.
+  // For now, we fix the UseMI operand explicitly here:
+  switch(NewUseOpc){
+    case ARM::t2ADDspImm:
+    case ARM::t2SUBspImm:
+    case ARM::t2ADDri:
+    case ARM::t2SUBri:
+      MRI->setRegClass(UseMI.getOperand(0).getReg(), TRC);
+  }
   return true;
 }
 
@@ -5347,11 +5393,17 @@ ARMBaseInstrInfo::getSerializableBitmaskMachineOperandTargetFlags() const {
   return makeArrayRef(TargetFlags);
 }
 
-Optional<DestSourcePair>
-ARMBaseInstrInfo::isAddImmediate(const MachineInstr &MI,
-                                 int64_t &Offset) const {
+Optional<RegImmPair> ARMBaseInstrInfo::isAddImmediate(const MachineInstr &MI,
+                                                      Register Reg) const {
   int Sign = 1;
   unsigned Opcode = MI.getOpcode();
+  int64_t Offset = 0;
+
+  // TODO: Handle cases where Reg is a super- or sub-register of the
+  // destination register.
+  const MachineOperand &Op0 = MI.getOperand(0);
+  if (!Op0.isReg() || Reg != Op0.getReg())
+    return None;
 
   // We describe SUBri or ADDri instructions.
   if (Opcode == ARM::SUBri)
@@ -5362,12 +5414,11 @@ ARMBaseInstrInfo::isAddImmediate(const MachineInstr &MI,
   // TODO: Third operand can be global address (usually some string). Since
   //       strings can be relocated we cannot calculate their offsets for
   //       now.
-  if (!MI.getOperand(0).isReg() || !MI.getOperand(1).isReg() ||
-      !MI.getOperand(2).isImm())
+  if (!MI.getOperand(1).isReg() || !MI.getOperand(2).isImm())
     return None;
 
   Offset = MI.getOperand(2).getImm() * Sign;
-  return DestSourcePair{MI.getOperand(0), MI.getOperand(1)};
+  return RegImmPair{MI.getOperand(1).getReg(), Offset};
 }
 
 bool llvm::registerDefinedBetween(unsigned Reg,

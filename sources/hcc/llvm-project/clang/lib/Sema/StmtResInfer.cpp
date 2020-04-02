@@ -85,6 +85,7 @@ namespace  {
     void dumpBareType(QualType T);
     void dumpType(QualType T);
     void dumpBareDeclRef(const Decl *Node);
+    void dumpCleanupObject(const ExprWithCleanups::CleanupObject &C);
     void dumpDeclRef(const Decl *Node, const char *Label = 0);
     void dumpName(const NamedDecl *D);
     bool hasNodes(const DeclContext *DC);
@@ -258,6 +259,15 @@ void StmtResInfer::dumpBareDeclRef(const Decl *D) {
   if (const ValueDecl *VD = dyn_cast<ValueDecl>(D))
     dumpType(VD->getType());
 }
+
+void StmtResInfer::dumpCleanupObject(
+    const ExprWithCleanups::CleanupObject &C) {
+  if (auto *BD = C.dyn_cast<BlockDecl *>())
+    dumpDeclRef(BD, "cleanup");
+  else
+    llvm_unreachable("unexpected cleanup type");
+}
+
 
 void StmtResInfer::dumpDeclRef(const Decl *D, const char *Label) {
   if (!D)
@@ -890,7 +900,7 @@ void StmtResInfer::VisitCXXBindTemporaryExpr(const CXXBindTemporaryExpr *Node) {
 void StmtResInfer::VisitExprWithCleanups(const ExprWithCleanups *Node) {
   VisitExpr(Node);
   for (unsigned i = 0, e = Node->getNumObjects(); i != e; ++i)
-    dumpDeclRef(Node->getObject(i), "cleanup");
+    dumpCleanupObject(Node->getObject(i));
 }
 
 void StmtResInfer::dumpCXXTemporary(const CXXTemporary *Temporary) {

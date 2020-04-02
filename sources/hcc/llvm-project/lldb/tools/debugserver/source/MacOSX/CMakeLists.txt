@@ -1,17 +1,17 @@
 # The debugserver build needs to conditionally include files depending on the
 # target architecture.
 #
-# Switch on the architecture specified by LLVM_DEFAULT_TARGET_TRIPLE, as
+# Switch on the architecture specified by TARGET_TRIPLE, as
 # the llvm and swift build systems use this variable to identify the
-# target (the latter, indirectly, through LLVM_HOST_TRIPLE).
+# target (through LLVM_HOST_TRIPLE).
 #
 # It would be possible to switch on CMAKE_OSX_ARCHITECTURES, but the swift
 # build does not provide it, preferring instead to pass arch-specific
 # CFLAGS etc explicitly. Switching on LLVM_HOST_TRIPLE is also an option,
 # but it breaks down when cross-compiling.
 
-if(LLVM_DEFAULT_TARGET_TRIPLE)
-  string(REGEX MATCH "^[^-]*" LLDB_DEBUGSERVER_ARCH ${LLVM_DEFAULT_TARGET_TRIPLE})
+if(TARGET_TRIPLE)
+  string(REGEX MATCH "^[^-]*" LLDB_DEBUGSERVER_ARCH ${TARGET_TRIPLE})
 else()
   set(LLDB_DEBUGSERVER_ARCH ${CMAKE_OSX_ARCHITECTURES})
 endif()
@@ -24,11 +24,6 @@ endif()
 if(NOT LLDB_DEBUGSERVER_ARCH OR "${LLDB_DEBUGSERVER_ARCH}" MATCHES ".*86.*")
   list(APPEND SOURCES i386/DNBArchImplI386.cpp x86_64/DNBArchImplX86_64.cpp)
   include_directories(${CURRENT_SOURCE_DIR}/i386 ${CURRENT_SOURCE_DIR}/x86_64)
-endif()
-
-if("${LLDB_DEBUGSERVER_ARCH}" MATCHES ".*ppc.*")
-  list(APPEND SOURCES ppc/DNBArchImpl.cpp)
-  include_directories(${CURRENT_SOURCE_DIR}/ppc)
 endif()
 
 add_subdirectory(DarwinLog)

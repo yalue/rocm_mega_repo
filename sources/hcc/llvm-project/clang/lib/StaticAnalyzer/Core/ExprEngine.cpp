@@ -728,7 +728,8 @@ void ExprEngine::removeDead(ExplodedNode *Pred, ExplodedNodeSet &Out,
   // Create a state in which dead bindings are removed from the environment
   // and the store. TODO: The function should just return new env and store,
   // not a new state.
-  CleanedState = StateMgr.removeDeadBindings(CleanedState, SFC, SymReaper);
+  CleanedState = StateMgr.removeDeadBindingsFromEnvironmentAndStore(
+      CleanedState, SFC, SymReaper);
 
   // Process any special transfer function for dead symbols.
   // A tag to track convenience transitions, which can be removed at cleanup.
@@ -1171,13 +1172,16 @@ void ExprEngine::VisitCXXBindTemporaryExpr(const CXXBindTemporaryExpr *BTE,
   }
 }
 
-ProgramStateRef ExprEngine::escapeValue(ProgramStateRef State, SVal V,
-                                        PointerEscapeKind K) const {
+ProgramStateRef ExprEngine::escapeValues(ProgramStateRef State,
+                                         ArrayRef<SVal> Vs,
+                                         PointerEscapeKind K,
+                                         const CallEvent *Call) const {
   class CollectReachableSymbolsCallback final : public SymbolVisitor {
-    InvalidatedSymbols Symbols;
+    InvalidatedSymbols &Symbols;
 
   public:
-    explicit CollectReachableSymbolsCallback(ProgramStateRef) {}
+    explicit CollectReachableSymbolsCallback(InvalidatedSymbols &Symbols)
+        : Symbols(Symbols) {}
 
     const InvalidatedSymbols &getSymbols() const { return Symbols; }
 
@@ -1186,11 +1190,13 @@ ProgramStateRef ExprEngine::escapeValue(ProgramStateRef State, SVal V,
       return true;
     }
   };
+  InvalidatedSymbols Symbols;
+  CollectReachableSymbolsCallback CallBack(Symbols);
+  for (SVal V : Vs)
+    State->scanReachableSymbols(V, CallBack);
 
-  const CollectReachableSymbolsCallback &Scanner =
-      State->scanReachableSymbols<CollectReachableSymbolsCallback>(V);
   return getCheckerManager().runCheckersForPointerEscape(
-      State, Scanner.getSymbols(), /*CallEvent*/ nullptr, K, nullptr);
+      State, CallBack.getSymbols(), Call, K, nullptr);
 }
 
 void ExprEngine::Visit(const Stmt *S, ExplodedNode *Pred,
@@ -1206,7 +1212,6 @@ void ExprEngine::Visit(const Stmt *S, ExplodedNode *Pred,
     // C++, OpenMP and ARC stuff we don't support yet.
     case Expr::ObjCIndirectCopyRestoreExprClass:
     case Stmt::CXXDependentScopeMemberExprClass:
-    case Stmt::CXXInheritedCtorInitExprClass:
     case Stmt::CXXTryStmtClass:
     case Stmt::CXXTypeidExprClass:
     case Stmt::CXXUuidofExprClass:
@@ -1220,6 +1225,7 @@ void ExprEngine::Visit(const Stmt *S, ExplodedNode *Pred,
     case Stmt::UnresolvedLookupExprClass:
     case Stmt::UnresolvedMemberExprClass:
     case Stmt::TypoExprClass:
+    case Stmt::RecoveryExprClass:
     case Stmt::CXXNoexceptExprClass:
     case Stmt::PackExpansionExprClass:
     case Stmt::SubstNonTypeTemplateParmPackExprClass:
@@ -1245,12 +1251,15 @@ void ExprEngine::Visit(const Stmt *S, ExplodedNode *Pred,
     case Stmt::OMPParallelForDirectiveClass:
     case Stmt::OMPParallelForSimdDirectiveClass:
     case Stmt::OMPParallelSectionsDirectiveClass:
+    case Stmt::OMPParallelMasterDirectiveClass:
     case Stmt::OMPTaskDirectiveClass:
     case Stmt::OMPTaskyieldDirectiveClass:
     case Stmt::OMPBarrierDirectiveClass:
     case Stmt::OMPTaskwaitDirectiveClass:
     case Stmt::OMPTaskgroupDirectiveClass:
     case Stmt::OMPFlushDirectiveClass:
+    case Stmt::OMPDepobjDirectiveClass:
+    case Stmt::OMPScanDirectiveClass:
     case Stmt::OMPOrderedDirectiveClass:
     case Stmt::OMPAtomicDirectiveClass:
     case Stmt::OMPTargetDirectiveClass:
@@ -1314,6 +1323,11 @@ void ExprEngine::Visit(const Stmt *S, ExplodedNode *Pred,
     case Stmt::WhileStmtClass:
     case Expr::MSDependentExistsStmtClass:
       llvm_unreachable("Stmt should not be in analyzer evaluation loop");
+    case Stmt::ImplicitValueInitExprClass:
+      // These nodes are shared in the CFG and would case caching out.
+      // Moreover, no additional evaluation required for them, the
+      // analyzer can reconstruct these values from the AST.
+      llvm_unreachable("Should be pruned from CFG");
 
     case Stmt::ObjCSubscriptRefExprClass:
     case Stmt::ObjCPropertyRefExprClass:
@@ -1374,6 +1388,7 @@ void ExprEngine::Visit(const Stmt *S, ExplodedNode *Pred,
     case Stmt::AsTypeExprClass:
     case Stmt::ConceptSpecializationExprClass:
     case Stmt::CXXRewrittenBinaryOperatorClass:
+    case Stmt::RequiresExprClass:
       // Fall through.
 
     // Cases we intentionally don't evaluate, since they don't need
@@ -1384,7 +1399,6 @@ void ExprEngine::Visit(const Stmt *S, ExplodedNode *Pred,
     case Stmt::IntegerLiteralClass:
     case Stmt::FixedPointLiteralClass:
     case Stmt::CharacterLiteralClass:
-    case Stmt::ImplicitValueInitExprClass:
     case Stmt::CXXScalarValueInitExprClass:
     case Stmt::CXXBoolLiteralExprClass:
     case Stmt::ObjCBoolLiteralExprClass:
@@ -1427,7 +1441,7 @@ void ExprEngine::Visit(const Stmt *S, ExplodedNode *Pred,
 
       bool IsTemporary = false;
       if (const auto *MTE = dyn_cast<MaterializeTemporaryExpr>(ArgE)) {
-        ArgE = MTE->GetTemporaryExpr();
+        ArgE = MTE->getSubExpr();
         IsTemporary = true;
       }
 
@@ -1482,7 +1496,7 @@ void ExprEngine::Visit(const Stmt *S, ExplodedNode *Pred,
           for (auto Child : Ex->children()) {
             assert(Child);
             SVal Val = State->getSVal(Child, LCtx);
-            State = escapeValue(State, Val, PSK_EscapeOther);
+            State = escapeValues(State, Val, PSK_EscapeOther);
           }
 
         Bldr2.generateNode(S, N, State);
@@ -1603,6 +1617,13 @@ void ExprEngine::Visit(const Stmt *S, ExplodedNode *Pred,
     case Stmt::CXXConstructExprClass:
       Bldr.takeNodes(Pred);
       VisitCXXConstructExpr(cast<CXXConstructExpr>(S), Pred, Dst);
+      Bldr.addNodes(Dst);
+      break;
+
+    case Stmt::CXXInheritedCtorInitExprClass:
+      Bldr.takeNodes(Pred);
+      VisitCXXInheritedCtorInitExpr(cast<CXXInheritedCtorInitExpr>(S), Pred,
+                                    Dst);
       Bldr.addNodes(Dst);
       break;
 
@@ -2683,33 +2704,52 @@ void ExprEngine::VisitAtomicExpr(const AtomicExpr *AE, ExplodedNode *Pred,
 //     destructor. We won't see the destructor during analysis, but it's there.
 // (4) We are binding to a MemRegion with stack storage that the store
 //     does not understand.
+ProgramStateRef ExprEngine::processPointerEscapedOnBind(
+    ProgramStateRef State, ArrayRef<std::pair<SVal, SVal>> LocAndVals,
+    const LocationContext *LCtx, PointerEscapeKind Kind,
+    const CallEvent *Call) {
+  SmallVector<SVal, 8> Escaped;
+  for (const std::pair<SVal, SVal> &LocAndVal : LocAndVals) {
+    // Cases (1) and (2).
+    const MemRegion *MR = LocAndVal.first.getAsRegion();
+    if (!MR || !MR->hasStackStorage()) {
+      Escaped.push_back(LocAndVal.second);
+      continue;
+    }
+
+    // Case (3).
+    if (const auto *VR = dyn_cast<VarRegion>(MR->getBaseRegion()))
+      if (VR->hasStackParametersStorage() && VR->getStackFrame()->inTopFrame())
+        if (const auto *RD = VR->getValueType()->getAsCXXRecordDecl())
+          if (!RD->hasTrivialDestructor()) {
+            Escaped.push_back(LocAndVal.second);
+            continue;
+          }
+
+    // Case (4): in order to test that, generate a new state with the binding
+    // added. If it is the same state, then it escapes (since the store cannot
+    // represent the binding).
+    // Do this only if we know that the store is not supposed to generate the
+    // same state.
+    SVal StoredVal = State->getSVal(MR);
+    if (StoredVal != LocAndVal.second)
+      if (State ==
+          (State->bindLoc(loc::MemRegionVal(MR), LocAndVal.second, LCtx)))
+        Escaped.push_back(LocAndVal.second);
+  }
+
+  if (Escaped.empty())
+    return State;
+
+  return escapeValues(State, Escaped, Kind, Call);
+}
+
 ProgramStateRef
 ExprEngine::processPointerEscapedOnBind(ProgramStateRef State, SVal Loc,
                                         SVal Val, const LocationContext *LCtx) {
-
-  // Cases (1) and (2).
-  const MemRegion *MR = Loc.getAsRegion();
-  if (!MR || !MR->hasStackStorage())
-    return escapeValue(State, Val, PSK_EscapeOnBind);
-
-  // Case (3).
-  if (const auto *VR = dyn_cast<VarRegion>(MR->getBaseRegion()))
-    if (VR->hasStackParametersStorage() && VR->getStackFrame()->inTopFrame())
-      if (const auto *RD = VR->getValueType()->getAsCXXRecordDecl())
-        if (!RD->hasTrivialDestructor())
-          return escapeValue(State, Val, PSK_EscapeOnBind);
-
-  // Case (4): in order to test that, generate a new state with the binding
-  // added. If it is the same state, then it escapes (since the store cannot
-  // represent the binding).
-  // Do this only if we know that the store is not supposed to generate the
-  // same state.
-  SVal StoredVal = State->getSVal(MR);
-  if (StoredVal != Val)
-    if (State == (State->bindLoc(loc::MemRegionVal(MR), Val, LCtx)))
-      return escapeValue(State, Val, PSK_EscapeOnBind);
-
-  return State;
+  std::pair<SVal, SVal> LocAndVal(Loc, Val);
+  return processPointerEscapedOnBind(State, LocAndVal, LCtx, PSK_EscapeOnBind,
+                                     nullptr);
 }
 
 ProgramStateRef
@@ -3130,7 +3170,8 @@ std::string ExprEngine::DumpGraph(bool trim, StringRef Filename) {
     return DumpGraph(Src, Filename);
   } else {
     return llvm::WriteGraph(&G, "ExprEngine", /*ShortNames=*/false,
-                     /*Title=*/"Exploded Graph", /*Filename=*/Filename);
+                            /*Title=*/"Exploded Graph",
+                            /*Filename=*/std::string(Filename));
   }
 #endif
   llvm::errs() << "Warning: dumping graph requires assertions" << "\n";
@@ -3148,7 +3189,7 @@ std::string ExprEngine::DumpGraph(ArrayRef<const ExplodedNode*> Nodes,
     return llvm::WriteGraph(TrimmedG.get(), "TrimmedExprEngine",
                             /*ShortNames=*/false,
                             /*Title=*/"Trimmed Exploded Graph",
-                            /*Filename=*/Filename);
+                            /*Filename=*/std::string(Filename));
   }
 #endif
   llvm::errs() << "Warning: dumping graph requires assertions" << "\n";

@@ -8,8 +8,8 @@ declare i32 @test58_d(i64 )
 define i1 @test59(i8* %foo) {
 ; CHECK-LABEL: @test59(
 ; CHECK-NEXT:    [[GEP1:%.*]] = getelementptr inbounds i8, i8* [[FOO:%.*]], i32 8
-; CHECK-NEXT:    [[TMP1:%.*]] = ptrtoint i8* [[GEP1]] to i32
-; CHECK-NEXT:    [[USE:%.*]] = zext i32 [[TMP1]] to i64
+; CHECK-NEXT:    [[TMP1:%.*]] = ptrtoint i8* [[GEP1]] to i40
+; CHECK-NEXT:    [[USE:%.*]] = zext i40 [[TMP1]] to i64
 ; CHECK-NEXT:    [[CALL:%.*]] = call i32 @test58_d(i64 [[USE]])
 ; CHECK-NEXT:    ret i1 true
 ;
@@ -183,10 +183,10 @@ define i1 @test62_as1(i8 addrspace(1)* %a) {
 ; Variation of the above with an ashr
 define i1 @icmp_and_ashr_multiuse(i32 %X) {
 ; CHECK-LABEL: @icmp_and_ashr_multiuse(
-; CHECK-NEXT:    [[AND:%.*]] = and i32 [[X:%.*]], 240
-; CHECK-NEXT:    [[AND2:%.*]] = and i32 [[X]], 496
-; CHECK-NEXT:    [[TOBOOL:%.*]] = icmp ne i32 [[AND]], 224
-; CHECK-NEXT:    [[TOBOOL2:%.*]] = icmp ne i32 [[AND2]], 432
+; CHECK-NEXT:    [[TMP1:%.*]] = and i32 [[X:%.*]], 240
+; CHECK-NEXT:    [[TOBOOL:%.*]] = icmp ne i32 [[TMP1]], 224
+; CHECK-NEXT:    [[TMP2:%.*]] = and i32 [[X]], 496
+; CHECK-NEXT:    [[TOBOOL2:%.*]] = icmp ne i32 [[TMP2]], 432
 ; CHECK-NEXT:    [[AND3:%.*]] = and i1 [[TOBOOL]], [[TOBOOL2]]
 ; CHECK-NEXT:    ret i1 [[AND3]]
 ;

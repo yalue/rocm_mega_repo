@@ -34,10 +34,11 @@
 // CHECK-SAME: "-o" [[OPT_BC_DEV_A_803:".*-gfx803-optimized.*bc"]]
 
 // CHECK: [[LLC: ".*llc"]] [[OPT_BC_DEV_A_803]] "-mtriple=amdgcn-amd-amdhsa"
+// CHECK-SAME: "-mcpu=gfx803"
 // CHECK-SAME: "-filetype=obj"
-// CHECK-SAME: "-mcpu=gfx803" "-o" [[OBJ_DEV_A_803:".*-gfx803-.*o"]]
+// CHECK-SAME: "-o" [[OBJ_DEV_A_803:".*-gfx803-.*o"]]
 
-// CHECK: [[LLD: ".*lld"]] "-flavor" "gnu" "-shared"
+// CHECK: [[LLD: ".*lld.*"]] "-flavor" "gnu" "-shared"
 // CHECK-SAME: "-o" "[[IMG_DEV_A_803:.*out]]" [[OBJ_DEV_A_803]]
 
 //
@@ -62,10 +63,11 @@
 // CHECK-SAME: "-o" [[OPT_BC_DEV_A_900:".*-gfx900-optimized.*bc"]]
 
 // CHECK: [[LLC: ".*llc"]] [[OPT_BC_DEV_A_900]] "-mtriple=amdgcn-amd-amdhsa"
+// CHECK-SAME: "-mcpu=gfx900"
 // CHECK-SAME: "-filetype=obj"
-// CHECK-SAME: "-mcpu=gfx900" "-o" [[OBJ_DEV_A_900:".*-gfx900-.*o"]]
+// CHECK-SAME: "-o" [[OBJ_DEV_A_900:".*-gfx900-.*o"]]
 
-// CHECK: [[LLD: ".*lld"]] "-flavor" "gnu" "-shared"
+// CHECK: [[LLD]] "-flavor" "gnu" "-shared"
 // CHECK-SAME: "-o" "[[IMG_DEV_A_900:.*out]]" [[OBJ_DEV_A_900]]
 
 //
@@ -106,10 +108,11 @@
 // CHECK-SAME: "-o" [[OPT_BC_DEV_B_803:".*-gfx803-optimized.*bc"]]
 
 // CHECK: [[LLC: ".*llc"]] [[OPT_BC_DEV_B_803]] "-mtriple=amdgcn-amd-amdhsa"
+// CHECK-SAME: "-mcpu=gfx803"
 // CHECK-SAME: "-filetype=obj"
-// CHECK-SAME: "-mcpu=gfx803" "-o" [[OBJ_DEV_B_803:".*-gfx803-.*o"]]
+// CHECK-SAME: "-o" [[OBJ_DEV_B_803:".*-gfx803-.*o"]]
 
-// CHECK: [[LLD: ".*lld"]] "-flavor" "gnu" "-shared"
+// CHECK: [[LLD]] "-flavor" "gnu" "-shared"
 // CHECK-SAME: "-o" "[[IMG_DEV_B_803:.*out]]" [[OBJ_DEV_B_803]]
 
 //
@@ -134,10 +137,11 @@
 // CHECK-SAME: "-o" [[OPT_BC_DEV_B_900:".*-gfx900-optimized.*bc"]]
 
 // CHECK: [[LLC: ".*llc"]] [[OPT_BC_DEV_B_900]] "-mtriple=amdgcn-amd-amdhsa"
+// CHECk-SAME: "-mcpu=gfx900"
 // CHECK-SAME: "-filetype=obj"
-// CHECK-SAME: "-mcpu=gfx900" "-o" [[OBJ_DEV_B_900:".*-gfx900-.*o"]]
+// CHECK-SAME: "-o" [[OBJ_DEV_B_900:".*-gfx900-.*o"]]
 
-// CHECK: [[LLD: ".*lld"]] "-flavor" "gnu" "-shared"
+// CHECK: [[LLD]] "-flavor" "gnu" "-shared"
 // CHECK-SAME: "-o" "[[IMG_DEV_B_900:.*out]]" [[OBJ_DEV_B_900]]
 
 //

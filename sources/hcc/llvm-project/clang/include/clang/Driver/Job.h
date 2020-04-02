@@ -55,9 +55,6 @@ class Command {
   /// The list of program arguments which are inputs.
   llvm::opt::ArgStringList InputFilenames;
 
-  /// Whether to print the input filenames when executing.
-  bool PrintInputFilenames = false;
-
   /// Response file name, if this command is set to use one, or nullptr
   /// otherwise
   const char *ResponseFile = nullptr;
@@ -73,6 +70,9 @@ class Command {
   /// See Command::setEnvironment
   std::vector<const char *> Environment;
 
+  /// Dependent actions
+  llvm::SmallVector<const Action *, 4> DependentActions;
+
   /// When a response file is needed, we try to put most arguments in an
   /// exclusive file, while others remains as regular command line arguments.
   /// This functions fills a vector with the regular command line arguments,
@@ -86,6 +86,12 @@ class Command {
   void writeResponseFile(raw_ostream &OS) const;
 
 public:
+  /// Whether to print the input filenames when executing.
+  bool PrintInputFilenames = false;
+
+  /// Whether the command will be executed in this process or not.
+  bool InProcess = false;
+
   Command(const Action &Source, const Tool &Creator, const char *Executable,
           const llvm::opt::ArgStringList &Arguments,
           ArrayRef<InputInfo> Inputs);
@@ -119,7 +125,7 @@ public:
   /// \param NewEnvironment An array of environment variables.
   /// \remark If the environment remains unset, then the environment
   ///         from the parent process will be used.
-  void setEnvironment(llvm::ArrayRef<const char *> NewEnvironment);
+  virtual void setEnvironment(llvm::ArrayRef<const char *> NewEnvironment);
 
   const char *getExecutable() const { return Executable; }
 
@@ -130,6 +136,30 @@ public:
 
   /// Set whether to print the input filenames when executing.
   void setPrintInputFilenames(bool P) { PrintInputFilenames = P; }
+
+  const llvm::SmallVector<const Action *, 4> &getDependentActions() const {
+    return DependentActions;
+  }
+
+protected:
+  /// Optionally print the filenames to be compiled
+  void PrintFileNames() const;
+};
+
+/// Use the CC1 tool callback when available, to avoid creating a new process
+class CC1Command : public Command {
+public:
+  CC1Command(const Action &Source, const Tool &Creator, const char *Executable,
+             const llvm::opt::ArgStringList &Arguments,
+             ArrayRef<InputInfo> Inputs);
+
+  void Print(llvm::raw_ostream &OS, const char *Terminator, bool Quote,
+             CrashReportInfo *CrashInfo = nullptr) const override;
+
+  int Execute(ArrayRef<Optional<StringRef>> Redirects, std::string *ErrMsg,
+              bool *ExecutionFailed) const override;
+
+  void setEnvironment(llvm::ArrayRef<const char *> NewEnvironment) override;
 };
 
 /// Like Command, but with a fallback which is executed in case

@@ -237,7 +237,7 @@ CodeGenOpt::Level MipsSubtarget::getOptLevelToEnablePostRAScheduler() const {
 MipsSubtarget &
 MipsSubtarget::initializeSubtargetDependencies(StringRef CPU, StringRef FS,
                                                const TargetMachine &TM) {
-  std::string CPUName = MIPS_MC::selectMipsCPU(TM.getTargetTriple(), CPU);
+  StringRef CPUName = MIPS_MC::selectMipsCPU(TM.getTargetTriple(), CPU);
 
   // Parse features string.
   ParseSubtargetFeatures(CPUName, FS);
@@ -255,6 +255,10 @@ MipsSubtarget::initializeSubtargetDependencies(StringRef CPU, StringRef FS,
     assert(isABI_O32() && "Unknown ABI for stack alignment!");
     stackAlignment = Align(8);
   }
+
+  if ((isABI_N32() || isABI_N64()) && !isGP64bit())
+    report_fatal_error("64-bit code requested on a subtarget that doesn't "
+                       "support it!");
 
   return *this;
 }

@@ -7,9 +7,11 @@
 // CHECK-NEXT: alpha.clone.CloneChecker:IgnoredFilesPattern = ""
 // CHECK-NEXT: alpha.clone.CloneChecker:MinimumCloneComplexity = 50
 // CHECK-NEXT: alpha.clone.CloneChecker:ReportNormalClones = true
+// CHECK-NEXT: alpha.cplusplus.STLAlgorithmModeling:AggressiveStdFindModeling = false
 // CHECK-NEXT: alpha.security.MmapWriteExec:MmapProtExec = 0x04
 // CHECK-NEXT: alpha.security.MmapWriteExec:MmapProtRead = 0x01
 // CHECK-NEXT: alpha.security.taint.TaintPropagation:Config = ""
+// CHECK-NEXT: apply-fixits = false
 // CHECK-NEXT: avoid-suppressing-null-argument-paths = false
 // CHECK-NEXT: c++-allocator-inlining = true
 // CHECK-NEXT: c++-container-inlining = false
@@ -19,6 +21,7 @@
 // CHECK-NEXT: c++-temp-dtor-inlining = true
 // CHECK-NEXT: c++-template-inlining = true
 // CHECK-NEXT: cfg-conditional-static-initializers = true
+// CHECK-NEXT: cfg-expand-default-aggr-inits = false
 // CHECK-NEXT: cfg-implicit-dtors = true
 // CHECK-NEXT: cfg-lifetime = false
 // CHECK-NEXT: cfg-loopexit = false
@@ -37,6 +40,7 @@
 // CHECK-NEXT: debug.AnalysisOrder:EndFunction = false
 // CHECK-NEXT: debug.AnalysisOrder:LiveSymbols = false
 // CHECK-NEXT: debug.AnalysisOrder:NewAllocator = false
+// CHECK-NEXT: debug.AnalysisOrder:PointerEscape = false
 // CHECK-NEXT: debug.AnalysisOrder:PostCall = false
 // CHECK-NEXT: debug.AnalysisOrder:PostStmtArraySubscriptExpr = false
 // CHECK-NEXT: debug.AnalysisOrder:PostStmtCXXNewExpr = false
@@ -55,7 +59,6 @@
 // CHECK-NEXT: experimental-enable-naive-ctu-analysis = false
 // CHECK-NEXT: exploration_strategy = unexplored_first_queue
 // CHECK-NEXT: faux-bodies = true
-// CHECK-NEXT: fixits-as-remarks = false
 // CHECK-NEXT: graph-trim-interval = 1000
 // CHECK-NEXT: inline-lambdas = true
 // CHECK-NEXT: ipa = dynamic-bifurcate
@@ -97,4 +100,4 @@
 // CHECK-NEXT: unroll-loops = false
 // CHECK-NEXT: widen-loops = false
 // CHECK-NEXT: [stats]
-// CHECK-NEXT: num-entries = 94
+// CHECK-NEXT: num-entries = 97

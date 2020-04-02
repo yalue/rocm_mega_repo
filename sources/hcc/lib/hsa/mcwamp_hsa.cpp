@@ -61,8 +61,11 @@
 // kernel dispatch speed optimization flags
 /////////////////////////////////////////////////
 
-// size of default kernarg buffer in the kernarg pool in HSAContext
-#define KERNARG_BUFFER_SIZE (512)
+// Size of default kernarg buffer in the kernarg pool in HSAContext, in bytes.
+// Increased from 512 to 4k to match CUDA default. See
+// https://docs.nvidia.com/cuda/cuda-c-programming-guide/index.html#function-parameters
+// When this size is exceeded, on-demand allocation of the kernarg buffer is slow.
+#define KERNARG_BUFFER_SIZE (4096)
 
 // number of pre-allocated kernarg buffers in HSAContext
 // (some kernels don't allocate signals but nearly all need kernargs)
@@ -75,9 +78,11 @@
 // MUST be a power of 2.
 #define MAX_INFLIGHT_COMMANDS_PER_QUEUE  (2*8192)
 
-// threshold to clean up finished kernel in HSAQueue.asyncOps
-int HCC_ASYNCOPS_SIZE = (2*8192);
-
+// Threshold to clean up finished kernel in HSAQueue.asyncOps.
+// Reduced from 16k to 1k at the same time when the HCC_KERNARG_BUFFER_SIZE
+// was increased, in order to offset the increase in memory pressure.
+int HCC_ASYNCOPS_SIZE = (1024);
+int HCC_ASYNCOPS_WITHOUT_SIGNAL_SIZE = (HCC_ASYNCOPS_SIZE/2);
 
 //---
 // Environment variables:
@@ -863,7 +868,7 @@ public:
     }
 
     void enqueueAsyncCopyCommand(const Kalmar::HSADevice *copyDevice, const hc::AmPointerInfo &srcPtrInfo, const hc::AmPointerInfo &dstPtrInfo);
-    void enqueueAsyncCopy2dCommand(size_t width, size_t height, size_t srcPitch, size_t dstPitch, const Kalmar::HSADevice *copyDevice, const hc::AmPointerInfo &srcPtrInfo, const hc::AmPointerInfo &dstPtrInfo);
+    hsa_status_t enqueueAsyncCopy2dCommand(size_t width, size_t height, size_t srcPitch, size_t dstPitch, const Kalmar::HSADevice *copyDevice, const hc::AmPointerInfo &srcPtrInfo, const hc::AmPointerInfo &dstPtrInfo);
 
     // wait for the async copy to complete
     void wait() override;
@@ -891,7 +896,7 @@ public:
     void syncCopyExt(hc::hcCommandKind copyDir,
                      const hc::AmPointerInfo &srcPtrInfo, const hc::AmPointerInfo &dstPtrInfo,
                      const Kalmar::HSADevice *copyDevice, bool forceUnpinnedCopy);
-    void syncCopy2DExt(hc::hcCommandKind copyDir,
+    hsa_status_t syncCopy2DExt(hc::hcCommandKind copyDir,
                      const hc::AmPointerInfo &srcPtrInfo, const hc::AmPointerInfo &dstPtrInfo,size_t width, size_t height, size_t srcPitch, size_t dstPitch,
                      const Kalmar::HSADevice *copyDevice, bool forceUnpinnedCopy);
 
@@ -901,7 +906,7 @@ private:
                              const hc::AmPointerInfo &dstPtrInfo, const hc::AmPointerInfo &srcPtrInfo,
                              size_t sizeBytes);
 
-  void hcc_memory_async_copy_rect(Kalmar::hcCommandKind copyKind, const Kalmar::HSADevice *copyDevice,
+  hsa_status_t hcc_memory_async_copy_rect(Kalmar::hcCommandKind copyKind, const Kalmar::HSADevice *copyDevice,
                                   const hc::AmPointerInfo &dstPtrInfo, const hc::AmPointerInfo &srcPtrInfo,
                                   size_t width, size_t height, size_t srcPitch, size_t dstPitch);
 
@@ -1220,29 +1225,7 @@ struct RocrQueue {
     static void callbackQueue(hsa_status_t status, hsa_queue_t* queue, void *data) {
         STATUS_CHECK(status, __LINE__);
     }
-
-    RocrQueue(hsa_agent_t agent, size_t queue_size, HSAQueue *hccQueue, queue_priority priority)
-        : _priority(priority_normal)
-    {
-        assert(queue_size != 0);
-
-        /// Create a queue using the maximum size.
-        hsa_status_t status = hsa_queue_create(agent, queue_size, HSA_QUEUE_TYPE_SINGLE, callbackQueue, NULL,
-                                  UINT32_MAX, UINT32_MAX, &_hwQueue);
-        DBOUT(DB_QUEUE, "  " <<  __func__ << ": created an HSA command queue: " << _hwQueue << "\n");
-        STATUS_CHECK(status, __LINE__);
-
-        // Set queue priority
-        status = setPriority(priority);
-        STATUS_CHECK(status, __LINE__);
-
-        // TODO - should we provide a mechanism to conditionally enable profiling as a performance optimization?
-        status = hsa_amd_profiling_set_profiler_enabled(_hwQueue, 1);
-
-        // Create the links between the queues:
-        assignHccQueue(hccQueue);
-    }
-
+    RocrQueue(hsa_agent_t agent, size_t queue_size, HSAQueue *hccQueue, queue_priority priority);
     ~RocrQueue() {
 
         DBOUT(DB_QUEUE, "  " <<  __func__ << ": destroy an HSA command queue: " << _hwQueue << "\n");
@@ -1293,8 +1276,13 @@ private:
     // When a kernel k is dispatched, we'll get a KalmarAsyncOp f.
     // This vector would hold f.  ops are added by replacing the op within the shared_ptr.
     // This could trigger the freeing of resources, one insertion at a time.
+    // However, some Ops do not have an associated signal. We must keep them until
+    // some other Op is added that has a signal, to make sure any resources associated with
+    // the signal-less Ops are freed after completion.
     //
     std::vector< std::shared_ptr<HSAOp> > asyncOps;
+    std::vector< std::shared_ptr<HSAOp> > asyncOpsWithoutSignal;
+    int how_many_ops_have_we_seen_without_a_signal;
 
     // index where the next asyncOp should be inserted into the asyncOps container
     int asyncOpsIndex;
@@ -1359,12 +1347,15 @@ private:
     // signal used by sync copy only
     hsa_signal_t  sync_copy_signal;
 
-    // indicated whether this HSAQueue has already been used
+    // indicate whether this HSAQueue has already been used
     // for compute or copy tasks 
     bool has_been_used;
 
+    // indicate whether this is a cooperative queue
+    bool is_cooperative;
+
 public:
-    HSAQueue(KalmarDevice* pDev, hsa_agent_t agent, execute_order order, queue_priority priority) ;
+    HSAQueue(KalmarDevice* pDev, hsa_agent_t agent, execute_order order, queue_priority priority, bool cooperative = false) ;
 
     bool nextKernelNeedsSysAcquire() const { return _nextKernelNeedsSysAcquire; };
     void setNextKernelNeedsSysAcquire(bool r) { _nextKernelNeedsSysAcquire = r; };
@@ -1381,6 +1372,8 @@ public:
     uint64_t getSeqNum() const { return queueSeqNum; };
 
     Kalmar::HSADevice * getHSADev() const;
+
+    bool isCooperative() { return is_cooperative; }
 
     void dispose() override;
 
@@ -1464,9 +1457,43 @@ public:
                     << (op->getCommandKind() == hcCommandKernel ? ((static_cast<HSADispatch*> (op.get()))->getKernelName()) : "")  // change to getLongKernelName() for mangled name
                     << std::endl);
 
+        auto op_getting_replaced = asyncOps[asyncOpsIndex]; // ref counts up, if it was a valid HSAOp
+        if (op_getting_replaced != nullptr) {
+            if (static_cast<hsa_signal_t*>(op_getting_replaced->getNativeHandle())->handle == 0) {
+                // No signal present in the op_getting_replaced, so it won't wait() on it as part of its dtor.
+                // Add it to this queue's vector of signal-less ops to free once we know they're finished.
+                asyncOpsWithoutSignal.push_back(std::move(op_getting_replaced));
+            }
+            else if (asyncOpsWithoutSignal.size()) {
+                // We have pending ops to clear and op_getting_replaced has a signal, so wait on it, then clear.
+                op_getting_replaced->wait();
+                asyncOpsWithoutSignal.clear();
+            }
+        }
+
+        if (static_cast<hsa_signal_t*>(op->getNativeHandle())->handle == 0) {
+            // new op does not have a signal. increment our growth counter.
+            ++how_many_ops_have_we_seen_without_a_signal;
+        }
+        else {
+            how_many_ops_have_we_seen_without_a_signal = 0;
+        }
+
+        // new op goes in
         youngestCommandKind = op->getCommandKind();
         asyncOps[asyncOpsIndex] = std::move(op);
         asyncOpsIndex = increment(asyncOpsIndex);
+
+        // There are cases where ops with signals could be rare.
+        // To avoid uncontrolled growth of the asyncOpsWithoutSignal vector,
+        // once we reach capacity, force a signal via barrier.
+        // This will recurse eventually back into this pushAsyncOp function,
+        // but is guaranteed to skip this check here.
+        if (how_many_ops_have_we_seen_without_a_signal >= HCC_ASYNCOPS_WITHOUT_SIGNAL_SIZE) {
+            DBOUT(DB_SIG, "ops without signals reached capacity, enqueuing marker\n");
+            EnqueueMarkerNoLock(hc::no_scope);
+        }
+
         has_been_used = true;
     }
 
@@ -1532,9 +1559,10 @@ public:
             }
 
             if (needDep) {
+                // kernels might not have a signal and should be returned as a dep
+                // so only handle the case here where a valid signal is present
                 hsa_signal_t* s = static_cast<hsa_signal_t*>(lastOp->getNativeHandle());
-                if (s->handle == 0 ||
-                    hsa_signal_load_scacquire(*s)==0) {
+                if (s->handle != 0 && hsa_signal_load_scacquire(*s)==0) {
                     // if the last op has already been completed then don't need a dependency
                     return nullptr;
                 }
@@ -1580,7 +1608,11 @@ public:
     bool isEmptyNoLock() {
         if (!has_been_used) return true;
 
-        hsa_signal_t signal = *(static_cast <hsa_signal_t*> (back()->getNativeHandle()));
+        auto lastOp = back();
+
+        if (lastOp.get() == nullptr) return true;
+
+        hsa_signal_t signal = *(static_cast <hsa_signal_t*> (lastOp->getNativeHandle()));
         if (signal.handle) {
             hsa_signal_value_t v = hsa_signal_load_scacquire(signal);
             if (v != 0) {
@@ -1633,7 +1665,8 @@ public:
             }
             back()->wait();
             if (HCC_FLUSH_ON_WAIT) {
-                // aggressively cleanup resources
+                // aggressively cleanup resources, including pending signal-less ops
+                asyncOpsWithoutSignal.clear();
                 // but keep back() as a valid HSAOp, so decrement current insert index twice
                 int back_op_index = decrement(asyncOpsIndex); // index of back() op
                 int index = decrement(back_op_index); // index of first op to free
@@ -1981,11 +2014,11 @@ public:
 
     void* getHSAAgent() override;
 
-    void* getHostAgent() override;
+    void* getHostAgent();
 
     void* getHSAAMRegion() override;
 
-    void* getHSACoherentAMHostRegion() override;
+    void* getHSACoherentAMHostRegion();
 
     void* getHSAAMHostRegion() override;
 
@@ -2038,7 +2071,7 @@ public:
     // applied after the marker executes.  See hc::memory_scope
     std::shared_ptr<KalmarAsyncOp> EnqueueMarkerWithDependencyNoLock(int count,
             std::shared_ptr <KalmarAsyncOp> *depOps,
-            hc::memory_scope fenceScope) override {
+            hc::memory_scope fenceScope) {
 
         if ((count >= 0) && (count <= HSA_BARRIER_DEP_SIGNAL_CNT)) {
 
@@ -2107,7 +2140,7 @@ public:
 
     std::shared_ptr<KalmarAsyncOp> EnqueueMarkerWithDependency(int count,
             std::shared_ptr <KalmarAsyncOp> *depOps,
-            hc::memory_scope fenceScope) override {
+            hc::memory_scope fenceScope) {
         std::lock_guard<std::mutex> lg(qmutex);
         return EnqueueMarkerWithDependencyNoLock(count, depOps, fenceScope);
     }
@@ -2145,6 +2178,32 @@ public:
 
 };
 
+RocrQueue::RocrQueue(hsa_agent_t agent, size_t queue_size, HSAQueue *hccQueue, queue_priority priority)
+    : _priority(priority_normal)
+{
+    assert(queue_size != 0);
+
+    /// Create a queue using the maximum size.
+    auto qtype = HSA_QUEUE_TYPE_SINGLE;
+    if (hccQueue->isCooperative())
+    {
+        qtype = HSA_QUEUE_TYPE_COOPERATIVE;
+    }
+    hsa_status_t status = hsa_queue_create(agent, queue_size, qtype, callbackQueue, NULL,
+                                           UINT32_MAX, UINT32_MAX, &_hwQueue);
+    DBOUT(DB_QUEUE, "  " << __func__ << ": created an HSA command queue: " << _hwQueue << "\n");
+    STATUS_CHECK(status, __LINE__);
+
+    // Set queue priority
+    status = setPriority(priority);
+    STATUS_CHECK(status, __LINE__);
+
+    // TODO - should we provide a mechanism to conditionally enable profiling as a performance optimization?
+    status = hsa_amd_profiling_set_profiler_enabled(_hwQueue, 1);
+
+    // Create the links between the queues:
+    assignHccQueue(hccQueue);
+}
 
 void RocrQueue::assignHccQueue(HSAQueue *hccQueue) {
     assert (hccQueue->rocrQueue == nullptr);  // only needy should assign new queue
@@ -2217,6 +2276,9 @@ private:
     size_t queue_size;
     std::mutex queues_mutex; // protects access to the queues vector:
     std::vector< std::weak_ptr<KalmarQueue> > queues;
+
+    bool support_cooperative_queue = false;
+    std::shared_ptr<KalmarQueue> cooperative_queue = nullptr;
 
     // TODO: Do we need to maintain a different mutex for each queue priority?
     // In which case HSAQueue::dispose needs to handle locking the appropriate mutex
@@ -2400,6 +2462,10 @@ private:
     };
 
 public:
+
+    size_t getQueueSize() {
+        return queue_size;
+    }
 
     uint32_t getWorkgroupMaxSize() {
         return workgroup_max_size;
@@ -2627,9 +2693,9 @@ public:
     bool is_emulated() const override { return false; }
     uint32_t get_version() const { return ((static_cast<unsigned int>(versionMajor) << 16) | versionMinor); }
 
-    bool has_cpu_accessible_am() const override { return cpu_accessible_am; }
+    bool has_cpu_accessible_am() const { return cpu_accessible_am; }
 
-    void* create(size_t count, struct rw_info* key) override {
+    void* create(size_t count, struct rw_info* key) {
         void *data = nullptr;
 
         if (!is_unified()) {
@@ -2932,6 +2998,20 @@ public:
         queues_mutex.unlock();
         return q;
     }
+
+    std::shared_ptr<KalmarQueue> createCooperativeQueue() override {
+        if (cooperative_queue == nullptr) {
+            std::lock_guard<std::mutex> l(queues_mutex);
+            if (cooperative_queue == nullptr) {
+                if (!support_cooperative_queue) {
+                    throw Kalmar::runtime_exception("agent doesn't support cooperative queue", -1);
+                }
+                cooperative_queue = std::make_shared<HSAQueue>(this, agent, execute_in_order, priority_normal, true);
+            }
+        }
+        return cooperative_queue;
+    }
+
 
     size_t GetMaxTileStaticSize() override {
         return max_tile_static_size;
@@ -3436,7 +3516,7 @@ static inline void processPrintfPackets(PrintfPacket* packets, const unsigned in
       continue;
 
     // get the format
-    assert(pkt->type == PRINTF_CHAR_PKT || pkt->type == PRINTF_CONST_CHAR_PKT);
+    assert(pkt->type == PRINTF_CHAR_PTR || pkt->type == PRINTF_CONST_CHAR_PTR);
     const std::string formatString((const char*)pkt->data.cptr);
     ++pkt;
 
@@ -3849,6 +3929,11 @@ void HSAContext::ReadHccEnv()
     GET_ENV_INT(HCC_LAZY_QUEUE_CREATION, "Control lazy HSA queue creation (enabled by default).  Set to 0 to disable it.");
 
     GET_ENV_INT(HCC_ASYNCOPS_SIZE, "Number of HSA operations to allow prior to resource cleanup.");
+    GET_ENV_INT(HCC_ASYNCOPS_WITHOUT_SIGNAL_SIZE, "Number of HSA operations without a signal to allow prior to resource cleanup. Default is HCC_ASYNCOPS_SIZE/2.");
+    // make sure user env hasn't provided an incorrect situation
+    if (HCC_ASYNCOPS_WITHOUT_SIGNAL_SIZE > HCC_ASYNCOPS_SIZE) {
+        HCC_ASYNCOPS_WITHOUT_SIGNAL_SIZE = HCC_ASYNCOPS_SIZE/2;
+    }
 
     GET_ENV_INT(HCC_UNPINNED_COPY_MODE, "Select algorithm for unpinned copies. 0=ChooseBest(see thresholds), 1=PinInPlace, 2=StagingBuffer, 3=Memcpy");
 
@@ -3937,10 +4022,11 @@ HSADevice::HSADevice(hsa_agent_t a, hsa_agent_t host, int x_accSeqNum) :
         assert (__builtin_popcount(MAX_INFLIGHT_COMMANDS_PER_QUEUE) == 1); // make sure this is power of 2.
     }
 
-    status = hsa_amd_profiling_async_copy_enable(1);
+    status = hsa_agent_get_info(agent, (hsa_agent_info_t)HSA_AMD_AGENT_INFO_COOPERATIVE_QUEUES, &support_cooperative_queue);
     STATUS_CHECK(status, __LINE__);
 
-
+    status = hsa_amd_profiling_async_copy_enable(1);
+    STATUS_CHECK(status, __LINE__);
 
     /// Iterate over memory pool of the device and its host
     status = hsa_amd_agent_iterate_memory_pools(agent, HSADevice::find_group_memory, &max_tile_static_size);
@@ -4056,7 +4142,7 @@ HSADevice::HSADevice(hsa_agent_t a, hsa_agent_t host, int x_accSeqNum) :
 }
 
 inline void*
-HSADevice::getHSAAgent() override {
+HSADevice::getHSAAgent() {
     return static_cast<void*>(&getAgent());
 }
 
@@ -4085,18 +4171,20 @@ std::ostream& operator<<(std::ostream& os, const HSAQueue & hav)
     return os;
 }
 
-
-
-
-HSAQueue::HSAQueue(KalmarDevice* pDev, hsa_agent_t agent, execute_order order, queue_priority priority) :
+HSAQueue::HSAQueue(KalmarDevice* pDev, hsa_agent_t agent, execute_order order, queue_priority priority, 
+                     bool cooperative) :
     KalmarQueue(pDev, queuing_mode_automatic, order, priority),
     rocrQueue(nullptr),
-    asyncOps(HCC_ASYNCOPS_SIZE), asyncOpsIndex(0),
+    asyncOps(HCC_ASYNCOPS_SIZE), asyncOpsWithoutSignal(), how_many_ops_have_we_seen_without_a_signal(0), asyncOpsIndex(0),
     valid(true), _nextSyncNeedsSysRelease(false), _nextKernelNeedsSysAcquire(false), bufferKernelMap(), kernelBufferMap(),
-    has_been_used(false)
+    has_been_used(false), is_cooperative(cooperative)
 {
 
-    if (!HCC_LAZY_QUEUE_CREATION) {
+    if (is_cooperative) {
+        HSADevice* device = reinterpret_cast<HSADevice*>(pDev);
+        rocrQueue = new RocrQueue(agent, device->getQueueSize(), this, priority);
+    }
+    else if (!HCC_LAZY_QUEUE_CREATION) {
         // Protect the HSA queue we can steal it.
         DBOUT(DB_LOCK, " ptr:" << this << " create lock_guard...\n");
 
@@ -4112,8 +4200,7 @@ HSAQueue::HSAQueue(KalmarDevice* pDev, hsa_agent_t agent, execute_order order, q
     STATUS_CHECK(status, __LINE__);
 }
 
-
-void HSAQueue::dispose() override {
+void HSAQueue::dispose() {
     hsa_status_t status;
 
     DBOUT(DB_INIT, "HSAQueue::dispose() " << this << "in\n");
@@ -4150,7 +4237,14 @@ void HSAQueue::dispose() override {
         kernelBufferMap.clear();
 
         if (this->rocrQueue != nullptr) {
-            device->removeRocrQueue(rocrQueue);
+            if (is_cooperative) {
+              // the cooperative queue is not in the queue pool
+              // so just delete it
+              delete(rocrQueue);
+            }
+            else {
+              device->removeRocrQueue(rocrQueue);
+            }
             rocrQueue = nullptr;
         }
     }
@@ -4193,38 +4287,38 @@ void HSAQueue::releaseLockedHsaQueue()
 }
 
 inline void*
-HSAQueue::getHSAAgent() override {
+HSAQueue::getHSAAgent() {
     return static_cast<void*>(&(static_cast<HSADevice*>(getDev())->getAgent()));
 }
 inline void*
-HSAQueue::getHostAgent() override {
+HSAQueue::getHostAgent() {
     return static_cast<void*>(&(static_cast<HSADevice*>(getDev())->getHostAgent()));
 }
 inline void*
-HSAQueue::getHSAAMRegion() override {
+HSAQueue::getHSAAMRegion() {
     return static_cast<void*>(&(static_cast<HSADevice*>(getDev())->getHSAAMRegion()));
 }
 inline void*
-HSAQueue::getHSAFinegrainedAMRegion() override {
+HSAQueue::getHSAFinegrainedAMRegion() {
     return static_cast<void*>(&(static_cast<HSADevice*>(getDev())->getHSAFinegrainedAMRegion()));
 }
 inline void*
-HSAQueue::getHSACoherentAMHostRegion() override {
+HSAQueue::getHSACoherentAMHostRegion() {
     return static_cast<void*>(&(static_cast<HSADevice*>(getDev())->getHSACoherentAMHostRegion()));
 }
 inline void*
-HSAQueue::getHSAAMHostRegion() override {
+HSAQueue::getHSAAMHostRegion() {
     return static_cast<void*>(&(static_cast<HSADevice*>(getDev())->getHSAAMHostRegion()));
 }
 
 
 inline void*
-HSAQueue::getHSAKernargRegion() override {
+HSAQueue::getHSAKernargRegion() {
     return static_cast<void*>(&(static_cast<HSADevice*>(getDev())->getHSAKernargRegion()));
 }
 
 void HSAQueue::copy_ext(const void *src, void *dst, size_t size_bytes, hc::hcCommandKind copyDir, const hc::AmPointerInfo &srcPtrInfo, const hc::AmPointerInfo &dstPtrInfo,
-              const Kalmar::KalmarDevice *copyDevice, bool forceUnpinnedCopy) override {
+              const Kalmar::KalmarDevice *copyDevice, bool forceUnpinnedCopy) {
     // wait for all previous async commands in this queue to finish
     // TODO - can remove this synchronization, copy is tail-synchronous not required on front end.
     this->wait();
@@ -4250,14 +4344,14 @@ bool HSAQueue::copy2d_ext(const void *src, void *dst, size_t width, size_t heigh
     const Kalmar::HSADevice *copyDeviceHsa = static_cast<const Kalmar::HSADevice*> (copyDevice);
     HSACopy* copyCommand = new HSACopy(this, src, dst, width*height);
     copyCommand->setCommandKind(copyDir);
-    copyCommand->syncCopy2DExt(copyDir, srcPtrInfo, dstPtrInfo, width, height, srcPitch, dstPitch,copyDeviceHsa, forceUnpinnedCopy);
-    delete(copyCommand);
-    return true;
+    auto status = copyCommand->syncCopy2DExt(copyDir, srcPtrInfo, dstPtrInfo, width, height, srcPitch, dstPitch,copyDeviceHsa, forceUnpinnedCopy);
+    delete copyCommand;
+    return (status == HSA_STATUS_SUCCESS);
 };
 
 std::shared_ptr<KalmarAsyncOp> HSAQueue::EnqueueAsyncCopyExt(const void* src, void* dst, size_t size_bytes,
                                                    hcCommandKind copyDir, const hc::AmPointerInfo &srcPtrInfo, const hc::AmPointerInfo &dstPtrInfo,
-                                                   const Kalmar::KalmarDevice *copyDevice) override {
+                                                   const Kalmar::KalmarDevice *copyDevice) {
     std::lock_guard<std::mutex> lg(qmutex);
     // create shared_ptr instance
     const Kalmar::HSADevice *copyDeviceHsa = static_cast<const Kalmar::HSADevice*> (copyDevice);
@@ -4274,14 +4368,18 @@ std::shared_ptr<KalmarAsyncOp> HSAQueue::EnqueueAsyncCopyExt(const void* src, vo
 
 std::shared_ptr<KalmarAsyncOp> HSAQueue::EnqueueAsyncCopy2dExt(const void* src, void* dst, size_t width, size_t height, size_t srcPitch, size_t dstPitch,
                                                    hcCommandKind copyDir, const hc::AmPointerInfo &srcPtrInfo, const hc::AmPointerInfo &dstPtrInfo,
-                                                   const Kalmar::KalmarDevice *copyDevice) override {
+                                                   const Kalmar::KalmarDevice *copyDevice) {
     std::lock_guard<std::mutex> lg(qmutex);
     //create shared_ptr instance
     const Kalmar::HSADevice *copy2dDeviceHsa = static_cast<const Kalmar::HSADevice*> (copyDevice);
     std::shared_ptr<HSACopy> copy2dCommand = HSAOp::buildOp<HSACopy>(this, src, dst, width*height);
 
     //euqueue the async copy command
-    copy2dCommand.get()->enqueueAsyncCopy2dCommand(width, height, srcPitch, dstPitch, copy2dDeviceHsa, srcPtrInfo, dstPtrInfo);
+    auto status = copy2dCommand.get()->enqueueAsyncCopy2dCommand(width, height, srcPitch, dstPitch, copy2dDeviceHsa, srcPtrInfo, dstPtrInfo);
+    if (status != HSA_STATUS_SUCCESS) {
+        copy2dCommand = nullptr;
+        return nullptr;
+    }
 
     //associate the async copy command with this queue
     pushAsyncOp(copy2dCommand);
@@ -4290,7 +4388,7 @@ std::shared_ptr<KalmarAsyncOp> HSAQueue::EnqueueAsyncCopy2dExt(const void* src, 
 };
 
 // enqueue an async copy command
-std::shared_ptr<KalmarAsyncOp> HSAQueue::EnqueueAsyncCopy(const void *src, void *dst, size_t size_bytes) override {
+std::shared_ptr<KalmarAsyncOp> HSAQueue::EnqueueAsyncCopy(const void *src, void *dst, size_t size_bytes) {
     std::lock_guard<std::mutex> lg(qmutex);
     // create shared_ptr instance
     std::shared_ptr<HSACopy> copyCommand = HSAOp::buildOp<HSACopy>(this, src, dst, size_bytes);
@@ -4366,9 +4464,15 @@ HSAQueue::dispatch_hsa_kernel_no_lock(const hsa_kernel_dispatch_packet_t *aql,
 
     dispatch->setKernelName(kernelName);
 
-    // We used to skip signal creation as part of HCC_OPT_FLUSH being true.
-    // However, the new asyncOps resource cleanup logic requires all async ops to have a signal.
-    dispatch->dispatchKernelAsync(args, argSize, true);
+    // May be faster to create signals for each dispatch than to use markers.
+    // Perhaps could check HSA queue pointers.
+    bool needsSignal = true;
+    if (HCC_OPT_FLUSH && !HCC_PROFILE && (cf==nullptr) && !HCC_FORCE_COMPLETION_FUTURE && !HCC_SERIALIZE_KERNEL) {
+        // Only allocate a signal if the caller requested a completion_future to track status.
+        needsSignal = false;
+    };
+
+    dispatch->dispatchKernelAsync(args, argSize, needsSignal);
 
     pushAsyncOp(sp_dispatch);
 
@@ -4380,7 +4484,7 @@ HSAQueue::dispatch_hsa_kernel_no_lock(const hsa_kernel_dispatch_packet_t *aql,
 void
 HSAQueue::dispatch_hsa_kernel(const hsa_kernel_dispatch_packet_t *aql,
                          const void * args, size_t argSize,
-                         hc::completion_future *cf, const char *kernelName) override
+                         hc::completion_future *cf, const char *kernelName)
 {
     // caller might already hold lock from acquireLockedHsaQueue()
     if (qmutex_thread_id == std::this_thread::get_id()) {
@@ -4393,7 +4497,7 @@ HSAQueue::dispatch_hsa_kernel(const hsa_kernel_dispatch_packet_t *aql,
 }
 
 bool 
-HSAQueue::set_cu_mask(const std::vector<bool>& cu_mask) override {
+HSAQueue::set_cu_mask(const std::vector<bool>& cu_mask) {
     // get device's total compute unit count
     auto device = getDev();
     unsigned int physical_count = device->get_compute_unit_count();
@@ -4751,14 +4855,14 @@ HSADispatch::dispose() {
 }
 
 inline uint64_t
-HSADispatch::getBeginTimestamp() override {
+HSADispatch::getBeginTimestamp() {
     hsa_amd_profiling_dispatch_time_t time;
     hsa_amd_profiling_get_dispatch_time(_agent, _signal, &time);
     return time.start;
 }
 
 inline uint64_t
-HSADispatch::getEndTimestamp() override {
+HSADispatch::getEndTimestamp() {
     hsa_amd_profiling_dispatch_time_t time;
     hsa_amd_profiling_get_dispatch_time(_agent, _signal, &time);
     return time.end;
@@ -5077,21 +5181,21 @@ HSABarrier::dispose() {
         LOG_PROFILE(this, start, end, "barrier", "depcnt=" + std::to_string(depCount) + ",acq=" + fenceToString(acqBits) + ",rel=" + fenceToString(relBits), depAsyncOpsStr)
     }
 
-    // Release references to our dependent ops:
+    // clear reference counts for dependent ops.
     for (int i=0; i<depCount; i++) {
         depAsyncOps[i] = nullptr;
     }
 }
 
 inline uint64_t
-HSABarrier::getBeginTimestamp() override {
+HSABarrier::getBeginTimestamp() {
     hsa_amd_profiling_dispatch_time_t time;
     hsa_amd_profiling_get_dispatch_time(_agent, _signal, &time);
     return time.start;
 }
 
 inline uint64_t
-HSABarrier::getEndTimestamp() override {
+HSABarrier::getEndTimestamp() {
     hsa_amd_profiling_dispatch_time_t time;
     hsa_amd_profiling_get_dispatch_time(_agent, _signal, &time);
     return time.end;
@@ -5129,7 +5233,7 @@ Kalmar::HSAQueue *HSAOp::hsaQueue() const
     return static_cast<Kalmar::HSAQueue *> (this->getQueue()); 
 };
 
-bool HSAOp::isReady() override {
+bool HSAOp::isReady() {
     return (hsa_signal_load_scacquire(_signal) == 0);
 }
 
@@ -5371,7 +5475,8 @@ void HSACopy::hcc_memory_async_copy(Kalmar::hcCommandKind copyKind, const Kalmar
     }
 }
 
-void HSACopy::hcc_memory_async_copy_rect(Kalmar::hcCommandKind copyKind, const Kalmar::HSADevice *copyDeviceArg,
+hsa_status_t
+HSACopy::hcc_memory_async_copy_rect(Kalmar::hcCommandKind copyKind, const Kalmar::HSADevice *copyDeviceArg,
                       const hc::AmPointerInfo &dstPtrInfo, const hc::AmPointerInfo &srcPtrInfo, size_t width,
                       size_t height, size_t srcPitch, size_t dstPitch) {
                       
@@ -5486,13 +5591,15 @@ void HSACopy::hcc_memory_async_copy_rect(Kalmar::hcCommandKind copyKind, const K
     status = hsa_amd_memory_async_copy_rect(&dst, &dstOff, &src, &srcOff, &range, copyAgent, hsa_amd_copy_direction_t(copyKind),depSignalCnt, depSignalCnt ? &depSignal:NULL,_signal);
 
     if (status != HSA_STATUS_SUCCESS) {
-        throw Kalmar::runtime_exception("hsa_amd_memory_async_copy_rect error", status);
+        return status;
     }
 
     if (isAsync) {
         DBOUT( DB_CMD2, "  copy setNextKernelNeedsSysAcquire(true)\n");
         hsaQueue()->setNextKernelNeedsSysAcquire(true);
     }
+
+    return status;
 }
 
 static Kalmar::hcCommandKind resolveMemcpyDirection(bool srcInDeviceMem, bool dstInDeviceMem)
@@ -5531,7 +5638,7 @@ HSACopy::enqueueAsyncCopyCommand(const Kalmar::HSADevice *copyDevice, const hc::
     };
 }
 
-inline void
+inline hsa_status_t
 HSACopy::enqueueAsyncCopy2dCommand(size_t width, size_t height, size_t srcPitch, size_t dstPitch, 
                                     const Kalmar::HSADevice *copyDevice, 
                                     const hc::AmPointerInfo &srcPtrInfo, const hc::AmPointerInfo &dstPtrInfo) {
@@ -5543,11 +5650,15 @@ HSACopy::enqueueAsyncCopy2dCommand(size_t width, size_t height, size_t srcPitch,
 
     isAsync = true;
     setCommandKind (resolveMemcpyDirection(srcPtrInfo._isInDeviceMem, dstPtrInfo._isInDeviceMem));
-    hcc_memory_async_copy_rect(getCommandKind(), copyDevice, dstPtrInfo, srcPtrInfo, width, height, srcPitch, dstPitch);
+    auto status = hcc_memory_async_copy_rect(getCommandKind(), copyDevice, dstPtrInfo, srcPtrInfo, width, height, srcPitch, dstPitch);
+    if (status != HSA_STATUS_SUCCESS)
+        return status;
 
     if (HCC_SERIALIZE_COPY & 0x2) {
         wait();
     };
+
+    return status;
 }
 
 inline void
@@ -5590,14 +5701,14 @@ HSACopy::dispose() {
 }
 
 inline uint64_t
-HSACopy::getBeginTimestamp() override {
+HSACopy::getBeginTimestamp() {
     hsa_amd_profiling_async_copy_time_t time;
     hsa_amd_profiling_get_async_copy_time(_signal, &time);
     return time.start;
 }
 
 inline uint64_t
-HSACopy::getEndTimestamp() override {
+HSACopy::getEndTimestamp() {
     hsa_amd_profiling_async_copy_time_t time;
     hsa_amd_profiling_get_async_copy_time(_signal, &time);
     return time.end;
@@ -5708,7 +5819,7 @@ HSACopy::syncCopyExt(hc::hcCommandKind copyDir, const hc::AmPointerInfo &srcPtrI
     }
 }
 
-void HSACopy::syncCopy2DExt(hc::hcCommandKind copyDir,
+hsa_status_t HSACopy::syncCopy2DExt(hc::hcCommandKind copyDir,
                      const hc::AmPointerInfo &srcPtrInfo, const hc::AmPointerInfo &dstPtrInfo,size_t width, size_t height, size_t srcPitch, size_t dstPitch,
                      const Kalmar::HSADevice *copyDevice, bool forceUnpinnedCopy)
 {
@@ -5719,10 +5830,16 @@ void HSACopy::syncCopy2DExt(hc::hcCommandKind copyDir,
         throw Kalmar::runtime_exception("Null copyDevice can only be used with HostToHost or DeviceToDevice copy", -1);
     }
 
-    hcc_memory_async_copy_rect(copyDir, copyDevice, dstPtrInfo, srcPtrInfo, width, height, srcPitch, dstPitch);
-    DBOUT(DB_COPY, "HSACopy::syncCopy2DExt(), wait for completion...");
-    hsa_signal_wait_relaxed(_signal, HSA_SIGNAL_CONDITION_LT, 1, UINT64_MAX, waitMode);
-    DBOUT(DB_COPY,"done!\n");
+    auto status = hcc_memory_async_copy_rect(copyDir, copyDevice, dstPtrInfo, srcPtrInfo, width, height, srcPitch, dstPitch);
+    if (status == HSA_STATUS_SUCCESS) {
+        DBOUT(DB_COPY, "HSACopy::syncCopy2DExt(), wait for completion...");
+        hsa_signal_wait_relaxed(_signal, HSA_SIGNAL_CONDITION_LT, 1, UINT64_MAX, waitMode);
+        DBOUT(DB_COPY,"done!\n");
+    }
+    else {
+        DBOUT(DB_COPY, "HSACopy::syncCopy2DExt(), hcc_amd_memory_async_copy_rect() returns: 0x" << std::hex <<       status << std::dec <<"\n");
+    }
+    return status;
 }
 
 // Performs a copy, potentially through a staging buffer .

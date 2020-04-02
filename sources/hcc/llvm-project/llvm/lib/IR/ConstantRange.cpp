@@ -64,11 +64,11 @@ ConstantRange ConstantRange::fromKnownBits(const KnownBits &Known,
   // For unsigned ranges, or signed ranges with known sign bit, create a simple
   // range between the smallest and largest possible value.
   if (!IsSigned || Known.isNegative() || Known.isNonNegative())
-    return ConstantRange(Known.One, ~Known.Zero + 1);
+    return ConstantRange(Known.getMinValue(), Known.getMaxValue() + 1);
 
   // If we don't know the sign bit, pick the lower bound as a negative number
   // and the upper bound as a non-negative one.
-  APInt Lower = Known.One, Upper = ~Known.Zero;
+  APInt Lower = Known.getMinValue(), Upper = Known.getMaxValue();
   Lower.setSignBit();
   Upper.clearSignBit();
   return ConstantRange(Lower, Upper + 1);
@@ -641,7 +641,7 @@ ConstantRange ConstantRange::castOp(Instruction::CastOps CastOp,
     if (getBitWidth() == ResultBitWidth)
       return *this;
     else
-      return getFull();
+      return getFull(ResultBitWidth);
   case Instruction::UIToFP: {
     // TODO: use input range if available
     auto BW = getBitWidth();
@@ -662,7 +662,7 @@ ConstantRange ConstantRange::castOp(Instruction::CastOps CastOp,
   case Instruction::PtrToInt:
   case Instruction::AddrSpaceCast:
     // Conservatively return getFull set.
-    return getFull();
+    return getFull(ResultBitWidth);
   };
 }
 
@@ -802,6 +802,8 @@ ConstantRange ConstantRange::binaryOp(Instruction::BinaryOps BinOp,
     return binaryAnd(Other);
   case Instruction::Or:
     return binaryOr(Other);
+  case Instruction::Xor:
+    return binaryXor(Other);
   // Note: floating point operations applied to abstract ranges are just
   // ideal integer operations with a lossy representation
   case Instruction::FAdd:
@@ -1209,6 +1211,18 @@ ConstantRange::binaryOr(const ConstantRange &Other) const {
 
   APInt umax = APIntOps::umax(getUnsignedMin(), Other.getUnsignedMin());
   return getNonEmpty(std::move(umax), APInt::getNullValue(getBitWidth()));
+}
+
+ConstantRange ConstantRange::binaryXor(const ConstantRange &Other) const {
+  if (isEmptySet() || Other.isEmptySet())
+    return getEmpty();
+
+  // Use APInt's implementation of XOR for single element ranges.
+  if (isSingleElement() && Other.isSingleElement())
+    return {*getSingleElement() ^ *Other.getSingleElement()};
+
+  // TODO: replace this with something less conservative
+  return getFull();
 }
 
 ConstantRange

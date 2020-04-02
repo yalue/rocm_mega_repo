@@ -1,6 +1,6 @@
-class AttrSubject;
+include "clang/Basic/ASTNode.td"
 
-class StmtNode<StmtNode base, bit abstract = 0> : AttrSubject {
+class StmtNode<StmtNode base, bit abstract = 0> : ASTNode, AttrSubject {
 	StmtNode Base = base;
   bit Abstract = abstract;
 }
@@ -162,8 +162,9 @@ def CoawaitExpr : StmtNode<CoroutineSuspendExpr>;
 def DependentCoawaitExpr : StmtNode<Expr>;
 def CoyieldExpr : StmtNode<CoroutineSuspendExpr>;
 
-// C++2a Concepts expressions
+// C++20 Concepts expressions
 def ConceptSpecializationExpr : StmtNode<Expr>;
+def RequiresExpr : StmtNode<Expr>;
 
 // Obj-C Expressions.
 def ObjCStringLiteral : StmtNode<Expr>;
@@ -194,6 +195,7 @@ def ConvertVectorExpr : StmtNode<Expr>;
 def BlockExpr : StmtNode<Expr>;
 def OpaqueValueExpr : StmtNode<Expr>;
 def TypoExpr : StmtNode<Expr>;
+def RecoveryExpr : StmtNode<Expr>;
 def BuiltinBitCastExpr : StmtNode<ExplicitCastExpr>;
 
 // Microsoft Extensions.
@@ -223,6 +225,7 @@ def OMPMasterDirective : StmtNode<OMPExecutableDirective>;
 def OMPCriticalDirective : StmtNode<OMPExecutableDirective>;
 def OMPParallelForDirective : StmtNode<OMPLoopDirective>;
 def OMPParallelForSimdDirective : StmtNode<OMPLoopDirective>;
+def OMPParallelMasterDirective : StmtNode<OMPExecutableDirective>;
 def OMPParallelSectionsDirective : StmtNode<OMPExecutableDirective>;
 def OMPTaskDirective : StmtNode<OMPExecutableDirective>;
 def OMPTaskyieldDirective : StmtNode<OMPExecutableDirective>;
@@ -230,6 +233,8 @@ def OMPBarrierDirective : StmtNode<OMPExecutableDirective>;
 def OMPTaskwaitDirective : StmtNode<OMPExecutableDirective>;
 def OMPTaskgroupDirective : StmtNode<OMPExecutableDirective>;
 def OMPFlushDirective : StmtNode<OMPExecutableDirective>;
+def OMPDepobjDirective : StmtNode<OMPExecutableDirective>;
+def OMPScanDirective : StmtNode<OMPExecutableDirective>;
 def OMPOrderedDirective : StmtNode<OMPExecutableDirective>;
 def OMPAtomicDirective : StmtNode<OMPExecutableDirective>;
 def OMPTargetDirective : StmtNode<OMPExecutableDirective>;

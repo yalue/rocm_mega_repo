@@ -1207,15 +1207,17 @@ bool ARMExpandPseudo::ExpandMI(MachineBasicBlock &MBB,
 
 
       // Update call site info and delete the pseudo instruction TCRETURN.
-      MBB.getParent()->moveCallSiteInfo(&MI, &*NewMI);
+      if (MI.isCandidateForCallSiteEntry())
+        MI.getMF()->moveCallSiteInfo(&MI, &*NewMI);
       MBB.erase(MBBI);
 
       MBBI = NewMI;
       return true;
     }
+    case ARM::VMOVHcc:
     case ARM::VMOVScc:
     case ARM::VMOVDcc: {
-      unsigned newOpc = Opcode == ARM::VMOVScc ? ARM::VMOVS : ARM::VMOVD;
+      unsigned newOpc = Opcode != ARM::VMOVDcc ? ARM::VMOVS : ARM::VMOVD;
       BuildMI(MBB, MBBI, MI.getDebugLoc(), TII->get(newOpc),
               MI.getOperand(1).getReg())
           .add(MI.getOperand(2))
@@ -1358,17 +1360,18 @@ bool ARMExpandPseudo::ExpandMI(MachineBasicBlock &MBB,
         // If there's dynamic realignment, adjust for it.
         if (RI.needsStackRealignment(MF)) {
           MachineFrameInfo &MFI = MF.getFrameInfo();
-          unsigned MaxAlign = MFI.getMaxAlignment();
+          Align MaxAlign = MFI.getMaxAlign();
           assert (!AFI->isThumb1OnlyFunction());
           // Emit bic r6, r6, MaxAlign
-          assert(MaxAlign <= 256 && "The BIC instruction cannot encode "
-                                    "immediates larger than 256 with all lower "
-                                    "bits set.");
+          assert(MaxAlign <= Align(256) &&
+                 "The BIC instruction cannot encode "
+                 "immediates larger than 256 with all lower "
+                 "bits set.");
           unsigned bicOpc = AFI->isThumbFunction() ?
             ARM::t2BICri : ARM::BICri;
           BuildMI(MBB, MBBI, MI.getDebugLoc(), TII->get(bicOpc), ARM::R6)
               .addReg(ARM::R6, RegState::Kill)
-              .addImm(MaxAlign - 1)
+              .addImm(MaxAlign.value() - 1)
               .add(predOps(ARMCC::AL))
               .add(condCodeOp());
         }
@@ -1409,8 +1412,8 @@ bool ARMExpandPseudo::ExpandMI(MachineBasicBlock &MBB,
       const bool Thumb = Opcode == ARM::tTPsoft;
 
       MachineInstrBuilder MIB;
+      MachineFunction *MF = MBB.getParent();
       if (STI->genLongCalls()) {
-        MachineFunction *MF = MBB.getParent();
         MachineConstantPool *MCP = MF->getConstantPool();
         unsigned PCLabelID = AFI->createPICLabelUId();
         MachineConstantPoolValue *CPV =
@@ -1439,7 +1442,9 @@ bool ARMExpandPseudo::ExpandMI(MachineBasicBlock &MBB,
 
       MIB.cloneMemRefs(MI);
       TransferImpOps(MI, MIB, MIB);
-      MI.getMF()->moveCallSiteInfo(&MI, &*MIB);
+      // Update the call site info.
+      if (MI.isCandidateForCallSiteEntry())
+        MF->moveCallSiteInfo(&MI, &*MIB);
       MI.eraseFromParent();
       return true;
     }
@@ -1948,6 +1953,24 @@ bool ARMExpandPseudo::ExpandMI(MachineBasicBlock &MBB,
       }
       MIB.cloneMemRefs(MI);
       for (unsigned i = 1; i < MI.getNumOperands(); ++i) MIB.add(MI.getOperand(i));
+      MI.eraseFromParent();
+      return true;
+    }
+    case ARM::LOADDUAL:
+    case ARM::STOREDUAL: {
+      Register PairReg = MI.getOperand(0).getReg();
+
+      MachineInstrBuilder MIB =
+          BuildMI(MBB, MBBI, MI.getDebugLoc(),
+                  TII->get(Opcode == ARM::LOADDUAL ? ARM::LDRD : ARM::STRD))
+              .addReg(TRI->getSubReg(PairReg, ARM::gsub_0),
+                      Opcode == ARM::LOADDUAL ? RegState::Define : 0)
+              .addReg(TRI->getSubReg(PairReg, ARM::gsub_1),
+                      Opcode == ARM::LOADDUAL ? RegState::Define : 0);
+      for (unsigned i = 1; i < MI.getNumOperands(); i++)
+        MIB.add(MI.getOperand(i));
+      MIB.add(predOps(ARMCC::AL));
+      MIB.cloneMemRefs(MI);
       MI.eraseFromParent();
       return true;
     }

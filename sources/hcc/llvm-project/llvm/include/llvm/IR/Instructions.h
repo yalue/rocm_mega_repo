@@ -109,8 +109,12 @@ public:
 
   /// Return the alignment of the memory that is being allocated by the
   /// instruction.
+  MaybeAlign getAlign() const {
+    return decodeMaybeAlign(getSubclassDataFromInstruction() & 31);
+  }
+  // FIXME: Remove this one transition to Align is over.
   unsigned getAlignment() const {
-    if (const auto MA = decodeMaybeAlign(getSubclassDataFromInstruction() & 31))
+    if (const auto MA = getAlign())
       return MA->value();
     return 0;
   }
@@ -239,14 +243,20 @@ public:
   }
 
   /// Return the alignment of the access that is being performed.
+  /// FIXME: Remove this function once transition to Align is over.
+  /// Use getAlign() instead.
   unsigned getAlignment() const {
-    if (const auto MA =
-            decodeMaybeAlign((getSubclassDataFromInstruction() >> 1) & 31))
+    if (const auto MA = getAlign())
       return MA->value();
     return 0;
   }
 
-  void setAlignment(MaybeAlign Align);
+  /// Return the alignment of the access that is being performed.
+  MaybeAlign getAlign() const {
+    return decodeMaybeAlign((getSubclassDataFromInstruction() >> 1) & 31);
+  }
+
+  void setAlignment(MaybeAlign Alignment);
 
   /// Returns the ordering constraint of this load instruction.
   AtomicOrdering getOrdering() const {
@@ -365,14 +375,19 @@ public:
   DECLARE_TRANSPARENT_OPERAND_ACCESSORS(Value);
 
   /// Return the alignment of the access that is being performed
+  /// FIXME: Remove this function once transition to Align is over.
+  /// Use getAlign() instead.
   unsigned getAlignment() const {
-    if (const auto MA =
-            decodeMaybeAlign((getSubclassDataFromInstruction() >> 1) & 31))
+    if (const auto MA = getAlign())
       return MA->value();
     return 0;
   }
 
-  void setAlignment(MaybeAlign Align);
+  MaybeAlign getAlign() const {
+    return decodeMaybeAlign((getSubclassDataFromInstruction() >> 1) & 31);
+  }
+
+  void setAlignment(MaybeAlign Alignment);
 
   /// Returns the ordering constraint of this store instruction.
   AtomicOrdering getOrdering() const {
@@ -993,15 +1008,22 @@ public:
     return getPointerAddressSpace();
   }
 
-  /// Returns the type of the element that would be loaded with
-  /// a load instruction with the specified parameters.
+  /// Returns the result type of a getelementptr with the given source
+  /// element type and indexes.
   ///
   /// Null is returned if the indices are invalid for the specified
-  /// pointer type.
-  ///
+  /// source element type.
   static Type *getIndexedType(Type *Ty, ArrayRef<Value *> IdxList);
   static Type *getIndexedType(Type *Ty, ArrayRef<Constant *> IdxList);
   static Type *getIndexedType(Type *Ty, ArrayRef<uint64_t> IdxList);
+
+  /// Return the type of the element at the given index of an indexable
+  /// type.  This is equivalent to "getIndexedType(Agg, {Zero, Idx})".
+  ///
+  /// Returns null if the type can't be indexed, or the given index is not
+  /// legal for the given type.
+  static Type *getTypeAtIndex(Type *Ty, Value *Idx);
+  static Type *getTypeAtIndex(Type *Ty, uint64_t Idx);
 
   inline op_iterator       idx_begin()       { return op_begin()+1; }
   inline const_op_iterator idx_begin() const { return op_begin()+1; }
@@ -1045,13 +1067,13 @@ public:
                                    Ptr->getType()->getPointerAddressSpace());
     // Vector GEP
     if (Ptr->getType()->isVectorTy()) {
-      unsigned NumElem = Ptr->getType()->getVectorNumElements();
-      return VectorType::get(PtrTy, NumElem);
+      ElementCount EltCount = Ptr->getType()->getVectorElementCount();
+      return VectorType::get(PtrTy, EltCount);
     }
     for (Value *Index : IdxList)
       if (Index->getType()->isVectorTy()) {
-        unsigned NumElem = Index->getType()->getVectorNumElements();
-        return VectorType::get(PtrTy, NumElem);
+        ElementCount EltCount = Index->getType()->getVectorElementCount();
+        return VectorType::get(PtrTy, EltCount);
       }
     // Scalar GEP
     return PtrTy;
@@ -5289,6 +5311,35 @@ inline unsigned getLoadStoreAddressSpace(Value *I) {
     return LI->getPointerAddressSpace();
   return cast<StoreInst>(I)->getPointerAddressSpace();
 }
+
+//===----------------------------------------------------------------------===//
+//                              FreezeInst Class
+//===----------------------------------------------------------------------===//
+
+/// This class represents a freeze function that returns random concrete
+/// value if an operand is either a poison value or an undef value
+class FreezeInst : public UnaryInstruction {
+protected:
+  // Note: Instruction needs to be a friend here to call cloneImpl.
+  friend class Instruction;
+
+  /// Clone an identical FreezeInst
+  FreezeInst *cloneImpl() const;
+
+public:
+  explicit FreezeInst(Value *S,
+                      const Twine &NameStr = "",
+                      Instruction *InsertBefore = nullptr);
+  FreezeInst(Value *S, const Twine &NameStr, BasicBlock *InsertAtEnd);
+
+  // Methods for support type inquiry through isa, cast, and dyn_cast:
+  static inline bool classof(const Instruction *I) {
+    return I->getOpcode() == Freeze;
+  }
+  static inline bool classof(const Value *V) {
+    return isa<Instruction>(V) && classof(cast<Instruction>(V));
+  }
+};
 
 } // end namespace llvm
 

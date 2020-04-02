@@ -30,7 +30,7 @@
 
 namespace clang {
 namespace transformer {
-using TextGenerator = MatchConsumer<std::string>;
+using TextGenerator = std::shared_ptr<MatchComputation<std::string>>;
 
 // Description of a source-code edit, expressed in terms of an AST node.
 // Includes: an ID for the (bound) node, a selector for source related to the
@@ -203,7 +203,8 @@ inline ASTEdit change(RangeSelector Target, TextGenerator Replacement) {
 ///            changeTo(cat("bar()")))
 /// \endcode
 inline ASTEdit changeTo(TextGenerator Replacement) {
-  return changeTo(node(RewriteRule::RootID), std::move(Replacement));
+  return changeTo(node(std::string(RewriteRule::RootID)),
+                  std::move(Replacement));
 }
 /// DEPRECATED: use \c changeTo.
 inline ASTEdit change(TextGenerator Replacement) {
@@ -223,11 +224,7 @@ inline ASTEdit insertAfter(RangeSelector S, TextGenerator Replacement) {
 }
 
 /// Removes the source selected by \p S.
-inline ASTEdit remove(RangeSelector S) {
-  return change(std::move(S),
-                [](const ast_matchers::MatchFinder::MatchResult &)
-                    -> Expected<std::string> { return ""; });
-}
+ASTEdit remove(RangeSelector S);
 
 /// The following three functions are a low-level part of the RewriteRule
 /// API. We expose them for use in implementing the fixtures that interpret
@@ -294,10 +291,7 @@ namespace tooling {
 /// Wraps a string as a TextGenerator.
 using TextGenerator = transformer::TextGenerator;
 
-inline TextGenerator text(std::string M) {
-  return [M](const ast_matchers::MatchFinder::MatchResult &)
-             -> Expected<std::string> { return M; };
-}
+TextGenerator text(std::string M);
 
 using transformer::addInclude;
 using transformer::applyFirst;

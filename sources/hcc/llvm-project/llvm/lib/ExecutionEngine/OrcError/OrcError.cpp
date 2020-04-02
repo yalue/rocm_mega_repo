@@ -14,6 +14,8 @@
 #include "llvm/Support/ErrorHandling.h"
 #include "llvm/Support/ManagedStatic.h"
 
+#include <type_traits>
+
 using namespace llvm;
 using namespace llvm::orc;
 
@@ -59,6 +61,10 @@ public:
              "(Use StringError to get error message)";
     case OrcErrorCode::UnknownResourceHandle:
       return "Unknown resource handle";
+    case OrcErrorCode::MissingSymbolDefinitions:
+      return "MissingSymbolsDefinitions";
+    case OrcErrorCode::UnexpectedSymbolDefinitions:
+      return "UnexpectedSymbolDefinitions";
     }
     llvm_unreachable("Unhandled error code");
   }

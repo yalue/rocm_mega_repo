@@ -1,4 +1,4 @@
-//===-- SBModule.cpp --------------------------------------------*- C++ -*-===//
+//===-- SBModule.cpp ------------------------------------------------------===//
 //
 // Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
 // See https://llvm.org/LICENSE.txt for license information.
@@ -75,7 +75,7 @@ const SBModule &SBModule::operator=(const SBModule &rhs) {
   return LLDB_RECORD_RESULT(*this);
 }
 
-SBModule::~SBModule() {}
+SBModule::~SBModule() = default;
 
 bool SBModule::IsValid() const {
   LLDB_RECORD_METHOD_CONST_NO_ARGS(bool, SBModule, IsValid);
@@ -245,7 +245,7 @@ bool SBModule::GetDescription(SBStream &description) {
 
   ModuleSP module_sp(GetSP());
   if (module_sp) {
-    module_sp->GetDescription(&strm);
+    module_sp->GetDescription(strm.AsRawOstream());
   } else
     strm.PutCString("No value");
 
@@ -401,8 +401,8 @@ lldb::SBSymbolContextList SBModule::FindFunctions(const char *name,
     const bool symbols_ok = true;
     const bool inlines_ok = true;
     FunctionNameType type = static_cast<FunctionNameType>(name_type_mask);
-    module_sp->FindFunctions(ConstString(name), nullptr, type, symbols_ok,
-                             inlines_ok, *sb_sc_list);
+    module_sp->FindFunctions(ConstString(name), CompilerDeclContext(), type,
+                             symbols_ok, inlines_ok, *sb_sc_list);
   }
   return LLDB_RECORD_RESULT(sb_sc_list);
 }
@@ -417,18 +417,14 @@ SBValueList SBModule::FindGlobalVariables(SBTarget &target, const char *name,
   ModuleSP module_sp(GetSP());
   if (name && module_sp) {
     VariableList variable_list;
-    module_sp->FindGlobalVariables(ConstString(name), nullptr, max_matches,
-                                   variable_list);
-    const uint32_t match_count = variable_list.GetSize();
-    if (match_count > 0) {
-      for (uint32_t i = 0; i < match_count; ++i) {
-        lldb::ValueObjectSP valobj_sp;
-        TargetSP target_sp(target.GetSP());
-        valobj_sp = ValueObjectVariable::Create(
-            target_sp.get(), variable_list.GetVariableAtIndex(i));
-        if (valobj_sp)
-          sb_value_list.Append(SBValue(valobj_sp));
-      }
+    module_sp->FindGlobalVariables(ConstString(name), CompilerDeclContext(),
+                                   max_matches, variable_list);
+    for (const VariableSP &var_sp : variable_list) {
+      lldb::ValueObjectSP valobj_sp;
+      TargetSP target_sp(target.GetSP());
+      valobj_sp = ValueObjectVariable::Create(target_sp.get(), var_sp);
+      if (valobj_sp)
+        sb_value_list.Append(SBValue(valobj_sp));
     }
   }
 

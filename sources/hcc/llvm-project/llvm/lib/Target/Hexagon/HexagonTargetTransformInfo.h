@@ -106,10 +106,12 @@ public:
             unsigned VF);
   unsigned getCallInstrCost(Function *F, Type *RetTy, ArrayRef<Type*> Tys);
   unsigned getIntrinsicInstrCost(Intrinsic::ID ID, Type *RetTy,
-            ArrayRef<Value*> Args, FastMathFlags FMF, unsigned VF);
+                                 ArrayRef<Value *> Args, FastMathFlags FMF,
+                                 unsigned VF, const Instruction *I);
   unsigned getIntrinsicInstrCost(Intrinsic::ID ID, Type *RetTy,
-            ArrayRef<Type*> Tys, FastMathFlags FMF,
-            unsigned ScalarizationCostPassed = UINT_MAX);
+                                 ArrayRef<Type *> Tys, FastMathFlags FMF,
+                                 unsigned ScalarizationCostPassed = UINT_MAX,
+                                 const Instruction *I = nullptr);
   unsigned getAddressComputationCost(Type *Tp, ScalarEvolution *SE,
             const SCEV *S);
   unsigned getMemoryOpCost(unsigned Opcode, Type *Src, MaybeAlign Alignment,
@@ -120,19 +122,22 @@ public:
   unsigned getShuffleCost(TTI::ShuffleKind Kind, Type *Tp, int Index,
             Type *SubTp);
   unsigned getGatherScatterOpCost(unsigned Opcode, Type *DataTy, Value *Ptr,
-            bool VariableMask, unsigned Alignment);
+                                  bool VariableMask, unsigned Alignment,
+                                  const Instruction *I);
   unsigned getInterleavedMemoryOpCost(unsigned Opcode, Type *VecTy,
             unsigned Factor, ArrayRef<unsigned> Indices, unsigned Alignment,
             unsigned AddressSpace, bool UseMaskForCond = false,
             bool UseMaskForGaps = false);
   unsigned getCmpSelInstrCost(unsigned Opcode, Type *ValTy, Type *CondTy,
             const Instruction *I);
-  unsigned getArithmeticInstrCost(unsigned Opcode, Type *Ty,
-            TTI::OperandValueKind Opd1Info = TTI::OK_AnyValue,
-            TTI::OperandValueKind Opd2Info = TTI::OK_AnyValue,
-            TTI::OperandValueProperties Opd1PropInfo = TTI::OP_None,
-            TTI::OperandValueProperties Opd2PropInfo = TTI::OP_None,
-            ArrayRef<const Value *> Args = ArrayRef<const Value *>());
+  unsigned getArithmeticInstrCost(
+      unsigned Opcode, Type *Ty,
+      TTI::OperandValueKind Opd1Info = TTI::OK_AnyValue,
+      TTI::OperandValueKind Opd2Info = TTI::OK_AnyValue,
+      TTI::OperandValueProperties Opd1PropInfo = TTI::OP_None,
+      TTI::OperandValueProperties Opd2PropInfo = TTI::OP_None,
+      ArrayRef<const Value *> Args = ArrayRef<const Value *>(),
+      const Instruction *CxtI = nullptr);
   unsigned getCastInstrCost(unsigned Opcode, Type *Dst, Type *Src,
             const Instruction *I = nullptr);
   unsigned getVectorInstrCost(unsigned Opcode, Type *Val, unsigned Index);

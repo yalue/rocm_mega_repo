@@ -83,7 +83,7 @@ std::error_code CodeObjectDisassembler::printNotes(const HSACodeObject *CodeObje
       AsmStreamer->EmitDirectiveHSACodeObjectVersion(
         Version->major_version,
         Version->minor_version);
-      AsmStreamer->getStreamer().EmitRawText("");
+      AsmStreamer->getStreamer().emitRawText("");
       break;
     }
 
@@ -99,7 +99,7 @@ std::error_code CodeObjectDisassembler::printNotes(const HSACodeObject *CodeObje
         Isa->stepping,
         Isa->getVendorName(),
         Isa->getArchitectureName());
-      AsmStreamer->getStreamer().EmitRawText("");
+      AsmStreamer->getStreamer().emitRawText("");
       break;
     }
     }
@@ -121,7 +121,7 @@ static std::string getCPUName(const HSACodeObject *CodeObject) {
       SmallString<6> OutStr;
       raw_svector_ostream OS(OutStr);
       OS << "gfx" << Isa->major << Isa->minor << Isa->stepping;
-      return OS.str();
+      return std::string(OS.str());
     }
   }
   return "";
@@ -184,12 +184,12 @@ CodeObjectDisassembler::printFunctions(const HSACodeObject *CodeObject,
         return errorToErrorCode(KernelCodeTOr.takeError());
 
       AsmStreamer->EmitAMDGPUSymbolType(*NameEr, Kernel->getType());
-      AsmStreamer->getStreamer().EmitRawText("");
+      AsmStreamer->getStreamer().emitRawText("");
 
-      AsmStreamer->getStreamer().EmitRawText(*NameEr + ":");
+      AsmStreamer->getStreamer().emitRawText(*NameEr + ":");
 
       AsmStreamer->EmitAMDKernelCodeT(*(*KernelCodeTOr));
-      AsmStreamer->getStreamer().EmitRawText("");
+      AsmStreamer->getStreamer().emitRawText("");
 
       Address += (*KernelCodeTOr)->kernel_code_entry_byte_offset;
     } else {
@@ -198,9 +198,9 @@ CodeObjectDisassembler::printFunctions(const HSACodeObject *CodeObject,
       MCSymbolELF *Symbol = cast<MCSymbolELF>(
           AsmStreamer->getStreamer().getContext().getOrCreateSymbol(Name));
       Symbol->setType(ELF::STT_FUNC);
-      AsmStreamer->getStreamer().EmitSymbolAttribute(Symbol,
+      AsmStreamer->getStreamer().emitSymbolAttribute(Symbol,
                                                      MCSA_ELF_TypeFunction);
-      AsmStreamer->getStreamer().EmitLabel(Symbol);
+      AsmStreamer->getStreamer().emitLabel(Symbol);
     }
 
     auto CodeOr = CodeObject->getCode(Function);
@@ -231,7 +231,7 @@ void CodeObjectDisassembler::printFunctionCode(const MCDisassembler &InstDisasm,
 
   Bytes = trimTrailingZeroes(Bytes, 256);
 
-  AsmStreamer->getStreamer().EmitRawText("// Disassembly:");
+  AsmStreamer->getStreamer().emitRawText("// Disassembly:");
   SmallString<40> InstStr, CommentStr, OutStr;
   for (uint64_t Index = 0; Index < Bytes.size();) {
     ArrayRef<uint8_t> Code = Bytes.slice(Index);
@@ -255,9 +255,8 @@ void CodeObjectDisassembler::printFunctionCode(const MCDisassembler &InstDisasm,
     if (InstDisasm.getInstruction(Inst, EatenBytesNum,
                                   Code,
                                   Address,
-                                  DebugFlag ? dbgs() : nulls(),
                                   CS)) {
-      InstPrinter->printInst(&Inst, IS, "", InstDisasm.getSubtargetInfo());
+      InstPrinter->printInst(&Inst, Address, "", InstDisasm.getSubtargetInfo(), IS);
     } else {
       IS << "\t// unrecognized instruction ";
       if (EatenBytesNum == 0)
@@ -276,12 +275,12 @@ void CodeObjectDisassembler::printFunctionCode(const MCDisassembler &InstDisasm,
     if (!CS.str().empty())
       OS << " // " << CS.str();
 
-    AsmStreamer->getStreamer().EmitRawText(OS.str());
+    AsmStreamer->getStreamer().emitRawText(std::string(OS.str()));
 
     Address += EatenBytesNum;
     Index += EatenBytesNum;
   }
-  AsmStreamer->getStreamer().EmitRawText("");
+  AsmStreamer->getStreamer().emitRawText("");
 }
 
 std::error_code CodeObjectDisassembler::Disassemble(MemoryBufferRef Buffer,

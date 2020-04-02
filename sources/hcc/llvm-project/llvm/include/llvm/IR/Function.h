@@ -43,7 +43,7 @@
 namespace llvm {
 
 namespace Intrinsic {
-enum ID : unsigned;
+typedef unsigned ID;
 }
 
 class AssemblyAnnotationWriter;
@@ -349,6 +349,13 @@ public:
     return 0;
   }
 
+  /// Return the stack alignment for the function.
+  MaybeAlign getFnStackAlign() const {
+    if (!hasFnAttribute(Attribute::StackAlignment))
+      return None;
+    return AttributeSets.getStackAlignment(AttributeList::FunctionIndex);
+  }
+
   /// hasGC/getGC/setGC/clearGC - The name of the garbage collection algorithm
   ///                             to use during code generation.
   bool hasGC() const {
@@ -435,10 +442,16 @@ public:
   void addDereferenceableOrNullParamAttr(unsigned ArgNo, uint64_t Bytes);
 
   /// Extract the alignment for a call or parameter (0=unknown).
+  /// FIXME: Remove this function once transition to Align is over.
+  /// Use getParamAlign() instead.
   unsigned getParamAlignment(unsigned ArgNo) const {
-    if (const auto MA = AttributeSets.getParamAlignment(ArgNo))
+    if (const auto MA = getParamAlign(ArgNo))
       return MA->value();
     return 0;
+  }
+
+  MaybeAlign getParamAlign(unsigned ArgNo) const {
+    return AttributeSets.getParamAlignment(ArgNo);
   }
 
   /// Extract the byval type for a parameter.

@@ -40,7 +40,6 @@ enum RelExpr {
   R_GOTPLT,
   R_GOTPLTREL,
   R_GOTREL,
-  R_HINT,
   R_NEG_TLS,
   R_NONE,
   R_PC,
@@ -81,6 +80,7 @@ enum RelExpr {
   R_AARCH64_PAGE_PC,
   R_AARCH64_RELAX_TLS_GD_TO_IE_PAGE_PC,
   R_AARCH64_TLSDESC_PAGE,
+  R_ARM_PCA,
   R_ARM_SBREL,
   R_MIPS_GOTREL,
   R_MIPS_GOT_GP,
@@ -115,7 +115,8 @@ template <class ELFT> void scanRelocations(InputSectionBase &);
 
 template <class ELFT> void reportUndefinedSymbols();
 
-void addIRelativeRelocs();
+void hexagonTLSSymbolUpdate(ArrayRef<OutputSection *> outputSections);
+bool hexagonNeedsTLSSymbol(ArrayRef<OutputSection *> outputSections);
 
 class ThunkSection;
 class Thunk;
@@ -150,10 +151,17 @@ private:
 
   bool normalizeExistingThunk(Relocation &rel, uint64_t src);
 
-  // Record all the available Thunks for a Symbol
-  llvm::DenseMap<std::pair<SectionBase *, uint64_t>, std::vector<Thunk *>>
-      thunkedSymbolsBySection;
-  llvm::DenseMap<Symbol *, std::vector<Thunk *>> thunkedSymbols;
+  // Record all the available Thunks for a (Symbol, addend) pair, where Symbol
+  // is represented as a (section, offset) pair. There may be multiple
+  // relocations sharing the same (section, offset + addend) pair. We may revert
+  // a relocation back to its original non-Thunk target, and restore the
+  // original addend, so we cannot fold offset + addend. A nested pair is used
+  // because DenseMapInfo is not specialized for std::tuple.
+  llvm::DenseMap<std::pair<std::pair<SectionBase *, uint64_t>, int64_t>,
+                 std::vector<Thunk *>>
+      thunkedSymbolsBySectionAndAddend;
+  llvm::DenseMap<std::pair<Symbol *, int64_t>, std::vector<Thunk *>>
+      thunkedSymbols;
 
   // Find a Thunk from the Thunks symbol definition, we can use this to find
   // the Thunk from a relocation to the Thunks symbol definition.

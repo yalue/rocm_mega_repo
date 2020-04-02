@@ -48,7 +48,7 @@ public:
   /// Attempts to run Clang and store parsed AST. If \p Preamble is non-null
   /// it is reused during parsing.
   static llvm::Optional<ParsedAST>
-  build(std::unique_ptr<clang::CompilerInvocation> CI,
+  build(llvm::StringRef Version, std::unique_ptr<clang::CompilerInvocation> CI,
         llvm::ArrayRef<Diag> CompilerInvocationDiags,
         std::shared_ptr<const PreambleData> Preamble,
         std::unique_ptr<llvm::MemoryBuffer> Buffer,
@@ -77,6 +77,10 @@ public:
     return getASTContext().getSourceManager();
   }
 
+  const LangOptions &getLangOpts() const {
+    return getASTContext().getLangOpts();
+  }
+
   /// This function returns top-level decls present in the main file of the AST.
   /// The result does not include the decls that come from the preamble.
   /// (These should be const, but RecursiveASTVisitor requires Decl*).
@@ -84,7 +88,7 @@ public:
 
   const std::vector<Diag> &getDiagnostics() const;
 
-  /// Returns the esitmated size of the AST and the accessory structures, in
+  /// Returns the estimated size of the AST and the accessory structures, in
   /// bytes. Does not include the size of the preamble.
   std::size_t getUsedBytes() const;
   const IncludeStructure &getIncludeStructure() const;
@@ -97,14 +101,19 @@ public:
   /// (!) does not have tokens from the preamble.
   const syntax::TokenBuffer &getTokens() const { return Tokens; }
 
+  /// Returns the version of the ParseInputs this AST was built from.
+  llvm::StringRef version() const { return Version; }
+
 private:
-  ParsedAST(std::shared_ptr<const PreambleData> Preamble,
+  ParsedAST(llvm::StringRef Version,
+            std::shared_ptr<const PreambleData> Preamble,
             std::unique_ptr<CompilerInstance> Clang,
             std::unique_ptr<FrontendAction> Action, syntax::TokenBuffer Tokens,
             MainFileMacros Macros, std::vector<Decl *> LocalTopLevelDecls,
             std::vector<Diag> Diags, IncludeStructure Includes,
             CanonicalIncludes CanonIncludes);
 
+  std::string Version;
   // In-memory preambles must outlive the AST, it is important that this member
   // goes before Clang and Action.
   std::shared_ptr<const PreambleData> Preamble;

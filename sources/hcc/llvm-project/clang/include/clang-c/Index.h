@@ -18,10 +18,11 @@
 
 #include <time.h>
 
-#include "clang-c/Platform.h"
+#include "clang-c/BuildSystem.h"
 #include "clang-c/CXErrorCode.h"
 #include "clang-c/CXString.h"
-#include "clang-c/BuildSystem.h"
+#include "clang-c/ExternC.h"
+#include "clang-c/Platform.h"
 
 /**
  * The version constants for the libclang API.
@@ -51,9 +52,7 @@
     CINDEX_VERSION_MAJOR,                               \
     CINDEX_VERSION_MINOR)
 
-#ifdef __cplusplus
-extern "C" {
-#endif
+LLVM_CLANG_C_EXTERN_C_BEGIN
 
 /** \defgroup CINDEX libclang: C Interface to Clang
  *
@@ -2571,7 +2570,19 @@ enum CXCursorKind {
    */
   CXCursor_OMPParallelMasterTaskLoopSimdDirective      = 284,
 
-  CXCursor_LastStmt = CXCursor_OMPParallelMasterTaskLoopSimdDirective,
+  /** OpenMP parallel master directive.
+   */
+  CXCursor_OMPParallelMasterDirective      = 285,
+
+  /** OpenMP depobj directive.
+   */
+  CXCursor_OMPDepobjDirective             = 286,
+
+  /** OpenMP scan directive.
+   */
+  CXCursor_OMPScanDirective               = 287,
+
+  CXCursor_LastStmt = CXCursor_OMPScanDirective,
 
   /**
    * Cursor that represents the translation unit itself.
@@ -3742,7 +3753,7 @@ CINDEX_LINKAGE unsigned clang_Type_getNumObjCProtocolRefs(CXType T);
 CINDEX_LINKAGE CXCursor clang_Type_getObjCProtocolDecl(CXType T, unsigned i);
 
 /**
- * Retreive the number of type arguments associated with an ObjC object.
+ * Retrieve the number of type arguments associated with an ObjC object.
  *
  * If the type is not an ObjC object, 0 is returned.
  */
@@ -6774,7 +6785,6 @@ CINDEX_LINKAGE unsigned clang_Type_visitFields(CXType T,
  * @}
  */
 
-#ifdef __cplusplus
-}
-#endif
+LLVM_CLANG_C_EXTERN_C_END
+
 #endif

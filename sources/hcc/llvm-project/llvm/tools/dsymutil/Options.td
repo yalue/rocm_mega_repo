@@ -97,7 +97,7 @@ def output: Separate<["--", "-"], "o">,
   MetaVarName<"<filename>">,
   HelpText<"Specify the output file. Defaults to <input file>.dwarf">,
   Group<grp_general>;
-def: Separate<["-"], "out">,
+def: Separate<["--", "-"], "out">,
   Alias<output>,
   HelpText<"Alias for --o">,
   Group<grp_general>;
@@ -109,6 +109,15 @@ def oso_prepend_path: Separate<["--", "-"], "oso-prepend-path">,
   HelpText<"Specify a directory to prepend to the paths of object files.">,
   Group<grp_general>;
 def: Joined<["--", "-"], "oso-prepend-path=">, Alias<oso_prepend_path>;
+
+def object_prefix_map: Separate<["--", "-"], "object-prefix-map">,
+    MetaVarName<"<prefix=remapped>">,
+    HelpText<"Remap object file paths (but no source paths) before processing."
+             "Use this for Clang objects where the module cache location was"
+             "remapped using -fdebug-prefix-map; to help dsymutil"
+             "find the Clang module cache.">,
+    Group<grp_general>;
+def: Joined<["--", "-"], "object-prefix-map=">, Alias<object_prefix_map>;
 
 def symbolmap: Separate<["--", "-"], "symbol-map">,
   MetaVarName<"<bcsymbolmap>">,

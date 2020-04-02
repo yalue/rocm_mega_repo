@@ -68,8 +68,8 @@ unsigned Mips16InstrInfo::isStoreToStackSlot(const MachineInstr &MI,
 
 void Mips16InstrInfo::copyPhysReg(MachineBasicBlock &MBB,
                                   MachineBasicBlock::iterator I,
-                                  const DebugLoc &DL, unsigned DestReg,
-                                  unsigned SrcReg, bool KillSrc) const {
+                                  const DebugLoc &DL, MCRegister DestReg,
+                                  MCRegister SrcReg, bool KillSrc) const {
   unsigned Opc = 0;
 
   if (Mips::CPU16RegsRegClass.contains(DestReg) &&
@@ -105,7 +105,7 @@ Mips16InstrInfo::isCopyInstrImpl(const MachineInstr &MI) const {
 
 void Mips16InstrInfo::storeRegToStack(MachineBasicBlock &MBB,
                                       MachineBasicBlock::iterator I,
-                                      unsigned SrcReg, bool isKill, int FI,
+                                      Register SrcReg, bool isKill, int FI,
                                       const TargetRegisterClass *RC,
                                       const TargetRegisterInfo *TRI,
                                       int64_t Offset) const {
@@ -123,7 +123,7 @@ void Mips16InstrInfo::storeRegToStack(MachineBasicBlock &MBB,
 
 void Mips16InstrInfo::loadRegFromStack(MachineBasicBlock &MBB,
                                        MachineBasicBlock::iterator I,
-                                       unsigned DestReg, int FI,
+                                       Register DestReg, int FI,
                                        const TargetRegisterClass *RC,
                                        const TargetRegisterInfo *TRI,
                                        int64_t Offset) const {
@@ -182,7 +182,7 @@ unsigned Mips16InstrInfo::getOppositeBranchOpc(unsigned Opc) const {
 }
 
 static void addSaveRestoreRegs(MachineInstrBuilder &MIB,
-                               const std::vector<CalleeSavedInfo> &CSI,
+                               ArrayRef<CalleeSavedInfo> CSI,
                                unsigned Flags = 0) {
   for (unsigned i = 0, e = CSI.size(); i != e; ++i) {
     // Add the callee-saved register as live-in. Do not add if the register is

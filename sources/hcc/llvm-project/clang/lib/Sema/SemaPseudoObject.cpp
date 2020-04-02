@@ -145,7 +145,7 @@ namespace {
         assocExprs.reserve(numAssocs);
         assocTypes.reserve(numAssocs);
 
-        for (const GenericSelectionExpr::Association &assoc :
+        for (const GenericSelectionExpr::Association assoc :
              gse->associations()) {
           Expr *assocExpr = assoc.getAssociationExpr();
           if (assoc.isSelected())
@@ -167,16 +167,11 @@ namespace {
         Expr *&rebuiltExpr = ce->isConditionTrue() ? LHS : RHS;
         rebuiltExpr = rebuild(rebuiltExpr);
 
-        return new (S.Context) ChooseExpr(ce->getBuiltinLoc(),
-                                          ce->getCond(),
-                                          LHS, RHS,
-                                          rebuiltExpr->getType(),
-                                          rebuiltExpr->getValueKind(),
-                                          rebuiltExpr->getObjectKind(),
-                                          ce->getRParenLoc(),
-                                          ce->isConditionTrue(),
-                                          rebuiltExpr->isTypeDependent(),
-                                          rebuiltExpr->isValueDependent());
+        return new (S.Context)
+            ChooseExpr(ce->getBuiltinLoc(), ce->getCond(), LHS, RHS,
+                       rebuiltExpr->getType(), rebuiltExpr->getValueKind(),
+                       rebuiltExpr->getObjectKind(), ce->getRParenLoc(),
+                       ce->isConditionTrue());
       }
 
       llvm_unreachable("bad expression to rebuild!");

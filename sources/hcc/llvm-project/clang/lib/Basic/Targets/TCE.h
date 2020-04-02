@@ -40,6 +40,9 @@ static const unsigned TCEOpenCLAddrSpaceMap[] = {
     0, // cuda_device
     0, // cuda_constant
     0, // cuda_shared
+    0, // ptr32_sptr
+    0, // ptr32_uptr
+    0, // ptr64
     4, // hcc_tilestatic
     0, // hcc_generic
     3, // hcc_global

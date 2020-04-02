@@ -372,10 +372,11 @@ add_custom_command(TARGET clang_links POST_BUILD
 )
 
 # install certain LLVM libraries needed by HIP
-install(PROGRAMS $<TARGET_FILE:LLVMSelectAcceleratorCode>
+install(PROGRAMS $<TARGET_FILE:LLVMPromoteConstant>
                  $<TARGET_FILE:LLVMPromotePointerKernArgsToGlobal>
+                 $<TARGET_FILE:LLVMSelectAcceleratorCode>
         DESTINATION lib
-        COMPONENT llvm-project/llvm 
+        COMPONENT llvm-project/llvm
 )
 
 # force library install path to lib
@@ -574,7 +575,7 @@ set(CPACK_DEBIAN_PACKAGE_SECTION "devel")
 set(CPACK_DEBIAN_PACKAGE_CONTROL_EXTRA
   "${PROJECT_BINARY_DIR}/packaging/debian/postinst;${PROJECT_BINARY_DIR}/packaging/debian/prerm")
 
-set(HCC_GENERAL_DEBIAN_DEP "coreutils, g++-multilib, gcc-multilib, findutils, libelf1, libpci3, file, 
+set(HCC_GENERAL_DEBIAN_DEP "coreutils, g++-multilib, gcc-multilib, findutils, libelf1, libpci3, file,
                              libfile-basedir-perl, libfile-copy-recursive-perl, libfile-listing-perl, libfile-which-perl")
 
 # control the list of package dependency depending on whether this is an official release build.
@@ -604,8 +605,12 @@ if("${DISTRO_ID}" MATCHES "opensuse" OR
    "${DISTRO_ID}" MATCHES "suse" OR
    "${DISTRO_ID}" MATCHES "sles" )
    set(HCC_GENERAL_RPM_DEP "coreutils, findutils, libelf-devel, pciutils, file, perl-File-Copy-Recursive, perl-File-Listing, perl-File-Which")
+elseif( "${DISTRO_ID}" MATCHES "centos" OR 
+        "${DISTRO_ID}" MATCHES "redhatenterpriseserver" AND 
+        "${DISTRO_RELEASE}" MATCHES "^7")
+    set(HCC_GENERAL_RPM_DEP "coreutils, findutils, elfutils-libelf, pciutils-libs, file, pth, perl-File-BaseDir, perl-File-Copy-Recursive, perl-File-Listing, perl-File-Which")
 else()
-   set(HCC_GENERAL_RPM_DEP "coreutils, findutils, elfutils-libelf, pciutils-libs, file, pth, perl-File-BaseDir, perl-File-Copy-Recursive, perl-File-Listing, perl-File-Which")
+   set(HCC_GENERAL_RPM_DEP "coreutils, findutils, elfutils-libelf, pciutils-libs, file, npth, perl-File-BaseDir, perl-File-Copy-Recursive, perl-File-Listing, perl-File-Which")
 endif ()
 
 set(CPACK_RPM_PACKAGE_REQUIRES "${HCC_GENERAL_RPM_DEP} ${HCC_ROCR_DEP} ${HCC_LIBCXX_RPM_DEP}" )

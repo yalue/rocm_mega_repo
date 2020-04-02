@@ -85,11 +85,11 @@ class Timer {
   Timer **Prev = nullptr;   ///< Pointer to \p Next of previous timer in group.
   Timer *Next = nullptr;    ///< Next timer in the group.
 public:
-  explicit Timer(StringRef Name, StringRef Description) {
-    init(Name, Description);
+  explicit Timer(StringRef TimerName, StringRef TimerDescription) {
+    init(TimerName, TimerDescription);
   }
-  Timer(StringRef Name, StringRef Description, TimerGroup &tg) {
-    init(Name, Description, tg);
+  Timer(StringRef TimerName, StringRef TimerDescription, TimerGroup &tg) {
+    init(TimerName, TimerDescription, tg);
   }
   Timer(const Timer &RHS) {
     assert(!RHS.TG && "Can only copy uninitialized timers");
@@ -102,8 +102,8 @@ public:
 
   /// Create an uninitialized timer, client must use 'init'.
   explicit Timer() {}
-  void init(StringRef Name, StringRef Description);
-  void init(StringRef Name, StringRef Description, TimerGroup &tg);
+  void init(StringRef TimerName, StringRef TimerDescription);
+  void init(StringRef TimerName, StringRef TimerDescription, TimerGroup &tg);
 
   const std::string &getName() const { return Name; }
   const std::string &getDescription() const { return Description; }
@@ -174,6 +174,7 @@ class TimerGroup {
     std::string Description;
 
     PrintRecord(const PrintRecord &Other) = default;
+    PrintRecord &operator=(const PrintRecord &Other) = default;
     PrintRecord(const TimeRecord &Time, const std::string &Name,
                 const std::string &Description)
       : Time(Time), Name(Name), Description(Description) {}
@@ -229,6 +230,11 @@ public:
   /// used by the Statistic code to influence the construction and destruction
   /// order of the global timer lists.
   static void ConstructTimerLists();
+
+  /// This makes the default group unmanaged, and lets the user manage the
+  /// group's lifetime.
+  static std::unique_ptr<TimerGroup> aquireDefaultGroup();
+
 private:
   friend class Timer;
   friend void PrintStatisticsJSON(raw_ostream &OS);

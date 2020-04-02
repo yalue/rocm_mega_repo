@@ -14,6 +14,7 @@
 #include "clang/AST/ASTConsumer.h"
 #include "clang/AST/ASTContext.h"
 #include "clang/AST/DeclTemplate.h"
+#include "clang/Basic/FileManager.h"
 #include "clang/Parse/ParseDiagnostic.h"
 #include "clang/Parse/RAIIObjectsForParser.h"
 #include "clang/Sema/DeclSpec.h"
@@ -278,6 +279,10 @@ bool Parser::SkipUntil(ArrayRef<tok::TokenKind> Toks, SkipUntilFlags Flags) {
     case tok::annot_pragma_openmp:
     case tok::annot_pragma_openmp_end:
       // Stop before an OpenMP pragma boundary.
+      if (OpenMPDirectiveParsing)
+        return false;
+      ConsumeAnnotationToken();
+      break;
     case tok::annot_module_begin:
     case tok::annot_module_end:
     case tok::annot_module_include:
@@ -646,6 +651,16 @@ bool Parser::ParseTopLevelDecl(DeclGroupPtrTy &Result, bool IsFirstDecl) {
     return false;
 
   case tok::eof:
+    // Check whether -fmax-tokens= was reached.
+    if (PP.getMaxTokens() != 0 && PP.getTokenCount() > PP.getMaxTokens()) {
+      PP.Diag(Tok.getLocation(), diag::warn_max_tokens_total)
+          << PP.getTokenCount() << PP.getMaxTokens();
+      SourceLocation OverrideLoc = PP.getMaxTokensOverrideLoc();
+      if (OverrideLoc.isValid()) {
+        PP.Diag(OverrideLoc, diag::note_max_tokens_total_override);
+      }
+    }
+
     // Late template parsing can begin.
     if (getLangOpts().DelayedTemplateParsing)
       Actions.SetLateTemplateParser(LateTemplateParserCallback,
@@ -799,7 +814,7 @@ Parser::ParseExternalDeclaration(ParsedAttributesWithRange &attrs,
     SourceLocation StartLoc = Tok.getLocation();
     SourceLocation EndLoc;
 
-    ExprResult Result(ParseSimpleAsm(&EndLoc));
+    ExprResult Result(ParseSimpleAsm(/*ForAsmLabel*/ false, &EndLoc));
 
     // Check if GNU-style InlineAsm is disabled.
     // Empty asm string is allowed because it will not introduce
@@ -1137,6 +1152,7 @@ Decl *Parser::ParseFunctionDefinition(ParsingDeclarator &D,
   // Poison SEH identifiers so they are flagged as illegal in function bodies.
   PoisonSEHIdentifiersRAIIObject PoisonSEHIdentifiers(*this, true);
   const DeclaratorChunk::FunctionTypeInfo &FTI = D.getFunctionTypeInfo();
+  TemplateParameterDepthRAII CurTemplateDepthTracker(TemplateParameterDepth);
 
   // If this is C90 and the declspecs were completely missing, fudge in an
   // implicit int.  We do this here because this is the only place where
@@ -1262,6 +1278,15 @@ Decl *Parser::ParseFunctionDefinition(ParsingDeclarator &D,
   // Break out of the ParsingDeclSpec context, too.  This const_cast is
   // safe because we're always the sole owner.
   D.getMutableDeclSpec().abort();
+
+  // With abbreviated function templates - we need to explicitly add depth to
+  // account for the implicit template parameter list induced by the template.
+  if (auto *Template = dyn_cast_or_null<FunctionTemplateDecl>(Res))
+    if (Template->isAbbreviated() &&
+        Template->getTemplateParameters()->getParam(0)->isImplicit())
+      // First template parameter is implicit - meaning no explicit template
+      // parameter list was specified.
+      CurTemplateDepthTracker.addDepth(1);
 
   if (TryConsumeToken(tok::equal)) {
     assert(getLangOpts().CPlusPlus && "Only C++ function definitions have '='");
@@ -1468,11 +1493,14 @@ void Parser::ParseKNRParamDeclarations(Declarator &D) {
 
 /// ParseAsmStringLiteral - This is just a normal string-literal, but is not
 /// allowed to be a wide string, and is not subject to character translation.
+/// Unlike GCC, we also diagnose an empty string literal when parsing for an
+/// asm label as opposed to an asm statement, because such a construct does not
+/// behave well.
 ///
 /// [GNU] asm-string-literal:
 ///         string-literal
 ///
-ExprResult Parser::ParseAsmStringLiteral() {
+ExprResult Parser::ParseAsmStringLiteral(bool ForAsmLabel) {
   if (!isTokenStringLiteral()) {
     Diag(Tok, diag::err_expected_string_literal)
       << /*Source='in...'*/0 << "'asm'";
@@ -1488,6 +1516,11 @@ ExprResult Parser::ParseAsmStringLiteral() {
         << SL->getSourceRange();
       return ExprError();
     }
+    if (ForAsmLabel && SL->getString().empty()) {
+      Diag(Tok, diag::err_asm_operand_wide_string_literal)
+          << 2 /* an empty */ << SL->getSourceRange();
+      return ExprError();
+    }
   }
   return AsmString;
 }
@@ -1497,17 +1530,17 @@ ExprResult Parser::ParseAsmStringLiteral() {
 /// [GNU] simple-asm-expr:
 ///         'asm' '(' asm-string-literal ')'
 ///
-ExprResult Parser::ParseSimpleAsm(SourceLocation *EndLoc) {
+ExprResult Parser::ParseSimpleAsm(bool ForAsmLabel, SourceLocation *EndLoc) {
   assert(Tok.is(tok::kw_asm) && "Not an asm!");
   SourceLocation Loc = ConsumeToken();
 
-  if (Tok.is(tok::kw_volatile)) {
-    // Remove from the end of 'asm' to the end of 'volatile'.
+  if (isGNUAsmQualifier(Tok)) {
+    // Remove from the end of 'asm' to the end of the asm qualifier.
     SourceRange RemovalRange(PP.getLocForEndOfToken(Loc),
                              PP.getLocForEndOfToken(Tok.getLocation()));
-
-    Diag(Tok, diag::warn_file_asm_volatile)
-      << FixItHint::CreateRemoval(RemovalRange);
+    Diag(Tok, diag::err_global_asm_qualifier_ignored)
+        << GNUAsmQualifiers::getQualifierName(getGNUAsmQualifier(Tok))
+        << FixItHint::CreateRemoval(RemovalRange);
     ConsumeToken();
   }
 
@@ -1517,7 +1550,7 @@ ExprResult Parser::ParseSimpleAsm(SourceLocation *EndLoc) {
     return ExprError();
   }
 
-  ExprResult Result(ParseAsmStringLiteral());
+  ExprResult Result(ParseAsmStringLiteral(ForAsmLabel));
 
   if (!Result.isInvalid()) {
     // Close the paren and get the location of the end bracket
@@ -1577,7 +1610,9 @@ Parser::TryAnnotateName(CorrectionCandidateCallback *CCC) {
 
   CXXScopeSpec SS;
   if (getLangOpts().CPlusPlus &&
-      ParseOptionalCXXScopeSpecifier(SS, nullptr, EnteringContext))
+      ParseOptionalCXXScopeSpecifier(SS, /*ObjectType=*/nullptr,
+                                     /*ObjectHadErrors=*/false,
+                                     EnteringContext))
     return ANK_Error;
 
   if (Tok.isNot(tok::identifier) || SS.isInvalid()) {
@@ -1725,6 +1760,20 @@ Parser::TryAnnotateName(CorrectionCandidateCallback *CCC) {
       return ANK_Error;
     return ANK_Success;
   }
+  case Sema::NC_Concept: {
+    UnqualifiedId Id;
+    Id.setIdentifier(Name, NameLoc);
+    if (Next.is(tok::less))
+      // We have a concept name followed by '<'. Consume the identifier token so
+      // we reach the '<' and annotate it.
+      ConsumeToken();
+    if (AnnotateTemplateIdToken(
+            TemplateTy::make(Classification.getTemplateName()),
+            Classification.getTemplateNameKind(), SS, SourceLocation(), Id,
+            /*AllowTypeAnnotation=*/false, /*TypeConstraint=*/true))
+      return ANK_Error;
+    return ANK_Success;
+  }
   }
 
   // Unable to classify the name, but maybe we can annotate a scope specifier.
@@ -1800,10 +1849,11 @@ bool Parser::TryAnnotateTypeOrScopeToken() {
     SourceLocation TypenameLoc = ConsumeToken();
     CXXScopeSpec SS;
     if (ParseOptionalCXXScopeSpecifier(SS, /*ObjectType=*/nullptr,
+                                       /*ObjectHadErrors=*/false,
                                        /*EnteringContext=*/false, nullptr,
                                        /*IsTypename*/ true))
       return true;
-    if (!SS.isSet()) {
+    if (SS.isEmpty()) {
       if (Tok.is(tok::identifier) || Tok.is(tok::annot_template_id) ||
           Tok.is(tok::annot_decltype)) {
         // Attempt to recover by skipping the invalid 'typename'
@@ -1872,7 +1922,9 @@ bool Parser::TryAnnotateTypeOrScopeToken() {
 
   CXXScopeSpec SS;
   if (getLangOpts().CPlusPlus)
-    if (ParseOptionalCXXScopeSpecifier(SS, nullptr, /*EnteringContext*/false))
+    if (ParseOptionalCXXScopeSpecifier(SS, /*ObjectType=*/nullptr,
+                                       /*ObjectHadErrors=*/false,
+                                       /*EnteringContext*/ false))
       return true;
 
   return TryAnnotateTypeOrScopeTokenAfterScopeSpec(SS, !WasScopeAnnotation);
@@ -1976,7 +2028,7 @@ bool Parser::TryAnnotateTypeOrScopeTokenAfterScopeSpec(CXXScopeSpec &SS,
       // template-id annotation in a context where we weren't allowed
       // to produce a type annotation token. Update the template-id
       // annotation token to a type annotation token now.
-      AnnotateTemplateIdTokenAsType();
+      AnnotateTemplateIdTokenAsType(SS);
       return false;
     }
   }
@@ -1999,13 +2051,12 @@ bool Parser::TryAnnotateCXXScopeToken(bool EnteringContext) {
   // C++AMP
   assert((getLangOpts().CPlusPlus || getLangOpts().CPlusPlusAMP) &&
          "Call sites of this function should be guarded by checking for C++");
-  assert((Tok.is(tok::identifier) || Tok.is(tok::coloncolon) ||
-          (Tok.is(tok::annot_template_id) && NextToken().is(tok::coloncolon)) ||
-          Tok.is(tok::kw_decltype) || Tok.is(tok::kw___super)) &&
-         "Cannot be a type or scope token!");
+  assert(MightBeCXXScopeToken() && "Cannot be a type or scope token!");
 
   CXXScopeSpec SS;
-  if (ParseOptionalCXXScopeSpecifier(SS, nullptr, EnteringContext))
+  if (ParseOptionalCXXScopeSpecifier(SS, /*ObjectType=*/nullptr,
+                                     /*ObjectHadErrors=*/false,
+                                     EnteringContext))
     return true;
   if (SS.isEmpty())
     return false;
@@ -2114,7 +2165,8 @@ bool Parser::ParseMicrosoftIfExistsCondition(IfExistsCondition& Result) {
 
   // Parse nested-name-specifier.
   if (getLangOpts().CPlusPlus)
-    ParseOptionalCXXScopeSpecifier(Result.SS, nullptr,
+    ParseOptionalCXXScopeSpecifier(Result.SS, /*ObjectType=*/nullptr,
+                                   /*ObjectHadErrors=*/false,
                                    /*EnteringContext=*/false);
 
   // Check nested-name specifier.
@@ -2125,10 +2177,12 @@ bool Parser::ParseMicrosoftIfExistsCondition(IfExistsCondition& Result) {
 
   // Parse the unqualified-id.
   SourceLocation TemplateKWLoc; // FIXME: parsed, but unused.
-  if (ParseUnqualifiedId(
-          Result.SS, /*EnteringContext*/false, /*AllowDestructorName*/true,
-          /*AllowConstructorName*/true, /*AllowDeductionGuide*/false, nullptr,
-          &TemplateKWLoc, Result.Name)) {
+  if (ParseUnqualifiedId(Result.SS, /*ObjectType=*/nullptr,
+                         /*ObjectHadErrors=*/false, /*EnteringContext*/ false,
+                         /*AllowDestructorName*/ true,
+                         /*AllowConstructorName*/ true,
+                         /*AllowDeductionGuide*/ false, &TemplateKWLoc,
+                         Result.Name)) {
     T.skipToEnd();
     return true;
   }

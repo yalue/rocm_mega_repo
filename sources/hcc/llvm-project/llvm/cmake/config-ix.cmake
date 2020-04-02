@@ -166,7 +166,6 @@ if(NOT LLVM_USE_SANITIZER MATCHES "Memory.*")
         else()
           include_directories(${LIBXML2_INCLUDE_DIR})
         endif()
-        set(LIBXML2_LIBS "xml2")
       endif()
     endif()
   endif()
@@ -174,6 +173,10 @@ endif()
 
 if (LLVM_ENABLE_LIBXML2 STREQUAL "FORCE_ON" AND NOT LLVM_LIBXML2_ENABLED)
   message(FATAL_ERROR "Failed to congifure libxml2")
+endif()
+
+if (LLVM_ENABLE_ZLIB STREQUAL "FORCE_ON" AND NOT HAVE_LIBZ)
+  message(FATAL_ERROR "Failed to configure zlib")
 endif()
 
 check_library_exists(xar xar_open "" HAVE_LIBXAR)
@@ -484,7 +487,7 @@ if( MSVC )
   # though that we should handle it.  We do so by simply checking that
   # the DIA SDK folder exists.  Should this happen you will need to
   # uninstall VS 2012 and then re-install VS 2013.
-  if (IS_DIRECTORY ${MSVC_DIA_SDK_DIR})
+  if (IS_DIRECTORY "${MSVC_DIA_SDK_DIR}")
     set(HAVE_DIA_SDK 1)
   else()
     set(HAVE_DIA_SDK 0)

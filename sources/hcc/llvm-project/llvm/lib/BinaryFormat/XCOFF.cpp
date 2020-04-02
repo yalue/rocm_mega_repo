@@ -22,6 +22,12 @@ StringRef XCOFF::getMappingClassString(XCOFF::StorageMappingClass SMC) {
     return "TC0";
   case XCOFF::XMC_BS:
     return "BS";
+  case XCOFF::XMC_RO:
+    return "RO";
+  case XCOFF::XMC_UA:
+    return "UA";
+  case XCOFF::XMC_TC:
+    return "TC";
   default:
     report_fatal_error("Unhandled storage-mapping class.");
   }
