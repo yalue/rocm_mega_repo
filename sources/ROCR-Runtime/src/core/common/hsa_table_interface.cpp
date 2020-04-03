@@ -1212,7 +1212,14 @@ hsa_status_t HSA_API hsa_amd_agent_memory_pool_get_info(
 hsa_status_t HSA_API
     hsa_amd_agents_allow_access(uint32_t num_agents, const hsa_agent_t* agents,
                                 const uint32_t* flags, const void* ptr) {
+#ifdef ENABLE_FULL_AGS_INTERCEPTION
+  hsa_status_t r;
+  if (!AGSHandleAMDAgentsAllowAccess(num_agents, agents, flags, ptr, &r)) {
+    return r;
+  }
+#else
   DoAGSPlaceholderRequest();
+#endif
   return amdExtTable->hsa_amd_agents_allow_access_fn(
                                      num_agents, agents, flags, ptr);
 }

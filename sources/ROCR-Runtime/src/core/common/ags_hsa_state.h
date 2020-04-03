@@ -131,4 +131,8 @@ bool AGSHandleAMDMemoryPoolAllocate(hsa_amd_memory_pool_t memory_pool,
 bool AGSHandleHSAMemoryAllocate(hsa_region_t region, size_t size, void **ptr,
     hsa_status_t *result);
 
+bool AGSHandleAMDAgentsAllowAccess(uint32_t num_agents,
+    const hsa_agent_t *agents, const uint32_t *flags, const void *ptr,
+    hsa_status_t *result);
+
 #endif  // AGS_HSA_STATE_H

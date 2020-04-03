@@ -533,3 +533,34 @@ bool AGSHandleHSAMemoryAllocate(hsa_region_t region, size_t size, void **ptr,
   *ptr = response_data;
   return false;
 }
+
+bool AGSHandleAMDAgentsAllowAccess(uint32_t num_agents,
+    const hsa_agent_t *agents, const uint32_t *flags, const void *ptr,
+    hsa_status_t *result) {
+  AGSRequest request;
+  AGSResponse response;
+  AGSAMDAgentsAllowAccessRequest args;
+
+  if (!ags_state) return true;
+  memset(&args, 0, sizeof(args));
+  args.num_agents = num_agents;
+  memcpy(args.agents, agents, num_agents * sizeof(hsa_agent_t));
+  if (flags) memcpy(args.flags, flags, num_agents * sizeof(uint32_t));
+  memcpy(&args.ptr, &ptr, sizeof(ptr));
+  request.data_size = sizeof(args);
+  request.request_type = AGS_AMD_AGENTS_ALLOW_ACCESS;
+  if (!DoAGSTransaction(&request, &args, &response, 0, NULL)) {
+    printf("Failed getting hsa_amd_agents_allow_access response.\n");
+    CleanupAGSState();
+    return true;
+  }
+
+  if (!response.prevent_default) {
+    printf("Expected prevent_default for hsa_amd_agents_allow_access.\n");
+    CleanupAGSState();
+    return true;
+  }
+  *result = (hsa_status_t) response.hsa_status;
+  return false;
+}
+
