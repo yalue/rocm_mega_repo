@@ -135,4 +135,8 @@ bool AGSHandleAMDAgentsAllowAccess(uint32_t num_agents,
     const hsa_agent_t *agents, const uint32_t *flags, const void *ptr,
     hsa_status_t *result);
 
+bool AGSHandleHSASignalCreate(hsa_signal_value_t initial_value,
+    uint32_t num_consumers, const hsa_agent_t *consumers,
+    hsa_signal_t *signal, hsa_status_t *result);
+
 #endif  // AGS_HSA_STATE_H

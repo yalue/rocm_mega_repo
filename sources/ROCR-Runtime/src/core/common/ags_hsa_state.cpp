@@ -564,3 +564,35 @@ bool AGSHandleAMDAgentsAllowAccess(uint32_t num_agents,
   return false;
 }
 
+bool AGSHandleHSASignalCreate(hsa_signal_value_t initial_value,
+    uint32_t num_consumers, const hsa_agent_t *consumers,
+    hsa_signal_t *signal, hsa_status_t *result) {
+  AGSRequest request;
+  AGSResponse response;
+  AGSSignalCreateRequest args;
+
+  if (!ags_state) return true;
+  memset(&args, 0, sizeof(args));
+  args.initial_value = initial_value;
+  args.num_consumers = num_consumers;
+  if (num_consumers >= AGS_MAX_HSA_AGENT_COUNT) {
+    printf("hsa_signal_create: Too many agents for AGS to handle.\n");
+    return true;
+  }
+  memcpy(args.agents, consumers, num_consumers * sizeof(hsa_agent_t));
+  request.data_size = sizeof(args);
+  request.request_type = AGS_HSA_SIGNAL_CREATE;
+  if (!DoAGSTransaction(&request, &args, &response, sizeof(*signal), signal)) {
+    printf("Failed getting hsa_signal_create response.\n");
+    CleanupAGSState();
+    return true;
+  }
+
+  if (!response.prevent_default) {
+    printf("Expected prevent_default for hsa_signal_create.\n");
+    CleanupAGSState();
+    return true;
+  }
+  *result = (hsa_status_t) response.hsa_status;
+  return false;
+}

@@ -374,7 +374,15 @@ hsa_status_t HSA_API hsa_memory_assign_agent(void* ptr, hsa_agent_t agent,
 hsa_status_t HSA_API
     hsa_signal_create(hsa_signal_value_t initial_value, uint32_t num_consumers,
                       const hsa_agent_t* consumers, hsa_signal_t* signal) {
+#ifdef ENABLE_FULL_AGS_INTERCEPTION
+  hsa_status_t r;
+  if (!AGSHandleHSASignalCreate(initial_value, num_consumers, consumers,
+    signal, &r)) {
+    return r;
+  }
+#else
   DoAGSPlaceholderRequest();
+#endif
   return coreApiTable->hsa_signal_create_fn(initial_value, num_consumers,
                                            consumers, signal);
 }
