@@ -139,4 +139,7 @@ bool AGSHandleHSASignalCreate(hsa_signal_value_t initial_value,
     uint32_t num_consumers, const hsa_agent_t *consumers,
     hsa_signal_t *signal, hsa_status_t *result);
 
+bool AGSHandleAMDMemoryLock(void *host_ptr, size_t size, hsa_agent_t *agents,
+    int num_agents, void **agent_ptr, hsa_status_t *result);
+
 #endif  // AGS_HSA_STATE_H

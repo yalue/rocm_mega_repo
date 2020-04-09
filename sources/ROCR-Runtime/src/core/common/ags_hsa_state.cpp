@@ -596,3 +596,38 @@ bool AGSHandleHSASignalCreate(hsa_signal_value_t initial_value,
   *result = (hsa_status_t) response.hsa_status;
   return false;
 }
+
+bool AGSHandleAMDMemoryLock(void *host_ptr, size_t size, hsa_agent_t *agents,
+    int num_agents, void **agent_ptr, hsa_status_t *result) {
+  AGSRequest request;
+  AGSResponse response;
+  AGSAMDMemoryLockRequest args;
+
+  if (!ags_state) return true;
+  memset(&args, 0, sizeof(args));
+  args.cpu_ptr = host_ptr;
+  args.size = size;
+  if (num_agents >= AGS_MAX_HSA_AGENT_COUNT) {
+    printf("hsa_amd_memory_lock: Too many agents for AGS.\n");
+    return true;
+  }
+  memcpy(args.agents, agents, num_agents * sizeof(hsa_agent_t));
+  args.num_agents = num_agents;
+  request.data_size = sizeof(args);
+  request.request_type = AGS_AMD_MEMORY_LOCK;
+  if (!DoAGSTransaction(&request, &args, &response, sizeof(*agent_ptr),
+    agent_ptr)) {
+    printf("Failed getting hsa_amd_memory_lock response.\n");
+    CleanupAGSState();
+    return true;
+  }
+
+  if (!response.prevent_default) {
+    printf("Expected prevent_default for hsa_amd_memory_lock.\n");
+    CleanupAGSState();
+    return true;
+  }
+  *result = (hsa_status_t) response.hsa_status;
+  return false;
+}
+

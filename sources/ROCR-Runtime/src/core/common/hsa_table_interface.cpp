@@ -1255,7 +1255,15 @@ hsa_status_t HSA_API hsa_amd_memory_migrate(const void* ptr,
 hsa_status_t HSA_API hsa_amd_memory_lock(void* host_ptr, size_t size,
                                          hsa_agent_t* agents, int num_agent,
                                          void** agent_ptr) {
+#ifdef ENABLE_FULL_AGS_INTERCEPTION
+  hsa_status_t r;
+  if (!AGSHandleAMDMemoryLock(host_ptr, size, agents, num_agent, agent_ptr,
+    &r)) {
+    return r;
+  }
+#else
   DoAGSPlaceholderRequest();
+#endif
   return amdExtTable->hsa_amd_memory_lock_fn(
                                      host_ptr, size, agents, num_agent, agent_ptr);
 }
