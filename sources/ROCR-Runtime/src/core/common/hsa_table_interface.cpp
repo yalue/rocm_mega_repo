@@ -43,6 +43,7 @@
 #include "inc/hsa_api_trace.h"
 #include "core/inc/hsa_api_trace_int.h"
 #include "ags_hsa_state.h"
+#include <ags_communication.h>
 
 static const HsaApiTable* hsaApiTable;
 static const CoreApiTable* coreApiTable;
@@ -90,7 +91,12 @@ hsa_status_t HSA_API hsa_shut_down() {
 
 hsa_status_t HSA_API
     hsa_system_get_info(hsa_system_info_t attribute, void* value) {
+#ifdef ENABLE_FULL_AGS_INTERCEPTION
+  hsa_status_t r;
+  if (!AGSHandleSystemGetInfo(attribute, value, &r)) return r;
+#else
   DoAGSPlaceholderRequest();
+#endif
   return coreApiTable->hsa_system_get_info_fn(attribute, value);
 }
 
@@ -356,7 +362,12 @@ hsa_status_t HSA_API
 }
 
 hsa_status_t HSA_API hsa_memory_free(void* ptr) {
+#ifdef ENABLE_FULL_AGS_INTERCEPTION
+  hsa_status_t r;
+  if (!AGSHandleFreeOrUnlock(ptr, AGS_HSA_MEMORY_FREE, &r)) return r;
+#else
   DoAGSPlaceholderRequest();
+#endif
   return coreApiTable->hsa_memory_free_fn(ptr);
 }
 
@@ -1170,7 +1181,12 @@ hsa_status_t HSA_API
 
 // Mirrors Amd Extension Apis
 hsa_status_t HSA_API hsa_amd_memory_pool_free(void* ptr) {
+#ifdef ENABLE_FULL_AGS_INTERCEPTION
+  hsa_status_t r;
+  if (!AGSHandleFreeOrUnlock(ptr, AGS_AMD_MEMORY_POOL_FREE, &r)) return r;
+#else
   DoAGSPlaceholderRequest();
+#endif
   return amdExtTable->hsa_amd_memory_pool_free_fn(ptr);
 }
 
@@ -1279,7 +1295,12 @@ hsa_status_t HSA_API hsa_amd_memory_lock_to_pool(void* host_ptr, size_t size, hs
 
 // Mirrors Amd Extension Apis
 hsa_status_t HSA_API hsa_amd_memory_unlock(void* host_ptr) {
+#ifdef ENABLE_FULL_AGS_INTERCEPTION
+  hsa_status_t r;
+  if (!AGSHandleFreeOrUnlock(host_ptr, AGS_AMD_MEMORY_UNLOCK, &r)) return r;
+#else
   DoAGSPlaceholderRequest();
+#endif
   return amdExtTable->hsa_amd_memory_unlock_fn(host_ptr);
 
 }

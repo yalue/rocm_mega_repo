@@ -631,3 +631,52 @@ bool AGSHandleAMDMemoryLock(void *host_ptr, size_t size, hsa_agent_t *agents,
   return false;
 }
 
+bool AGSHandleSystemGetInfo(hsa_system_info_t attribute, void *value,
+    hsa_status_t *result) {
+  AGSRequest request;
+  AGSResponse response;
+  uint8_t response_data[128];
+
+  if (!ags_state) return true;
+  request.data_size = sizeof(attribute);
+  request.request_type = AGS_HSA_SYSTEM_GET_INFO;
+  if (!DoAGSTransaction(&request, &attribute, &response, sizeof(response_data),
+    response_data)) {
+    printf("Failed getting hsa_system_get_info response.\n");
+    CleanupAGSState();
+    return true;
+  }
+
+  if (!response.prevent_default) {
+    printf("Expected prevent_default for hsa_system_get_info.\n");
+    CleanupAGSState();
+    return true;
+  }
+  memcpy(value, response_data, response.data_size);
+  *result = (hsa_status_t) response.hsa_status;
+  return false;
+}
+
+bool AGSHandleFreeOrUnlock(void *ptr, AGSRequestType request_type,
+    hsa_status_t *result) {
+  AGSRequest request;
+  AGSResponse response;
+  const char *request_name = NULL;
+
+  if (!ags_state) return true;
+  request.data_size = sizeof(ptr);
+  request.request_type = request_type;
+  request_name = GetRequestTypeName(request_type);
+  if (!DoAGSTransaction(&request, &ptr, &response, 0, NULL)) {
+    printf("Failed getting response for %s\n", request_name);
+    CleanupAGSState();
+    return true;
+  }
+  if (!response.prevent_default) {
+    printf("Expected prevent_default for %s\n", request_name);
+    CleanupAGSState();
+    return true;
+  }
+  *result = (hsa_status_t) response.hsa_status;
+  return false;
+}

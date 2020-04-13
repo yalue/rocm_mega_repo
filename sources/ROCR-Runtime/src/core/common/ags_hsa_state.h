@@ -142,4 +142,12 @@ bool AGSHandleHSASignalCreate(hsa_signal_value_t initial_value,
 bool AGSHandleAMDMemoryLock(void *host_ptr, size_t size, hsa_agent_t *agents,
     int num_agents, void **agent_ptr, hsa_status_t *result);
 
+bool AGSHandleSystemGetInfo(hsa_system_info_t attribute, void *value,
+    hsa_status_t *result);
+
+// hsa_memory_free, hsa_amd_memory_pool_free, and hsa_amd_memory_unlock are all
+// handled similarly so we'll use one function for all of them.
+bool AGSHandleFreeOrUnlock(void *ptr, AGSRequestType request_type,
+    hsa_status_t *result);
+
 #endif  // AGS_HSA_STATE_H
