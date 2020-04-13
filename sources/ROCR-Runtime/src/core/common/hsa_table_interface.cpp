@@ -399,7 +399,12 @@ hsa_status_t HSA_API
 }
 
 hsa_status_t HSA_API hsa_signal_destroy(hsa_signal_t signal) {
+#ifdef ENABLE_FULL_AGS_INTERCEPTION
+  hsa_status_t r;
+  if (!AGSHandleHSASignalDestroy(signal, &r)) return r;
+#else
   DoAGSPlaceholderRequest();
+#endif
   return coreApiTable->hsa_signal_destroy_fn(signal);
 }
 

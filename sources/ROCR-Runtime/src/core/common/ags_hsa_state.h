@@ -150,4 +150,6 @@ bool AGSHandleSystemGetInfo(hsa_system_info_t attribute, void *value,
 bool AGSHandleFreeOrUnlock(void *ptr, AGSRequestType request_type,
     hsa_status_t *result);
 
+bool AGSHandleHSASignalDestroy(hsa_signal_t signal, hsa_status_t *result);
+
 #endif  // AGS_HSA_STATE_H

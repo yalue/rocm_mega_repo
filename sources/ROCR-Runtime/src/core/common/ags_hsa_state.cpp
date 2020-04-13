@@ -106,7 +106,6 @@ bool DoAGSTransaction(AGSRequest *request, void *request_data,
 
 bool InitializeAGSConnection(void) {
   int ags_fd;
-  //__asm__ __volatile__ ("int $3");
 
   // Make sure we don't re-initialize AGS if it's already set up.
   if (ags_state) return true;
@@ -227,7 +226,8 @@ bool AGSHandleIterateAgents(hsa_status_t (*callback)(hsa_agent_t agent,
   }
   agent_count = response.data_size / sizeof(hsa_agent_t);
   for (i = 0; i < agent_count; i++) {
-    callback(agents[i], data);
+    *result = callback(agents[i], data);
+    if (*result != HSA_STATUS_SUCCESS) return false;
   }
   return false;
 }
@@ -297,7 +297,8 @@ bool AGSHandleAgentIterateRegions(hsa_agent_t agent, hsa_status_t (*callback)(
   }
   region_count = response.data_size / sizeof(hsa_region_t);
   for (i = 0; i < region_count; i++) {
-    callback(regions[i], data);
+    *result = callback(regions[i], data);
+    if (*result != HSA_STATUS_SUCCESS) break;
   }
   free(regions);
   return false;
@@ -674,6 +675,26 @@ bool AGSHandleFreeOrUnlock(void *ptr, AGSRequestType request_type,
   }
   if (!response.prevent_default) {
     printf("Expected prevent_default for %s\n", request_name);
+    CleanupAGSState();
+    return true;
+  }
+  *result = (hsa_status_t) response.hsa_status;
+  return false;
+}
+
+bool AGSHandleHSASignalDestroy(hsa_signal_t signal, hsa_status_t *result) {
+  AGSRequest request;
+  AGSResponse response;
+  if (!ags_state) return true;
+  request.data_size = sizeof(signal);
+  request.request_type = AGS_HSA_SIGNAL_DESTROY;
+  if (!DoAGSTransaction(&request, &signal, &response, 0, NULL)) {
+    printf("Failed getting response for hsa_signal_destroy.\n");
+    CleanupAGSState();
+    return true;
+  }
+  if (!response.prevent_default) {
+    printf("Expected prevent_default for hsa_signal_destroy.\n");
     CleanupAGSState();
     return true;
   }
