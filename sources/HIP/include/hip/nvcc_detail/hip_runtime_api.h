@@ -59,6 +59,14 @@ typedef enum hipMemcpyKind {
 #define HIP_C_32F CUDA_C_32F
 #define HIP_C_64F CUDA_C_64F
 
+// Flags for hipSetDeviceFlags
+#define hipDeviceScheduleAuto cudaDeviceScheduleAuto
+#define hipDeviceScheduleSpin cudaDeviceScheduleSpin
+#define hipDeviceScheduleYield cudaDeviceScheduleYield
+#define hipDeviceScheduleBlockingSync cudaDeviceScheduleBlockingSync
+#define hipDeviceMapHost cudaDeviceMapHost
+#define hipDeviceLmemResizeToMax cudaDeviceLmemResizeToMax
+
 // hipLibraryPropertyType
 #define hipLibraryPropertyType libraryPropertyType
 #define HIP_LIBRARY_MAJOR_VERSION MAJOR_VERSION

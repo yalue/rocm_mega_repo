@@ -828,6 +828,7 @@ hipError_t hipStreamGetFlags(hipStream_t stream, unsigned int* flags);
 /**
  * Sets the compute unit mask associated with this stream's queue.
  */
+#define HIP_HAS_STREAM_SET_CU_MASK (1)
 hipError_t hipStreamSetComputeUnitMask(hipStream_t stream, uint64_t mask);
 
 /**
