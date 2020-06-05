@@ -29,6 +29,12 @@ static void CleanupAGSState(void) {
   close(ags_state->fd);
   ags_state->fd = -1;
   pthread_mutex_destroy(&(ags_state->mutex));
+  // TODO: Iterate over the cpu_allocations map and unmap everything that's
+  // still in there.
+  for (auto element : state->cpu_allocations) {
+    // TODO: munmap the VA, close the FD, then free the SharedCPUAllocation struct
+  }
+  delete state->cpu_allocations;
   free(ags_state);
   ags_state = NULL;
 }
@@ -106,6 +112,7 @@ bool DoAGSTransaction(AGSRequest *request, void *request_data,
 
 bool InitializeAGSConnection(void) {
   int ags_fd;
+  AGSState *tmp = NULL;
 
   // Make sure we don't re-initialize AGS if it's already set up.
   if (ags_state) return true;
@@ -117,15 +124,16 @@ bool InitializeAGSConnection(void) {
     return true;
   }
 
-  ags_state = (AGSHSAState *) malloc(sizeof(AGSHSAState));
-  if (!ags_state) {
+  tmp = (AGSHSAState *) calloc(1, sizeof(AGSHSAState));
+  if (!tmp) {
     printf("Failed allocating AGS HSA state.\n");
     return false;
   }
-  memset(ags_state, 0, sizeof(AGSHSAState));
-  ags_state->fd = ags_fd;
-  ags_state->request_id = 1;
-  pthread_mutex_init(&(ags_state->mutex), NULL);
+  tmp->fd = ags_fd;
+  tmp->request_id = 1;
+  pthread_mutex_init(&(tmp->mutex), NULL);
+  tmp->cpu_allocations = new std::map<uint64_t, SharedCPUAllocation*>();
+  ags_state = tmp;
   return true;
 }
 
@@ -344,13 +352,12 @@ bool AGSHandleAMDAgentMemoryPoolGetInfo(hsa_agent_t agent,
   void *response_data = NULL;
   if (!ags_state) return true;
 
-  response_data = malloc(AGS_MAX_DATA_SIZE);
+  response_data = calloc(1, AGS_MAX_DATA_SIZE);
   if (!response_data) {
     printf("Failed allocating response data for amd_agent_memory_pool...\n");
     CleanupAGSState();
     return true;
   }
-  memset(response_data, 0, AGS_MAX_DATA_SIZE);
   request_args.agent = agent;
   request_args.memory_pool = memory_pool;
   request_args.attribute = attribute;
@@ -477,12 +484,63 @@ bool AGSHandleAMDMemoryPoolGetInfo(hsa_amd_memory_pool_t memory_pool,
   return false;
 }
 
+// Handles a memory allocation result returned by AGS, including potentially
+// mapping a shared memory object into userspace.
+static bool FollowUpAGSMemoryAllocation(AGSAMDMemoryAllocateResponse *r,
+    size_t size, void **ptr, hsa_status_t *result) {
+  SharedCPUAllocation *allocation = NULL;
+  void *va = NULL;
+  *result = HSA_STATUS_ERROR;
+  *ptr = NULL;
+
+  // Return now if this was a GPU allocation.
+  if (!response_data.is_cpu_allocation) {
+    *ptr = response_data.gpu_va;
+    *result = HSA_STATUS_SUCCESS;
+    return false;
+  }
+
+  // We'll now need to map the shared memory file into our local address space.
+  allocation = (SharedCPUAllocation *) calloc(1, sizeof(*allocation));
+  if (!allocation) {
+    printf("Failed allocating space to track shared-memory allocation.\n");
+    CleanupAGSState();
+    return true;
+  }
+  allocation->fd = shm_open(r->shared_memory_path, O_RDWR, 0666);
+  if (allocation->fd < 0) {
+    printf("Failed opening shared memory object %s: %s\n",
+      r->shared_memory_path, strerror(errno));
+    free(allocation);
+    CleanupAGSState();
+    return true;
+  }
+  allocation->size = size;
+  va = mmap(NULL, size, PROT_READ | PROT_WRITE, MAP_SHARED, allocation->fd, 0);
+  if (va == MAP_FAILED) {
+    printf("Failed mapping shared-memory object %s: %s\n",
+      r->shared_memory_path, strerror(errno));
+    close(allocation->fd);
+    free(allocation);
+    CleanupAGSState();
+    return true;
+  }
+  allocation->va = va;
+
+  // Now, insert the record of the allocation into the map and return the VA.
+  ags_state->cpu_allocations[(uint64_t) va] = allocation;
+  *ptr = va;
+  *result = HSA_STATUS_SUCCESS;
+  return false;
+}
+
 bool AGSHandleAMDMemoryPoolAllocate(hsa_amd_memory_pool_t memory_pool,
     size_t size, uint32_t flags, void **ptr, hsa_status_t *result) {
   AGSRequest request;
   AGSResponse response;
   AGSAMDMemoryPoolAllocateRequest args;
-  void *response_data;
+  AGSMemoryAllocateResponse response_data;
+  void *cpu_ptr = NULL;
   if (!ags_state) return true;
 
   args.memory_pool = memory_pool;
@@ -503,8 +561,11 @@ bool AGSHandleAMDMemoryPoolAllocate(hsa_amd_memory_pool_t memory_pool,
     return true;
   }
   *result = (hsa_status_t) response.hsa_status;
-  *ptr = response_data;
-  return false;
+  // Don't do further processing if an error occurred.
+  if (response.hsa_status != HSA_STATUS_SUCCESS) {
+    return false;
+  }
+  return FollowUpAGSMemoryAllocation(&response_data, size, ptr, result);
 }
 
 bool AGSHandleHSAMemoryAllocate(hsa_region_t region, size_t size, void **ptr,
@@ -512,7 +573,7 @@ bool AGSHandleHSAMemoryAllocate(hsa_region_t region, size_t size, void **ptr,
   AGSRequest request;
   AGSResponse response;
   AGSMemoryAllocateRequest args;
-  void *response_data;
+  AGSMemoryAllocateResponse response_data;
   if (!ags_state) return true;
   args.region = region;
   args.size = size;
@@ -531,6 +592,10 @@ bool AGSHandleHSAMemoryAllocate(hsa_region_t region, size_t size, void **ptr,
     return true;
   }
   *result = (hsa_status_t) response.hsa_status;
+  if (response.hsa_status != HSA_STATUS_SUCCESS) {
+    return false;
+  }
+  // TODO (next): Same as above. Use FollowUpAGSMemoryAllocation.
   *ptr = response_data;
   return false;
 }
@@ -660,6 +725,9 @@ bool AGSHandleSystemGetInfo(hsa_system_info_t attribute, void *value,
 
 bool AGSHandleFreeOrUnlock(void *ptr, AGSRequestType request_type,
     hsa_status_t *result) {
+  // TODO (next, 2): Update our code for freeing memory:
+  //  - Unmap shared memory if the address is in the cpu_allocations map.
+  //  - Send the VA back to AGS properly.
   AGSRequest request;
   AGSResponse response;
   const char *request_name = NULL;

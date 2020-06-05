@@ -1,7 +1,0 @@
-Notes about installing over AMD's package-based installation:
-
- 1. Install ROCT-Thunk-Interface
- 2. Install ROCr-Runtime
- 3. Install hcc to /opt/rocm/hcc
- 4. Install HIP to /opt/rocm/hip
-

@@ -3,6 +3,7 @@
 #include <cstdlib>
 #include <cstdint>
 #include <pthread.h>
+#include <map>
 // This file contains the functions and struct definitions used for managing an
 // HSA application's connection to the Arbiter for GPU Sharing (AGS).
 #include <ags_communication.h>
@@ -36,6 +37,22 @@
     } \
   } while (0);
 
+// TODO: Refactor this into more idiomatic C++:
+//  - Replace the ags_state global variable with a unique_ptr
+//  - and all of these functions wtih methods
+//  - Replace NULL with nullptr
+//  - Replace the cpu_allocations map with a non-pointer.
+
+// Information needed to keep track of our CPU shared-memory allocation.
+typedef struct {
+  // The virtual address, in our address space, where this is mapped.
+  void *va;
+  // The size, in bytes of the mapping.
+  size_t size;
+  // The file descriptor for the shared-memory object.
+  int fd;
+} SharedCPUAllocation;
+
 // Maintains the state of the current process' connection to AGS.
 typedef struct {
   // The file descriptor for our socket to AGS. Will be -1 if AGS isn't
@@ -47,6 +64,11 @@ typedef struct {
   // This is used to ensure that we wait for any pending response from AGS
   // before trying to send a new request.
   pthread_mutex_t mutex;
+  // This is used to keep track of AGS-managed CPU allocations, backed by
+  // shared memory objects. We need this list so that we're able to close file
+  // descriptors and unmap the shared memory object when freeing the
+  // allocation.
+  std::map<uint64_t, SharedCPUAllocation*> *cpu_allocations;
 } AGSHSAState;
 
 // A single AGS state instance, non-NULL if AGS is connected. Initialized by
