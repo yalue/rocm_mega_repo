@@ -20,7 +20,7 @@ THE SOFTWARE.
 // Simple test for hipLaunchCooperativeKernelMultiDevice API.
 
 /* HIT_START
- * BUILD: %t %s ../../test_common.cpp EXCLUDE_HIP_PLATFORM all
+ * BUILD: %t %s ../../test_common.cpp EXCLUDE_HIP_PLATFORM nvcc
  * TEST: %t
  * HIT_END
  */
@@ -101,7 +101,6 @@ int main() {
   uint* dA[MaxGPUs];
   long* dB[MaxGPUs];
   long* dC;
-  hipModule_t Module;
   hipStream_t stream[MaxGPUs];
 
   uint32_t* init = new uint32_t[BufferSizeInDwords];
@@ -156,8 +155,8 @@ int main() {
     for (int i = 0; i < nGpu; i++) {
       HIPCHECK(hipSetDevice(i));
       dimBlock.x = workgroups[set];
-      HIPCHECK(hipOccupancyMaxActiveBlocksPerMultiprocessor(reinterpret_cast<uint32_t*>(&numBlocks),
-      (hipFunction_t)test_gws, dimBlock.x * dimBlock.y * dimBlock.z, dimBlock.x * sizeof(long)));
+      HIPCHECK(hipOccupancyMaxActiveBlocksPerMultiprocessor(&numBlocks,
+      test_gws, dimBlock.x * dimBlock.y * dimBlock.z, dimBlock.x * sizeof(long)));
       
       std::cout << "GPU(" << i << ") Block size: " << dimBlock.x << " Num blocks per CU: " << numBlocks << "\n";
 
@@ -178,8 +177,6 @@ int main() {
     }
  
     hipLaunchCooperativeKernelMultiDevice(launchParamsList, nGpu, 0);
-
-    HIPCHECK(hipMemcpy(init, dC, sizeof(long), hipMemcpyDeviceToHost));
 
     if (*dC != (((long)(BufferSizeInDwords) * (BufferSizeInDwords - 1)) / 2)) {
       std::cout << "Data validation failed for grid size = " << dimGrid.x << " and block size = " << dimBlock.x << "\n";

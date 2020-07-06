@@ -44,6 +44,11 @@ THE SOFTWARE.
 #include <stddef.h>
 #endif  //__cplusplus
 
+// __hip_malloc is not working. Disable it by default.
+#ifndef __HIP_ENABLE_DEVICE_MALLOC__
+#define __HIP_ENABLE_DEVICE_MALLOC__ 0
+#endif
+
 #if __HCC_OR_HIP_CLANG__
 
 #if __HIP__
@@ -103,9 +108,12 @@ extern int HIP_TRACE_API;
 #include <hip/hcc_detail/host_defines.h>
 #include <hip/hcc_detail/device_functions.h>
 #include <hip/hcc_detail/surface_functions.h>
-#include <hip/hcc_detail/texture_functions.h>
 #if __HCC__
     #include <hip/hcc_detail/math_functions.h>
+    #include <hip/hcc_detail/texture_functions.h>
+#else
+    #include <hip/hcc_detail/texture_fetch_functions.h>
+    #include <hip/hcc_detail/texture_indirect_functions.h>
 #endif
 // TODO-HCC remove old definitions ; ~1602 hcc supports __HCC_ACCELERATOR__ define.
 #if defined(__KALMAR_ACCELERATOR__) && !defined(__HCC_ACCELERATOR__)
@@ -305,20 +313,14 @@ static constexpr Coordinates<hip_impl::WorkitemId> threadIdx{};
 
 #endif // defined __HCC__
 #if __HCC_OR_HIP_CLANG__
+#if __HIP_ENABLE_DEVICE_MALLOC__
 extern "C" __device__ void* __hip_malloc(size_t);
 extern "C" __device__ void* __hip_free(void* ptr);
-
 static inline __device__ void* malloc(size_t size) { return __hip_malloc(size); }
 static inline __device__ void* free(void* ptr) { return __hip_free(ptr); }
-
-#if defined(__HCC_ACCELERATOR__) && defined(HC_FEATURE_PRINTF)
-template <typename... All>
-static inline __device__ void printf(const char* format, All... all) {
-    hc::printf(format, all...);
-}
-#elif defined(__HCC_ACCELERATOR__) || __HIP__
-template <typename... All>
-static inline __device__ void printf(const char* format, All... all) {}
+#else
+static inline __device__ void* malloc(size_t size) { __builtin_trap(); return nullptr; }
+static inline __device__ void* free(void* ptr) { __builtin_trap(); return nullptr; }
 #endif
 
 #endif //__HCC_OR_HIP_CLANG__
@@ -386,7 +388,7 @@ extern void ihipPostLaunchKernel(const char* kernelName, hipStream_t stream, gri
 #elif defined(__clang__) && defined(__HIP__)
 
 #define HIP_KERNEL_NAME(...) __VA_ARGS__
-#define HIP_SYMBOL(X) #X
+#define HIP_SYMBOL(X) X
 
 typedef int hipLaunchParm;
 
@@ -511,9 +513,14 @@ hc_get_workitem_absolute_id(int dim)
 #define __CUDA__
 #include <__clang_cuda_math_forward_declares.h>
 #include <__clang_cuda_complex_builtins.h>
-#include <cuda_wrappers/algorithm>
-#include <cuda_wrappers/complex>
-#include <cuda_wrappers/new>
+// Workaround for using libc++ with HIP-Clang.
+// The following headers requires clang include path before standard C++ include path.
+// However libc++ include path requires to be before clang include path.
+// To workaround this, we pass -isystem with the parent directory of clang include
+// path instead of the clang include path itself.
+#include <include/cuda_wrappers/algorithm>
+#include <include/cuda_wrappers/complex>
+#include <include/cuda_wrappers/new>
 #undef __CUDA__
 #pragma pop_macro("__CUDA__")
 #endif // !_OPENMP || __HIP_ENABLE_CUDA_WRAPPER_FOR_OPENMP__

@@ -1,5 +1,15 @@
 cmake_minimum_required(VERSION 3.4.3)
 project(hip)
+# sample command for hip-rocclr, you'll need to have rocclr installed
+#  cmake -DHIP_COMPILER=clang -DHIP_PLATFORM=rocclr ..
+#  cmake -DHIP_COMPILER=clang -DHIP_PLATFORM=rocclr -DROCclr_DIR=/extra/lmoriche/hip-rocclr/rocclr -DOPENCL_DIR=/extra/lmoriche/clients/lmoriche_opencl_dev2/drivers/opencl/api/opencl -DLIBROCclr_STATIC_DIR=/extra/lmoriche/hip-rocclr/build/rocclr ..
+
+set(CMAKE_MODULE_PATH ${CMAKE_MODULE_PATH} "${CMAKE_CURRENT_SOURCE_DIR}/cmake")
+
+#############################
+# Options
+#############################
+option(BUILD_HIPIFY_CLANG "Enable building the CUDA->HIP converter" OFF)
 
 #############################
 # Setup config generation
@@ -51,6 +61,21 @@ add_to_config(_versionInfo HIP_VERSION_MAJOR)
 add_to_config(_versionInfo HIP_VERSION_MINOR)
 add_to_config(_versionInfo HIP_VERSION_PATCH)
 
+set (HIP_LIB_VERSION_MAJOR ${HIP_VERSION_MAJOR})
+set (HIP_LIB_VERSION_MINOR ${HIP_VERSION_MINOR})
+if (${ROCM_PATCH_VERSION} )
+    set (HIP_LIB_VERSION_PATCH ${ROCM_PATCH_VERSION})
+else ()
+   set (HIP_LIB_VERSION_PATCH ${HIP_VERSION_PATCH})
+endif ()
+set (HIP_LIB_VERSION_STRING "${HIP_LIB_VERSION_MAJOR}.${HIP_LIB_VERSION_MINOR}.${HIP_LIB_VERSION_PATCH}")
+
+if (DEFINED ENV{ROCM_RPATH})
+    set (CMAKE_INSTALL_RPATH "$ENV{ROCM_RPATH}")
+    set (CMAKE_BUILD_WITH_INSTALL_RPATH TRUE)
+    set (CMAKE_SKIP_BUILD_RPATH TRUE)
+endif ()
+
 if(CMAKE_CXX_COMPILER MATCHES ".*hcc")
     set(HIP_COMPILER "hcc" CACHE STRING "HIP Compiler")
     set(HIP_PLATFORM "hcc" CACHE STRING "HIP Platform")
@@ -98,14 +123,21 @@ message(STATUS "HIP Compiler: " ${HIP_COMPILER})
 add_to_config(_buildInfo HIP_COMPILER)
 
 # Determine HIP_RUNTIME
-# Either HCC or VDI; default is HCC
+# Either HCC or ROCclr; default is HCC
 if(NOT DEFINED ENV{HIP_RUNTIME})
+  if(HIP_PLATFORM STREQUAL "hcc")
     set(HIP_RUNTIME "HCC" CACHE STRING "HIP Runtime")
-else()
-    set(HIP_RUNTIME $ENV{HIP_RUNTIME} CACHE STRING "HIP Runtime")
+  elseif (HIP_PLATFORM STREQUAL "rocclr")
+    set(HIP_RUNTIME "ROCclr" CACHE STRING "HIP Runtime")
+  elseif (HIP_PLATFORM STREQUAL "nvcc")
+    set(HIP_RUNTIME "CUDA" CACHE STRING "HIP Runtime")
+  endif()
 endif()
 add_to_config(_buildInfo HIP_RUNTIME)
 
+if(HIP_PLATFORM STREQUAL "rocclr")
+   set(USE_PROF_API "1")
+endif()
 
 # If HIP_PLATFORM is hcc, we need HCC_HOME and HSA_PATH to be defined
 if(HIP_PLATFORM STREQUAL "hcc")
@@ -172,6 +204,10 @@ if(CMAKE_INSTALL_PREFIX_INITIALIZED_TO_DEFAULT)
     endif()
 endif()
 
+if(DEV_LOG_ENABLE MATCHES "yes")
+  add_definitions(-DDEV_LOG_ENABLE)
+endif()
+
 # Set default install path as "/opt/rocm/hip", can override the path from cmake build.
 set(CPACK_INSTALL_PREFIX ${HIP_DEFAULT_INSTALL_PREFIX} CACHE PATH "Package Installation path for HIP")
 
@@ -190,13 +226,15 @@ message (STATUS "ROCM Installation path(ROCM_PATH): ${ROCM_PATH}")
 set(CPACK_SET_DESTDIR ON CACHE BOOL "Installer package will install hip to CMAKE_INSTALL_PREFIX instead of CPACK_PACKAGING_INSTALL_PREFIX")
 if (NOT CPACK_SET_DESTDIR)
   set(CPACK_PACKAGING_INSTALL_PREFIX "/opt/rocm/hip" CACHE PATH "Default installation path of hcc installer package")
-endif (CPACK_SET_DESTDIR)
+endif (NOT CPACK_SET_DESTDIR)
 
 #############################
 # Profiling API support
 #############################
 # Generate profiling API macros/structures header
-set(PROF_API_STR "${CMAKE_CURRENT_SOURCE_DIR}/include/hip/hcc_detail/hip_prof_str.h")
+if(HIP_PLATFORM STREQUAL "hcc")
+if(USE_PROF_API EQUAL 1)
+set(PROF_API_STR "${PROJECT_BINARY_DIR}/include/hip/hcc_detail/hip_prof_str.h")
 set(PROF_API_HDR "${CMAKE_CURRENT_SOURCE_DIR}/include/hip/hcc_detail/hip_runtime_api.h")
 set(PROF_API_SRC "${CMAKE_CURRENT_SOURCE_DIR}/src")
 set(PROF_API_GEN "${CMAKE_CURRENT_SOURCE_DIR}/hip_prof_gen.py")
@@ -207,7 +245,6 @@ execute_process(COMMAND sh -c "rm -f ${PROF_API_STR}; ${PROF_API_CMD}")
 set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS ${PROF_API_GEN} ${PROF_API_HDR} ${PROF_API_STR})
 
 # Enable profiling API
-if(USE_PROF_API EQUAL 1)
     find_path(PROF_API_HEADER_DIR prof_protocol.h
         HINTS
             ${PROF_API_HEADER_PATH}
@@ -224,6 +261,7 @@ if(USE_PROF_API EQUAL 1)
         MESSAGE(STATUS "Profiling API: ${PROF_API_HEADER_DIR}")
     endif()
 endif()
+endif()
 
 #############################
 # Build steps
@@ -233,15 +271,51 @@ set(LIB_INSTALL_DIR ${CMAKE_INSTALL_PREFIX}/lib)
 set(INCLUDE_INSTALL_DIR ${CMAKE_INSTALL_PREFIX}/include)
 set(CONFIG_PACKAGE_INSTALL_DIR ${LIB_INSTALL_DIR}/cmake/hip)
 
+# Build clang hipify if enabled
+if (BUILD_HIPIFY_CLANG)
+    add_subdirectory(hipify-clang)
+endif()
+
 # Build LPL an CA (fat binary generation / fat binary decomposition tools) if
 # platform is hcc; do this before the ugly hijacking of the compiler, since no
 # HC code is involved.
-if (HIP_PLATFORM STREQUAL "hcc")
-    add_subdirectory(${CMAKE_CURRENT_SOURCE_DIR}/lpl_ca)
-endif ()
+#if (HIP_PLATFORM STREQUAL "hcc")
+#    add_subdirectory(${CMAKE_CURRENT_SOURCE_DIR}/lpl_ca)
+#endif ()
 
+if(HIP_PLATFORM STREQUAL "rocclr")
+    # Determine HSA_PATH
+    if(NOT DEFINED HSA_PATH)
+        if(NOT DEFINED ENV{HSA_PATH})
+            set(HSA_PATH "/opt/rocm/hsa" CACHE PATH "Path to which HSA runtime has been installed")
+        else()
+            set(HSA_PATH $ENV{HSA_PATH} CACHE PATH "Path to which HSA runtime has been installed")
+        endif()
+    endif()
+    if(IS_ABSOLUTE ${HSA_PATH} AND EXISTS ${HSA_PATH} AND IS_DIRECTORY ${HSA_PATH})
+        message(STATUS "Looking for HSA runtime in: " ${HSA_PATH})
+    else()
+        message(FATAL_ERROR "Don't know where to find HSA runtime. Please specify absolute path using -DHSA_PATH")
+    endif()
+
+    include_directories(${PROJECT_SOURCE_DIR}/include)
+    add_subdirectory(rocclr)
+    file(WRITE "${PROJECT_BINARY_DIR}/.hipInfo" ${_buildInfo})
+
+
+# set(ROCclr_CXX_FLAGS  "-hc -fno-gpu-rdc --amdgpu-target=gfx803 --amdgpu-target=gfx900 --amdgpu-target=gfx906 --amdgpu-target=gfx908 ")
+    set(HIP_ROCclr_BUILD_FLAGS "${HIP_ROCclr_BUILD_FLAGS} -fPIC ${ROCclr_CXX_FLAGS} -I${HSA_PATH}/include")
+    set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} ${HIP_ROCclr_BUILD_FLAGS}")
+    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} ${HIP_ROCclr_BUILD_FLAGS}")
+    set(HCC_CXX_FLAGS  "-hc -fno-gpu-rdc --amdgpu-target=gfx803 --amdgpu-target=gfx900 --amdgpu-target=gfx906 --amdgpu-target=gfx908 ")
+    set(HIP_HCC_BUILD_FLAGS "${HIP_HCC_BUILD_FLAGS} -fPIC ${HCC_CXX_FLAGS} -I${HSA_PATH}/include")
+
+endif()
+
+message(STATUS "\nHSA runtime in: " ${HSA_PATH})
 # Build hip_hcc if platform is hcc
 if(HIP_PLATFORM STREQUAL "hcc")
+    include_directories(${PROJECT_BINARY_DIR}/include)
     include_directories(${PROJECT_SOURCE_DIR}/include)
     set(HIP_HCC_BUILD_FLAGS)
 
@@ -279,20 +353,6 @@ if(HIP_PLATFORM STREQUAL "hcc")
         src/env.cpp
         src/h2f.cpp)
 
-    set ( HIP_LIB_VERSION_MAJOR ${HIP_VERSION_MAJOR} )
-    set ( HIP_LIB_VERSION_MINOR ${HIP_VERSION_MINOR} )
-    if ( ${ROCM_PATCH_VERSION} )
-        set ( HIP_LIB_VERSION_PATCH ${ROCM_PATCH_VERSION})
-    else ()
-        set ( HIP_LIB_VERSION_PATCH ${HIP_VERSION_PATCH} )
-    endif ()
-    set ( HIP_LIB_VERSION_STRING "${HIP_LIB_VERSION_MAJOR}.${HIP_LIB_VERSION_MINOR}.${HIP_LIB_VERSION_PATCH}" )
-
-    if ( DEFINED ENV{ROCM_RPATH} )
-        set (CMAKE_INSTALL_RPATH "$ENV{ROCM_RPATH}" )
-        set (CMAKE_BUILD_WITH_INSTALL_RPATH TRUE )
-        set (CMAKE_SKIP_BUILD_RPATH TRUE )
-    endif ()
     add_library(hip_hcc SHARED ${SOURCE_FILES_RUNTIME})
     add_library(hip_hcc_static STATIC ${SOURCE_FILES_RUNTIME})
 
@@ -300,18 +360,18 @@ if(HIP_PLATFORM STREQUAL "hcc")
     set_property ( TARGET hip_hcc PROPERTY VERSION "${HIP_LIB_VERSION_STRING}" )
     set_property ( TARGET hip_hcc PROPERTY SOVERSION "${HIP_LIB_VERSION_MAJOR}" )
 
-    if(HIP_COMPILER STREQUAL "hcc")
-        target_link_libraries(hip_hcc PRIVATE hc_am)
-        target_link_libraries(hip_hcc_static PRIVATE hc_am)
+    target_link_libraries(hip_hcc PRIVATE hc_am)
+    target_link_libraries(hip_hcc_static PRIVATE hc_am)
 
-        add_library(hiprtc SHARED src/hiprtc.cpp)
-        target_compile_options(hiprtc PRIVATE -DDISABLE_REDUCED_GPU_BLOB_COPY)
-        set_property ( TARGET hiprtc PROPERTY VERSION "${HIP_LIB_VERSION_STRING}" )
-        set_property ( TARGET hiprtc PROPERTY SOVERSION "${HIP_LIB_VERSION_MAJOR}" )
-        target_include_directories(
-            hiprtc SYSTEM
-                PRIVATE ${PROJECT_SOURCE_DIR}/include ${HSA_PATH}/include)
-    endif()
+    add_library(hiprtc SHARED src/hiprtc.cpp)
+    target_compile_options(hiprtc PRIVATE -DDISABLE_REDUCED_GPU_BLOB_COPY)
+    set_property ( TARGET hiprtc PROPERTY VERSION "${HIP_LIB_VERSION_STRING}" )
+    set_property ( TARGET hiprtc PROPERTY SOVERSION "${HIP_LIB_VERSION_MAJOR}" )
+
+    target_include_directories(
+        hiprtc SYSTEM
+            PRIVATE ${PROJECT_SOURCE_DIR}/include ${HSA_PATH}/include)
+
     set_target_properties(hip_hcc PROPERTIES CXX_VISIBILITY_PRESET hidden)
     set_target_properties(hip_hcc PROPERTIES VISIBILITY_INLINES_HIDDEN 1)
     set_target_properties(hiprtc PROPERTIES CXX_VISIBILITY_PRESET hidden)
@@ -349,6 +409,9 @@ if(HIP_PLATFORM STREQUAL "hcc")
     file(WRITE "${PROJECT_BINARY_DIR}/.hipInfo" ${_buildInfo})
 endif()
 
+if(HIP_PLATFORM STREQUAL "hcc" OR HIP_PLATFORM STREQUAL "rocclr")
+    add_subdirectory(${CMAKE_CURRENT_SOURCE_DIR}/lpl_ca)
+endif()
 # Generate .hipVersion
 file(WRITE "${PROJECT_BINARY_DIR}/.hipVersion" ${_versionInfo})
 
@@ -363,7 +426,8 @@ set(_versionInfoHeader
 #define HIP_VERSION       (HIP_VERSION_MAJOR * 100 + HIP_VERSION_MINOR)\n
 #endif\n
 ")
-file(WRITE "${CMAKE_CURRENT_SOURCE_DIR}/include/hip/hip_version.h" ${_versionInfoHeader})
+file(WRITE "${PROJECT_BINARY_DIR}/include/hip/hip_version.h" ${_versionInfoHeader})
+include_directories(${PROJECT_BINARY_DIR}/include)
 
 # Build doxygen documentation
 find_program(DOXYGEN_EXE doxygen)
@@ -377,15 +441,16 @@ endif()
 #############################
 # Install hip_hcc if platform is hcc
 if(HIP_PLATFORM STREQUAL "hcc")
-    if(HIP_COMPILER STREQUAL "hcc")
-      install(TARGETS hip_hcc_static hip_hcc hiprtc DESTINATION lib)
-    else()
-      install(TARGETS hip_hcc_static hip_hcc DESTINATION lib)
-    endif()
+    install(TARGETS hip_hcc_static hip_hcc hiprtc DESTINATION lib)
+endif()
 
-    # Install .hipInfo
+# Install .hipInfo
+if(HIP_PLATFORM STREQUAL "hcc" OR HIP_PLATFORM STREQUAL "rocclr")
     install(FILES ${PROJECT_BINARY_DIR}/.hipInfo DESTINATION lib)
 endif()
+
+# Install .hipInfo
+install(FILES ${PROJECT_BINARY_DIR}/.hipInfo DESTINATION lib)
 
 # Install .hipVersion
 install(FILES ${PROJECT_BINARY_DIR}/.hipVersion DESTINATION bin)
@@ -394,11 +459,24 @@ install(FILES ${PROJECT_BINARY_DIR}/.hipVersion DESTINATION bin)
 execute_process(COMMAND test ${CMAKE_INSTALL_PREFIX} -ef ${CMAKE_CURRENT_SOURCE_DIR}
     RESULT_VARIABLE INSTALL_SOURCE)
 if(NOT ${INSTALL_SOURCE} EQUAL 0)
-    install(DIRECTORY src DESTINATION .)
+    if(HIP_RUNTIME STREQUAL "HCC")
+        install(DIRECTORY src DESTINATION .)
+    elseif(HIP_RUNTIME STREQUAL "ROCclr")
+        install(DIRECTORY rocclr DESTINATION .)
+    endif()
     install(DIRECTORY bin DESTINATION . USE_SOURCE_PERMISSIONS)
     install(DIRECTORY include DESTINATION .)
     install(DIRECTORY cmake DESTINATION .)
 endif()
+
+# Install generated headers
+# FIXME: Associate with individual targets.
+install(DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}/include/hip/hcc_detail
+        DESTINATION include/hip
+        FILES_MATCHING PATTERN "*.h*")
+install(DIRECTORY ${PROJECT_BINARY_DIR}/include/hip
+        DESTINATION include
+        FILES_MATCHING PATTERN "*.h*")
 
 #############################
 # hip-config
@@ -406,23 +484,17 @@ endif()
 if(HIP_PLATFORM STREQUAL "hcc")
     install(TARGETS hip_hcc_static hip_hcc host device EXPORT hip-targets DESTINATION ${LIB_INSTALL_DIR})
     install(EXPORT hip-targets DESTINATION ${CONFIG_PACKAGE_INSTALL_DIR} NAMESPACE hip::)
+elseif( HIP_PLATFORM STREQUAL "rocclr")
+#    install(TARGETS hip_on_rocclr host device EXPORT hip-targets DESTINATION ${LIB_INSTALL_DIR})
+endif()
     include(CMakePackageConfigHelpers)
 
-    if(HIP_COMPILER STREQUAL "hcc")
-        configure_package_config_file(
-            hip-config-hcc.cmake.in
-            ${CMAKE_CURRENT_BINARY_DIR}/hip-config.cmake
-            INSTALL_DESTINATION ${CONFIG_PACKAGE_INSTALL_DIR}
-            PATH_VARS LIB_INSTALL_DIR INCLUDE_INSTALL_DIR BIN_INSTALL_DIR
-            )
-    elseif(HIP_COMPILER STREQUAL "clang")
-        configure_package_config_file(
-            hip-config-clang.cmake.in
-            ${CMAKE_CURRENT_BINARY_DIR}/hip-config.cmake
-            INSTALL_DESTINATION ${CONFIG_PACKAGE_INSTALL_DIR}
-            PATH_VARS LIB_INSTALL_DIR INCLUDE_INSTALL_DIR BIN_INSTALL_DIR
-            )
-    endif()
+    configure_package_config_file(
+        hip-config.cmake.in
+        ${CMAKE_CURRENT_BINARY_DIR}/hip-config.cmake
+        INSTALL_DESTINATION ${CONFIG_PACKAGE_INSTALL_DIR}
+        PATH_VARS LIB_INSTALL_DIR INCLUDE_INSTALL_DIR BIN_INSTALL_DIR
+        )
 
     write_basic_package_version_file(
         ${CMAKE_CURRENT_BINARY_DIR}/hip-config-version.cmake
@@ -436,13 +508,12 @@ if(HIP_PLATFORM STREQUAL "hcc")
         DESTINATION
         ${CONFIG_PACKAGE_INSTALL_DIR}
         )
-endif()
 
 #############################
 # Packaging steps
 #############################
 # Package: hip_base
-set(BUILD_DIR ${CMAKE_CURRENT_BINARY_DIR}/packages/hip_base)
+set(BUILD_DIR ${CMAKE_CURRENT_BINARY_DIR}/packages/hip-base)
 configure_file(packaging/hip-base.txt ${BUILD_DIR}/CMakeLists.txt @ONLY)
 configure_file(packaging/hip-base.postinst ${BUILD_DIR}/postinst @ONLY)
 configure_file(packaging/hip-base.prerm ${BUILD_DIR}/prerm @ONLY)
@@ -456,12 +527,19 @@ add_custom_target(pkg_hip_base COMMAND ${CMAKE_COMMAND} .
     WORKING_DIRECTORY ${BUILD_DIR}
     DEPENDS lpl ca)
 
-# Package: hip_hcc
-set(BUILD_DIR ${CMAKE_CURRENT_BINARY_DIR}/packages/hip_hcc)
-configure_file(packaging/hip-hcc.txt ${BUILD_DIR}/CMakeLists.txt @ONLY)
-configure_file(packaging/hip-hcc.postinst ${BUILD_DIR}/postinst @ONLY)
-configure_file(packaging/hip-hcc.prerm ${BUILD_DIR}/prerm @ONLY)
-add_custom_target(pkg_hip_hcc  COMMAND ${CMAKE_COMMAND} .
+# Packaging needs to wait for hipify-clang to build if it's enabled...
+if (BUILD_HIPIFY_CLANG)
+    add_dependencies(pkg_hip_base hipify-clang)
+endif()
+
+if(HIP_PLATFORM STREQUAL "hcc")
+  message("HCC Package\n")
+  # Package: hip_hcc
+  set(BUILD_DIR ${CMAKE_CURRENT_BINARY_DIR}/packages/hip_hcc)
+  configure_file(packaging/hip-hcc.txt ${BUILD_DIR}/CMakeLists.txt @ONLY)
+  configure_file(packaging/hip-hcc.postinst ${BUILD_DIR}/postinst @ONLY)
+  configure_file(packaging/hip-hcc.prerm ${BUILD_DIR}/prerm @ONLY)
+  add_custom_target(pkg_hip_hcc  COMMAND ${CMAKE_COMMAND} .
     COMMAND rm -rf *.deb *.rpm *.tar.gz
     COMMAND make package
     COMMAND cp *.deb ${PROJECT_BINARY_DIR}
@@ -469,12 +547,23 @@ add_custom_target(pkg_hip_hcc  COMMAND ${CMAKE_COMMAND} .
     COMMAND cp *.tar.gz ${PROJECT_BINARY_DIR}
     WORKING_DIRECTORY ${BUILD_DIR}
     DEPENDS hip_hcc hip_hcc_static hiprtc)
+else()
+  set(BUILD_DIR ${CMAKE_CURRENT_BINARY_DIR}/rocclr)
+  configure_file(packaging/hip-rocclr.txt ${BUILD_DIR}/CMakeLists.txt @ONLY)
+  configure_file(packaging/hip-rocclr.postinst ${BUILD_DIR}/postinst @ONLY)
+  configure_file(packaging/hip-rocclr.prerm ${BUILD_DIR}/prerm @ONLY)
+  add_custom_target(hip_on_rocclr COMMAND ${CMAKE_COMMAND} .
+    COMMAND rm -rf *.deb *.rpm *.tar.gz
+    COMMAND make package
+    COMMAND cp *.deb ${PROJECT_BINARY_DIR}
+    COMMAND cp *.rpm ${PROJECT_BINARY_DIR}
+    COMMAND cp *.tar.gz ${PROJECT_BINARY_DIR}
+    WORKING_DIRECTORY ${BUILD_DIR} )
+endif()
 
 # Package: hip_nvcc
-set(BUILD_DIR ${CMAKE_CURRENT_BINARY_DIR}/packages/hip_nvcc)
+set(BUILD_DIR ${CMAKE_CURRENT_BINARY_DIR}/packages/hip-nvcc)
 configure_file(packaging/hip-nvcc.txt ${BUILD_DIR}/CMakeLists.txt @ONLY)
-configure_file(packaging/hip-nvcc.postinst ${BUILD_DIR}/postinst @ONLY)
-configure_file(packaging/hip-nvcc.prerm ${BUILD_DIR}/prerm @ONLY)
 add_custom_target(pkg_hip_nvcc COMMAND ${CMAKE_COMMAND} .
     COMMAND rm -rf *.deb *.rpm *.tar.gz
     COMMAND make package
@@ -484,7 +573,7 @@ add_custom_target(pkg_hip_nvcc COMMAND ${CMAKE_COMMAND} .
     WORKING_DIRECTORY ${BUILD_DIR})
 
 # Package: hip_doc
-set(BUILD_DIR ${CMAKE_CURRENT_BINARY_DIR}/packages/hip_doc)
+set(BUILD_DIR ${CMAKE_CURRENT_BINARY_DIR}/packages/hip-doc)
 configure_file(packaging/hip-doc.txt ${BUILD_DIR}/CMakeLists.txt @ONLY)
 add_custom_target(pkg_hip_doc  COMMAND ${CMAKE_COMMAND} .
     COMMAND rm -rf *.deb *.rpm *.tar.gz
@@ -505,6 +594,7 @@ add_custom_target(pkg_hip_samples COMMAND ${CMAKE_COMMAND} .
     COMMAND cp *.tar.gz ${PROJECT_BINARY_DIR}
     WORKING_DIRECTORY ${BUILD_DIR})
 
+
 # Package: all
 if(POLICY CMP0037)
     cmake_policy(PUSH)
@@ -514,10 +604,18 @@ file(GENERATE OUTPUT ${PROJECT_BINARY_DIR}/fixnames
         CONTENT "pwd; for i in *.deb; do mv \"\$i\" \"\${i/.deb/-amd64.deb}\" ; done
 for i in *.rpm ; do mv \$i \${i/.rpm/.x86_64.rpm} ; done
 ")
-add_custom_target(package
+if(HIP_PLATFORM STREQUAL "hcc")
+    add_custom_target(package
     COMMAND bash ${PROJECT_BINARY_DIR}/fixnames
     WORKING_DIRECTORY ${PROJECT_BINARY_DIR}
     DEPENDS pkg_hip_base pkg_hip_hcc pkg_hip_nvcc pkg_hip_doc pkg_hip_samples)
+elseif(HIP_PLATFORM STREQUAL "rocclr")
+    add_custom_target(package
+    COMMAND bash ${PROJECT_BINARY_DIR}/fixnames
+    WORKING_DIRECTORY ${PROJECT_BINARY_DIR}
+    DEPENDS pkg_hip_base hip_on_rocclr pkg_hip_nvcc pkg_hip_doc pkg_hip_samples)
+endif()
+
 if(POLICY CMP0037)
     cmake_policy(POP)
 endif()
@@ -561,8 +659,12 @@ if(${RUN_HIT} EQUAL 0)
     include_directories(${HIP_SRC_PATH}/tests/src)
     hit_add_directory_recursive(${HIP_SRC_PATH}/tests/src "directed_tests")
 
+    # Add unit tests
+    include_directories(${HIP_SRC_PATH}/tests/unit)
+    hit_add_directory_recursive(${HIP_SRC_PATH}/tests/unit "unit_tests")
+
     # Add top-level tests to build_tests
-    add_custom_target(build_tests DEPENDS directed_tests)
+    add_custom_target(build_tests DEPENDS directed_tests unit_tests)
 
     # Add custom target: check
     add_custom_target(check COMMAND "${CMAKE_COMMAND}" --build . --target test DEPENDS build_tests)

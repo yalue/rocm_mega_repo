@@ -1,3 +1,0 @@
-add_llvm_library(LLVMPromoteConstant MODULE PromoteConstant.cpp)
-
-add_dependencies(LLVMPromoteConstant intrinsics_gen)

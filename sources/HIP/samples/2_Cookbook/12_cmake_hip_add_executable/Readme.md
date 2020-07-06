@@ -28,8 +28,8 @@ If your project already modifies ```CMAKE_MODULE_PATH```, you will need to appen
 ## Using the hip_add_executable macro
 FindHIP provides the ```hip_add_executable``` macro that is similar to the ```cuda_add_executable``` macro that is provided by FindCUDA.
 The syntax is also similar. The ```hip_add_executable``` macro uses the hipcc wrapper as the compiler.
-The macro supports specifying HCC-specific, NVCC-specific compiler options using the ```HCC_OPTIONS``` and ```NVCC_OPTIONS``` keywords.
-Common options targeting both compilers can be specificed after the ```HIPCC_OPTIONS``` keyword. 
+The macro supports specifying HCC-specific, CLANG-specific, NVCC-specific compiler options using the ```HCC_OPTIONS```, ```CLANG_OPTIONS``` and ```NVCC_OPTIONS``` keywords.
+Common options targeting both compilers can be specificed after the ```HIPCC_OPTIONS``` keyword.
 
 ## How to build and run:
 Use the following commands to build and execute the sample
@@ -48,6 +48,6 @@ make
 - [HIP Runtime API (Doxygen)](http://rocm-developer-tools.github.io/HIP)
 - [HIP Porting Guide](https://github.com/ROCm-Developer-Tools/HIP/blob/master/docs/markdown/hip_porting_guide.md)
 - [HIP Terminology](https://github.com/ROCm-Developer-Tools/HIP/blob/master/docs/markdown/hip_terms.md) (including Rosetta Stone of GPU computing terms across CUDA/HIP/HC/AMP/OpenL)
-- [HIPIFY](https://github.com/ROCm-Developer-Tools/HIP/blob/master/hipify-clang/README.md)
+- [HIPIFY](https://github.com/ROCm-Developer-Tools/HIPIFY/blob/master/README.md)
 - [Developer/CONTRIBUTING Info](https://github.com/ROCm-Developer-Tools/HIP/blob/master/CONTRIBUTING.md)
 - [Release Notes](https://github.com/ROCm-Developer-Tools/HIP/blob/master/RELEASE.md)

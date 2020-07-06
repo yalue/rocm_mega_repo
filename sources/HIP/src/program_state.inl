@@ -19,6 +19,8 @@
 #include <hsa/hsa_ven_amd_loader.h>
 #include <amd_comgr.h>
 #include "hc.hpp"
+#include "hip_hcc_internal.h"
+#include "trace_helper.h"
 
 #include <link.h>
 
@@ -406,11 +408,13 @@ public:
     }
 
     void load_code_object_and_freeze_executable(
-        const std::string& file, hsa_agent_t agent, hsa_executable_t executable) {
+        const char* data,
+        const size_t data_size, bool make_copy,
+        hsa_agent_t agent, hsa_executable_t executable) {
         // TODO: the following sequence is inefficient, should be refactored
         //       into a single load of the file and subsequent ELFIO
         //       processing.
-        if (file.empty()) return;
+        if (!data_size) return;
 
         static const auto cor_deleter = [] (hsa_code_object_reader_t* p) {
             if (!p) return;
@@ -423,8 +427,16 @@ public:
         decltype(code_readers.second)::iterator it;
         {
           std::lock_guard<std::mutex> lck{code_readers.first};
+
+          std::string file;
+          if (make_copy)
+            file = std::string(data, data_size);
+
           code_readers.second.emplace_back(move(file), move(tmp));
           it = std::prev(code_readers.second.end());
+
+          if (make_copy)
+            data = it->first.data();
         }
 
         auto check_hsa_error = [](hsa_status_t s) {
@@ -438,7 +450,7 @@ public:
         };
 
         check_hsa_error(hsa_code_object_reader_create_from_memory(
-            it->first.data(), it->first.size(), it->second.get()));
+            data, data_size, it->second.get()));
 
         check_hsa_error(hsa_executable_load_agent_code_object(
             executable, agent, *it->second, nullptr, nullptr));
@@ -485,7 +497,7 @@ public:
 
                             // TODO: this is massively inefficient and only meant for
                             // illustration.
-                            tmp = impl.load_executable(blob.data(), blob.size(), tmp, a);
+                            tmp = impl.load_executable(blob.data(), blob.size(), true, tmp, a);
 
                             if (tmp.handle) current_exes.push_back(tmp);
                         }
@@ -503,6 +515,7 @@ public:
     
     hsa_executable_t load_executable(const char* data,
                                      const size_t data_size,
+                                     bool make_copy,
                                      hsa_executable_t executable,
                                      hsa_agent_t agent) {
         ELFIO::elfio reader;
@@ -519,7 +532,7 @@ public:
                                                            code_object_dynsym,
                                                            agent, executable);
 
-        load_code_object_and_freeze_executable(move(ts), agent, executable);
+        load_code_object_and_freeze_executable(data, data_size, make_copy, agent, executable);
 
         return executable;
     }
@@ -722,6 +735,27 @@ public:
             if (amd_comgr_index_list_metadata(args_md, i, &arg_md)
                 != AMD_COMGR_STATUS_SUCCESS)
                 return;
+
+            //Look up “.value_kind” to decide whether to ignore it
+            //See http://llvm.org/docs/AMDGPUUsage.html#code-object-v3-metadata-mattr-code-object-v3
+            amd_comgr_metadata_node_t arg_value_kind_md;
+            if (amd_comgr_metadata_lookup(arg_md, ".value_kind", &arg_value_kind_md)
+                != AMD_COMGR_STATUS_SUCCESS)
+                return;
+
+            std::string arg_value_kind{ metadata_to_string(arg_value_kind_md) };
+
+            if (amd_comgr_destroy_metadata(arg_value_kind_md)
+                != AMD_COMGR_STATUS_SUCCESS)
+                return;
+
+            if (arg_value_kind.find("hidden_") == 0) {
+                if (amd_comgr_destroy_metadata(arg_md)
+                    != AMD_COMGR_STATUS_SUCCESS)
+                    return;
+
+                continue; //Ignore hidden arg
+            }
 
             amd_comgr_metadata_node_t arg_size_md;
             if (amd_comgr_metadata_lookup(arg_md, ".size", &arg_size_md)
@@ -926,14 +960,16 @@ public:
 
         auto it0 = get_functions(agent).find(function_address);
 
-        if (it0 == get_functions(agent).cend()) {
-            hip_throw(std::runtime_error{
+        if (it0 != get_functions(agent).cend()) return it0->second;
+
+        // For hip-clang compiler + Hcc RT
+        hipFunction_t f = ihipGetDeviceFunction((const void*)function_address);
+        if (f) return reinterpret_cast<Kernel_descriptor&>(*f);
+
+        hip_throw(std::runtime_error{
                     "No device code available for function: " +
                     std::string(name(function_address)) +
                     ", for agent: " + name(agent)});
-        }
-
-        return it0->second;
     }
 
     const std::vector<std::pair<std::size_t, std::size_t>>& 

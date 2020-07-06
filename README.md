@@ -59,9 +59,17 @@ You may need to manually delete any existing versions of the libraries
 overwritten by our modified version of `ROCR-Runtime`, as I don't think the
 installation script in its current state overwrites them properly. To do so,
 find and delete any copies of the `libhsa-runtime64.so*` you can find in any
-subdirectories of `/opt/rocm`.  Next, compile and install the `ROCR-Runtime`
-modifications using the `./install.sh` script mentioned above. Finally, make
-sure to run `sudo ldconfig`.
+subdirectories of `/opt/rocm`.  By default, ROCm installs more copies of the
+library into several locations I consider "questionable":
+
+ - `/include/hsa`: Remove the entire directory if it's there.
+ - `/usr/local/lib/`: I recall a circular symlink to the libhsa-runtime64.so
+   library in here somewhere.  Delete it.
+ - `/usr/local/include/hsa`: This was another circular symlink, I think.
+
+After removing the above things, rerun `sudo ldconfig`. Next, compile and
+install the `ROCR-Runtime` modifications using the `./install.sh` script
+mentioned above. Finally, make sure to run `sudo ldconfig`.
 
 
 Uninstallation

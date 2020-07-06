@@ -135,6 +135,14 @@ int main(int argc, char **argv) {
     sizeof(uint64_t)));
   CheckHIPError(hipDeviceSynchronize());
 
+  hipStream_t stream;
+  printf("Creating test stream...\n");
+  CheckHIPError(hipStreamCreate(&stream));
+  hipLaunchKernelGGL(GPUVectorAdd, block_count, 256, 0, stream, v);
+  CheckHIPError(hipStreamSynchronize(stream));
+  CheckHIPError(hipStreamDestroy(stream));
+  printf("Test stream created and destroyed OK\n");
+
   // Measure time on the GPU.
   start_time = CurrentSeconds();
   hipLaunchKernelGGL(GPUVectorAdd, block_count, 256, 0, 0, v);
