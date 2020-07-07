@@ -28,6 +28,7 @@
 #ifndef COMMAND_QUEUE_HPP_
 #define COMMAND_QUEUE_HPP_
 
+#include <stdint.h>
 #include "thread/thread.hpp"
 #include "platform/object.hpp"
 #include "platform/command.hpp"
@@ -228,6 +229,12 @@ class HostQueue : public CommandQueue {
 
   //! Set last enqueued command
   void setLastQueuedCommand(Command* lastCommand);
+
+  /*! Sets the CU mask for the queue. Returns true on success. The bit mask
+   * must contain at least one 32-bit entry. Requires the number of *bits* in
+   * the mask.
+   */
+  bool setCUMask(uint32_t *bits, uint32_t count);
 };
 
 

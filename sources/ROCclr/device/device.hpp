@@ -21,6 +21,7 @@
 #ifndef DEVICE_HPP_
 #define DEVICE_HPP_
 
+#include "hsa/hsa.h"
 #include "top.hpp"
 #include "thread/thread.hpp"
 #include "thread/monitor.hpp"
@@ -1118,6 +1119,12 @@ class VirtualDevice : public amd::HeapObject {
 
   //! Returns true if device has active wait setting
   bool ActiveWait() const;
+
+  // If this virtual device is backed by a HSA queue, this will return the
+  // a pointer to the hsa_queue_t. Returns nullptr otherwise.
+  // TODO: This is probably not the cleanest interface. Would be nice to figure
+  // out a way that doesn't rely on the hsa_queue_t type.
+  virtual hsa_queue_t* hsaQueue() { return nullptr; }
 
  private:
   //! Disable default copy constructor
