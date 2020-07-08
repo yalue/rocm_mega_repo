@@ -9,8 +9,15 @@ About
 -----
 
 This repository currently contains copies of the `ROCR-Runtime`, `HIP`, and
-`hcc` code, from ROCm version 3.3. However, only `ROCR-Runtime` and `HIP`
-contain any modifications for now.
+`ROCclr` code.  `ROCclr` and `HIP` are up-to-date with ROCm 3.5.
+The included copy of `ROCr-Runtime` is not up to date, but not necessary for
+any of my current modifications.
+
+The main goal of this repository, for now, is to add a new function to the HIP
+API: `hipStreamSetComputeUnitMask`, which enables control over the compute-unit
+masking hardware feature of AMD GPUs (at least through the Polaris
+architecture).  Adding this function requires a modified version of ROCclr and
+HIP.
 
 Prerequisites
 -------------
@@ -30,19 +37,27 @@ a version of the Linux kernel with the `amdkfd` module available, that the
 the `video` group.
 
 Finally, you will need to install the following packages from AMD's pre-built
-ROCm repositories. AMD's repositories currently contain version 3.3 of ROCm--
-the subsequent instructions in this README may not work if the versions in
-AMD's repositories have updated. If that happens, the source code versions in
-this repo's `sources/` directory will need to be updated to match the upstream
-versions and re-patched. Assuming that ROCm is still at version 3.3, install
-the following packages from AMD's repository (see
+ROCm repositories AMD's repositories (see
 [these instructions](https://github.com/RadeonOpenCompute/ROCm#Ubuntu) for
-doing so):
+information about adding the repo):
 ```
-sudo apt install rocm-utils rocm-libs rocm-dev rocm-debug-agent rocm-cmake \
-    rocalution rocblas rocfft rocprim rocrand rocsparse rocthrust roctracer-dev
+sudo apt install rocm-dev3.5.0 rocm-libs3.5.0 rocm-utils3.5.0
 ```
 
+After running the above command to install ROCm version 3.5.0, you will need to
+create a symlink to link `/opt/rocm` to `/opt/rocm/3.5.1`.  The package names
+are misleading; installing `rocm-...3.5.0` will actually install the most
+up-to-date minor version of ROCm 3.5, creating a new directory in the process.
+You may need to reinstall everything if the minor version changes, since it
+won't properly update versions in the older directory, too.
+
+Finally, make sure that `/opt/rocm/bin` is on your PATH, and that your system
+looks for shared libraries in `/opt/rocm/lib`.
+
+(Note that if you need to install additional ROCm libraries, always use the
+package versions with names ending in `3.5.0`: mixing the `<...>3.5.0` packages
+with the packages that don't have a version number EASILY leads to broken
+installations.  (Speaking from experience.)
 
 Compilation and Installation (on top of an existing ROCm installation)
 ----------------------------------------------------------------------
@@ -50,26 +65,6 @@ Compilation and Installation (on top of an existing ROCm installation)
 You *should* be able to build everything using the included `install.sh`
 script: `sudo bash ./install.sh`.  The script requires `sudo` access in order
 to be able to write to `/opt/rocm`.
-
-
-Note about libhsa-runtime64.so
-------------------------------
-
-You may need to manually delete any existing versions of the libraries
-overwritten by our modified version of `ROCR-Runtime`, as I don't think the
-installation script in its current state overwrites them properly. To do so,
-find and delete any copies of the `libhsa-runtime64.so*` you can find in any
-subdirectories of `/opt/rocm`.  By default, ROCm installs more copies of the
-library into several locations I consider "questionable":
-
- - `/include/hsa`: Remove the entire directory if it's there.
- - `/usr/local/lib/`: I recall a circular symlink to the libhsa-runtime64.so
-   library in here somewhere.  Delete it.
- - `/usr/local/include/hsa`: This was another circular symlink, I think.
-
-After removing the above things, rerun `sudo ldconfig`. Next, compile and
-install the `ROCR-Runtime` modifications using the `./install.sh` script
-mentioned above. Finally, make sure to run `sudo ldconfig`.
 
 
 Uninstallation

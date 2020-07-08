@@ -1,13 +1,5 @@
-# This script builds the modified ROCm components from source, and installs it
-# to /opt/rocm, overwriting the binaries provided by AMD. Run at your own
-# risk--if it fails you may end up with a broken ROCm installation and need to
-# uninstall all of AMD's prebuilt packages, delete /opt/rocm, and re-install
-# AMD's packages to get back to a sane state.
-
-export ROCM_INSTALL_DIR=/opt/rocm
-export PATH=$PATH:ROCM_INSTALL_DIR/bin
-export HIP_PATH=$ROCM_INSTALL_DIR/hip
-export ROCM_PATH=$ROCM_INSTALL_DIR
+# This script builds and installs the modified version of HIP. Overwrites the
+# existing HIP version. Will prompt for sudo access in order to install HIP.
 
 check_install_error() {
 	if [ $? -ne 0 ];
@@ -17,36 +9,46 @@ check_install_error() {
 	fi
 }
 
-# Temporarily comment this out for a tagged version for the ECRTS paper, where
-# this isn't needed.
-#echo -e "\nInstalling ROCR-Runtime\n"
-#cd sources/ROCR-Runtime/src
-#rm -r build
-#mkdir build
-#cd build
-#cmake \
-#	-DCMAKE_INSTALL_PREFIX=$ROCM_INSTALL_DIR \
-#	..
-#make -j8
-#sudo make install
-#check_install_error "ROCR-Runtime"
-#cd $ROCM_INSTALL_DIR/..
+export PROJECT_TOP_DIR="$(pwd)"
 
-echo -e "\nInstalling HIP\n"
-cd sources/HIP
-rm -r build
+cd sources
+export ROCclr_DIR="$(readlink -f ROCclr)"
+export OPENCL_DIR="$(readlink -f ROCm-OpenCL-Runtime)"
+
+echo -e "\nBuilding ROCclr\n"
+cd ROCclr
+rm -rf build
 mkdir build
 cd build
 cmake \
-	-DCMAKE_PREFIX_PATH="$ROCM_INSTALL_DIR" \
-	-DCMAKE_INSTALL_PREFIX=$ROCM_INSTALL_DIR/hip \
 	-DCMAKE_BUILD_TYPE=Release \
-	-DHSA_AMDGPU_GPU_TARGET="gfx803;gfx900" \
+	-DOPENCL_DIR="$OPENCL_DIR" \
+	-DCMAKE_INSTALL_PREFIX=/opt/rocm/rocclr \
 	..
-make -j8
-make -j8 install
+# We don't need to "install" ROCclr, but only compile it. The HIP build will
+# just look in the "ROCclr/build" directory.
+make -j4
+sudo make install
+check_install_error "ROCclr"
+cd "$PROJECT_TOP_DIR"
+
+
+echo -e "\nInstalling HIP\n"
+cd sources/HIP
+rm -rf build
+mkdir build
+cd build
+cmake \
+	-DCMAKE_BUILD_TYPE=Release \
+	-DHIP_COMPILER=clang \
+	-DHIP_PLATFORM=rocclr \
+	-DCMAKE_PREFIX_PATH="$ROCclr_DIR/build" \
+	..
+make -j4
+sudo make install
 check_install_error "HIP"
-cd $ROCM_INSTALL_DIR/..
+cd "$PROJECT_TOP_DIR"
 
 # Make sure the ld.so knows if we've updated any shared libraries.
 sudo ldconfig
+
