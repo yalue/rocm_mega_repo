@@ -1,11 +1,15 @@
+#include <fcntl.h>
+#include <pthread.h>
+#include <sys/mman.h>
 #include <sys/socket.h>
+#include <sys/stat.h>
+#include <sys/types.h>
 #include <unistd.h>
 #include <cerrno>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
 #include <string>
-#include <pthread.h>
 #include <ags_communication.h>
 #include "inc/hsa.h"
 #include "ags_hsa_state.h"
@@ -31,10 +35,12 @@ static void CleanupAGSState(void) {
   pthread_mutex_destroy(&(ags_state->mutex));
   // TODO: Iterate over the cpu_allocations map and unmap everything that's
   // still in there.
-  for (auto element : state->cpu_allocations) {
+  /*
+  for (auto element : ags_state->cpu_allocations) {
     // TODO: munmap the VA, close the FD, then free the SharedCPUAllocation struct
   }
-  delete state->cpu_allocations;
+  */
+  delete ags_state->cpu_allocations;
   free(ags_state);
   ags_state = NULL;
 }
@@ -112,7 +118,7 @@ bool DoAGSTransaction(AGSRequest *request, void *request_data,
 
 bool InitializeAGSConnection(void) {
   int ags_fd;
-  AGSState *tmp = NULL;
+  AGSHSAState *tmp = NULL;
 
   // Make sure we don't re-initialize AGS if it's already set up.
   if (ags_state) return true;
@@ -484,9 +490,10 @@ bool AGSHandleAMDMemoryPoolGetInfo(hsa_amd_memory_pool_t memory_pool,
   return false;
 }
 
+/* ///////////////////////////////////////////////////////////////// NEEDS MORE DEBUGGING, UNCOMMENT WHEN WE'RE RE-ENABLING "FULL" INTERCEPTION
 // Handles a memory allocation result returned by AGS, including potentially
 // mapping a shared memory object into userspace.
-static bool FollowUpAGSMemoryAllocation(AGSAMDMemoryAllocateResponse *r,
+static bool FollowUpAGSMemoryAllocation(AGSMemoryAllocateResponse *r,
     size_t size, void **ptr, hsa_status_t *result) {
   SharedCPUAllocation *allocation = NULL;
   void *va = NULL;
@@ -494,8 +501,8 @@ static bool FollowUpAGSMemoryAllocation(AGSAMDMemoryAllocateResponse *r,
   *ptr = NULL;
 
   // Return now if this was a GPU allocation.
-  if (!response_data.is_cpu_allocation) {
-    *ptr = response_data.gpu_va;
+  if (!r->is_cpu_allocation) {
+    *ptr = r->gpu_va;
     *result = HSA_STATUS_SUCCESS;
     return false;
   }
@@ -533,6 +540,7 @@ static bool FollowUpAGSMemoryAllocation(AGSAMDMemoryAllocateResponse *r,
   *result = HSA_STATUS_SUCCESS;
   return false;
 }
+*/
 
 bool AGSHandleAMDMemoryPoolAllocate(hsa_amd_memory_pool_t memory_pool,
     size_t size, uint32_t flags, void **ptr, hsa_status_t *result) {
@@ -565,9 +573,12 @@ bool AGSHandleAMDMemoryPoolAllocate(hsa_amd_memory_pool_t memory_pool,
   if (response.hsa_status != HSA_STATUS_SUCCESS) {
     return false;
   }
-  return FollowUpAGSMemoryAllocation(&response_data, size, ptr, result);
+  //////////////////////////////////////////////////////////////////////////////////////////// TEMP FOR TESTING
+  return true; // TESTING ONLY!
+  //return FollowUpAGSMemoryAllocation(&response_data, size, ptr, result);
 }
 
+/*  ////////////////////////////////////////////////////////////////////////////// TEMP FOR TESTING
 bool AGSHandleHSAMemoryAllocate(hsa_region_t region, size_t size, void **ptr,
     hsa_status_t *result) {
   AGSRequest request;
@@ -599,6 +610,7 @@ bool AGSHandleHSAMemoryAllocate(hsa_region_t region, size_t size, void **ptr,
   *ptr = response_data;
   return false;
 }
+*/
 
 bool AGSHandleAMDAgentsAllowAccess(uint32_t num_agents,
     const hsa_agent_t *agents, const uint32_t *flags, const void *ptr,
