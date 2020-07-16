@@ -44,6 +44,7 @@ THE SOFTWARE.
 #include <hip/hcc_detail/hip_texture_types.h>
 #include <hip/hcc_detail/hip_surface_types.h>
 
+#include <hsa/hsa.h>
 #if !__HIP_ROCclr__ && defined(__cplusplus)
 #include <hsa/hsa.h>
 #include <hip/hcc_detail/program_state.hpp>
@@ -847,6 +848,8 @@ hipError_t hipStreamGetPriority(hipStream_t stream, int* priority);
 #define HIP_HAS_STREAM_SET_CU_MASK (1)
 hipError_t hipStreamSetComputeUnitMask(hipStream_t stream, uint64_t mask);
 
+// Returns the HSA queue associated with the stream. Dangerous! For temporary tests!
+hsa_queue_t* hipStreamGetHSAQueue(hipStream_t stream);
 
 /**
  * Stream CallBack struct

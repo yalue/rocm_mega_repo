@@ -2,5 +2,6 @@
 .repo/
 install/
 hip_vectoradd_test/vector_add
+hip_vectoradd_test/kill_kernel_test
 **/build/
 

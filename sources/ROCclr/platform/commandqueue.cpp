@@ -236,6 +236,10 @@ bool HostQueue::setCUMask(uint32_t *bits, uint32_t count) {
   return true;
 }
 
+hsa_queue_t* HostQueue::getHSAQueue() {
+  return vdev()->hsaQueue();
+}
+
 DeviceQueue::~DeviceQueue() {
   delete virtualDevice_;
   ScopedLock lock(context().lock());

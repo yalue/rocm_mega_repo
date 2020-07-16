@@ -253,3 +253,5 @@ hipTexObjectGetResourceViewDesc
 hipTexObjectGetTextureDesc
 hipStreamGetPriority
 hipStreamSetComputeUnitMask
+hipStreamGetHSAQueue
+

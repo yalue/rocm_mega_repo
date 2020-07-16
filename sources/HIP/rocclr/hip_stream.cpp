@@ -334,6 +334,10 @@ hipError_t hipStreamGetPriority(hipStream_t stream, int* priority) {
 
 }
 
+hsa_queue_t* hipStreamGetHSAQueue(hipStream_t stream) {
+  return hip::getQueue(stream)->asHostQueue()->getHSAQueue();
+}
+
 hipError_t hipStreamSetComputeUnitMask(hipStream_t stream, uint64_t mask) {
   HIP_INIT_API(hipStreamSetComputeUnitMask, stream, mask);
 

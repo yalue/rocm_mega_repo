@@ -4,6 +4,7 @@
 #include <string.h>
 #include <time.h>
 #include <hip/hip_runtime.h>
+#include <hsa/hsa.h>
 
 // The device number on which to perform the computation.
 #define DEVICE_ID (0)
@@ -107,9 +108,6 @@ int main(int argc, char **argv) {
   printf("Accumulator result: %lu\n", (unsigned long) host_junk);
 
   // Measure the time if we kill the stream during kernel execution.
-  printf("\nTest while attempting to use a destroyed stream:\n");
-  ////////////////////////////////////////////////////////////////////////////////// SANITY CHECK
-  CheckHIPError(hipStreamDestroy(stream));
   start_time = CurrentSeconds();
   hipLaunchKernelGGL(CounterSpin, block_count, thread_count, 0, stream,
     spin_iterations, device_junk);
@@ -117,6 +115,14 @@ int main(int argc, char **argv) {
   // The key part of the test: destroy the stream after the kernel launch, but
   // before it completes.
   //CheckHIPError(hipStreamDestroy(stream));  // This didn't crash!!
+  auto queue = hipStreamGetHSAQueue(stream);
+  if (!queue) {
+    printf("hipStreamGetHSAQueue failed\n");
+    exit(1);
+  }
+  printf("Inactivating stream HSA queue @ %p\n", queue);
+  hsa_status_t res2 = hsa_queue_inactivate(queue);
+  printf("hsa_queue_inactivate returned %d\n", (int) res2);
   // Intentionally *don't* use hipStreamSynchronize here, since we're going to
   // experiment with destroying the stream in the later version. Therefore, we
   // can't sync on the stream; it will have been destroyed.

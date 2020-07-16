@@ -29,6 +29,7 @@
 #define COMMAND_QUEUE_HPP_
 
 #include <stdint.h>
+#include <hsa/hsa.h>
 #include "thread/thread.hpp"
 #include "platform/object.hpp"
 #include "platform/command.hpp"
@@ -235,6 +236,9 @@ class HostQueue : public CommandQueue {
    * the mask.
    */
   bool setCUMask(uint32_t *bits, uint32_t count);
+
+  //! Dangerous! For stupid experiments only!
+  hsa_queue_t* getHSAQueue();
 };
 
 
