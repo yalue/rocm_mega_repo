@@ -683,7 +683,12 @@ hsa_status_t HSA_API hsa_isa_get_info_alt(
     hsa_isa_t isa,
     hsa_isa_info_t attribute,
     void *value) {
+#ifdef ENABLE_FULL_AGS_INTERCEPTION
+  hsa_status_t r;
+  if (!AGSHandleHSAISAGetInfoAlt(isa, attribute, value, &r)) return r;
+#else
   DoAGSPlaceholderRequest();
+#endif
   return coreApiTable->hsa_isa_get_info_alt_fn(isa, attribute, value);
 }
 

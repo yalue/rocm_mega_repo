@@ -12,7 +12,7 @@
 // functions to execute in the context of AGS' process rather than the client
 // processes. If false, the HSA clients will only send placeholder requests to
 // AGS, which are useful for tracing and ensuring that nothing's broken.
-// #define ENABLE_FULL_AGS_INTERCEPTION (1)
+#define ENABLE_FULL_AGS_INTERCEPTION (1)
 
 // Sends a placeholder request to AGS. Returns from the surrounding function if
 // AGS' response sets prevent_default (AGS should not do this, though). Allows
@@ -173,5 +173,8 @@ bool AGSHandleFreeOrUnlock(void *ptr, AGSRequestType request_type,
     hsa_status_t *result);
 
 bool AGSHandleHSASignalDestroy(hsa_signal_t signal, hsa_status_t *result);
+
+bool AGSHandleHSAISAGetInfoAlt(hsa_isa_t isa, hsa_isa_info_t attribute,
+    void *value, hsa_status_t *result);
 
 #endif  // AGS_HSA_STATE_H

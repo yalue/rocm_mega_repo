@@ -26,6 +26,21 @@ void UnlockAGS(void) {
   pthread_mutex_unlock(&(ags_state->mutex));
 }
 
+// Should be called to free the given SharedCPUAllocation. Returns false on
+// error. Unmaps and closes the shared memory, and zeroes the struct. Does not
+// free the struct itself, though.
+static bool CleanupSharedCPUAllocation(SharedCPUAllocation *a) {
+  int result = munmap(a->va, a->size);
+  bool to_return = true;
+  if (result != 0) {
+    printf("Failed unmapping shared CPU allocation: %s\n", strerror(errno));
+    to_return = false;
+  }
+  close(a->fd);
+  memset(a, 0, sizeof(*a));
+  return to_return;
+}
+
 // Closes any connections to pipes and deletes the process-specific pipe if
 // possible.
 static void CleanupAGSState(void) {
@@ -33,13 +48,18 @@ static void CleanupAGSState(void) {
   close(ags_state->fd);
   ags_state->fd = -1;
   pthread_mutex_destroy(&(ags_state->mutex));
-  // TODO: Iterate over the cpu_allocations map and unmap everything that's
-  // still in there.
-  /*
-  for (auto element : ags_state->cpu_allocations) {
-    // TODO: munmap the VA, close the FD, then free the SharedCPUAllocation struct
+  // Hopefully all of the CPU allocations should be freed if we're cleaning up
+  // AGS' state, but we'll free anything remaining as a sanity check and print
+  // a message.
+  auto allocations = ags_state->cpu_allocations;
+  for (auto it = allocations->begin(); it != allocations->end(); ++it) {
+    SharedCPUAllocation *a = it->second;
+    printf("Unmapping %lu-byte remaining shared CPU allocation @%p.\n",
+      (unsigned long) a->size, a->va);
+    CleanupSharedCPUAllocation(a);
+    free(a);
   }
-  */
+  allocations->clear();
   delete ags_state->cpu_allocations;
   free(ags_state);
   ags_state = NULL;
@@ -490,7 +510,32 @@ bool AGSHandleAMDMemoryPoolGetInfo(hsa_amd_memory_pool_t memory_pool,
   return false;
 }
 
-/* ///////////////////////////////////////////////////////////////// NEEDS MORE DEBUGGING, UNCOMMENT WHEN WE'RE RE-ENABLING "FULL" INTERCEPTION
+// This is called if we're handling a CPU allocation, and will send the VA
+// where we mapped the memory back to AGS. Returns false on error.
+static bool NotifyAGSWithCPUAddress(AGSMemoryAllocateResponse *r,
+    SharedCPUAllocation *allocation) {
+  AGSRequest request;
+  AGSResponse response;
+  AGSClientMappedMemoryAddress args;
+  args.ags_cpu_va = r->ags_cpu_va;
+  args.client_va = allocation->va;
+  request.data_size = sizeof(args);
+  request.request_type = AGS_CLIENT_MAPPED_MEMORY_ADDRESS;
+
+  if (!DoAGSTransaction(&request, &args, &response, 0, NULL)) {
+    printf("Didn't get response when notifying AGS of shared-memory VA.\n");
+    CleanupAGSState();
+    return false;
+  }
+  if (response.hsa_status != HSA_STATUS_SUCCESS) {
+    printf("Didn't get HSA_STATUS_SUCCESS after notifying AGS of shared-memory"
+      " VA. Got status = %d.\n", (int) response.hsa_status);
+    CleanupAGSState();
+    return false;
+  }
+  return true;
+}
+
 // Handles a memory allocation result returned by AGS, including potentially
 // mapping a shared memory object into userspace.
 static bool FollowUpAGSMemoryAllocation(AGSMemoryAllocateResponse *r,
@@ -514,10 +559,10 @@ static bool FollowUpAGSMemoryAllocation(AGSMemoryAllocateResponse *r,
     CleanupAGSState();
     return true;
   }
-  allocation->fd = shm_open(r->shared_memory_path, O_RDWR, 0666);
+  allocation->fd = shm_open(r->shared_memory_name, O_RDWR, 0666);
   if (allocation->fd < 0) {
     printf("Failed opening shared memory object %s: %s\n",
-      r->shared_memory_path, strerror(errno));
+      r->shared_memory_name, strerror(errno));
     free(allocation);
     CleanupAGSState();
     return true;
@@ -526,7 +571,7 @@ static bool FollowUpAGSMemoryAllocation(AGSMemoryAllocateResponse *r,
   va = mmap(NULL, size, PROT_READ | PROT_WRITE, MAP_SHARED, allocation->fd, 0);
   if (va == MAP_FAILED) {
     printf("Failed mapping shared-memory object %s: %s\n",
-      r->shared_memory_path, strerror(errno));
+      r->shared_memory_name, strerror(errno));
     close(allocation->fd);
     free(allocation);
     CleanupAGSState();
@@ -534,13 +579,21 @@ static bool FollowUpAGSMemoryAllocation(AGSMemoryAllocateResponse *r,
   }
   allocation->va = va;
 
+  // Let AGS know where we mapped the memory in our own address space.
+  if (!NotifyAGSWithCPUAddress(r, allocation)) {
+    CleanupSharedCPUAllocation(allocation);
+    free(allocation);
+    CleanupAGSState();
+    return true;
+  }
+
   // Now, insert the record of the allocation into the map and return the VA.
-  ags_state->cpu_allocations[(uint64_t) va] = allocation;
+  ags_state->cpu_allocations->insert(std::make_pair((uint64_t) va,
+    allocation));
   *ptr = va;
   *result = HSA_STATUS_SUCCESS;
   return false;
 }
-*/
 
 bool AGSHandleAMDMemoryPoolAllocate(hsa_amd_memory_pool_t memory_pool,
     size_t size, uint32_t flags, void **ptr, hsa_status_t *result) {
@@ -548,7 +601,6 @@ bool AGSHandleAMDMemoryPoolAllocate(hsa_amd_memory_pool_t memory_pool,
   AGSResponse response;
   AGSAMDMemoryPoolAllocateRequest args;
   AGSMemoryAllocateResponse response_data;
-  void *cpu_ptr = NULL;
   if (!ags_state) return true;
 
   args.memory_pool = memory_pool;
@@ -573,12 +625,9 @@ bool AGSHandleAMDMemoryPoolAllocate(hsa_amd_memory_pool_t memory_pool,
   if (response.hsa_status != HSA_STATUS_SUCCESS) {
     return false;
   }
-  //////////////////////////////////////////////////////////////////////////////////////////// TEMP FOR TESTING
-  return true; // TESTING ONLY!
-  //return FollowUpAGSMemoryAllocation(&response_data, size, ptr, result);
+  return FollowUpAGSMemoryAllocation(&response_data, size, ptr, result);
 }
 
-/*  ////////////////////////////////////////////////////////////////////////////// TEMP FOR TESTING
 bool AGSHandleHSAMemoryAllocate(hsa_region_t region, size_t size, void **ptr,
     hsa_status_t *result) {
   AGSRequest request;
@@ -606,11 +655,9 @@ bool AGSHandleHSAMemoryAllocate(hsa_region_t region, size_t size, void **ptr,
   if (response.hsa_status != HSA_STATUS_SUCCESS) {
     return false;
   }
-  // TODO (next): Same as above. Use FollowUpAGSMemoryAllocation.
-  *ptr = response_data;
-  return false;
+  return FollowUpAGSMemoryAllocation(&response_data, size, ptr, result);
+  // TODO (next): Test hsa_memory_allocate.
 }
-*/
 
 bool AGSHandleAMDAgentsAllowAccess(uint32_t num_agents,
     const hsa_agent_t *agents, const uint32_t *flags, const void *ptr,
@@ -775,6 +822,33 @@ bool AGSHandleHSASignalDestroy(hsa_signal_t signal, hsa_status_t *result) {
   }
   if (!response.prevent_default) {
     printf("Expected prevent_default for hsa_signal_destroy.\n");
+    CleanupAGSState();
+    return true;
+  }
+  *result = (hsa_status_t) response.hsa_status;
+  return false;
+}
+
+bool AGSHandleHSAISAGetInfoAlt(hsa_isa_t isa, hsa_isa_info_t attribute,
+    void *value, hsa_status_t *result) {
+  AGSRequest request;
+  AGSResponse response;
+  AGSISAGetInfoAltRequest args;
+  // Arbitrarily chosen.
+  int max_response_data_size = 256;
+  if (!ags_state) return true;
+  args.isa = isa;
+  args.attribute = attribute;
+  request.data_size = sizeof(args);
+  request.request_type = AGS_HSA_ISA_GET_INFO_ALT;
+  if (!DoAGSTransaction(&request, &args, &response, max_response_data_size,
+    value)) {
+    printf("Failed getting response for hsa_isa_get_info_alt.\n");
+    CleanupAGSState();
+    return true;
+  }
+  if (!response.prevent_default) {
+    printf("Expected prevent_default for hsa_isa_get_info_alt.\n");
     CleanupAGSState();
     return true;
   }
