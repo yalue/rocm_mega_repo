@@ -79,7 +79,7 @@ class IProDevice;
 class Sampler : public device::Sampler {
  public:
   //! Constructor
-    Sampler(const Device& dev) : dev_(dev) {}
+  Sampler(const Device& dev) : dev_(dev) {}
 
   //! Default destructor for the device memory object
   virtual ~Sampler();
@@ -234,6 +234,12 @@ class NullDevice : public amd::Device {
   static const bool offlineDevice_;
 };
 
+struct AgentInfo {
+  hsa_agent_t agent;
+  hsa_amd_memory_pool_t fine_grain_pool;
+  hsa_amd_memory_pool_t coarse_grain_pool;
+};
+
 //! A HSA device ordinal (physical HSA device)
 class Device : public NullDevice {
  public:
@@ -292,16 +298,20 @@ class Device : public NullDevice {
 
   static bool loadHsaModules();
 
-  bool create(bool sramEccEnabled);
+  bool getNumaInfo(const hsa_amd_memory_pool_t& pool, uint32_t* hop_count,
+                   uint32_t* link_type, uint32_t* numa_distance) const;
+
+  bool create();
 
   //! Construct a new physical HSA device
   Device(hsa_agent_t bkendDevice);
   virtual hsa_agent_t getBackendDevice() const { return _bkendDevice; }
+  const hsa_agent_t &getCpuAgent() const { return cpu_agent_; } // Get the CPU agent with the least NUMA distance to this GPU
 
   static const std::vector<hsa_agent_t>& getGpuAgents() { return gpu_agents_; }
+  static const std::vector<AgentInfo>& getCpuAgents() { return cpu_agents_; }
 
-  static hsa_agent_t getCpuAgent() { return cpu_agent_; }
-
+  void setupCpuAgent(); // Setup the CPU agent which has the least NUMA distance to this GPU
   //! Destructor for the physical HSA device
   virtual ~Device();
 
@@ -370,7 +380,19 @@ class Device : public NullDevice {
 
   virtual void svmFree(void* ptr) const;
 
-  virtual bool SetClockMode(const cl_set_device_clock_mode_input_amd setClockModeInput, cl_set_device_clock_mode_output_amd* pSetClockModeOutput);
+  virtual bool SetSvmAttributes(const void* dev_ptr, size_t count,
+                                amd::MemoryAdvice advice, bool first_alloc = false) const;
+  virtual bool GetSvmAttributes(void** data, size_t* data_sizes, int* attributes,
+                                size_t num_attributes, const void* dev_ptr, size_t count) const;
+
+  virtual bool SetClockMode(const cl_set_device_clock_mode_input_amd setClockModeInput,
+                            cl_set_device_clock_mode_output_amd* pSetClockModeOutput);
+
+  //! Allocate host memory in terms of numa policy set by user
+  void* hostNumaAlloc(size_t size, size_t alignment, bool atomics = false) const;
+
+  //! Allocate host memory from agent info
+  void* hostAgentAlloc(size_t size, const AgentInfo& agentInfo, bool atomics = false) const;
 
   //! Returns transfer engine object
   const device::BlitManager& xferMgr() const { return xferQueue()->blitMgr(); }
@@ -400,7 +422,7 @@ class Device : public NullDevice {
   //! Create internal blit program
   bool createBlitProgram();
 
-  // Returns AMD GPU Pro interfaces
+  // Returns AMD GPU Pro interfacs
   const IProDevice& iPro() const { return *pro_device_; }
   bool ProEna() const  { return pro_ena_; }
 
@@ -410,8 +432,10 @@ class Device : public NullDevice {
   // Update the global free memory size
   void updateFreeMemory(size_t size, bool free);
 
-  virtual amd::Memory* IpcAttach(const void* handle, size_t mem_size, unsigned int flags, void** dev_ptr) const;
-  virtual void IpcDetach (amd::Memory& memory) const;
+  virtual bool IpcCreate(void* dev_ptr, size_t* mem_size, void* handle);
+  virtual bool IpcAttach(const void* handle, size_t mem_size,
+                         unsigned int flags, void** dev_ptr) const;
+  virtual bool IpcDetach (void* dev_ptr) const;
 
   bool AcquireExclusiveGpuAccess();
   void ReleaseExclusiveGpuAccess(VirtualGPU& vgpu) const;
@@ -432,7 +456,9 @@ class Device : public NullDevice {
 
   //! Acquire HSA queue. This method can create a new HSA queue or
   //! share previously created
-  hsa_queue_t* acquireQueue(uint32_t queue_size_hint, bool coop_queue = false);
+  hsa_queue_t* acquireQueue(uint32_t queue_size_hint, bool coop_queue = false,
+                            const std::vector<uint32_t>& cuMask = {},
+                            amd::CommandQueue::Priority priority = amd::CommandQueue::Priority::Normal);
 
   //! Release HSA queue
   void releaseQueue(hsa_queue_t*);
@@ -451,7 +477,12 @@ class Device : public NullDevice {
   roc::Memory* getGpuMemory(amd::Memory* mem  //!< Pointer to AMD memory object
                             ) const;
 
+  //! Initialize memory in AMD HMM on the current device or keeps it in the host memory
+  bool SvmAllocInit(void* memory, size_t size) const;
+
  private:
+  static const hsa_signal_value_t InitSignalValue = 1;
+
   static hsa_ven_amd_loader_1_00_pfn_t amd_loader_ext_table;
 
   amd::Monitor* mapCacheOps_;            //!< Lock to serialise cache for the map resources
@@ -459,8 +490,10 @@ class Device : public NullDevice {
 
   bool populateOCLDeviceConstants();
   static bool isHsaInitialized_;
-  static hsa_agent_t cpu_agent_;
   static std::vector<hsa_agent_t> gpu_agents_;
+  static std::vector<AgentInfo> cpu_agents_;
+
+  hsa_agent_t cpu_agent_;
   std::vector<hsa_agent_t> p2p_agents_;  //!< List of P2P agents available for this device
   hsa_agent_t _bkendDevice;
   hsa_agent_t* p2p_agents_list_;
@@ -470,6 +503,8 @@ class Device : public NullDevice {
   hsa_amd_memory_pool_t system_coarse_segment_;
   hsa_amd_memory_pool_t gpuvm_segment_;
   hsa_amd_memory_pool_t gpu_fine_grained_segment_;
+  hsa_signal_t prefetch_signal_;    //!< Prefetch signal, used to explicitly prefetch SVM on device
+
   size_t gpuvm_segment_max_alloc_;
   size_t alloc_granularity_;
   static const bool offlineDevice_;
@@ -489,10 +524,19 @@ class Device : public NullDevice {
     int refCount;
     void* hostcallBuffer_;
   };
-  std::map<hsa_queue_t*, QueueInfo> queuePool_;  //!< Pool of HSA queues for recycling
+
+  //!< a vector for keeping Pool of HSA queues with low, normal and high priorities for recycling
+  std::vector<std::map<hsa_queue_t*, QueueInfo>> queuePool_;
+
+  //! returns a hsa queue from queuePool with least refCount and updates the refCount as well
+  hsa_queue_t* getQueueFromPool(const uint qIndex);
 
  public:
   amd::Atomic<uint> numOfVgpus_;  //!< Virtual gpu unique index
+
+  //! enum for keeping the total and available queue priorities
+  enum QueuePriority : uint { Low = 0, Normal = 1, High = 2, Total = 3};
+
 };                                // class roc::Device
 }  // namespace roc
 

@@ -41,6 +41,7 @@
 
 namespace roc {
 
+#if defined(WITH_COMPILER_LIB)
 static hsa_status_t GetKernelNamesCallback(hsa_executable_t exec, hsa_agent_t agent,
                                            hsa_executable_symbol_t symbol, void* data) {
   std::vector<std::string>* symNameList = reinterpret_cast<std::vector<std::string>*>(data);
@@ -62,11 +63,7 @@ static hsa_status_t GetKernelNamesCallback(hsa_executable_t exec, hsa_agent_t ag
 
   return HSA_STATUS_SUCCESS;
 }
-
-/* Temporary log function for the compiler library */
-static void logFunction(const char* msg, size_t size) {
-  std::cout << "Compiler Library log :" << msg << std::endl;
-}
+#endif
 
 static inline const char* hsa_strerror(hsa_status_t status) {
   const char* str = nullptr;
@@ -200,39 +197,42 @@ bool Program::createGlobalVarObj(amd::Memory** amd_mem_obj, void** device_pptr,
     return false;
   }
 
-  /* Find HSA Symbol Address */
-  status = hsa_executable_symbol_get_info(global_symbol,
+  // Handle size 0 symbols
+  if (*bytes != 0) {
+    // Find HSA Symbol Address
+    status = hsa_executable_symbol_get_info(global_symbol,
                                           HSA_EXECUTABLE_SYMBOL_INFO_VARIABLE_ADDRESS, device_pptr);
-  if (status != HSA_STATUS_SUCCESS) {
-    buildLog_ += "Error: Failed to find the Symbol Address : ";
-    buildLog_ += hsa_strerror(status);
-    buildLog_ += "\n";
-    return false;
+    if (status != HSA_STATUS_SUCCESS) {
+      buildLog_ += "Error: Failed to find the Symbol Address : ";
+      buildLog_ += hsa_strerror(status);
+      buildLog_ += "\n";
+      return false;
+    }
+
+    roc_device = static_cast<const roc::Device*>(&dev());
+    *amd_mem_obj = new(roc_device->context()) amd::Buffer(roc_device->context(), 0, *bytes,
+                                                          *device_pptr);
+
+    if (*amd_mem_obj == nullptr) {
+      buildLog_ += "[OCL] Failed to create a mem object!";
+      buildLog_ += "\n";
+      return false;
+    }
+
+    if (!((*amd_mem_obj)->create(nullptr))) {
+      buildLog_ += "[OCL] failed to create a svm hidden buffer!";
+      buildLog_ += "\n";
+      (*amd_mem_obj)->release();
+      return false;
+    }
   }
-
-  roc_device = static_cast<const roc::Device*>(&dev());
-  *amd_mem_obj = new(roc_device->context()) amd::Buffer(roc_device->context(), 0, *bytes, *device_pptr);
-
-  if (*amd_mem_obj == nullptr) {
-    buildLog_ += "[OCL] Failed to create a mem object!";
-    buildLog_ += "\n";
-    return false;
-  }
-
-  if (!((*amd_mem_obj)->create(nullptr))) {
-    buildLog_ += "[OCL] failed to create a svm hidden buffer!";
-    buildLog_ += "\n";
-    (*amd_mem_obj)->release();
-    return false;
-  }
-
   return true;
 }
 
 HSAILProgram::HSAILProgram(roc::NullDevice& device, amd::Program& owner) : roc::Program(device, owner) {
   xnackEnabled_ = dev().settings().enableXNACK_;
   sramEccEnabled_ = dev().info().sramEccEnabled_;
-  machineTarget_ = dev().deviceInfo().complibTarget_;
+  machineTarget_ = dev().deviceInfo().machineTarget_;
 }
 
 
@@ -288,10 +288,6 @@ bool HSAILProgram::setKernels(amd::option::Options* options, void* binary, size_
     buildLog_ += hsa_strerror(status);
     buildLog_ += "\n";
     return false;
-  }
-
-  if (amd::IS_HIP) {
-    defineUndefinedVars();
   }
 
   // Load the code object.
@@ -497,10 +493,6 @@ bool LightningProgram::setKernels(amd::option::Options* options, void* binary, s
     buildLog_ += hsa_strerror(status);
     buildLog_ += "\n";
     return false;
-  }
-
-  if (amd::IS_HIP) {
-    defineUndefinedVars();
   }
 
   // Load the code object.

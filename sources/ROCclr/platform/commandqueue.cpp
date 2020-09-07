@@ -18,8 +18,6 @@
  OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
  THE SOFTWARE. */
 
-#include "hsa.h"
-#include "hsa_ext_amd.h"
 #include "commandqueue.hpp"
 #include "thread/monitor.hpp"
 #include "device/device.hpp"
@@ -36,9 +34,9 @@
 namespace amd {
 
 HostQueue::HostQueue(Context& context, Device& device, cl_command_queue_properties properties,
-                     uint queueRTCUs, Priority priority)
+                     uint queueRTCUs, Priority priority, const std::vector<uint32_t>& cuMask)
     : CommandQueue(context, device, properties, device.info().queueProperties_,
-                   queueRTCUs, priority),
+                   queueRTCUs, priority, cuMask),
       lastEnqueueCommand_(nullptr) {
   if (thread_.state() >= Thread::INITIALIZED) {
     ScopedLock sl(queueLock_);
@@ -52,14 +50,10 @@ bool HostQueue::terminate() {
     Command* marker = nullptr;
 
     // Send a finish if the queue is still accepting commands.
-    {
-      ScopedLock sl(queueLock_);
-      if (thread_.acceptingCommands_) {
-        marker = new Marker(*this, false);
-        if (marker != nullptr) {
-          append(*marker);
-          queueLock_.notify();
-        }
+    if (thread_.acceptingCommands_) {
+      marker = new Marker(*this, false);
+      if (marker != nullptr) {
+        append(*marker);
       }
     }
     if (marker != nullptr) {
@@ -142,9 +136,12 @@ void HostQueue::loop(device::VirtualDevice* virtualDevice) {
     for (const auto& it : events) {
       // Only wait if the command is enqueued into another queue.
       if (it->command().queue() != this) {
-        virtualDevice->flush(head, true);
-        tail = head = NULL;
-        dependencyFailed |= !it->awaitCompletion();
+        // Runtime has to flush the current batch only if the dependent wait is blocking
+        if (it->command().status() != CL_COMPLETE) {
+          virtualDevice->flush(head, true);
+          tail = head = NULL;
+          dependencyFailed |= !it->awaitCompletion();
+        }
       }
     }
 
@@ -184,7 +181,20 @@ void HostQueue::append(Command& command) {
   }
   command.retain();
   command.setStatus(CL_QUEUED);
+  ScopedLock l(lastCmdLock_);
+  ScopedLock l2(queueLock_);
   queue_.enqueue(&command);
+  if (!IS_HIP) {
+    queueLock_.notify();
+    return;
+  }
+  // Set last submitted command
+  if (lastEnqueueCommand_ != nullptr) {
+    lastEnqueueCommand_->release();
+  }
+  lastEnqueueCommand_ = &command;
+  lastEnqueueCommand_->retain();
+  queueLock_.notify();
 }
 
 bool HostQueue::isEmpty() {
@@ -192,52 +202,15 @@ bool HostQueue::isEmpty() {
   return queue_.empty();
 }
 
-void HostQueue::setLastQueuedCommand(Command* lastCommand) {
-  // Set last submitted command
-  ScopedLock sl(queueLock_);
-  if (lastEnqueueCommand_ != nullptr) {
-    lastEnqueueCommand_->release();
-  }
-  lastEnqueueCommand_ = lastCommand;
-  if (lastCommand != nullptr) {
-    lastEnqueueCommand_->retain();
-  }
-}
-
 Command* HostQueue::getLastQueuedCommand(bool retain) {
   // Get last submitted command
-  ScopedLock sl(queueLock_);
-  if (lastEnqueueCommand_ == nullptr) {
-    return nullptr;
-  }
+  ScopedLock l(lastCmdLock_);
 
-  if (retain) {
+  if (retain && lastEnqueueCommand_ != nullptr) {
     lastEnqueueCommand_->retain();
   }
+
   return lastEnqueueCommand_;
-}
-
-bool HostQueue::setCUMask(uint32_t *bits, uint32_t count) {
-  hsa_queue_t *hsa_queue = nullptr;
-  hsa_queue = vdev()->hsaQueue();
-  if (!hsa_queue) {
-    printf("Failed setting CU mask: couldn't get HSA queue.\n");
-    return false;
-  }
-  printf("Setting a new CU mask:\n");
-  for (uint32_t i = 0; i < (count / 32); i++) {
-    printf("  Mask part %d: 0x%08x\n", (int) i, bits[i]);
-  }
-  hsa_status_t result = hsa_amd_queue_cu_set_mask(hsa_queue, count, bits);
-  if (result != HSA_STATUS_SUCCESS) {
-    printf("Failed setting CU mask: HSA error %d\n", (int) result);
-    return false;
-  }
-  return true;
-}
-
-hsa_queue_t* HostQueue::getHSAQueue() {
-  return vdev()->hsaQueue();
 }
 
 DeviceQueue::~DeviceQueue() {

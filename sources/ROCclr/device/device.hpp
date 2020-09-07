@@ -21,7 +21,6 @@
 #ifndef DEVICE_HPP_
 #define DEVICE_HPP_
 
-#include "hsa/hsa.h"
 #include "top.hpp"
 #include "thread/thread.hpp"
 #include "thread/monitor.hpp"
@@ -77,6 +76,7 @@ class SvmCopyMemoryCommand;
 class SvmFillMemoryCommand;
 class SvmMapMemoryCommand;
 class SvmUnmapMemoryCommand;
+class SvmPrefetchAsyncCommand;
 class TransferBufferFileCommand;
 class HwDebugManager;
 class Device;
@@ -86,6 +86,30 @@ struct Coord3D;
 namespace option {
 class Options;
 }  // namespace option
+
+//! @note: the defines match hip values
+enum MemoryAdvice : uint32_t {
+  SetReadMostly = 1,          ///< Data will mostly be read and only occassionally be written to
+  UnsetReadMostly = 2,        ///< Undo the effect of hipMemAdviseSetReadMostly
+  SetPreferredLocation = 3,   ///< Set the preferred location for the data as the specified device
+  UnsetPreferredLocation = 4, ///< Clear the preferred location for the data
+  SetAccessedBy = 5,          ///< Data will be accessed by the specified device,
+                              ///< so prevent page faults as much as possible
+  UnsetAccessedBy = 6         ///< Let the Unified Memory subsystem decide on
+                              ///< the page faulting policy for the specified device
+};
+
+enum MemRangeAttribute : uint32_t {
+    ReadMostly = 1,           ///< Whether the range will mostly be read and only
+                              ///< occassionally be written to
+    PreferredLocation = 2,    ///< The preferred location of the range
+    AccessedBy = 3,           ///< Memory range has hipMemAdviseSetAccessedBy
+                              ///< set for specified device
+    LastPrefetchLocation = 4, ///< The last location to which the range was prefetched
+};
+
+constexpr int CpuDeviceId = static_cast<int>(-1);
+constexpr int InvalidDeviceId = static_cast<int>(-2);
 
 }  // namespace amd
 
@@ -461,6 +485,10 @@ struct Info : public amd::EmbeddedObject {
   uint32_t localMemBanks_;
   //! The core engine GFXIP version
   uint32_t gfxipVersion_;
+  //! The core engine major/minor/stepping
+  uint32_t gfxipMajor_;
+  uint32_t gfxipMinor_;
+  uint32_t gfxipStepping_;
   //! Number of available async queues
   uint32_t numAsyncQueues_;
   //! Number of available real time queues
@@ -510,8 +538,10 @@ struct Info : public amd::EmbeddedObject {
   char driverStore_[200];
   //! Device ID
   uint32_t pcieDeviceId_;
-  //! Revision ID
+  //! PCI Revision ID
   uint32_t pcieRevisionId_;
+  //! ASIC Revision
+  uint32_t asicRevision_;
 
   //! Max numbers of threads per CU
   uint32_t maxThreadsPerCU_;
@@ -523,6 +553,9 @@ struct Info : public amd::EmbeddedObject {
 
   //! large bar support.
   bool largeBar_;
+
+  //! Target ID string
+  char targetId_[0x40];
 };
 
 //! Device settings
@@ -551,7 +584,8 @@ class Settings : public amd::HeapObject {
       uint enableCoopGroups_ : 1;     //!< Enable cooperative groups feature
       uint enableCoopMultiDeviceGroups_ : 1; //!< Enable cooperative groups multi device
       uint fenceScopeAgent_ : 1;      //!< Enable fence scope agent in AQL dispatch packet
-      uint reserved_ : 11;
+      uint rocr_backend_ : 1;         //!< Device uses ROCr backend for submissions
+      uint reserved_ : 10;
     };
     uint value_;
   };
@@ -757,10 +791,6 @@ class Memory : public amd::HeapObject {
 
   //! Returns CPU pointer to HW state
   virtual const address cpuSrd() const { return nullptr; }
-
-  virtual void IpcCreate(size_t offset, size_t* mem_size, void* handle) const {
-    ShouldNotReachHere();
-  }
 
  protected:
   enum Flags {
@@ -1107,7 +1137,9 @@ class VirtualDevice : public amd::HeapObject {
   virtual void submitTransferBufferFromFile(amd::TransferBufferFileCommand& cmd) {
     ShouldNotReachHere();
   }
-
+  virtual void submitSvmPrefetchAsync(amd::SvmPrefetchAsyncCommand& cmd) {
+    ShouldNotReachHere();
+  }
   //! Get the blit manager object
   device::BlitManager& blitMgr() const { return *blitMgr_; }
 
@@ -1119,12 +1151,6 @@ class VirtualDevice : public amd::HeapObject {
 
   //! Returns true if device has active wait setting
   bool ActiveWait() const;
-
-  // If this virtual device is backed by a HSA queue, this will return the
-  // a pointer to the hsa_queue_t. Returns nullptr otherwise.
-  // TODO: This is probably not the cleanest interface. Would be nice to figure
-  // out a way that doesn't rely on the hsa_queue_t type.
-  virtual hsa_queue_t* hsaQueue() { return nullptr; }
 
  private:
   //! Disable default copy constructor
@@ -1343,6 +1369,24 @@ class Device : public RuntimeObject {
    */
   virtual void svmFree(void* ptr) const = 0;
 
+  /**
+   * @return True if the device successfully applied the SVM attributes in HMM for device memory
+   */
+  virtual bool SetSvmAttributes(const void* dev_ptr, size_t count,
+                                amd::MemoryAdvice advice, bool first_alloc = false) const {
+    ShouldNotCallThis();
+    return false;
+  }
+
+  /**
+   * @return True if the device successfully retrieved the SVM attributes from HMM for device memory
+   */
+  virtual bool GetSvmAttributes(void** data, size_t* data_sizes, int* attributes,
+                                size_t num_attributes, const void* dev_ptr, size_t count) const {
+    ShouldNotCallThis();
+    return false;
+  }
+
   //! Validate kernel
   virtual bool validateKernel(const amd::Kernel& kernel,
                               const device::VirtualDevice* vdev,
@@ -1401,13 +1445,21 @@ class Device : public RuntimeObject {
   //! Checks if OCL runtime can use code object manager for compilation
   bool ValidateComgr();
 
-  virtual amd::Memory* IpcAttach(const void* handle, size_t mem_size, unsigned int flags,
-                                 void** dev_ptr) const {
+  virtual bool IpcCreate(void* dev_ptr, size_t* mem_size, void* handle) {
     ShouldNotReachHere();
-    return nullptr;
+    return false;
   }
 
-  virtual void IpcDetach(amd::Memory& memory) const { ShouldNotReachHere(); }
+  virtual bool IpcAttach(const void* handle, size_t mem_size,
+                         unsigned int flags, void** dev_ptr) const {
+    ShouldNotReachHere();
+    return false;
+  }
+
+  virtual bool IpcDetach(void* dev_ptr) const {
+    ShouldNotReachHere();
+    return false;
+  }
 
   //! Return private global device context for P2P allocations
   amd::Context& GlbCtx() const { return *glb_ctx_; }

@@ -188,13 +188,13 @@ hipError_t hipGetDeviceProperties ( hipDeviceProp_t* props, hipDevice_t device )
   deviceProps.arch.hasGlobalFloatAtomicExch    = 1;
   deviceProps.arch.hasSharedInt32Atomics       = 1;
   deviceProps.arch.hasSharedFloatAtomicExch    = 1;
-  deviceProps.arch.hasFloatAtomicAdd           = 0;
+  deviceProps.arch.hasFloatAtomicAdd           = 1;
   deviceProps.arch.hasGlobalInt64Atomics       = 1;
   deviceProps.arch.hasSharedInt64Atomics       = 1;
   deviceProps.arch.hasDoubles                  = 1;
-  deviceProps.arch.hasWarpVote                 = 0;
-  deviceProps.arch.hasWarpBallot               = 0;
-  deviceProps.arch.hasWarpShuffle              = 0;
+  deviceProps.arch.hasWarpVote                 = 1;
+  deviceProps.arch.hasWarpBallot               = 1;
+  deviceProps.arch.hasWarpShuffle              = 1;
   deviceProps.arch.hasFunnelShift              = 0;
   deviceProps.arch.hasThreadFenceSystem        = 1;
   deviceProps.arch.hasSyncThreadsExt           = 0;
@@ -209,6 +209,7 @@ hipError_t hipGetDeviceProperties ( hipDeviceProp_t* props, hipDevice_t device )
   //deviceProps.isMultiGpuBoard = info.;
   deviceProps.canMapHostMemory = 1;
   deviceProps.gcnArch = info.gfxipVersion_;
+  sprintf(deviceProps.gcnArchName, "gfx%d%d%x", info.gfxipMajor_, info.gfxipMinor_, info.gfxipStepping_);
   deviceProps.cooperativeLaunch = info.cooperativeGroups_;
   deviceProps.cooperativeMultiDeviceLaunch = info.cooperativeMultiDeviceGroups_;
 
@@ -232,6 +233,7 @@ hipError_t hipGetDeviceProperties ( hipDeviceProp_t* props, hipDevice_t device )
   deviceProps.kernelExecTimeoutEnabled = 0;
   deviceProps.ECCEnabled = info.errorCorrectionSupport_? 1:0;
   deviceProps.isLargeBar = info.largeBar_ ? 1 : 0;
+  deviceProps.asicRevision = info.asicRevision_;
 
   *props = deviceProps;
   HIP_RETURN(hipSuccess);

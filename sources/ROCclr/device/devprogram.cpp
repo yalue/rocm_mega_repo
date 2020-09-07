@@ -133,49 +133,6 @@ bool Program::compileImpl(const std::string& sourceCode,
 }
 
 // ================================================================================================
-#if defined(USE_COMGR_LIBRARY)
-static std::string llvmBin_(amd::Os::getEnvironment("LLVM_BIN"));
-
-#if defined(ATI_OS_LINUX)
-static pthread_once_t once = PTHREAD_ONCE_INIT;
-
-static void checkLLVM_BIN() {
-  if (llvmBin_.empty()) {
-    Dl_info info;
-    if (dladdr((const void*)&amd::Device::init, &info)) {
-      char* str = strdup(info.dli_fname);
-      if (str) {
-        llvmBin_ = dirname(str);
-        free(str);
-        size_t pos = llvmBin_.rfind("lib");
-        if (pos != std::string::npos) {
-          llvmBin_.replace(pos, 3, "bin");
-        }
-      }
-    }
-  }
-#if defined(DEBUG)
-  static const std::string tools[] = { "clang", "llvm-link", "ld.lld" };
-
-  for (const std::string tool : tools) {
-    std::string exePath(llvmBin_ + "/" + tool);
-    struct stat buf;
-    if (stat(exePath.c_str(), &buf)) {
-      std::string msg(exePath + " not found");
-      LogWarning(msg.c_str());
-    }
-    else if ((buf.st_mode & (S_IXUSR | S_IXGRP | S_IXOTH)) == 0) {
-      std::string msg("Cannot execute " + exePath);
-      LogWarning(msg.c_str());
-    }
-  }
-#endif  // defined(DEBUG)
-}
-#endif  // defined(ATI_OS_LINUX)
-
-#endif // defined(USE_COMGR_LIBRARY)
-
-// ================================================================================================
 
 #if defined(USE_COMGR_LIBRARY)
 // If buildLog is not null, and dataSet contains a log object, extract the
@@ -770,9 +727,12 @@ bool Program::compileImplLC(const std::string& sourceCode,
 
 
 // ================================================================================================
+
+#if  defined(WITH_COMPILER_LIB)
 static void logFunction(const char* msg, size_t size) {
   std::cout << "Compiler Log: " << msg << std::endl;
 }
+#endif
 
 // ================================================================================================
 bool Program::compileImplHSAIL(const std::string& sourceCode,
@@ -2018,7 +1978,7 @@ bool Program::initClBinary(const char* binaryIn, size_t size) {
 }
 
 // ================================================================================================
-bool Program::setBinary(const char* binaryIn, size_t size) {
+bool Program::setBinary(const char* binaryIn, size_t size, const device::Program* same_dev_prog) {
   if (!initClBinary(binaryIn, size)) {
     DevLogError("Init CL Binary failed \n");
     return false;
@@ -2065,8 +2025,13 @@ bool Program::setBinary(const char* binaryIn, size_t size) {
       return false;
   }
 
-  clBinary()->loadCompileOptions(compileOptions_);
-  clBinary()->loadLinkOptions(linkOptions_);
+  if (same_dev_prog != nullptr) {
+    compileOptions_ = same_dev_prog->compileOptions();
+    linkOptions_ = same_dev_prog->linkOptions();
+  } else {
+    clBinary()->loadCompileOptions(compileOptions_);
+    clBinary()->loadLinkOptions(linkOptions_);
+  }
 
   clBinary()->resetElfIn();
   return true;
@@ -2644,7 +2609,7 @@ const bool Program::getLoweredNames(std::vector<std::string>* mangledNames) cons
   return true;
 
 #else
-  assert("No COMGR loaded");
+  assert(!"No COMGR loaded");
   return false;
 #endif
 }

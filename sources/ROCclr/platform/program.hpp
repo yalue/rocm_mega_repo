@@ -143,8 +143,8 @@ class Program : public RuntimeObject {
   Program(Context& context, Language language = Binary,
           const void* mmap_ptr = nullptr, const size_t mmap_size = 0)
       : context_(context), language_(language),
-        mmap_({mmap_ptr, mmap_size}),
-        symbolTable_(NULL) {}
+        symbolTable_(NULL),
+        mmap_({mmap_ptr, mmap_size}) {}
 
   //! Returns context, associated with the current program.
   const Context& context() const { return context_(); }
@@ -175,7 +175,8 @@ class Program : public RuntimeObject {
 
   //! Add a new device program with or without binary image and options.
   int32_t addDeviceProgram(Device&, const void* image = NULL, size_t len = 0,
-                          bool make_copy = true, amd::option::Options* options = NULL);
+                          bool make_copy = true, amd::option::Options* options = NULL,
+                          const amd::Program* same_prog = nullptr);
 
   //! Find the section for the given device. Return NULL if not found.
   device::Program* getDeviceProgram(const Device& device) const;
@@ -205,7 +206,7 @@ class Program : public RuntimeObject {
   //! Build the program for the given devices.
   int32_t build(const std::vector<Device*>& devices, const char* options = NULL,
                void(CL_CALLBACK* notifyFptr)(cl_program, void*) = NULL, void* data = NULL,
-               bool optionChangable = true);
+               bool optionChangable = true, bool newDevProg = true);
 
   //! RTTI internal implementation
   virtual ObjectType objectType() const { return ObjectTypeProgram; }

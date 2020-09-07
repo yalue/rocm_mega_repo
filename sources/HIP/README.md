@@ -34,8 +34,7 @@ HIP releases are typically of two types. The tag naming convention is different 
 - [HIP Porting Guide](docs/markdown/hip_porting_guide.md)
 - [HIP Porting Driver Guide](docs/markdown/hip_porting_driver_api.md)
 - [HIP Programming Guide](docs/markdown/hip_programming_guide.md)
-- [HIP Profiling ](docs/markdown/hip_profiling.md)
-- [HIP Debugging](docs/markdown/hip_debugging.md)
+- [HIP Logging ](docs/markdown/hip_logging.md)
 - [HIP Terminology](docs/markdown/hip_terms2.md) (including Rosetta Stone of GPU computing terms across CUDA/HIP/OpenCL)
 - [HIPIFY](https://github.com/ROCm-Developer-Tools/HIPIFY/blob/master/README.md)
 - Supported CUDA APIs:
@@ -77,7 +76,7 @@ hipMemcpy(C_h, C_d, Nbytes, hipMemcpyDeviceToHost);
 
 
 The HIP kernel language defines builtins for determining grid and block coordinates, math functions, short vectors,
-atomics, and timer functions. 
+atomics, and timer functions.
 It also specifies additional defines and keywords for function types, address spaces, and optimization controls (See the [HIP Kernel Language](docs/markdown/hip_kernel_language.md) for a full description).
 Here's an example of defining a simple 'vector_square' kernel.
 

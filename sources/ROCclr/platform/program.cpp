@@ -86,7 +86,8 @@ const Symbol* Program::findSymbol(const char* kernelName) const {
 }
 
 int32_t Program::addDeviceProgram(Device& device, const void* image, size_t length,
-                                 bool make_copy, amd::option::Options* options) {
+                                 bool make_copy, amd::option::Options* options,
+                                 const amd::Program* same_prog) {
   if (image != NULL &&  !amd::isElfMagic((const char*)image)) {
     if (device.settings().useLightning_) {
       return CL_INVALID_BINARY;
@@ -110,11 +111,13 @@ int32_t Program::addDeviceProgram(Device& device, const void* image, size_t leng
   if (devicePrograms_[&rootDev] != NULL) {
     return CL_SUCCESS;
   }
-  bool emptyOptions = false;
+
+#if defined(WITH_COMPILER_LIB)
+  bool emptyOptions = (options == nullptr);
+#endif
   amd::option::Options emptyOpts;
   if (options == NULL) {
     options = &emptyOpts;
-    emptyOptions = true;
   }
 
 #if defined(WITH_COMPILER_LIB)
@@ -173,7 +176,14 @@ int32_t Program::addDeviceProgram(Device& device, const void* image, size_t leng
       binary_[&rootDev] = std::make_tuple(memory, length, make_copy);
     }
 
-    if (!program->setBinary(reinterpret_cast<const char*>(memory), length)) {
+    const device::Program* same_dev_prog = nullptr;
+    if ((amd::IS_HIP) && (same_prog != nullptr)) {
+      auto same_dev_prog_map_ = same_prog->devicePrograms();
+      guarantee(same_dev_prog_map_.size() == 1);
+      same_dev_prog = same_dev_prog_map_.begin()->second;
+    }
+
+    if (!program->setBinary(reinterpret_cast<const char*>(memory), length, same_dev_prog)) {
       delete program;
       return CL_INVALID_BINARY;
     }
@@ -333,11 +343,11 @@ int32_t Program::link(const std::vector<Device*>& devices, size_t numInputs,
         continue;
       }
       inputDevPrograms[i] = findIt->second;
-      device::Program::binary_t binary = inputDevPrograms[i]->binary();
 // Check the binary's target for the first found device program.
 // TODO: Revise these binary's target checks
 // and possibly remove them after switching to HSAIL by default.
 #if defined(WITH_COMPILER_LIB)
+      device::Program::binary_t binary = inputDevPrograms[i]->binary();
       if (!found && binary.first != NULL && binary.second > 0 &&
           aclValidateBinaryImage(binary.first, binary.second, BINARY_TYPE_ELF)) {
         acl_error errorCode = ACL_SUCCESS;
@@ -469,7 +479,7 @@ void Program::StubProgramSource(const std::string& app_name) {
 
 int32_t Program::build(const std::vector<Device*>& devices, const char* options,
                       void(CL_CALLBACK* notifyFptr)(cl_program, void*), void* data,
-                      bool optionChangable) {
+                      bool optionChangable, bool newDevProg) {
   ScopedLock sl(buildLock_);
   int32_t retval = CL_SUCCESS;
 
@@ -485,8 +495,10 @@ int32_t Program::build(const std::vector<Device*>& devices, const char* options,
     StubProgramSource(devices[0]->appProfile()->appFileName());
   }
 
-  // Clear the program object
-  clear();
+  if (newDevProg) {
+    // Clear the program object
+    clear();
+  }
 
   // Process build options.
   std::string cppstr(options ? options : "");

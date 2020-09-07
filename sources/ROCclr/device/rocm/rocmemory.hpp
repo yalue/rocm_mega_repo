@@ -35,7 +35,8 @@ class Memory : public device::Memory {
     MEMORY_KIND_NORMAL = 0,
     MEMORY_KIND_LOCK,
     MEMORY_KIND_GART,
-    MEMORY_KIND_INTEROP
+    MEMORY_KIND_INTEROP,
+    MEMORY_KIND_PTRGIVEN
   };
 
   Memory(const roc::Device& dev, amd::Memory& owner);
@@ -107,8 +108,6 @@ class Memory : public device::Memory {
   bool IsPersistentDirectMap() const { return (persistent_host_ptr_ != nullptr); }
 
   void* PersistentHostPtr() const { return persistent_host_ptr_; }
-
-  void IpcCreate (size_t offset, size_t* mem_size, void* handle) const override;
 
   //! Validates allocated memory for possible workarounds
   virtual bool ValidateMemory() { return true; }

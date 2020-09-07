@@ -36,6 +36,7 @@
 #include <map>
 #include <unordered_map>
 #include <memory>
+#define CL_MEM_FOLLOW_USER_NUMA_POLICY              (1u << 31)
 
 namespace device {
 class Memory;
@@ -278,10 +279,6 @@ class Memory : public amd::RuntimeObject {
                        bool allocHostMem,      //!< Force system memory allocation
                        bool forceCopy = false  //!< Force system memory allocation
   );
-
-  virtual void IpcCreate(size_t offset, size_t* mem_size, void* handle) const {
-    ShouldNotReachHere();
-  }
 
   // Accessors
   Memory* parent() const { return parent_; }
@@ -594,7 +591,8 @@ class Image : public Memory {
 class SvmBuffer : AllStatic {
  public:
   //! Allocate a shared buffer that is accessible by all devices in the context
-  static void* malloc(Context& context, cl_svm_mem_flags flags, size_t size, size_t alignment);
+  static void* malloc(Context& context, cl_svm_mem_flags flags, size_t size, size_t alignment,
+                      const amd::Device* curDev = nullptr);
 
   //! Release shared buffer
   static void free(const Context& context, void* ptr);

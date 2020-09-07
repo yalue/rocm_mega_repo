@@ -7,16 +7,68 @@ endif()
 
 project(opencl)
 
+set(CMAKE_CXX_STANDARD 11)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
+set(CMAKE_CXX_EXTENSIONS OFF)
+
 #example command:
-#cmake -DROCclr_DIR=/rocclr -DUSE_COMGR_LIBRARY=yes -DLIBROCclr_STATIC_DIR=/build ..
+# cmake -DCMAKE_PREFIX_PATH=/path/to/ROCclr/build/or/install ..
 
 set(OPENCL_ICD_LOADER_HEADERS_DIR "${CMAKE_CURRENT_SOURCE_DIR}/khronos/headers/opencl2.2" CACHE PATH "")
-set(BUILD_SHARED_LIBS "Build shared libs" ON)
+option(BUILD_SHARED_LIBS "Build shared libs" ON)
+
+#set a name for icd file
+set(OPENCL_AMD_ICD_FILE "amdocl64.icd")
+if (DEFINED ROCM_PATCH_VERSION)
+    set(OPENCL_AMD_ICD_FILE "amdocl64_${ROCM_PATCH_VERSION}.icd")
+endif()
+
+# FIXME: Handling legacy custom boolean matching "yes" or "no"
+if(DEFINED USE_COMGR_LIBRARY)
+  if(${USE_COMGR_LIBRARY} MATCHES "yes")
+    set(USE_COMGR_LIBRARY ON)
+  elseif(${USE_COMGR_LIBRARY} MATCHES "no")
+    set(USE_COMGR_LIBRARY OFF)
+  endif()
+endif()
+
+option(USE_COMGR_LIBRARY "Use comgr library" ON)
+option(BUILD_TESTS "Enable building OpenCL tests" ON)
+
+set(THREADS_PREFER_PTHREAD_FLAG ON)
+find_package(Threads REQUIRED)
+
+
+if(USE_COMGR_LIBRARY)
+  add_definitions(-DUSE_COMGR_LIBRARY -DCOMGR_DYN_DLL)
+  find_package(amd_comgr REQUIRED CONFIG
+     PATHS
+       /opt/rocm/
+     PATH_SUFFIXES
+      cmake/amd_comgr
+      lib/cmake/amd_comgr
+   )
+   MESSAGE(STATUS "Code Object Manager found at ${amd_comgr_DIR}.")
+
+endif()
+
+
+find_package(ROCclr REQUIRED CONFIG
+  PATHS
+    ${ROCclr_DIR}
+    ${LIBROCclr_STATIC_DIR})
 
 add_subdirectory(khronos/icd)
 add_subdirectory(amdocl)
 add_subdirectory(tools/clinfo)
 add_subdirectory(tools/cltrace)
+if(BUILD_TESTS)
+  add_subdirectory(tests/ocltst)
+endif()
+
+if(USE_COMGR_LIBRARY)
+  include_directories("$<TARGET_PROPERTY:amd_comgr,INTERFACE_INCLUDE_DIRECTORIES>")
+endif()
 
 # get date information based on UTC
 # use the last two digits of year + week number + day in the week as OPENCL_VERSION_GITDATE
@@ -29,18 +81,17 @@ execute_process(COMMAND git show -s --format=@%ct
     OUTPUT_VARIABLE OPENCL_VERSION_GITDATE
     OUTPUT_STRIP_TRAILING_WHITESPACE)
 
-# get commit short hash
-execute_process(COMMAND git rev-parse --short HEAD
-    WORKING_DIRECTORY ${PROJECT_SOURCE_DIR}
-    OUTPUT_VARIABLE OPENCL_VERSION_GITHASH
-    OUTPUT_STRIP_TRAILING_WHITESPACE)
-
-set(OPENCL_VERSION_MAJOR "2")
-set(OPENCL_VERSION_MINOR "0")
-set(OPENCL_VERSION_PATCH ${OPENCL_VERSION_GITDATE})
-
 get_target_property(OPENCL_LIB_VERSION_MAJOR OpenCL SOVERSION)
 get_target_property(OPENCL_LIB_VERSION_STRING OpenCL VERSION)
+
+find_package(ROCM QUIET CONFIG PATHS /opt/rocm)
+
+if(ROCM_FOUND)
+  include(ROCMSetupVersion)
+  rocm_setup_version( VERSION "2.0.0" )
+else()
+  set(PROJECT_VERSION "2.0.0")
+endif()
 
 ###--- Packaging ------------------------------------------------------------###
 
@@ -116,12 +167,8 @@ if(POLICY CMP0037)
     cmake_policy(PUSH)
     cmake_policy(SET CMP0037 OLD)
 endif()
-file(GENERATE OUTPUT ${PROJECT_BINARY_DIR}/fixnames
-	CONTENT "pwd; for i in *.deb; do mv \"\$i\" \"\${i/.deb/-${OPENCL_VERSION_GITHASH}-amd64.deb}\" ; done
-	for i in *.rpm ; do mv \"\$i\" \"\${i/.rpm/-${OPENCL_VERSION_GITHASH}.x86_64.rpm}\" ; done
-")
+
 add_custom_target(package
-    COMMAND bash ${PROJECT_BINARY_DIR}/fixnames
     WORKING_DIRECTORY ${PROJECT_BINARY_DIR}
     DEPENDS pkg_rocm_opencl pkg_rocm_opencl_dev)
 if(POLICY CMP0037)

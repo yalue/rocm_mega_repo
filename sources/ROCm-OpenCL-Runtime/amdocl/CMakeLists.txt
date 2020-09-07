@@ -1,7 +1,4 @@
 
-set(CMAKE_CXX_STANDARD 11)
-set(CMAKE_CXX_STANDARD_REQUIRED ON)
-set(CMAKE_CXX_EXTENSIONS OFF)
 set(CMAKE_POSITION_INDEPENDENT_CODE ON)
 
 # Some linker flags, -Wl,--unresolved-symbols=report-all being one of them, requires -shared-libasan if using -fsanitize=address.
@@ -22,56 +19,29 @@ if(CMAKE_BUILD_TYPE MATCHES "^Debug$")
   add_definitions(-DDEBUG)
 endif()
 
-# FIXME: ROCclr_DIR and LIBROCclr_STATIC_DIR are for compatability with
-# current build scripts. Instead they should install, or use
-# CMAKE_PREFIX_PATH
-#Uncomment once fixed
-#find_package(ROCclr CONFIG
-#  PATHS
-#  ${ROCclr_DIR}
-#  ${LIBROCclr_STATIC_DIR})
-
-if(NOT ROCclr_FOUND)
-  # FIXME: Make ROCclr find required and remove this.
-  #
-  # This is to break the dependency on patch to start producing find
-  # module.
-  include(${LIBROCclr_STATIC_DIR}/amdrocclr_staticTargets.cmake)
-endif()
-
 include_directories(${CMAKE_SOURCE_DIR})
 include_directories(${CMAKE_SOURCE_DIR}/khronos)
 include_directories(${CMAKE_SOURCE_DIR}/khronos/headers)
 include_directories(${CMAKE_SOURCE_DIR}/khronos/headers/opencl2.2)
-if(${USE_COMGR_LIBRARY} MATCHES "yes")
-  add_definitions(-DUSE_COMGR_LIBRARY -DCOMGR_DYN_DLL)
-  find_package(amd_comgr REQUIRED CONFIG
-     PATHS
-       /opt/rocm/
-     PATH_SUFFIXES
-      cmake/amd_comgr
-      lib/cmake/amd_comgr
-   )
-   MESSAGE(STATUS "Code Object Manager found at ${amd_comgr_DIR}.")
 
-  include_directories("$<TARGET_PROPERTY:amd_comgr,INTERFACE_INCLUDE_DIRECTORIES>")
-endif()
-include_directories(${ROCclr_DIR})
-include_directories(${ROCclr_DIR}/include)
-include_directories(${ROCclr_DIR}/compiler/lib)
-include_directories(${ROCclr_DIR}/compiler/lib/include)
-include_directories(${ROCclr_DIR}/compiler/lib/backends/common)
-
-include_directories(${ROCclr_DIR}/elf/utils/libelf)
-include_directories(${ROCclr_DIR}/elf/utils/common)
-
-if (CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
-  add_compile_options("-Wno-ignored-attributes")
+if((CMAKE_CXX_COMPILER_ID STREQUAL "GNU") OR
+   (CMAKE_${COMPILER}_COMPILER_ID MATCHES "Clang"))
+  add_definitions(
+    # Enabling -Wextra or -pedantic will cause
+    # thousands of warnings. Keep things simple for now.
+    -Wall
+    # This one seems impossible to fix for now.
+    # There are hundreds of instances of unused vars/functions
+    # throughout the code base.
+    -Wno-unused-variable
+    -Wno-unused-function)
 endif()
 
 if(UNIX)
-    set(ADDITIONAL_LIBRARIES glibc_functions.cpp)
+    set(ADDITIONAL_SOURCES glibc_functions.cpp)
+    set(ADDITIONAL_LIBRARIES numa)
 else()
+    set(ADDITIONAL_SOURCES "")
     set(ADDITIONAL_LIBRARIES "")
 endif()
 
@@ -100,12 +70,9 @@ set(amdocl64_src
   cl_context.cpp
   cl_profile_amd.cpp
   cl_p2p_amd.cpp
-  ${ADDITIONAL_LIBRARIES}
+  ${ADDITIONAL_SOURCES}
 )
 
 add_library(amdocl64 SHARED ${amdocl64_src})
 
-set(THREADS_PREFER_PTHREAD_FLAG ON)
-find_package(Threads REQUIRED)
-
-target_link_libraries(amdocl64 amdrocclr_static Threads::Threads dl)
+target_link_libraries(amdocl64 amdrocclr_static Threads::Threads dl ${ADDITIONAL_LIBRARIES})

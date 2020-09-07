@@ -20,6 +20,7 @@
 
 #pragma once
 
+#include "platform/commandqueue.hpp"
 #include "rocdevice.hpp"
 #include "utils/util.hpp"
 #include "hsa.h"
@@ -163,7 +164,9 @@ class VirtualGPU : public device::VirtualDevice {
     size_t maxMemObjectsInQueue_;     //!< Maximum number of mem objects in the queue
   };
 
-  VirtualGPU(Device& device, bool profiling = false, bool cooperative = false);
+  VirtualGPU(Device& device, bool profiling = false, bool cooperative = false,
+             const std::vector<uint32_t>& cuMask = {},
+             amd::CommandQueue::Priority priority = amd::CommandQueue::Priority::Normal);
   ~VirtualGPU();
 
   bool create();
@@ -205,6 +208,7 @@ class VirtualGPU : public device::VirtualDevice {
   void submitSvmFillMemory(amd::SvmFillMemoryCommand& cmd);
   void submitSvmMapMemory(amd::SvmMapMemoryCommand& cmd);
   void submitSvmUnmapMemory(amd::SvmUnmapMemoryCommand& cmd);
+  void submitSvmPrefetchAsync(amd::SvmPrefetchAsyncCommand& cmd);
 
   // { roc OpenCL integration
   // Added these stub (no-ops) implementation of pure virtual methods,
@@ -230,10 +234,6 @@ class VirtualGPU : public device::VirtualDevice {
 
   hsa_agent_t gpu_device() { return gpu_device_; }
   hsa_queue_t* gpu_queue() { return gpu_queue_; }
-
-  // Since the VirtualGPU class is backed by a HSA queue, we can override the
-  // VirtualDevice method to get the handle.
-  virtual hsa_queue_t* hsaQueue() { return gpu_queue(); }
 
   // Return pointer to PrintfDbg
   PrintfDbg* printfDbg() const { return printfdbg_; }
@@ -366,6 +366,10 @@ class VirtualGPU : public device::VirtualDevice {
 
   uint16_t dispatchPacketHeaderNoSync_;
   uint16_t dispatchPacketHeader_;
+
+  //!< bit-vector representing the CU mask. Each active bit represents using one CU
+  const std::vector<uint32_t>& cuMask_;
+  amd::CommandQueue::Priority priority_; //!< The priority for the hsa queue
 };
 
 template <typename T>

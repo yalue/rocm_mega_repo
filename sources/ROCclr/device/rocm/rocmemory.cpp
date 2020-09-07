@@ -42,7 +42,7 @@
 
 namespace roc {
 
-/////////////////////////////////roc::Memory//////////////////////////////
+// ======================================= roc::Memory ============================================
 Memory::Memory(const roc::Device& dev, amd::Memory& owner)
     : device::Memory(owner),
       dev_(dev),
@@ -179,6 +179,9 @@ void* Memory::cpuMap(device::VirtualDevice& vDev, uint flags, uint startLayer, u
 
   assert(mapTarget != nullptr);
 
+  // CPU access requires a stall of the current queue
+  static_cast<roc::VirtualGPU&>(vDev).releaseGpuMemoryFence();
+
   if (!isHostMemDirectAccess() && !IsPersistentDirectMap()) {
     if (!vDev.blitMgr().readBuffer(*this, mapTarget, amd::Coord3D(0), amd::Coord3D(size()), true)) {
       decIndMapCount();
@@ -188,33 +191,6 @@ void* Memory::cpuMap(device::VirtualDevice& vDev, uint flags, uint startLayer, u
   }
 
   return mapTarget;
-}
-
-void Memory::IpcCreate(size_t offset, size_t* mem_size, void* handle) const {
-
-  void* dev_ptr = nullptr;
-  hsa_status_t hsa_status = HSA_STATUS_SUCCESS;
-
-  /* Get the memory size from starting pointer */
-  *mem_size = owner()->getSize() - offset;
-
-  /* Get the starting pointer from the amd::Memory object */
-  if (owner()->getSvmPtr() != nullptr) {
-    dev_ptr = reinterpret_cast<address>(owner()->getSvmPtr()) + offset;
-  } else if (owner()->getHostMem() != nullptr) {
-    dev_ptr = reinterpret_cast<address>(owner()->getHostMem()) + offset;
-  } else {
-    ShouldNotReachHere();
-  }
-
-  /* Pass the pointer and memory size to retrieve the handle */
-  hsa_status = hsa_amd_ipc_memory_create(dev_ptr, *mem_size,
-                                         reinterpret_cast<hsa_amd_ipc_memory_t*>(handle));
-
-  if (hsa_status != HSA_STATUS_SUCCESS) {
-    LogPrintfError("Failed to create memory for IPC, failed with hsa_status: %d \n", hsa_status);
-    return;
-  }
 }
 
 void Memory::cpuUnmap(device::VirtualDevice& vDev) {
@@ -369,6 +345,8 @@ void Memory::syncCacheFromHost(VirtualGPU& gpu, device::Memory::SyncFlags syncFl
   // If the last writer was another GPU, then make a writeback
   if (!isHostMemDirectAccess() && (owner()->getLastWriter() != nullptr) &&
       (&dev() != owner()->getLastWriter())) {
+    // Make sure GPU finished operation before synchronization with the backing store
+    gpu.releaseGpuMemoryFence();
     mgpuCacheWriteBack();
   }
 
@@ -614,8 +592,7 @@ void Memory::mgpuCacheWriteBack() {
   }
 }
 
-/////////////////////////////////roc::Buffer//////////////////////////////
-
+// ==================================== roc::Buffer ===============================================
 Buffer::Buffer(const roc::Device& dev, amd::Memory& owner) : roc::Memory(dev, owner) {}
 
 Buffer::Buffer(const roc::Device& dev, size_t size) : roc::Memory(dev, size) {}
@@ -628,6 +605,7 @@ Buffer::~Buffer() {
   }
 }
 
+// ================================================================================================
 void Buffer::destroy() {
   if (owner()->parent() != nullptr) {
     return;
@@ -641,16 +619,27 @@ void Buffer::destroy() {
   cl_mem_flags memFlags = owner()->getMemFlags();
 
   if (owner()->getSvmPtr() != nullptr) {
-    if (dev().forceFineGrain(owner()) ||
-        dev().isFineGrainedSystem(true)) {
+    if (dev().forceFineGrain(owner()) || dev().isFineGrainedSystem(true)) {
       memFlags |= CL_MEM_SVM_FINE_GRAIN_BUFFER;
     }
     const bool isFineGrain = memFlags & CL_MEM_SVM_FINE_GRAIN_BUFFER;
 
-    if (isFineGrain) {
-      dev().hostFree(deviceMemory_, size());
-    } else {
-      dev().memFree(deviceMemory_, size());
+    if (kind_ != MEMORY_KIND_PTRGIVEN) {
+      if (isFineGrain) {
+        if (memFlags & CL_MEM_ALLOC_HOST_PTR) {
+  #if AMD_HMM_SUPPORT
+          // AMD HMM path. Destroy system memory
+          amd::Os::uncommitMemory(deviceMemory_, size());
+          amd::Os::releaseMemory(deviceMemory_, size());
+  #else
+          dev().hostFree(deviceMemory_, size());;
+  #endif // AMD_HMM_SUPPORT
+        } else {
+          dev().hostFree(deviceMemory_, size());
+        }
+      } else {
+        dev().memFree(deviceMemory_, size());
+      }
     }
 
     if ((deviceMemory_ != nullptr) &&
@@ -697,6 +686,7 @@ void Buffer::destroy() {
   }
 }
 
+// ================================================================================================
 bool Buffer::create() {
   if (owner() == nullptr) {
     deviceMemory_ = dev().hostAlloc(size(), 1, false);
@@ -711,40 +701,59 @@ bool Buffer::create() {
   cl_mem_flags memFlags = owner()->getMemFlags();
 
   if (owner()->getSvmPtr() != nullptr) {
-    if (dev().forceFineGrain(owner()) ||
-        dev().isFineGrainedSystem(true)) {
+    if (dev().forceFineGrain(owner()) || dev().isFineGrainedSystem(true)) {
       memFlags |= CL_MEM_SVM_FINE_GRAIN_BUFFER;
-      // Don't enable direct access to GPU memory with large bar, because
-      // there is no tracking of HDP flush after CPU writes
-      // flags_ |= HostMemoryDirectAccess;
     }
     const bool isFineGrain = memFlags & CL_MEM_SVM_FINE_GRAIN_BUFFER;
 
+    if (isFineGrain) {
+      // Use CPU direct access for the fine grain buffer
+      flags_ |= HostMemoryDirectAccess;
+    }
+
     if (owner()->getSvmPtr() == reinterpret_cast<void*>(1)) {
       if (isFineGrain) {
-        if (memFlags & CL_MEM_SVM_ATOMICS) {
-          deviceMemory_ = dev().hostAlloc(size(), 1, true);
-        }
-        else {
+        if (memFlags & CL_MEM_ALLOC_HOST_PTR) {
+#if AMD_HMM_SUPPORT
+          // AMD HMM path. Just allocate system memory and KFD will manage it
+          deviceMemory_ =  amd::Os::reserveMemory(
+              0, size(), amd::Os::pageSize(), amd::Os::MEM_PROT_RW);
+          amd::Os::commitMemory(deviceMemory_, size(), amd::Os::MEM_PROT_RW);
+          // Currently HMM requires cirtain initial calls to mark sysmem allocation as
+          // GPU accessible or prefetch memory into GPU
+          dev().SvmAllocInit(deviceMemory_, size());
+#else
           deviceMemory_ = dev().hostAlloc(size(), 1, false);
+#endif // AMD_HMM_SUPPORT
+        } else if (memFlags & CL_MEM_FOLLOW_USER_NUMA_POLICY) {
+          deviceMemory_ = dev().hostNumaAlloc(size(), 1, (memFlags & CL_MEM_SVM_ATOMICS) != 0);
+        } else {
+          deviceMemory_ = dev().hostAlloc(size(), 1, (memFlags & CL_MEM_SVM_ATOMICS) != 0);
         }
-        flags_ |= HostMemoryDirectAccess;
       } else {
+        assert(!isHostMemDirectAccess() && "Runtime doesn't support direct access to GPU memory!");
         deviceMemory_ = dev().deviceLocalAlloc(size(), (memFlags & CL_MEM_SVM_ATOMICS) != 0);
       }
       owner()->setSvmPtr(deviceMemory_);
     } else {
       deviceMemory_ = owner()->getSvmPtr();
+      kind_ = MEMORY_KIND_PTRGIVEN;
+#if AMD_HMM_SUPPORT
+      if (memFlags & CL_MEM_ALLOC_HOST_PTR) {
+        // Currently HMM requires cirtain initial calls to mark sysmem allocation as
+        // GPU accessible or prefetch memory into the current device
+        // @note: Skip any allocaiton here, since sysmem was allocated on another device.
+        dev().SvmAllocInit(deviceMemory_, size());
+      }
+#endif // AMD_HMM_SUPPORT
     }
 
-    if (!isFineGrain &&
-        (owner()->parent() != nullptr) &&
+    if (!isFineGrain && (owner()->parent() != nullptr) &&
         (owner()->parent()->getSvmPtr() != nullptr)) {
       owner()->parent()->commitSvmMemory();
     }
 
-    if ((deviceMemory_ != nullptr) &&
-        (dev().settings().apuSystem_ || !isFineGrain)) {
+    if ((deviceMemory_ != nullptr) && (dev().settings().apuSystem_ || !isFineGrain)) {
       const_cast<Device&>(dev()).updateFreeMemory(size(), false);
     }
 
@@ -862,9 +871,10 @@ bool Buffer::create() {
 
   if (owner()->getSvmPtr() != owner()->getHostMem()) {
     if (memFlags & (CL_MEM_USE_HOST_PTR | CL_MEM_ALLOC_HOST_PTR)) {
-      hsa_amd_memory_pool_t pool = (memFlags & CL_MEM_SVM_ATOMICS)? dev().SystemSegment() : dev().SystemCoarseSegment();
-      hsa_status_t status = hsa_amd_memory_lock_to_pool(owner()->getHostMem(), owner()->getSize(), nullptr,
-                                                0, pool, 0, &deviceMemory_);
+      hsa_amd_memory_pool_t pool = (memFlags & CL_MEM_SVM_ATOMICS) ?
+                                    dev().SystemSegment() : dev().SystemCoarseSegment();
+      hsa_status_t status = hsa_amd_memory_lock_to_pool(owner()->getHostMem(),
+          owner()->getSize(), nullptr, 0, pool, 0, &deviceMemory_);
       if (status != HSA_STATUS_SUCCESS) {
         DevLogPrintfError("Failed to lock memory to pool, failed with hsa_status: %d \n", status);
         deviceMemory_ = nullptr;
@@ -879,7 +889,7 @@ bool Buffer::create() {
   return deviceMemory_ != nullptr;
 }
 
-/////////////////////////////////roc::Image//////////////////////////////
+// ======================================= roc::Image =============================================
 typedef struct ChannelOrderMap {
   uint32_t cl_channel_order;
   hsa_ext_image_channel_order_t hsa_channel_order;
@@ -1043,7 +1053,7 @@ bool Image::createInteropImage() {
   }
 
   if (obj->getGLTarget() == GL_TEXTURE_CUBE_MAP) {
-    desc.setFace(obj->getCubemapFace(), dev().deviceInfo().gfxipVersion_ / 100);
+    desc.setFace(obj->getCubemapFace(), dev().deviceInfo().gfxipMajor_);
   }
 
   hsa_status_t err =

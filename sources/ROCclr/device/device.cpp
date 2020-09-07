@@ -85,8 +85,8 @@ Context* Device::glb_ctx_ = nullptr;
 Monitor Device::p2p_stage_ops_("P2P Staging Lock", true);
 Memory* Device::p2p_stage_ = nullptr;
 
-amd::Monitor MemObjMap::AllocatedLock_("Guards SVM allocation list");
-std::map<uintptr_t, amd::Memory*> MemObjMap::MemObjMap_;
+Monitor MemObjMap::AllocatedLock_ ROCCLR_INIT_PRIORITY(101) ("Guards MemObjMap allocation list");
+std::map<uintptr_t, amd::Memory*> MemObjMap::MemObjMap_ ROCCLR_INIT_PRIORITY(101);
 
 size_t MemObjMap::size() {
   amd::ScopedLock lock(AllocatedLock_);
@@ -95,12 +95,22 @@ size_t MemObjMap::size() {
 
 void MemObjMap::AddMemObj(const void* k, amd::Memory* v) {
   amd::ScopedLock lock(AllocatedLock_);
-  MemObjMap_.insert({reinterpret_cast<uintptr_t>(k), v});
+  auto rval = MemObjMap_.insert({ reinterpret_cast<uintptr_t>(k), v });
+  if (!rval.second) {
+    DevLogPrintfError("Memobj map already has an entry for ptr: 0x%x",
+                      reinterpret_cast<uintptr_t>(k));
+    guarantee(false);
+  }
 }
 
 void MemObjMap::RemoveMemObj(const void* k) {
   amd::ScopedLock lock(AllocatedLock_);
-  MemObjMap_.erase(reinterpret_cast<uintptr_t>(k));
+  auto rval = MemObjMap_.erase(reinterpret_cast<uintptr_t>(k));
+  if (rval != 1) {
+    DevLogPrintfError("Memobj map does not have ptr: 0x%x",
+                      reinterpret_cast<uintptr_t>(k));
+    guarantee(false);
+  }
 }
 
 amd::Memory* MemObjMap::FindMemObj(const void* k) {
@@ -483,13 +493,6 @@ Settings::Settings() : value_(0) {
       GPU_SINGLE_ALLOC_PERCENT = 100;
     }
 
-    if (flagIsDefault(HIP_HIDDEN_FREE_MEM)) {
-      HIP_HIDDEN_FREE_MEM = 320;
-    }
-
-    if (flagIsDefault(GPU_FORCE_BLIT_COPY_SIZE)) {
-      GPU_FORCE_BLIT_COPY_SIZE = 1024;
-    }
   }
 }
 
@@ -884,8 +887,6 @@ bool ClBinary::loadCompileOptions(std::string& compileOptions) const {
     }
     return true;
   }
-  DevLogPrintfError("Cannot Load Compilation Options: %s \n",
-                    compileOptions.c_str());
   return false;
 }
 
@@ -900,7 +901,6 @@ bool ClBinary::loadLinkOptions(std::string& linkOptions) const {
     }
     return true;
   }
-  DevLogPrintfError("Cannot Load Link Options: %s \n", linkOptions.c_str());
   return false;
 }
 

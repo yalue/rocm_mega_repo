@@ -21,36 +21,32 @@ if(CMAKE_BUILD_TYPE MATCHES "^Debug$")
   add_definitions(-DDEBUG)
 endif()
 
-if (CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
-  add_compile_options("-Wno-ignored-attributes")
+if((CMAKE_CXX_COMPILER_ID STREQUAL "GNU") OR
+   (CMAKE_${COMPILER}_COMPILER_ID MATCHES "Clang"))
+  add_definitions(
+    # Enabling -Wextra or -pedantic will cause
+    # thousands of warnings. Keep things simple for now.
+    -Wall
+    # This one seems impossible to fix for now.
+    # There are hundreds of instances of unused vars/functions
+    # throughout the code base.
+    -Wno-unused-variable
+    -Wno-unused-function)
 endif()
 
 set(USE_PROF_API "1")
 
-if(NOT DEFINED LIBROCclr_STATIC_DIR)
-   find_path(LIBROCclr_STATIC_DIR
-        NAMES libamdrocclr_static.a
-        PATHS /opt/rocm/rocclr
-        PATH_SUFFIXES lib
-   )
-endif()
+find_package(ROCclr REQUIRED CONFIG
+  PATHS
+    /opt/rocm
+    /opt/rocm/rocclr)
 
-if(NOT DEFINED ROCclr_DIR)
-   find_path(ROCclr_DIR
-        NAMES top.hpp
-        PATH_SUFFIXES include
-        PATHS /opt/rocm/rocclr
-   )
-endif()
-message("Found Static rocclr lib:${LIBROCclr_STATIC_DIR} and rocclr includes: ${ROCclr_DIR}")
-set(PROF_API_HEADER_PATH ${ROCclr_DIR}/platform)
 #############################
 # Profiling API support
 #############################
 # Generate profiling API macros/structures header
-# FIXME: This should not be writing to the source directory
 set(PROF_API_STR "${PROJECT_BINARY_DIR}/include/hip/hcc_detail/hip_prof_str.h")
-set(PROF_API_HDR "${CMAKE_CURRENT_SOURCE_DIR}/../include/hip/hcc_detail/hip_runtime_api.h")
+set(PROF_API_HDR "${PROJECT_SOURCE_DIR}/include/hip/hcc_detail/hip_runtime_api.h")
 set(PROF_API_SRC "${CMAKE_CURRENT_SOURCE_DIR}")
 set(PROF_API_GEN "${CMAKE_CURRENT_SOURCE_DIR}/hip_prof_gen.py")
 set(PROF_API_LOG "${PROJECT_BINARY_DIR}/hip_prof_gen.log.txt")
@@ -66,25 +62,6 @@ add_custom_target(gen-prof-api-str-header ALL
   SOURCES ${PROF_API_HDR})
 
 # Enable profiling API
-if(USE_PROF_API EQUAL 1)
-    find_path(PROF_API_HEADER_DIR prof_protocol.h
-        HINTS
-            ${PROF_API_HEADER_PATH}
-        PATHS
-            /opt/rocm/roctracer
-        PATH_SUFFIXES
-            include/ext
-    )
-    if(NOT PROF_API_HEADER_DIR)
-        MESSAGE(WARNING "Profiling API header not found. Disabling roctracer integration. Use -DPROF_API_HEADER_PATH=<path to prof_protocol.h header>")
-    else()
-        add_definitions(-DUSE_PROF_API=1)
-        include_directories(${PROF_API_HEADER_DIR})
-        MESSAGE(STATUS "Profiling API: ${PROF_API_HEADER_DIR}")
-    endif()
-endif()
-
-
 if(NOT DEFINED ROCclr_DIR OR NOT DEFINED LIBOCL_STATIC_DIR OR NOT DEFINED LIBROCclr_STATIC_DIR )
 	#	message(FATAL_ERROR "define ROCclr_DIR, LIBOCL_STATIC_DIR\n")
 
@@ -92,44 +69,36 @@ endif()
 list ( APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/cmake/modules" )
 set(CMAKE_MODULE_PATH${CMAKE_MODULE_PATH} "${CMAKE_CURRENT_SOURCE_DIR}/cmake" "${CMAKE_CURRENT_SOURCE_DIR}/cmake/modules")
 
-include_directories(${ROCR_INCLUDES})
-if (DEFINED LLVM_INCLUDES AND NOT ${LLVM_INCLUDES} STREQUAL "")
-   message(STATUS "LLVM includes found ${LLVM_INCLUDES}")
-   include_directories(${LLVM_INCLUDES})
-endif() # if (DEFINED LLVM_INCLUDES AND NOT ${LLVM_INCLUDES} STREQUAL "")
-
-include_directories(${CMAKE_SOURCE_DIR})
-include_directories(${CMAKE_SOURCE_DIR}/include)
-include_directories(${PROJECT_BINARY_DIR}/include)
-include_directories(${CMAKE_SOURCE_DIR}/elfio)
-include_directories(${CMAKE_SOURCE_DIR}/amdocl)
-include_directories(${CMAKE_SOURCE_DIR}/include/hip/hcc_detail/elfio)
-include_directories(${ROCclr_DIR})
-include_directories(${ROCclr_DIR}/include)
-include_directories(${ROCclr_DIR}/compiler/lib)
-include_directories(${ROCclr_DIR}/compiler/lib/include)
-include_directories(${ROCclr_DIR}/elf/utils/common)
-include_directories(${ROCclr_DIR}/elf/utils/libelf)
 add_definitions(-DUSE_COMGR_LIBRARY -DCOMGR_DYN_DLL)
-    find_package(amd_comgr REQUIRED CONFIG
-            PATHS
-                /opt/rocm/
-            PATH_SUFFIXES
-                cmake/amd_comgr
-                lib/cmake/amd_comgr
-    )
-    MESSAGE(STATUS "Code Object Manager found at ${amd_comgr_DIR}.")
 
-include_directories("$<TARGET_PROPERTY:amd_comgr,INTERFACE_INCLUDE_DIRECTORIES>")
+
+find_package(hsa-runtime64 REQUIRED CONFIG
+   PATHS
+     /opt/rocm/lib
+   PATH_SUFFIXES
+     cmake/hsa-runtime64
+)
+
+find_package(amd_comgr REQUIRED CONFIG
+  PATHS
+    /opt/rocm/
+  PATH_SUFFIXES
+    cmake/amd_comgr
+    lib/cmake/amd_comgr)
+
+message(STATUS "Code Object Manager found at ${amd_comgr_DIR}.")
 
 add_definitions(-DBSD_LIBELF)
 
 add_library(hip64 OBJECT
  hip_context.cpp
+ hip_code_object.cpp
  hip_device.cpp
  hip_device_runtime.cpp
  hip_error.cpp
  hip_event.cpp
+ hip_global.cpp
+ hip_hmm.cpp
  hip_memory.cpp
  hip_module.cpp
  hip_peer.cpp
@@ -147,6 +116,50 @@ add_library(hip64 OBJECT
  )
 set_target_properties(hip64 PROPERTIES POSITION_INDEPENDENT_CODE ON)
 
+target_include_directories(hip64
+  PUBLIC
+    ${PROJECT_SOURCE_DIR}/include
+    ${PROJECT_BINARY_DIR}/include
+  PRIVATE
+    ${CMAKE_SOURCE_DIR}/elfio
+    ${PROJECT_SOURCE_DIR}
+    ${PROJECT_SOURCE_DIR}/amdocl
+    ${PROJECT_SOURCE_DIR}/include/hip/hcc_detail/elfio
+    ${ROCR_INCLUDES}
+    $<TARGET_PROPERTY:amdrocclr_static,INTERFACE_INCLUDE_DIRECTORIES>
+    $<TARGET_PROPERTY:amd_comgr,INTERFACE_INCLUDE_DIRECTORIES>)
+target_compile_definitions(hip64
+  PRIVATE
+   $<TARGET_PROPERTY:amd_comgr,INTERFACE_COMPILE_DEFINITIONS>)
+
+if(ROCclr_FOUND)
+  target_include_directories(hip64
+    PRIVATE
+      $<TARGET_PROPERTY:amdrocclr_static,INTERFACE_INCLUDE_DIRECTORIES>)
+  target_compile_definitions(hip64
+    PRIVATE
+      $<TARGET_PROPERTY:amdrocclr_static,INTERFACE_COMPILE_DEFINITIONS>)
+endif()
+
+ # Enable profiling API
+if(USE_PROF_API EQUAL 1)
+  find_path(PROF_API_HEADER_DIR prof_protocol.h
+    HINTS
+      ${PROF_API_HEADER_PATH}
+    PATHS
+      /opt/rocm/roctracer
+    PATH_SUFFIXES
+      include/ext)
+
+  if(NOT PROF_API_HEADER_DIR)
+    message(WARNING "Profiling API header not found. Disabling roctracer integration. Use -DPROF_API_HEADER_PATH=<path to prof_protocol.h header>")
+    else()
+      target_compile_definitions(hip64 PUBLIC USE_PROF_API=1)
+      target_include_directories(hip64 PUBLIC ${PROF_API_HEADER_DIR})
+      message(STATUS "Profiling API: ${PROF_API_HEADER_DIR}")
+    endif()
+endif()
+
 set_target_properties(
     hip64 PROPERTIES
         CXX_STANDARD 14
@@ -157,39 +170,35 @@ add_dependencies(hip64 gen-prof-api-str-header)
 
 set(THREADS_PREFER_PTHREAD_FLAG ON)
 find_package(Threads REQUIRED)
-include(${LIBROCclr_STATIC_DIR}/amdrocclr_staticTargets.cmake)
 
-add_library(amdhip64 SHARED
-    $<TARGET_OBJECTS:hip64>
-    )
 
-add_library(amdhip64_static STATIC
-    $<TARGET_OBJECTS:hip64>
-    )
+if(${BUILD_SHARED_LIBS})
 
-set_target_properties(
-    amdhip64 PROPERTIES
-        VERSION ${HIP_LIB_VERSION_STRING}
-        SOVERSION ${HIP_LIB_VERSION_MAJOR}
-        )
+  add_library(amdhip64
+      $<TARGET_OBJECTS:hip64>
+  )
 
-set_target_properties(hip64 PROPERTIES PUBLIC_HEADER ${PROF_API_STR})
+  set_target_properties(
+      amdhip64 PROPERTIES
+         VERSION ${HIP_LIB_VERSION_STRING}
+         SOVERSION ${HIP_LIB_VERSION_MAJOR}
+      )
+
+  set_target_properties(hip64 PROPERTIES PUBLIC_HEADER ${PROF_API_STR})
+
+else()
+
+   add_library(amdhip64 STATIC
+      $<TARGET_OBJECTS:hip64>
+      )
+
+endif()
+
+set_target_properties(amdhip64 PROPERTIES LINK_FLAGS_RELEASE -s)
 set_target_properties(amdhip64 PROPERTIES PUBLIC_HEADER ${PROF_API_STR})
-set_target_properties(amdhip64_static PROPERTIES PUBLIC_HEADER ${PROF_API_STR})
-
-
-
-# We expect amdhip64_static to contain objects of rocclr and hip. But linker
-# let amdhip64_static contain objects of hip only. So we will use a
-# a custom amdhip64_static_combiner to combine objects of vid and hip into
-# amdhip64_static. To avoid amdhip64_static contains itself,
-# amdhip64_static_temp is created internally.
-add_library(amdhip64_static_temp STATIC
-    $<TARGET_OBJECTS:hip64>
-    )
-
 add_library(host INTERFACE)
-target_link_libraries(host INTERFACE amdhip64)
+target_link_libraries(host INTERFACE hip::amdhip64)
+
 add_library(device INTERFACE)
 target_link_libraries(device INTERFACE host)
 # TODO: we may create host_static and device_static to let app
@@ -197,30 +206,29 @@ target_link_libraries(device INTERFACE host)
 
 # FIXME: Linux convention is to create static library with same base
 # filename.
-target_link_libraries(amdhip64 PRIVATE amdrocclr_static Threads::Threads dl)
-target_link_libraries(amdhip64_static PRIVATE Threads::Threads dl)
-target_link_libraries(amdhip64_static_temp PRIVATE Threads::Threads dl)
 
-# combine objects of vid and hip into amdhip64_static
-add_custom_target(
-    amdhip64_static_combiner
-    ALL
-    COMMAND rm -f $<TARGET_FILE:amdhip64_static>  # Must remove old one, otherwise the new one will contain obsolete stuff
-    COMMAND ${CMAKE_AR} -rcsT $<TARGET_FILE:amdhip64_static> $<TARGET_FILE:amdhip64_static_temp> $<TARGET_FILE:amdrocclr_static>
-    DEPENDS amdhip64_static amdhip64_static_temp amdrocclr_static # To make sure this is the last step
-    COMMENT "Combining static libs into amdhip64_static"
-)
+if(${BUILD_SHARED_LIBS})
+    target_link_libraries(amdhip64 PRIVATE amdrocclr_static Threads::Threads dl numa hsa-runtime64::hsa-runtime64)
+    INSTALL(PROGRAMS $<TARGET_FILE:amdhip64> DESTINATION lib COMPONENT MAIN)
+else()
 
+    target_link_libraries(amdhip64 PRIVATE Threads::Threads dl numa hsa-runtime64::hsa-runtime64 amd_comgr)
+    # combine objects of vid and hip into amdhip64_static
+    add_custom_target(
+       amdhip64_static_combiner
+       ALL
+       COMMAND rm -rf  static_lib_temp && mkdir static_lib_temp && cd static_lib_temp # Create temp folder to contain *.o
+       COMMAND ${CMAKE_AR} -x $<TARGET_FILE:amdrocclr_static> # Extract *.o from amdrocclr_static
+       COMMAND ${CMAKE_AR} -rcs $<TARGET_FILE:amdhip64> *.o # Append *.o to amdhip64_static
+       COMMAND cd .. && rm -rf  static_lib_temp # Remove temp folder
+       DEPENDS amdhip64 amdrocclr_static # To make sure this is the last step
+       COMMENT "Combining static libs into amdhip64_static"
+    )
 
-INSTALL(PROGRAMS $<TARGET_FILE:amdhip64_static> DESTINATION lib COMPONENT MAIN)
-INSTALL(PROGRAMS $<TARGET_FILE:amdhip64> DESTINATION lib COMPONENT MAIN)
-INSTALL(CODE "execute_process( COMMAND ${CMAKE_COMMAND} -E create_symlink libamdhip64.so lib/libhip_hcc.so  )" DESTINATION lib COMPONENT MAIN)
+    INSTALL(PROGRAMS $<TARGET_FILE:amdhip64> DESTINATION lib COMPONENT MAIN)
 
-INSTALL(CODE "execute_process( COMMAND ${CMAKE_COMMAND} -E create_symlink libamdhip64.so lib/libhiprtc.so  )" DESTINATION lib COMPONENT MAIN)
-INSTALL(FILES ${CMAKE_BINARY_DIR}/lib/libhip_hcc.so DESTINATION lib COMPONENT MAIN)
+endif()
 
-INSTALL(FILES ${CMAKE_BINARY_DIR}/lib/libhiprtc.so DESTINATION lib COMPONENT MAIN)
-
-INSTALL(TARGETS amdhip64 amdhip64_static host device EXPORT hip-targets DESTINATION ${LIB_INSTALL_DIR})
+INSTALL(TARGETS amdhip64 host device EXPORT hip-targets DESTINATION ${LIB_INSTALL_DIR})
 INSTALL(EXPORT hip-targets DESTINATION ${CONFIG_PACKAGE_INSTALL_DIR} NAMESPACE hip::)
 

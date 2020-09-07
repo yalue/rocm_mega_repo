@@ -448,7 +448,7 @@ bool DmaBlitManager::copyBufferRect(device::Memory& srcMemory, device::Memory& d
       }
 
 
-      hsa_signal_value_t val = hsa_signal_wait_acquire(completion_signal_, HSA_SIGNAL_CONDITION_EQ, 0,
+      hsa_signal_value_t val = hsa_signal_wait_scacquire(completion_signal_, HSA_SIGNAL_CONDITION_EQ, 0,
                                                       uint64_t(-1), HSA_WAIT_STATE_BLOCKED);
       if (val != 0) {
         LogError("Async copy failed");
@@ -476,7 +476,7 @@ bool DmaBlitManager::copyBufferRect(device::Memory& srcMemory, device::Memory& d
         }
       }
 
-      hsa_signal_value_t val = hsa_signal_wait_acquire(completion_signal_, HSA_SIGNAL_CONDITION_EQ, 0,
+      hsa_signal_value_t val = hsa_signal_wait_scacquire(completion_signal_, HSA_SIGNAL_CONDITION_EQ, 0,
                                                       uint64_t(-1), HSA_WAIT_STATE_BLOCKED);
       if (val != 0) {
         LogError("Async copy failed");
@@ -651,10 +651,10 @@ bool DmaBlitManager::hsaCopy(const Memory& srcMemory, const Memory& dstMemory,
 
     constexpr size_t small_transfer_size = 4 * Mi;
     if (size[0] < small_transfer_size) {
-      val = hsa_signal_wait_acquire(completion_signal_, HSA_SIGNAL_CONDITION_EQ, 0,
+      val = hsa_signal_wait_scacquire(completion_signal_, HSA_SIGNAL_CONDITION_EQ, 0,
                                     std::numeric_limits<uint64_t>::max(), HSA_WAIT_STATE_ACTIVE);
     } else {
-      val = hsa_signal_wait_acquire(completion_signal_, HSA_SIGNAL_CONDITION_EQ, 0,
+      val = hsa_signal_wait_scacquire(completion_signal_, HSA_SIGNAL_CONDITION_EQ, 0,
                                     std::numeric_limits<uint64_t>::max(), HSA_WAIT_STATE_BLOCKED);
     }
     if (val != (kInitVal - 1)) {
@@ -706,7 +706,7 @@ bool DmaBlitManager::hsaCopyStaged(const_address hostSrc, address hostDst, size_
       status = hsa_amd_memory_async_copy(hostDst + offset, dev().getBackendDevice(), hsaBuffer,
                                          srcAgent, size, 0, nullptr, completion_signal_);
       if (status == HSA_STATUS_SUCCESS) {
-        hsa_signal_value_t val = hsa_signal_wait_acquire(
+        hsa_signal_value_t val = hsa_signal_wait_scacquire(
             completion_signal_, HSA_SIGNAL_CONDITION_EQ, 0, uint64_t(-1), HSA_WAIT_STATE_BLOCKED);
 
         if (val != (kInitVal - 1)) {
@@ -733,7 +733,7 @@ bool DmaBlitManager::hsaCopyStaged(const_address hostSrc, address hostDst, size_
         hsa_amd_memory_async_copy(hsaBuffer, dstAgent, hostSrc + offset,
                                   dev().getBackendDevice(), size, 0, nullptr, completion_signal_);
     if (status == HSA_STATUS_SUCCESS) {
-      hsa_signal_value_t val = hsa_signal_wait_acquire(completion_signal_, HSA_SIGNAL_CONDITION_EQ,
+      hsa_signal_value_t val = hsa_signal_wait_scacquire(completion_signal_, HSA_SIGNAL_CONDITION_EQ,
                                                        0, uint64_t(-1), HSA_WAIT_STATE_BLOCKED);
 
       if (val != (kInitVal - 1)) {
@@ -758,6 +758,7 @@ KernelBlitManager::KernelBlitManager(VirtualGPU& gpu, Setup setup)
     : DmaBlitManager(gpu, setup),
       program_(nullptr),
       constantBuffer_(nullptr),
+      constantBufferOffset_(0),
       xferBufferSize_(0),
       lockXferOps_("Transfer Ops Lock", true) {
   for (uint i = 0; i < BlitTotal; ++i) {
@@ -957,7 +958,7 @@ bool KernelBlitManager::copyBufferToImageKernel(device::Memory& srcMemory,
   amd::Image* srcImage = static_cast<amd::Image*>(srcMemory.owner());
   amd::Image::Format newFormat(dstImage->getImageFormat());
   bool swapLayer =
-    (dstImage->getType() == CL_MEM_OBJECT_IMAGE1D_ARRAY) && (dev().info().gfxipVersion_ >= 1000);
+    (dstImage->getType() == CL_MEM_OBJECT_IMAGE1D_ARRAY) && (dev().info().gfxipMajor_ >= 10);
 
   // Find unsupported formats
   for (uint i = 0; i < RejectedFormatDataTotal; ++i) {
@@ -1149,7 +1150,7 @@ bool KernelBlitManager::copyImageToBufferKernel(device::Memory& srcMemory,
   amd::Image* srcImage = static_cast<amd::Image*>(srcMemory.owner());
   amd::Image::Format newFormat(srcImage->getImageFormat());
   bool swapLayer =
-    (srcImage->getType() == CL_MEM_OBJECT_IMAGE1D_ARRAY) && (dev().info().gfxipVersion_ >= 1000);
+    (srcImage->getType() == CL_MEM_OBJECT_IMAGE1D_ARRAY) && (dev().info().gfxipMajor_ >= 10);
 
   // Find unsupported formats
   for (uint i = 0; i < RejectedFormatDataTotal; ++i) {
@@ -1387,14 +1388,14 @@ bool KernelBlitManager::copyImage(device::Memory& srcMemory, device::Memory& dst
 
   // Program source origin
   int32_t srcOrg[4] = {(int32_t)srcOrigin[0], (int32_t)srcOrigin[1], (int32_t)srcOrigin[2], 0};
-  if ((srcImage->getType() == CL_MEM_OBJECT_IMAGE1D_ARRAY) && (dev().info().gfxipVersion_ >= 1000)) {
+  if ((srcImage->getType() == CL_MEM_OBJECT_IMAGE1D_ARRAY) && (dev().info().gfxipMajor_ >= 10)) {
     srcOrg[3] = 1;
   }
   setArgument(kernels_[blitType], 2, sizeof(srcOrg), srcOrg);
 
   // Program destinaiton origin
   int32_t dstOrg[4] = {(int32_t)dstOrigin[0], (int32_t)dstOrigin[1], (int32_t)dstOrigin[2], 0};
-  if ((dstImage->getType() == CL_MEM_OBJECT_IMAGE1D_ARRAY) && (dev().info().gfxipVersion_ >= 1000)) {
+  if ((dstImage->getType() == CL_MEM_OBJECT_IMAGE1D_ARRAY) && (dev().info().gfxipMajor_ >= 10)) {
     dstOrg[3] = 1;
   }
   setArgument(kernels_[blitType], 3, sizeof(dstOrg), dstOrg);
@@ -1871,9 +1872,6 @@ bool KernelBlitManager::writeBufferRect(const void* srcHost, device::Memory& dst
 bool KernelBlitManager::fillBuffer(device::Memory& memory, const void* pattern, size_t patternSize,
                                    const amd::Coord3D& origin, const amd::Coord3D& size,
                                    bool entire) const {
-  // HSA copy functionality with a possible async operaiton, hence make sure GPU is done
-  gpu().releaseGpuMemoryFence();
-
   amd::ScopedLock k(lockXferOps_);
   bool result = false;
 
@@ -1903,11 +1901,13 @@ bool KernelBlitManager::fillBuffer(device::Memory& memory, const void* pattern, 
     if (gpuCB == nullptr) {
       return false;
     }
-    void* constBuf = constantBuffer_->getHostMem();
+    // Find offset in the current constant buffer to allow multipel fills
+    uint32_t  constBufOffset = ConstantBufferOffset();
+    auto constBuf = reinterpret_cast<address>(constantBuffer_->getHostMem()) + constBufOffset;
     memcpy(constBuf, pattern, patternSize);
 
     mem = as_cl<amd::Memory>(gpuCB->owner());
-    setArgument(kernels_[fillType], 2, sizeof(cl_mem), &mem);
+    setArgument(kernels_[fillType], 2, sizeof(cl_mem), &mem, constBufOffset);
     uint64_t offset = origin[0];
     if (dwordAligned) {
       patternSize /= sizeof(uint32_t);
@@ -2044,7 +2044,7 @@ bool KernelBlitManager::fillImage(device::Memory& memory, const void* pattern,
   amd::Image* image = static_cast<amd::Image*>(memory.owner());
   amd::Image::Format newFormat(image->getImageFormat());
   bool swapLayer =
-    (image->getType() == CL_MEM_OBJECT_IMAGE1D_ARRAY) && (dev().info().gfxipVersion_ >= 1000);
+    (image->getType() == CL_MEM_OBJECT_IMAGE1D_ARRAY) && (dev().info().gfxipMajor_ >= 10);
 
   // Program the kernels workload depending on the fill dimensions
   fillType = FillImage;
@@ -2334,11 +2334,13 @@ bool KernelBlitManager::runScheduler(uint64_t vqVM, amd::Memory* schedulerParam,
 
   address parameters = captureArguments(kernels_[Scheduler]);
 
-  bool result = false;
-  result = gpu().submitKernelInternal(ndrange, *kernels_[Scheduler], parameters, nullptr);
+  if (!gpu().submitKernelInternal(ndrange, *kernels_[Scheduler],
+                                  parameters, nullptr)) {
+    return false;
+  }
   releaseArguments(parameters);
 
-  if (hsa_signal_wait_acquire(schedulerSignal, HSA_SIGNAL_CONDITION_LT, 1, (-1),
+  if (hsa_signal_wait_scacquire(schedulerSignal, HSA_SIGNAL_CONDITION_LT, 1, (-1),
                                 HSA_WAIT_STATE_BLOCKED) != 0) {
     LogWarning("Failed schedulerSignal wait");
     return false;

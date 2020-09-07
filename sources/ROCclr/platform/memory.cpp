@@ -214,8 +214,9 @@ bool Memory::allocHostMemory(void* initFrom, bool allocHostMem, bool forceCopy) 
       }
     }
   }
-  // Allocate host memory buffer if needed
-  else if (allocHostMem && !isInterop()) {
+  // Allocate host memory buffer if needed.
+  // @note: SVM host memory allocation should be done in the device backend
+  else if (allocHostMem && !isInterop() && !(getMemFlags() & CL_MEM_SVM_FINE_GRAIN_BUFFER)) {
     if (!hostMemRef_.allocateMemory(size_, context_())) {
       DevLogError("Cannot allocate Host Memory Buffer \n");
       return false;
@@ -1430,8 +1431,8 @@ void Image::Format::formatColor(const void* colorRGBA, void* colorFormat) const 
   }
 }
 
-std::map<uintptr_t, uintptr_t> SvmBuffer::Allocated_;
-Monitor SvmBuffer::AllocatedLock_("Guards SVM allocation list");
+Monitor SvmBuffer::AllocatedLock_ ROCCLR_INIT_PRIORITY(101) ("Guards SVM allocation list");
+std::map<uintptr_t, uintptr_t> SvmBuffer::Allocated_ ROCCLR_INIT_PRIORITY(101);
 
 void SvmBuffer::Add(uintptr_t k, uintptr_t v) {
   ScopedLock lock(AllocatedLock_);
@@ -1454,12 +1455,13 @@ bool SvmBuffer::Contains(uintptr_t ptr) {
 }
 
 // The allocation flags are ignored for now.
-void* SvmBuffer::malloc(Context& context, cl_svm_mem_flags flags, size_t size, size_t alignment) {
+void* SvmBuffer::malloc(Context& context, cl_svm_mem_flags flags, size_t size, size_t alignment,
+                        const amd::Device* curDev) {
   bool atomics = (flags & CL_MEM_SVM_ATOMICS) != 0;
-  void* ret = context.svmAlloc(size, alignment, flags);
-  if (ret == NULL) {
+  void* ret = context.svmAlloc(size, alignment, flags, curDev);
+  if (ret == nullptr) {
     LogError("Unable to allocate aligned memory");
-    return NULL;
+    return nullptr;
   }
   uintptr_t ret_u = reinterpret_cast<uintptr_t>(ret);
   Add(ret_u, ret_u + size);

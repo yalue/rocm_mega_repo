@@ -22,7 +22,7 @@
 #include "utils/debug.hpp"
 #include "os/os.hpp"
 
-#if !defined(LOG_LEVEL)
+#if !defined(AMD_LOG_LEVEL)
 #include "utils/flags.hpp"
 #endif
 
@@ -75,8 +75,8 @@ void log_timestamped(LogLevel level, const char* file, int line, const char* mes
 #if 0
     fprintf(stderr, ":%d:%s:%d: (%010lld) %s\n", level, file, line, time, message);
 #else  // if you prefer fixed-width fields
-  fprintf(stderr, ":% 2d:%15s:% 5d: (%010lld) %s\n", level, file, line, time / 100ULL,
-          message);  // timestamp is 100ns units
+  fprintf(stderr, ":% 2d:%15s:% 5d: (%010lld) us %s\n", level, file, line, time / 1000ULL,
+          message);
 #endif
 }
 
@@ -87,8 +87,26 @@ void log_printf(LogLevel level, const char* file, int line, const char* format, 
   char message[4096];
   vsnprintf(message, sizeof(message), format, ap);
   va_end(ap);
+  uint64_t timeUs = Os::timeNanos() / 1000ULL;
+  fprintf(stderr, ":%d:%-25s:%-4d: %010lu us: %s\n", level, file, line, timeUs, message);
 
-  fprintf(stderr, ":%d:%-25s:%-4d: %010lld: %s\n", level, file, line, Os::timeNanos() / 100ULL, message);
+}
+void log_printf(LogLevel level, const char* file, int line, uint64_t* start, const char* format, ...) {
+  va_list ap;
+
+  va_start(ap, format);
+  char message[4096];
+  vsnprintf(message, sizeof(message), format, ap);
+  va_end(ap);
+  uint64_t timeUs = Os::timeNanos() / 1000ULL;
+  if (start == 0 || *start == 0) {
+     fprintf(stderr, ":%d:%-25s:%-4d: %010lu us: %s\n", level, file, line, timeUs, message);
+  } else {
+     fprintf(stderr, ":%d:%-25s:%-4d: %010lu us: %s: duration: %lu us\n", level, file, line, timeUs, message, timeUs - *start);
+  }
+  if (*start == 0) {
+     *start = timeUs;
+  }
 }
 
 }  // namespace amd

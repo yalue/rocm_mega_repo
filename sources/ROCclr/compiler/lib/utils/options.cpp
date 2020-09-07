@@ -88,10 +88,12 @@ OptionDescriptor OptDescTable[] = {
    Any prefix option (-f/-fno, -m/-mno) has no long name, and must have
    a value separator if it requires a value.
 */
-std::map <std::string, int> OptionNameMap[2];
-std::map <std::string, int> NoneSeparatorOptionMap[2];
-std::map <std::string, int> FOptionMap;   // prefix -f/-fno- options
-std::map <std::string, int> MOptionMap;   // prefix -m/-mno- options
+std::map <std::string, int> OptionNameMap[2] ROCCLR_INIT_PRIORITY(101);
+std::map <std::string, int> NoneSeparatorOptionMap[2] ROCCLR_INIT_PRIORITY(101);
+// prefix -f/-fno- options
+std::map <std::string, int> FOptionMap ROCCLR_INIT_PRIORITY(101);
+// prefix -m/-mno- options
+std::map <std::string, int> MOptionMap ROCCLR_INIT_PRIORITY(101);
 
 bool setOptionVariable (
     OptionDescriptor* oDesc,
@@ -1345,7 +1347,6 @@ Options::Options() :
     kernelArgAlign(0),
     basename_max(0),
     OptionsLog(),
-    flagsSize (((OID_LAST + 31)/32) * 32),
     llvmargc(0),
     llvmargv(NULL),
     buildNo(0),
@@ -1441,12 +1442,6 @@ Options::setPerBuildInfo(
 }
 
 
-static inline bool isFullPath(const std::string &path)
-{
-    size_t found = path.find(":");
-    return found != std::string::npos;
-}
-
 // HashString - Hash function for strings.
 // This is the Bernstein hash function.
 static inline unsigned HashString(std::string Str, unsigned Result = 0)
@@ -1476,19 +1471,19 @@ static void splitFileName(const std::string &fileName, std::string &path, std::s
     }
 }
 
+#ifdef _WIN32
+static inline bool isFullPath(const std::string &path)
+{
+    size_t found = path.find(":");
+    return found != std::string::npos;
+}
+
 static std::string getValidDumpPath(const std::string &path)
 {
     if (path.empty()) {
         return path;
     }
 
-#ifdef __linux__
-    const std::string curPath = path + ".";
-    long pathname_max = pathconf(curPath.c_str(), _PC_PATH_MAX);
-    assert(pathname_max != -1 && path.size() < static_cast<unsigned long>(pathname_max));
-    return path;
-#endif
-#ifdef _WIN32
     std::string validPath;
     unsigned long pathname_max = _MAX_PATH;
     if (path.size() > pathname_max) {
@@ -1505,8 +1500,23 @@ static std::string getValidDumpPath(const std::string &path)
     } else
       validPath = path;
     return validPath;
-#endif
 }
+
+#else
+
+static std::string getValidDumpPath(const std::string &path)
+{
+    if (path.empty()) {
+        return path;
+    }
+
+    const std::string curPath = path + ".";
+    long pathname_max = pathconf(curPath.c_str(), _PC_PATH_MAX);
+    assert(pathname_max != -1 && path.size() < static_cast<unsigned long>(pathname_max));
+    return path;
+}
+
+#endif
 
 static std::string getValidDumpBaseName(const std::string &path, const std::string &file,
                                         long basename_max, const std::string &ext)

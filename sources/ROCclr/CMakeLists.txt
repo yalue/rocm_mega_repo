@@ -1,19 +1,47 @@
-project(ROCclr)
 cmake_minimum_required(VERSION 3.5)
+
+project(ROCclr VERSION "1.0.0" LANGUAGES C CXX)
+
+include(CMakePackageConfigHelpers)
+
+#decide whether .so is to be build or .a
+set(BUILD_SHARED_LIBS ON CACHE BOOL "Build shared library (.so) or not.")
+
 #example command:
 
 #cmake   -DOPENCL_DIR=/path to/opencl ..
 
-set(ROCCLR_EXPORTS_FILE "${CMAKE_CURRENT_BINARY_DIR}/amdrocclr_staticTargets.cmake")
+set(ROCCLR_CONFIG_NAME ROCclrConfig.cmake)
+set(ROCCLR_TARGETS_NAME rocclr-targets.cmake)
+set(ROCCLR_VERSION_NAME rocclr-config-version.cmake)
+set(ROCCLR_PACKAGE_PREFIX lib/cmake/rocclr)
+set(ROCCLR_PREFIX_CODE)
+set(ROCCLR_TARGETS_PATH
+  "${CMAKE_CURRENT_BINARY_DIR}/${ROCCLR_PACKAGE_PREFIX}/${ROCCLR_TARGETS_NAME}")
+set(ROCCLR_VERSION_PATH
+  "${CMAKE_CURRENT_BINARY_DIR}/${ROCCLR_PACKAGE_PREFIX}/${ROCCLR_VERSION_NAME}")
+
+# Generate the build-tree package.
+configure_file("cmake/${ROCCLR_CONFIG_NAME}.in"
+  "${ROCCLR_PACKAGE_PREFIX}/${ROCCLR_CONFIG_NAME}"
+  @ONLY)
+
+write_basic_package_version_file("${ROCCLR_VERSION_PATH}"
+  VERSION "${ROCclr_VERSION}"
+  COMPATIBILITY SameMajorVersion)
 
 set(CMAKE_MODULE_PATH ${CMAKE_MODULE_PATH} "${CMAKE_CURRENT_SOURCE_DIR}/cmake" "${CMAKE_CURRENT_SOURCE_DIR}/cmake/modules")
 
-# FIXME: Should be option and ON/OFF, not yes/no variable.
-set(USE_COMGR_LIBRARY "yes")
-
-if (CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
-  add_compile_options("-Wno-ignored-attributes")
+# FIXME: Handling legacy custom boolean matching "yes" or "no"
+if(DEFINED USE_COMGR_LIBRARY)
+  if(${USE_COMGR_LIBRARY} MATCHES "yes")
+    set(USE_COMGR_LIBRARY ON)
+  elseif(${USE_COMGR_LIBRARY} MATCHES "no")
+    set(USE_COMGR_LIBRARY OFF)
+  endif()
 endif()
+
+option(USE_COMGR_LIBRARY "Use comgr library" ON)
 
 find_package(amd_comgr REQUIRED CONFIG
    PATHS
@@ -24,11 +52,15 @@ find_package(amd_comgr REQUIRED CONFIG
 )
 message(STATUS "Code Object Manager found at ${amd_comgr_DIR}.")
 
-# FIXME: Use find_package(OpenCL)
-find_library( OpenCL REQUIRED CONFIG
+find_package(hsa-runtime64 REQUIRED CONFIG
    PATHS
-      /opt/rocm
+     /opt/rocm/
+   PATH_SUFFIXES
+     cmake/hsa-runtime64
+     lib/cmake/hsa-runtime64
+     lib64/cmake/hsa-runtime64
 )
+message(STATUS "HSA Runtime found at ${hsa-runtime64_DIR}.")
 
 if( NOT OPENCL_DIR )
    find_path(OPENCL_INCLUDE_DIR
@@ -47,8 +79,6 @@ endif()
 
 
 
-find_package(ROCT REQUIRED)
-find_package(ROCR REQUIRED)
 set(THREADS_PREFER_PTHREAD_FLAG ON)
 find_package(Threads REQUIRED)
 
@@ -56,6 +86,20 @@ set(CMAKE_CXX_STANDARD 11)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 set(CMAKE_POSITION_INDEPENDENT_CODE ON)
+
+if((CMAKE_CXX_COMPILER_ID STREQUAL "GNU") OR
+    (CMAKE_CXX_COMPILER_ID MATCHES "Clang"))
+  add_definitions(
+    # Enabling -Wextra or -pedantic will cause
+    # thousands of warnings. Keep things simple for now.
+    -Wall
+    # Makefile build adds -fno-strict-aliasing instead.
+    -Wno-strict-aliasing
+    # This one seems impossible to fix for now.
+    # There are hundreds of instances of unused vars/functions
+    # throughout the code base.
+    -Wno-unused-variable)
+endif()
 
 add_definitions(-D__x86_64__ -DOPENCL_MAJOR=2 -DOPENCL_MINOR=1 -DCL_TARGET_OPENCL_VERSION=220 -DATI_OS_LINUX -DATI_ARCH_X86 -DLITTLEENDIAN_CPU -DATI_BITS_64 -DWITH_TARGET_AMDGCN -DOPENCL_EXPORTS -DCL_USE_DEPRECATED_OPENCL_1_0_APIS -DCL_USE_DEPRECATED_OPENCL_1_1_APIS -DCL_USE_DEPRECATED_OPENCL_1_2_APIS -DCL_USE_DEPRECATED_OPENCL_2_0_APIS -DVEGA10_ONLY=false -DWITH_LIGHTNING_COMPILER)
 add_definitions(-DOPENCL_C_MAJOR=2 -DOPENCL_C_MINOR=0)
@@ -68,30 +112,8 @@ if(CMAKE_BUILD_TYPE MATCHES "^Debug$")
 endif()
 
 if(DEV_LOG_ENABLE MATCHES "yes")
-  add_definitions(-DDEV_LOG_ENABLE=1)
+  add_definitions(-DDEV_LOG_ENABLE)
 endif()
-
-if (DEFINED LLVM_INCLUDES AND NOT ${LLVM_INCLUDES} STREQUAL "")
-  include_directories(${LLVM_INCLUDES})
-endif() # if (DEFINED LLVM_INCLUDES AND NOT ${LLVM_INCLUDES} STREQUAL "")
-
-include_directories(${CMAKE_CURRENT_SOURCE_DIR})
-include_directories(${CMAKE_CURRENT_SOURCE_DIR}/include)
-include_directories(${CMAKE_CURRENT_SOURCE_DIR}/device/rocm)
-include_directories(${OPENCL_DIR})
-include_directories(${OPENCL_DIR}/amdocl)
-include_directories(${OPENCL_DIR}/khronos)
-include_directories(${OPENCL_DIR}/khronos/headers)
-include_directories(${OPENCL_DIR}/khronos/headers/opencl2.2)
-include_directories(${OPENCL_INCLUDE_DIR})
-
-
-include_directories(${CMAKE_CURRENT_SOURCE_DIR}/compiler/lib)
-include_directories(${CMAKE_CURRENT_SOURCE_DIR}/compiler/lib/include)
-include_directories(${CMAKE_CURRENT_SOURCE_DIR}/compiler/lib/backends/common)
-
-include_directories(${CMAKE_CURRENT_SOURCE_DIR}/elf/utils/common)
-include_directories(${CMAKE_CURRENT_SOURCE_DIR}/elf/utils/libelf)
 
 option(BUILD_PAL "Build PAL backend" OFF)
 if (BUILD_PAL)
@@ -105,7 +127,7 @@ endif()
 
 set(COMGR_CPP device/comgrctx.cpp)
 
-add_subdirectory(elf/utils/libelf "${CMAKE_CURRENT_BINARY_DIR}/libelf" )
+add_subdirectory(elf/utils/libelf)
 
 set(oclruntime_src
   thread/thread.cpp
@@ -121,6 +143,8 @@ set(oclruntime_src
   device/devkernel.cpp
   device/devwavelimiter.cpp
   device/devprogram.cpp
+  device/devhcprintf.cpp
+  device/devhcmessages.cpp
   platform/activity.cpp
   platform/kernel.cpp
   platform/context.cpp
@@ -149,23 +173,41 @@ set_target_properties(amdrocclr_static PROPERTIES POSITION_INDEPENDENT_CODE ON)
 
 target_include_directories(amdrocclr_static
   PUBLIC
+    $<INSTALL_INTERFACE:include>
+    $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}>
+    $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
+    $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/device/rocm>
+    $<BUILD_INTERFACE:${PROJECT_SOURCE_DIR}/compiler/lib/include>
+    $<BUILD_INTERFACE:${PROJECT_SOURCE_DIR}/compiler/lib>
+    $<BUILD_INTERFACE:${PROJECT_SOURCE_DIR}/compiler/lib/backends/common>
+    $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/elf/utils/common>
+    $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/elf/utils/libelf>
+    $<BUILD_INTERFACE:${OPENCL_DIR}>
+    # GL and EGL headers.
+    $<BUILD_INTERFACE:${OPENCL_DIR}/khronos/headers>
+    $<BUILD_INTERFACE:${OPENCL_DIR}/khronos/headers/opencl2.2>
     $<TARGET_PROPERTY:amd_comgr,INTERFACE_INCLUDE_DIRECTORIES>
   PRIVATE
-    $<TARGET_PROPERTY:oclelf_obj,INTERFACE_INCLUDE_DIRECTORIES>
-    ${ROCR_INCLUDES}
-    ${ROCT_INCLUDES})
+    $<TARGET_PROPERTY:oclelf_obj,INTERFACE_INCLUDE_DIRECTORIES>)
 
 target_compile_definitions(amdrocclr_static PRIVATE BSD_LIBELF)
 
-if(${USE_COMGR_LIBRARY} MATCHES "yes")
+if(USE_COMGR_LIBRARY)
   # FIXME: This should not be part of the public interface. Downstream
   # users need to add these definitions. This should be defined in a
   # config header here so other builds don't need to be aware of this.
-  target_compile_definitions(amdrocclr_static PUBLIC USE_COMGR_LIBRARY COMGR_DYN_DLL)
+  if(${BUILD_SHARED_LIBS})
+     target_compile_definitions(amdrocclr_static PUBLIC USE_COMGR_LIBRARY COMGR_DYN_DLL)
+  else()
+     target_compile_definitions(amdrocclr_static PUBLIC USE_COMGR_LIBRARY)
+  endif()
+  #Needed here to export as transitive dependency in rocclr-targets.cmake
+  target_link_libraries(amdrocclr_static PRIVATE amd_comgr)
 endif()
 
 target_link_libraries(amdrocclr_static PUBLIC Threads::Threads)
-target_link_libraries(amdrocclr_static PUBLIC dl ${ROCT_LIBRARIES} ${ROCR_LIBRARIES} )
+target_link_libraries(amdrocclr_static PUBLIC dl)
+
 
 if (BUILD_PAL)
   target_sources(amdrocclr_static PRIVATE $<TARGET_OBJECTS:rocclrpal>)
@@ -175,19 +217,25 @@ if (BUILD_PAL)
   target_compile_definitions(amdrocclr_static PRIVATE WITH_PAL_DEVICE)
 
   export(TARGETS amdrocclr_static rocclrpal amdhsaloader amdhsacode pal addrlib vam metrohash cwpack gpuopen ddCore mpack rapidjson
-    FILE ${ROCCLR_EXPORTS_FILE}
-  )
+    FILE ${ROCCLR_TARGETS_PATH})
 else()
   target_compile_definitions(amdrocclr_static PRIVATE WITH_HSA_DEVICE)
 
+  #ROCclr being static lib shall not link hsa-runtime64.
+  #Needed here to export as transitive dependency in rocclr-targets.cmake
+  target_link_libraries(amdrocclr_static PRIVATE hsa-runtime64::hsa-runtime64)
   target_sources(amdrocclr_static PRIVATE $<TARGET_OBJECTS:oclrocm>)
   export(TARGETS amdrocclr_static
-    FILE ${ROCCLR_EXPORTS_FILE}
-  )
+         FILE ${ROCCLR_TARGETS_PATH})
 endif()
 
 if (UNIX)
     set(ROCclr_DEFAULT_INSTALL_PREFIX "/opt/rocm/rocclr")
+
+    find_library(LIBRT rt)
+    if (LIBRT)
+        target_link_libraries(amdrocclr_static PUBLIC ${LIBRT})
+    endif()
 endif()
 #comment out as it's not available in cmake 3.5
 #if(CMAKE_INSTALL_PREFIX_INITIALIZED_TO_DEFAULT)
@@ -202,15 +250,16 @@ if(NOT CMAKE_INSTALL_PREFIX)
 #endif()
 endif()
 
-install( TARGETS amdrocclr_static ARCHIVE DESTINATION lib LIBRARY DESTINATION lib COMPONENT applications)
-file(GLOB headerfiles "${CMAKE_CURRENT_SOURCE_DIR}/*.h*")
+
+install( TARGETS amdrocclr_static
+  EXPORT rocclr
+  ARCHIVE DESTINATION lib
+  LIBRARY DESTINATION lib
+  COMPONENT applications)
+
 install (
-    FILES ${headerfiles}
-    DESTINATION include)
-install (
-   DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/include"
-   DESTINATION include
-   FILES_MATCHING PATTERN "*.h*")
+   DIRECTORY include/
+   DESTINATION include)
 install (
    DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/elf"
    DESTINATION include
@@ -239,3 +288,28 @@ install (
    DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/device"
    DESTINATION include
    FILES_MATCHING PATTERN "*.h*")
+
+# Generate the install-tree package.
+set(ROCCLR_PREFIX_CODE "
+# Derive absolute install prefix from config file path.
+get_filename_component(ROCCLR_PREFIX \"\${CMAKE_CURRENT_LIST_FILE}\" PATH)")
+string(REGEX REPLACE "/" ";" count "${ROCCLR_PACKAGE_PREFIX}")
+foreach(p ${count})
+  set(ROCCLR_PREFIX_CODE "${ROCCLR_PREFIX_CODE}
+get_filename_component(ROCCLR_PREFIX \"\${ROCCLR_PREFIX}\" PATH)")
+endforeach()
+
+configure_file("cmake/${ROCCLR_CONFIG_NAME}.in"
+  "${CMAKE_CURRENT_BINARY_DIR}/${ROCCLR_CONFIG_NAME}.install"
+  @ONLY)
+
+install(FILES
+  "${CMAKE_CURRENT_BINARY_DIR}/${ROCCLR_CONFIG_NAME}.install"
+  DESTINATION "${ROCCLR_PACKAGE_PREFIX}"
+  RENAME "${ROCCLR_CONFIG_NAME}")
+install(EXPORT rocclr
+  DESTINATION "${ROCCLR_PACKAGE_PREFIX}"
+  FILE "${ROCCLR_TARGETS_NAME}")
+install(FILES
+  "${ROCCLR_VERSION_PATH}"
+  DESTINATION "${ROCCLR_PACKAGE_PREFIX}")

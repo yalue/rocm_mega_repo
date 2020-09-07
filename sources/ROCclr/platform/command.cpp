@@ -203,7 +203,6 @@ bool Event::awaitCompletion() {
         lock_.wait();
       }
     }
-
     ClPrint(LOG_DEBUG, LOG_WAIT, "event %p wait completed", this);
   }
 
@@ -259,10 +258,6 @@ void Command::enqueue() {
 
   ClPrint(LOG_DEBUG, LOG_CMD, "command is enqueued: %p", this);
   queue_->append(*this);
-  if (IS_HIP) {
-    queue_->setLastQueuedCommand(this);
-  }
-  queue_->flush();
   if ((queue_->device().settings().waitCommand_ && (type_ != 0)) ||
       ((commandWaitBits_ & 0x2) != 0)) {
     awaitCompletion();
@@ -591,6 +586,13 @@ bool TransferBufferFileCommand::validateMemory() {
 }
 
 bool CopyMemoryP2PCommand::validateMemory() {
+  amd::Device* queue_device = &queue()->device();
+  // Rocr backend maps memory from different devices by default and runtime doesn't need to track
+  // extra memory objects. Also P2P staging buffer always allocated
+  if (queue_device->settings().rocr_backend_) {
+    return true;
+  }
+
   const std::vector<Device*>& devices = memory1_->getContext().devices();
   if (devices.size() != 1) {
     LogError("Can't allocate memory object for P2P extension");
@@ -629,6 +631,16 @@ bool CopyMemoryP2PCommand::validateMemory() {
         return false;
       }
     }
+  }
+  return true;
+}
+
+// ================================================================================================
+bool SvmPrefetchAsyncCommand::validateMemory() {
+  amd::Memory* svmMem = amd::MemObjMap::FindMemObj(dev_ptr());
+  if (nullptr == svmMem) {
+    LogPrintfError("SvmPrefetchAsync received unknown memory for prefetch: %p!", dev_ptr());
+    return false;
   }
   return true;
 }

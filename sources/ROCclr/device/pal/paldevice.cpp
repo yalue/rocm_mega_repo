@@ -202,13 +202,24 @@ bool NullDevice::init() {
           case 4:
             ShouldNotReachHere();
             break;
+          default:
+            ShouldNotReachHere();
+            break;
         }
+        break;
       case 11:
         switch (ipLevelMinor) {
           case 0:
             ShouldNotReachHere();
             break;
+          default:
+            ShouldNotReachHere();
+            break;
         }
+        break;
+      default:
+        ShouldNotReachHere();
+        break;
     }
 
     Pal::AsicRevision revision = Pal::AsicRevision::Unknown;
@@ -666,6 +677,10 @@ void NullDevice::fillDeviceInfo(const Pal::DeviceProperties& palProp,
     info_.gfxipVersion_ =
         settings().useLightning_ ? hwInfo()->gfxipVersionLC_ : hwInfo()->gfxipVersion_;
 
+    info_.gfxipMajor_ = info_.gfxipVersion_ / 100;
+    info_.gfxipMinor_ = info_.gfxipVersion_ / 10 % 10;
+    info_.gfxipStepping_ = info_.gfxipVersion_ % 10;
+
     info_.timeStampFrequency_ = 1000000;
     info_.numAsyncQueues_ = numComputeRings;
 
@@ -887,10 +902,12 @@ bool Device::create(Pal::IDevice* device) {
   }
   appProfile_.init();
   device_ = device;
-  Pal::Result result;
 
   // Retrive device properties
-  result = iDev()->GetProperties(&properties_);
+  Pal::Result result = iDev()->GetProperties(&properties_);
+  if (result != Pal::Result::Success) {
+    return false;
+  }
 
   // Save the IP level for the offline detection
   ipLevel_ = properties().gfxLevel;
@@ -908,7 +925,7 @@ bool Device::create(Pal::IDevice* device) {
     hwInfo_ = &DeviceInfo[static_cast<uint>(properties().revision)];
   } else if (ipLevel_ >= Pal::GfxIpLevel::GfxIp9) {
     // For compiler sub targets
-    subtarget = (static_cast<uint>(asicRevision_) % static_cast<uint>(Pal::AsicRevision::Vega10))
+    subtarget = (static_cast<uint>(asicRevision_) - static_cast<uint>(Pal::AsicRevision::Vega10))
             << 1 |
         subtarget;
     hwInfo_ = &Gfx9PlusSubDeviceInfo[subtarget];
@@ -950,12 +967,14 @@ bool Device::create(Pal::IDevice* device) {
   palSettings->longRunningSubmissions = true;
   palSettings->cmdBufBatchedSubmitChainLimit = 0;
   palSettings->disableResourceProcessingManager = true;
-  palSettings->numScratchWavesPerCu = settings().numScratchWavesPerCu_;
   // Make sure CP DMA can be used for all possible transfers
   palSettings->cpDmaCmdCopyMemoryMaxBytes = 0xFFFFFFFF;
 
   // Commit the new settings for the device
   result = iDev()->CommitSettingsAndInit();
+  if (result != Pal::Result::Success) {
+    return false;
+  }
 
   iDev()->GetGpuMemoryHeapProperties(heaps_);
 
@@ -2218,6 +2237,10 @@ void* Device::svmAlloc(amd::Context& context, size_t size, size_t alignment, cl_
     // add the information to context so that we can use it later.
     amd::MemObjMap::AddMemObj(mem->getSvmPtr(), mem);
     svmPtr = mem->getSvmPtr();
+
+    if (settings().apuSystem_ && gpuMem->isHostMemDirectAccess()) {
+      mem->commitSvmMemory();
+    }
   } else {
     // find the existing amd::mem object
     mem = amd::MemObjMap::FindMemObj(svmPtr);

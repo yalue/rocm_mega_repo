@@ -52,6 +52,7 @@ global:
     hipExtLaunchMultiKernelMultiDevice;
     hipExtMallocWithFlags;
     hipExtModuleLaunchKernel;
+    hipExtLaunchKernel;
     hipFree;
     hipFreeArray;
     hipFuncSetCacheConfig;
@@ -61,6 +62,7 @@ global:
     hipGetErrorName;
     hipGetErrorString;
     hipGetLastError;
+    hipMemAdvise;
     hipMemAllocHost;
     hipHostAlloc;
     hipHostFree;
@@ -111,7 +113,10 @@ global:
     hipGetSymbolAddress;
     hipGetSymbolSize;
     hipMemGetInfo;
+    hipMemPrefetchAsync;
     hipMemPtrGetInfo;
+    hipMemRangeGetAttribute;
+    hipMemRangeGetAttributes;
     hipMemset;
     hipMemsetAsync;
     hipMemsetD8;
@@ -149,9 +154,11 @@ global:
     hipProfilerStart;
     hipProfilerStop;
     hipRuntimeGetVersion;
+    hipGetDeviceFlags;
     hipSetDevice;
     hipSetDeviceFlags;
     hipStreamAddCallback;
+    hipStreamAttachMemAsync;
     hipStreamCreate;
     hipStreamCreateWithFlags;
     hipStreamCreateWithPriority;
@@ -181,6 +188,7 @@ global:
     hipApiName;
     hipKernelNameRef;
     hipKernelNameRefByPtr;
+    hipGetStreamDeviceId;
     hipProfilerStart;
     hipProfilerStop;
     hiprtcCompileProgram;
@@ -258,9 +266,13 @@ global:
     hipInitActivityCallback*;
     hipEnableActivityCallback*;
     hipGetCmdName*;
+    hipExtStreamCreateWithCUMask;
     hipStreamGetPriority;
-    hipStreamSetComputeUnitMask;
-    hipStreamGetHSAQueue;
+    hipMemcpy2DFromArray;
+    hipMemcpy2DFromArrayAsync;
+    hipMemcpyAtoH;
+    hipMemcpyHtoA;
+    hipMemcpyParam2DAsync;
     };
 local:
     *;

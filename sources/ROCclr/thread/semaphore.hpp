@@ -42,19 +42,17 @@ namespace amd {
 class Thread;
 
 //! \brief Counting semaphore
-class Semaphore : public HeapObject {
+class alignas(64) Semaphore : public HeapObject {
  private:
   std::atomic_int state_;  //!< This semaphore's value.
 
 #ifdef _WIN32
   void* handle_;  //!< The semaphore object's handle.
-  char padding_[64 - sizeof(void*) - sizeof(std::atomic_int)];
 #else  // !_WIN32
   sem_t sem_;  //!< The semaphore object's identifier.
-  char padding_[64 - sizeof(sem_t) - sizeof(std::atomic_int)];
 #endif /*!_WIN32*/
 
- public:
+public:
   Semaphore();
   ~Semaphore();
 
@@ -67,6 +65,9 @@ class Semaphore : public HeapObject {
   //! \brief Reset this semaphore.
   void reset() { state_.store(0, std::memory_order_release); }
 };
+
+static_assert(sizeof(Semaphore) == 64 ,
+              "unexpected total size of Semaphore");
 
 /*! @}
  *  @}

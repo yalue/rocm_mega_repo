@@ -85,11 +85,11 @@ __device__ static inline unsigned int __ffsll(long long int input) {
 }
 
 __device__ static inline unsigned int __brev(unsigned int input) {
-    return __llvm_bitrev_b32(input);
+    return __builtin_bitreverse32(input);
 }
 
 __device__ static inline unsigned long long int __brevll(unsigned long long int input) {
-    return __llvm_bitrev_b64(input);
+    return __builtin_bitreverse64(input);
 }
 
 __device__ static inline unsigned int __lastbit_u32_u64(uint64_t input) {
@@ -233,7 +233,16 @@ __device__ static inline unsigned int __usad(unsigned int x, unsigned int y, uns
     return __ockl_sadd_u32(x, y, z);
 }
 
-__device__ static inline unsigned int __lane_id() { return  __mbcnt_hi(-1, __mbcnt_lo(-1, 0)); }
+__device__ static inline unsigned int __lane_id() {
+    return  __builtin_amdgcn_mbcnt_hi(
+        -1, __builtin_amdgcn_mbcnt_lo(-1, 0));
+}
+
+__device__
+static inline unsigned int __mbcnt_lo(unsigned int x, unsigned int y) {return __builtin_amdgcn_mbcnt_lo(x,y);};
+
+__device__
+static inline unsigned int __mbcnt_hi(unsigned int x, unsigned int y) {return __builtin_amdgcn_mbcnt_hi(x,y);};
 
 /*
 HIP specific device functions
@@ -241,25 +250,25 @@ HIP specific device functions
 
 __device__ static inline unsigned __hip_ds_bpermute(int index, unsigned src) {
     union { int i; unsigned u; float f; } tmp; tmp.u = src;
-    tmp.i = __llvm_amdgcn_ds_bpermute(index, tmp.i);
+    tmp.i = __builtin_amdgcn_ds_bpermute(index, tmp.i);
     return tmp.u;
 }
 
 __device__ static inline float __hip_ds_bpermutef(int index, float src) {
     union { int i; unsigned u; float f; } tmp; tmp.f = src;
-    tmp.i = __llvm_amdgcn_ds_bpermute(index, tmp.i);
+    tmp.i = __builtin_amdgcn_ds_bpermute(index, tmp.i);
     return tmp.f;
 }
 
 __device__ static inline unsigned __hip_ds_permute(int index, unsigned src) {
     union { int i; unsigned u; float f; } tmp; tmp.u = src;
-    tmp.i = __llvm_amdgcn_ds_permute(index, tmp.i);
+    tmp.i = __builtin_amdgcn_ds_permute(index, tmp.i);
     return tmp.u;
 }
 
 __device__ static inline float __hip_ds_permutef(int index, float src) {
     union { int i; unsigned u; float f; } tmp; tmp.u = src;
-    tmp.i = __llvm_amdgcn_ds_permute(index, tmp.i);
+    tmp.i = __builtin_amdgcn_ds_permute(index, tmp.i);
     return tmp.u;
 }
 
@@ -293,8 +302,8 @@ __device__ static inline float __hip_ds_swizzlef_N(float src) {
 
 template <int dpp_ctrl, int row_mask, int bank_mask, bool bound_ctrl>
 __device__ static inline int __hip_move_dpp_N(int src) {
-    return __llvm_amdgcn_move_dpp(src, dpp_ctrl, row_mask, bank_mask,
-                                  bound_ctrl);
+    return __builtin_amdgcn_mov_dpp(src, dpp_ctrl, row_mask, bank_mask,
+                                    bound_ctrl);
 }
 
 static constexpr int warpSize = 64;
@@ -304,7 +313,7 @@ inline
 int __shfl(int var, int src_lane, int width = warpSize) {
     int self = __lane_id();
     int index = src_lane + (self & ~(width-1));
-    return __llvm_amdgcn_ds_bpermute(index<<2, var);
+    return __builtin_amdgcn_ds_bpermute(index<<2, var);
 }
 __device__
 inline
@@ -376,7 +385,7 @@ int __shfl_up(int var, unsigned int lane_delta, int width = warpSize) {
     int self = __lane_id();
     int index = self - lane_delta;
     index = (index < (self & ~(width-1)))?self:index;
-    return __llvm_amdgcn_ds_bpermute(index<<2, var);
+    return __builtin_amdgcn_ds_bpermute(index<<2, var);
 }
 __device__
 inline
@@ -446,7 +455,7 @@ int __shfl_down(int var, unsigned int lane_delta, int width = warpSize) {
     int self = __lane_id();
     int index = self + lane_delta;
     index = (int)((self&(width-1))+lane_delta) >= width?self:index;
-    return __llvm_amdgcn_ds_bpermute(index<<2, var);
+    return __builtin_amdgcn_ds_bpermute(index<<2, var);
 }
 __device__
 inline
@@ -516,7 +525,7 @@ int __shfl_xor(int var, int lane_mask, int width = warpSize) {
     int self = __lane_id();
     int index = self^lane_mask;
     index = index >= ((self+width)&~(width-1))?self:index;
-    return __llvm_amdgcn_ds_bpermute(index<<2, var);
+    return __builtin_amdgcn_ds_bpermute(index<<2, var);
 }
 __device__
 inline
@@ -1120,6 +1129,30 @@ __attribute__((convergent))
 void __syncthreads()
 {
   __barrier(__CLK_LOCAL_MEM_FENCE);
+}
+
+__device__
+inline
+__attribute__((convergent))
+int __syncthreads_count(int predicate)
+{
+  return __ockl_wgred_add_i32(!!predicate);
+}
+
+__device__
+inline
+__attribute__((convergent))
+int __syncthreads_and(int predicate)
+{
+  return __ockl_wgred_and_i32(!!predicate);
+}
+
+__device__
+inline
+__attribute__((convergent))
+int __syncthreads_or(int predicate)
+{
+  return __ockl_wgred_or_i32(!!predicate);
 }
 
 // hip.amdgcn.bc - device routine

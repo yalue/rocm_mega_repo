@@ -23,7 +23,6 @@ THE SOFTWARE.
 #pragma once
 
 #include "host_defines.h"
-
 #if defined(__cplusplus)
     extern "C" {
 #endif
@@ -67,6 +66,7 @@ __attribute__((const))
 unsigned int __ockl_udot8(unsigned int, unsigned int, unsigned int, bool);
 #endif
 
+#if !__CLANG_HIP_RUNTIME_WRAPPER_INCLUDED__
 // BEGIN FLOAT
 __device__
 __attribute__((const))
@@ -241,6 +241,9 @@ float __ocml_ncdfinv_f32(float);
 __device__
 __attribute__((pure))
 float __ocml_pow_f32(float, float);
+__device__
+__attribute__((pure))
+float __ocml_pown_f32(float, int);
 __device__
 __attribute__((pure))
 float __ocml_rcbrt_f32(float);
@@ -555,6 +558,9 @@ __attribute__((pure))
 double __ocml_pow_f64(double, double);
 __device__
 __attribute__((pure))
+double __ocml_pown_f64(double, int);
+__device__
+__attribute__((pure))
 double __ocml_rcbrt_f64(double);
 __device__
 __attribute__((const))
@@ -700,6 +706,8 @@ __attribute__((const))
 double __llvm_amdgcn_rsq_f64(double) __asm("llvm.amdgcn.rsq.f64");
 // END INTRINSICS
 // END DOUBLE
+
+#endif // !__CLANG_HIP_RUNTIME_WRAPPER_INCLUDED__
 
 #if defined(__cplusplus)
     } // extern "C"

@@ -34,6 +34,13 @@ namespace roc {
 //! Device settings
 class Settings : public device::Settings {
  public:
+  enum Hmm : uint32_t {
+    EnableSystemMemory    = 0x01, //!< Forces system memory preference by default
+    EnableMallocPrefetch  = 0x02, //!< Skips default prefetch after allocation
+    EnableSvmTracking     = 0x04, //!< Enables SW SVM tracking
+    EnableDebugSvm        = 0x08  //!< Extra debug flag (reserved for runtime developers)
+  };
+
   union {
     struct {
       uint doublePrecision_ : 1;        //!< Enables double precision support
@@ -75,11 +82,13 @@ class Settings : public device::Settings {
 
   size_t sdmaCopyThreshold_;  //!< Use SDMA to copy above this size
 
+  uint32_t      hmmFlags_;    //!< HMM functionality control flags
+
   //! Default constructor
   Settings();
 
   //! Creates settings
-  bool create(bool fullProfile, int gfxipVersion, bool coop_groups = false);
+  bool create(bool fullProfile, int gfxipMajor, int gfxipMinor, bool coop_groups = false);
 
  private:
   //! Disable copy constructor

@@ -296,6 +296,9 @@ hipError_t hipDeviceGetAttribute(int* pi, hipDeviceAttribute_t attr, int device)
   case hipDeviceAttributeCooperativeMultiDeviceUnmatchedSharedMem:
     *pi = prop.cooperativeMultiDeviceUnmatchedSharedMem;
     break;
+  case hipDeviceAttributeAsicRevision:
+    *pi = prop.asicRevision;
+     break;
   default:
     HIP_RETURN(hipErrorInvalidValue);
   }
@@ -449,7 +452,11 @@ hipError_t hipDeviceSynchronize ( void ) {
 }
 
 int ihipGetDevice() {
-  return hip::getCurrentDevice()->deviceId();
+  hip::Device* device = hip::getCurrentDevice();
+  if(device == nullptr){
+    return -1;
+  }
+  return device->deviceId();
 }
 
 hipError_t hipGetDevice ( int* deviceId ) {
@@ -474,7 +481,12 @@ hipError_t hipGetDeviceCount ( int* count ) {
 }
 
 hipError_t hipGetDeviceFlags ( unsigned int* flags ) {
-  HIP_RETURN(hipErrorNotSupported);
+  HIP_INIT_API(hipGetDeviceFlags, flags);
+  if (flags == nullptr) {
+    HIP_RETURN(hipErrorInvalidValue);
+  }
+  *flags = hip::getCurrentDevice()->getFlags();
+  HIP_RETURN(hipSuccess);
 }
 
 hipError_t hipIpcGetEventHandle ( hipIpcEventHandle_t* handle, hipEvent_t event ) {
@@ -534,7 +546,8 @@ hipError_t hipSetDeviceFlags ( unsigned int  flags ) {
     default:
       break;
   }
- 
+  hip::getCurrentDevice()->setFlags(flags & hipDeviceScheduleMask);
+
   HIP_RETURN(hipSuccess);
 }
 

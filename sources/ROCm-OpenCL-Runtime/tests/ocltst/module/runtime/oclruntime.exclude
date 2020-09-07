@@ -1,0 +1,9 @@
+# all clear
+OCLImageCopyPartial
+
+# EPR 362715
+OCLCPUGuardPages
+
+OCLRegionDeviceQueries
+
+OCLPerfCounters

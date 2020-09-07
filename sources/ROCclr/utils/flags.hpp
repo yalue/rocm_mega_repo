@@ -24,9 +24,9 @@
 
 #define RUNTIME_FLAGS(debug,release,release_on_stg)                           \
                                                                               \
-release(int, LOG_LEVEL, 0,                                                    \
+release(int, AMD_LOG_LEVEL, 0,                                                \
         "The default log level")                                              \
-release(uint, GPU_LOG_MASK, 0X7FFFFFFF,                                       \
+release(uint, AMD_LOG_MASK, 0X7FFFFFFF,                                       \
         "The mask to enable specific kinds of logs")                          \
 debug(uint, DEBUG_GPU_FLAGS, 0,                                               \
         "The debug options for GPU device")                                   \
@@ -56,6 +56,8 @@ debug(size_t, PARAMETERS_MIN_ALIGNMENT, 16,                                   \
         "Minimum alignment required for the abstract parameters stack")       \
 debug(size_t, MEMOBJ_BASE_ADDR_ALIGN, 4*Ki,                                   \
         "Alignment of the base address of any allocate memory object")        \
+release(uint, ROC_HMM_FLAGS, 0,                                               \
+        "ROCm HMM configuration flags")                                       \
 release(cstring, GPU_DEVICE_ORDINAL, "",                                      \
         "Select the device ordinal (comma seperated list of available devices)") \
 release(bool, REMOTE_ALLOC, false,                                            \
@@ -72,8 +74,6 @@ release(bool, GPU_FLUSH_ON_EXECUTION, false,                                  \
         "Submit commands to HW on every operation. 0 - Disable, 1 - Enable")  \
 release(bool, GPU_USE_SYNC_OBJECTS, true,                                     \
         "If enabled, use sync objects instead of polling")                    \
-release(size_t, GPU_FORCE_BLIT_COPY_SIZE, 0,                                  \
-        "Size in KB of the threshold below which to force blit instead for sdma") \
 release(bool, CL_KHR_FP64, true,                                              \
         "Enable/Disable support for double precision")                        \
 release(cstring, AMD_OCL_BUILD_OPTIONS, 0,                                    \
@@ -198,7 +198,7 @@ release(bool, GPU_ENABLE_LC, true,                                            \
         "Enables LC path")                                                    \
 release(bool, GPU_ENABLE_HW_P2P, false,                                       \
         "Enables HW P2P path")                                                \
-release(bool, GPU_ENABLE_COOP_GROUPS, false,                                  \
+release(bool, GPU_ENABLE_COOP_GROUPS, true,                                   \
          "Enables cooperative group launch")                                  \
 release(uint, GPU_MAX_COMMAND_BUFFERS, 8,                                     \
          "The maximum number of command buffers allocated per queue")         \
@@ -233,7 +233,11 @@ release(uint, AMD_OPT_FLUSH, 1,                                               \
         "0x1 = Use device-scope fence operations when possible.")             \
 release(uint, HIP_HIDDEN_FREE_MEM, 0,                                         \
         "Reserve free mem reporting in Mb"                                    \
-        "0 = Disable")
+        "0 = Disable")                                                        \
+release(size_t, GPU_FORCE_BLIT_COPY_SIZE, 0,                                  \
+        "Size in KB of the threshold below which to force blit instead for sdma") \
+release(bool, ROC_ENABLE_LARGE_BAR, true,                                     \
+        "Enable Large Bar if supported by the device")
 
 namespace amd {
 

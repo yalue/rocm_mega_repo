@@ -369,6 +369,16 @@ const void* Os::createOsThread(amd::Thread* thread) {
 
   // We never plan the use join, so free the resources now.
   ::pthread_attr_setdetachstate(&threadAttr, PTHREAD_CREATE_DETACHED);
+  cpu_set_t cpuset;
+  if (processorCount_ > 0) {
+    CPU_ZERO(&cpuset);
+    for (int i = 0; i < processorCount_; i++) {
+      CPU_SET(i, &cpuset);
+    }
+    if (0 != pthread_attr_setaffinity_np(&threadAttr, sizeof(cpu_set_t), &cpuset)) {
+      fatal("pthread_attr_setaffinity_np failed to set affinity");
+    }
+  }
 
   pthread_t handle = 0;
   if (0 != ::pthread_create(&handle, &threadAttr, (void* (*)(void*)) & Thread::entry, thread)) {
@@ -720,24 +730,21 @@ bool Os::MemoryMapFile(const char* fname, const void** mmap_ptr, size_t* mmap_si
     return false;
   }
 
-  FILE* fp = fopen(fname, "r");
-  if (fp == nullptr) {
-    return false;
-  }
-
-  int fd = fileno(fp);
+  struct stat stat_buf;
+  int fd = open(fname, O_RDONLY);
   if (fd < 0 ) {
-    fclose(fp);
     return false;
   }
 
-  fseek(fp, 0L, SEEK_END);
-  *mmap_size = ftell(fp);
-  fseek(fp, 0L, SEEK_SET);
+  if(fstat(fd, &stat_buf) != 0) {
+    close(fd);
+    return false;
+  }
 
-  *mmap_ptr = mmap(NULL, *mmap_size, PROT_READ, MAP_SHARED, fd, 0);
+  *mmap_size = stat_buf.st_size;
+  *mmap_ptr = mmap(NULL, stat_buf.st_size, PROT_READ, MAP_SHARED, fd, 0);
 
-  fclose(fp);
+  close(fd);
 
   if (*mmap_ptr == nullptr) {
     return false;
