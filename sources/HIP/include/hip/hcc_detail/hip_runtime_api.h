@@ -890,6 +890,13 @@ hipError_t hipStreamGetPriority(hipStream_t stream, int* priority);
 
 
 /**
+ * Sets the compute unit mask associated with this stream's queue.
+ */
+#define HIP_HAS_STREAM_SET_CU_MASK (1)
+hipError_t hipStreamSetComputeUnitMask(hipStream_t stream, uint64_t mask);
+
+
+/**
  * @brief Create an asynchronous stream with the specified CU mask.
  *
  * @param[in, out] stream Pointer to new stream

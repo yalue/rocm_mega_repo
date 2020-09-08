@@ -379,3 +379,23 @@ hipError_t hipStreamGetPriority(hipStream_t stream, int* priority) {
   HIP_RETURN(hipSuccess);
 
 }
+
+hipError_t hipStreamSetComputeUnitMask(hipStream_t stream, uint64_t mask) {
+  HIP_INIT_API(hipStreamSetComputeUnitMask, stream, mask);
+
+  auto queue = hip::getQueue(stream)->asHostQueue();
+  if (!queue) {
+    printf("Error setting CU mask: couldn't get host queue.\n");
+    HIP_RETURN(hipErrorNotSupported);
+  }
+
+  uint32_t mask32[2];
+  mask32[0] = mask & 0xffffffff;
+  mask32[1] = mask >> 32;
+  if (!queue->setCUMask(mask32, 64)) {
+    printf("Setting CU mask returned false.\n");
+    HIP_RETURN(hipErrorNotSupported);
+  }
+  HIP_RETURN(hipSuccess);
+}
+
