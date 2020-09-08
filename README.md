@@ -8,8 +8,6 @@ ROCm stack.
 About
 -----
 
-This repository currently contains copies of the `HIP`
-
 This repository currently contains copies of the `ROCR-Runtime`, `HIP`, and
 `ROCclr` code.  `ROCclr` and `HIP` are up-to-date with ROCm 3.7.
 
@@ -84,15 +82,3 @@ repositories.  USE THIS AT YOUR OWN RISK.  I have encountered many headaches
 with AMD's installation process, though it sounds like they're working to
 improve it with multi-version support.
 
-
-Kernel Modification and Python Module
--------------------------------------
-
-This repository assumes the user is already running an up-to-date version of
-the Linux kernel with the `amdkfd` (and related) drivers enabled. The
-`python_rocm_control_module` directory contains a kernel patch to enable a
-`set_default_cu_mask` ioctl to the `/dev/kfd` character device, and a python
-module that can be used to call the function from within python code (I had
-used it for some early PyTorch tests). In the unlikely case that somebody wants
-to use this code, more instructions can be found in the README in that
-subdirectory.
