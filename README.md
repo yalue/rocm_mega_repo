@@ -9,7 +9,7 @@ About
 -----
 
 This repository currently contains copies of the `ROCR-Runtime`, `HIP`, and
-`ROCclr` code.  `ROCclr` and `HIP` are up-to-date with ROCm 3.7.
+`ROCclr` code.  The source code is based on ROCm 3.7.
 
 The main goal of this repository, for now, is to add a new function to the HIP
 API: `hipStreamSetComputeUnitMask`, which enables control over the compute-unit
@@ -42,7 +42,7 @@ of the Linux kernel, supporting the `amdgpu` and `amdkfd` modules. Anything
 past kernel version 5.0 should be fine. Additionally, make sure you are running
 a version of the Linux kernel with the `amdkfd` module available, that the
 `video` group has RW access to `/dev/kfd`, and that your user is a member of
-the `video` group.
+the `video` and possibly the `render` group.
 
 Finally, you will need to install the following packages from AMD's pre-built
 ROCm repositories AMD's repositories (see
@@ -68,8 +68,8 @@ Compilation and Installation (on top of an existing ROCm installation)
 ----------------------------------------------------------------------
 
 You *should* be able to build everything using the included `install.sh`
-script: `sudo bash ./install.sh`.  The script requires `sudo` access in order
-to be able to write to `/opt/rocm`.
+script: `bash ./install.sh`.  The script will prompt for `sudo` access at some
+points in order to be able to write to `/opt/rocm`.
 
 
 Uninstallation
