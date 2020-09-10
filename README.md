@@ -5,6 +5,18 @@ This repository is used to track modifications to several components of the
 ROCm stack.
 
 
+NOTE: DEPRECATION
+=================
+
+This repository was largely intended to expose an API for setting CU masks to
+HIP, but this is now possible in the upstream version of HIP, as of ROCm 3.6.
+[See the `hipExtStreamCreateWithCUMask` function](https://github.com/ROCm-Developer-Tools/HIP/blob/rocm-3.7.x/include/hip/hcc_detail/hip_runtime_api.h#L911).
+
+So, this repository is unlikely to be of much use to most users, and will
+instead mostly serve as a way for me to track my own experimental modifications
+to HIP, ROCclr, and HSA code.
+
+
 About
 -----
 
