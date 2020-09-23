@@ -23,6 +23,9 @@
 // The number, class and device references set during initialization, and
 // needed when destroying the chardev.
 static int major_number;
+// Keeps track of whether we've added the DEVMODE=0666 environment variable to
+// the device class.
+static int devmode_var_added = 0;
 static struct class *gpu_lock_device_class = NULL;
 static struct device *gpu_lock_chardev = NULL;
 
@@ -69,6 +72,16 @@ static struct file_operations fops = {
   .unlocked_ioctl = DeviceIoctl,
 };
 
+// Intended to be executed when the chardev is created. Assigns 0666
+// permissions to the device.
+static int LockingClassUdevEventCallback(struct device *dev,
+    struct kobj_uevent_env *env) {
+  if (devmode_var_added) return 0;
+  devmode_var_added = 1;
+  printk("GPU locking manager: Got first uevent, adding DEVMODE uevent var\n");
+  return add_uevent_var(env, "DEVMODE=0666");
+}
+
 static int __init InitModule(void) {
   major_number = register_chrdev(0, DEVICE_NAME, &fops);
   if (major_number < 0) {
@@ -81,6 +94,10 @@ static int __init InitModule(void) {
     unregister_chrdev(major_number, DEVICE_NAME);
     return 1;
   }
+  // Make our chardev have 0666 permissions.
+  devmode_var_added = 0;
+  gpu_lock_device_class->dev_uevent = LockingClassUdevEventCallback;
+
   gpu_lock_chardev = device_create(gpu_lock_device_class, NULL,
     MKDEV(major_number, 0), NULL, DEVICE_NAME);
   if (IS_ERR(gpu_lock_chardev)) {
