@@ -4,4 +4,12 @@ install/
 hip_vectoradd_test/vector_add
 hip_vectoradd_test/kill_kernel_test
 **/build/
+gpu_locking_module/.*
+gpu_locking_module/*.ko
+gpu_locking_module/*.order
+gpu_locking_module/*.mod
+gpu_locking_module/*.o
+gpu_locking_module/*.symvers
+gpu_locking_module/*.mod.c
+gpu_locking_module/userspace_test
 
