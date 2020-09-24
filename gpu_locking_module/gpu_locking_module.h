@@ -14,12 +14,25 @@ extern "C" {
 typedef struct {
   // The ID of the partition to acquire.
   int partition_id;
-  // The relative deadline, in milliseconds, from the time this request is
-  // submitted.
-  unsigned deadline;
-} AcquireGPULockArgs;
+  // The request's priority. Lower = higher priority.
+  uint64_t priority;
+} GPULockArgs;
 
-#define GPULOCKIOC_ACQUIRE_LOCK _IOWR('h', 0xaa, AcquireGPULockArgs)
+// Send this ioctl to acquire the lock.
+#define GPULOCK_IOC_ACQUIRE_LOCK _IOW('h', 0xaa, GPULockArgs)
+
+// Send this ioctl to release the lock, after it has been acquired. Returns an
+// error if the requesting process doesn't hold the lock for the specified
+// partition ID.
+#define GPULOCK_IOC_RELEASE_LOCK _IOW('h', 0xab, GPULockArgs)
+
+// Send this ioctl to release all locks associated with the specified
+// partition.
+#define GPULOCK_IOC_RELEASE_ALL_PARTITION _IOW('h', 0xac, GPULockArgs)
+
+// Send this ioctl to release all locks associated with all partitions.
+// Intended to be used for a failsafe mechanism to unblock any stuck waiters.
+#define GPULOCK_IOC_RELEASE_ALL _IO('h', 0xad)
 
 #ifdef __cplusplus
 }  // extern "C"
