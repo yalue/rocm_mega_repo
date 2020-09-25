@@ -11,9 +11,12 @@
 #include <linux/device.h>
 #include <linux/fs.h>
 #include <linux/module.h>
+#include <linux/mutex.h>
+#include <linux/sched.h>
 #include <linux/types.h>
 #include <linux/uaccess.h>
 #include <linux/wait.h>
+#include "binheap.h"
 #include "gpu_locking_module.h"
 
 // The name of the character device.
@@ -33,6 +36,55 @@ static int major_number;
 static int devmode_var_added = 0;
 static struct class *gpu_lock_device_class = NULL;
 static struct device *gpu_lock_chardev = NULL;
+
+static struct mutex test_mutex;
+
+
+// The "node" type that we're using in the binary heap test.
+struct TestingHeapData {
+  int value;
+
+  struct binheap_node node;
+};
+
+// The testing comparator function for our binary heap.
+static int TestingComparator(struct binheap_node *a, struct binheap_node *b) {
+  struct TestingHeapData *a_data = (struct TestingHeapData*) a->data;
+  struct TestingHeapData *b_data = (struct TestingHeapData*) b->data;
+  return a_data->value < b_data->value;
+}
+
+
+// Create and test a binary heap to make sure we can do it properly.
+static void TestBinaryHeap(void) {
+  int i;
+  struct binheap heap;
+  struct TestingHeapData *tmp = NULL;
+  struct TestingHeapData data[4];
+
+  // Initialize the heap handle,  setting the comparator function.
+  INIT_BINHEAP_HANDLE(&heap, TestingComparator);
+
+
+  // Initialize our "data" to be stored in the heap.
+  data[0].value = 1337;
+  data[1].value = 4;
+  data[2].value = 0;
+  data[3].value = 18;
+
+  // Initialize each node and insert it into the heap.
+  for (i = 0; i < 4; i++) {
+    INIT_BINHEAP_NODE(&(data[i].node));
+    binheap_add(&(data[i].node), &heap, struct TestingHeapData, node);
+  }
+  printk(PRINTK_TAG "Added nodes to binary heap.\n");
+  for (i = 0; i < 4; i++) {
+    tmp = binheap_top_entry(&heap, struct TestingHeapData, node);
+    printk(PRINTK_TAG "Value %d in binheap: %d\n", i, tmp->value);
+    binheap_delete_root(&heap, struct TestingHeapData, node);
+  }
+}
+
 
 static int OpenDevice(struct inode *inode, struct file *file) {
   printk(PRINTK_TAG "Device opened\n");
@@ -55,8 +107,18 @@ static long AcquireGPULockIoctl(void __user *arg) {
     "from PID %d\n", a.partition_id, (unsigned long) a.priority,
     (int) current->pid);
 
+  /*
+  set_current_state(TASK_INTERRUPTIBLE);
+  schedule();
+  printk(PRINTK_TAG "Done waiting!\n");
+
   printk(PRINTK_TAG "Support for acquiring lock not implemented!\n");
   return -EINVAL;
+  */
+  if (mutex_lock_interruptible(&test_mutex) != 0) {
+    return -EAGAIN;
+  }
+  return 0;
 }
 
 // For GPULOCK_IOC_RELEASE_LOCK
@@ -69,8 +131,17 @@ static long ReleaseGPULockIoctl(void __user *arg) {
   printk(PRINTK_TAG "Got request to release lock for partition %d from PID "
     "%d\n", a.partition_id, (int) current->pid);
 
+  /*
   printk(PRINTK_TAG "Support for releasing lock not implemented!\n");
   return -EINVAL;
+  */
+  if (!mutex_is_locked(&test_mutex)) {
+    printk(PRINTK_TAG "PID %d trying to unlock an unlocked mutex.\n",
+      (int) current->pid);
+    return -EINVAL;
+  }
+  mutex_unlock(&test_mutex);
+  return 0;
 }
 
 // For GPULOCK_IOC_RELEASE_ALL_PARTITION
@@ -132,6 +203,9 @@ static int LockingClassUdevEventCallback(struct device *dev,
 }
 
 static int __init InitModule(void) {
+  TestBinaryHeap();
+  mutex_init(&test_mutex);  ///////////////////////////////////////////////////
+
   major_number = register_chrdev(0, DEVICE_NAME, &fops);
   if (major_number < 0) {
     printk(PRINTK_TAG "Failed registering chardev.\n");
@@ -161,6 +235,7 @@ static int __init InitModule(void) {
 
 static void __exit CleanupModule(void) {
   printk(PRINTK_TAG "Unloading...\n");
+  mutex_destroy(&test_mutex);  ////////////////////////////////////////////////
   device_destroy(gpu_lock_device_class, MKDEV(major_number, 0));
   class_unregister(gpu_lock_device_class);
   class_destroy(gpu_lock_device_class);

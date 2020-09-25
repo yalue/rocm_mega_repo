@@ -18,7 +18,8 @@ typedef struct {
   uint64_t priority;
 } GPULockArgs;
 
-// Send this ioctl to acquire the lock.
+// Send this ioctl to acquire the lock. This will return -EAGAIN *without*
+// acquiring the lock, if a signal is received before the lock is acquired.
 #define GPULOCK_IOC_ACQUIRE_LOCK _IOW('h', 0xaa, GPULockArgs)
 
 // Send this ioctl to release the lock, after it has been acquired. Returns an
