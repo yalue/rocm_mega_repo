@@ -63,7 +63,7 @@ $HIPCC_COMPILE_FLAGS_APPEND=$ENV{'HIPCC_COMPILE_FLAGS_APPEND'};
 $HIPCC_LINK_FLAGS_APPEND=$ENV{'HIPCC_LINK_FLAGS_APPEND'};
 
 # Known HIP target names.
-@knownTargets = ('gfx701', 'gfx801', 'gfx802', 'gfx803', 'gfx900', 'gfx906', 'gfx908', 'gfx1010', 'gfx1011', 'gfx1012');
+@knownTargets = ('gfx701', 'gfx801', 'gfx802', 'gfx803', 'gfx900', 'gfx906', 'gfx908', 'gfx1010', 'gfx1011', 'gfx1012','gfx1030', 'gfx1031');
 
 #
 # TODO: Fix rpath LDFLAGS settings
@@ -73,11 +73,11 @@ $HIPCC_LINK_FLAGS_APPEND=$ENV{'HIPCC_LINK_FLAGS_APPEND'};
 # derive HIP_PATH, as dirname $0 could be /opt/rocm/bin or /opt/rocm/hip/bin
 # depending on how it gets invoked.
 # ROCM_PATH which points to <rocm_install_dir> is determined based on whether
-# we find .info/version in the parent of HIP_PATH or not. If it is found,
+# we find bin/rocminfo in the parent of HIP_PATH or not. If it is found,
 # ROCM_PATH is defined relative to HIP_PATH else it is hardcoded to /opt/rocm.
 #
 $HIP_PATH=$ENV{'HIP_PATH'} // dirname(Cwd::abs_path("$0/../")); # use parent directory of hipcc
-if (-e "$HIP_PATH/../.info/version") {
+if (-e "$HIP_PATH/../bin/rocminfo") {
     $ROCM_PATH=$ENV{'ROCM_PATH'} // dirname("$HIP_PATH"); # use parent directory of HIP_PATH
 } else {
     $ROCM_PATH=$ENV{'ROCM_PATH'} // "/opt/rocm";
@@ -201,7 +201,7 @@ if ($HIP_PLATFORM eq "hcc" and $HIP_COMPILER eq "clang") {
     }
 
     $HIP_CLANG_VERSION = `$HIPCC --version`;
-    $HIP_CLANG_VERSION=~/.*clang version ([^ ]+).*/;
+    $HIP_CLANG_VERSION=~/.*clang version (\S+).*/;
     $HIP_CLANG_VERSION=$1;
 
     if (! defined $HIP_CLANG_INCLUDE_PATH) {
@@ -426,6 +426,7 @@ foreach $arg (@ARGV)
     # TODO: why are we removing it here?
     $trimarg =~ s/^\s+|\s+$//g;  # Remive whitespace
     my $swallowArg = 0;
+    my $escapeArg = 1;
     if ($arg eq '-c' or $arg eq '--genco' or $arg eq '-E') {
         $compileOnly = 1;
         $needLDFLAGS  = 0;
@@ -578,6 +579,7 @@ foreach $arg (@ARGV)
         close $in;
         close $out;
         $arg = "$new_arg -Wl,\@$new_file";
+        $escapeArg = 0;
     } elsif (($arg =~ m/\.a$/ || $arg =~ m/\.lo$/) &&
              $HIP_PLATFORM eq 'hcc' and $HIP_COMPILER eq 'clang') {
         ## process static library for hip-clang
@@ -624,6 +626,7 @@ foreach $arg (@ARGV)
             $new_arg .= " $tmpdir/$libBaseName";
         }
         $arg = "$new_arg";
+        $escapeArg = 0;
         if ($toolArgs =~ m/-Xlinker$/) {
             $toolArgs = substr $toolArgs, 0, -8;
             chomp $toolArgs;
@@ -703,7 +706,7 @@ foreach $arg (@ARGV)
     # common characters such as alphanumerics.
     # Do the quoting here because sometimes the $arg is changed in the loop
     # Important to have all of '-Xlinker' in the set of unquoted characters.
-    if (not $isWindows) {       # Windows needs different quoting, ignore for now
+    if (not $isWindows and $escapeArg) {       # Windows needs different quoting, ignore for now
         $arg =~ s/[^-a-zA-Z0-9_=+,.\/]/\\$&/g;
     }
     $toolArgs .= " $arg" unless $swallowArg;
@@ -839,7 +842,7 @@ if ($HIP_PLATFORM eq "hcc" and $HIP_COMPILER eq "clang") {
       if ($linkType eq 0) {
         $toolArgs .= " -L$HIP_LIB_PATH -lamdhip64 -L$ROCM_PATH/lib -lhsa-runtime64 -ldl -lnuma ";
       } else {
-        $toolArgs .= " -Wl,--enable-new-dtags -Wl,--rpath=$HIP_LIB_PATH:$ROCM_PATH/lib -lamdhip64 -lnuma ";
+        $toolArgs .= " -Wl,--enable-new-dtags -Wl,--rpath=$HIP_LIB_PATH:$ROCM_PATH/lib -lamdhip64 ";
       }
       # To support __fp16 and _Float16, explicitly link with compiler-rt
       $toolArgs .= " -L$HIP_CLANG_PATH/../lib/clang/$HIP_CLANG_VERSION/lib/linux -lclang_rt.builtins-x86_64 "

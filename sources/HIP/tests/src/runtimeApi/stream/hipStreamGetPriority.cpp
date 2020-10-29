@@ -19,7 +19,7 @@ THE SOFTWARE.
 
 
 /* HIT_START
- * BUILD: %t %s ../../test_common.cpp NVCC_OPTIONS -std=c++11
+ * BUILD: %t %s ../../test_common.cpp NVCC_OPTIONS -std=c++11 EXCLUDE_HIP_PLATFORM nvcc
  * TEST: %t
  * HIT_END
  */
@@ -45,7 +45,7 @@ int main(int argc, char *argv[]) {
 
     // Check if priorities are indeed supported
     if ((priority_low + priority_high) != 0) {
-      failed("Priorities are not supported");
+      passed(); // exit the test since priorities are not supported
     }
 
     // Checking Priority of default stream

@@ -3,7 +3,7 @@
 // The University of Illinois/NCSA
 // Open Source License (NCSA)
 //
-// Copyright (c) 2014-2016, Advanced Micro Devices, Inc. All rights reserved.
+// Copyright (c) 2014-2020, Advanced Micro Devices, Inc. All rights reserved.
 //
 // Developed by:
 //
@@ -61,6 +61,7 @@
 #define _alloca alloca
 #endif
 
+namespace rocr {
 namespace amd {
 namespace hsa {
 namespace code {
@@ -585,6 +586,10 @@ namespace code {
         NewName = "amdgcn-amd-amdhsa--gfx1011";
       else if (OldName == "AMD:AMDGPU:10:1:2")
         NewName = "amdgcn-amd-amdhsa--gfx1012";
+      else if (OldName == "AMD:AMDGPU:10:3:0")
+        NewName = "amdgcn-amd-amdhsa--gfx1030";
+      else if (OldName == "AMD:AMDGPU:10:3:1")
+        NewName = "amdgcn-amd-amdhsa--gfx1031";
       else
         assert(false && "Unhandled target");
 
@@ -640,6 +645,8 @@ namespace code {
         case EF_AMDGPU_MACH_AMDGCN_GFX1010_LC: isaName += "gfx1010"; break;
         case EF_AMDGPU_MACH_AMDGCN_GFX1011_LC: isaName += "gfx1011"; break;
         case EF_AMDGPU_MACH_AMDGCN_GFX1012_LC: isaName += "gfx1012"; break;
+        case EF_AMDGPU_MACH_AMDGCN_GFX1030_LC: isaName += "gfx1030"; break;
+        case EF_AMDGPU_MACH_AMDGCN_GFX1031_LC: isaName += "gfx1031"; break;
         default: return false;
         }
 
@@ -1686,6 +1693,7 @@ namespace code {
 
     KernelSymbolV2::KernelSymbolV2(amd::elf::Symbol* elfsym_, const amd_kernel_code_t* akc) :
       KernelSymbol(elfsym_, akc) { }
-}
-}
-}
+}   // namespace code
+}   // namespace hsa
+}   // namespace amd
+}   // namespace rocr

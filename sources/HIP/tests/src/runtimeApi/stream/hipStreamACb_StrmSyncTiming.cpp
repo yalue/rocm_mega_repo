@@ -22,7 +22,7 @@
 // by hipStreamAddCallback() api.
 
 /* HIT_START
- * BUILD: %t %s ../../test_common.cpp NVCC_OPTIONS --std=c++11
+ * BUILD: %t %s ../../test_common.cpp NVCC_OPTIONS --std=c++11 EXCLUDE_HIP_PLATFORM nvcc
  * TEST: %t
  * HIT_END
  */
@@ -79,6 +79,13 @@ static void HIPRT_CB Callback1(hipStream_t stream, hipError_t status,
 
   // Delay the callback completion
   sleep(SECONDS_TO_WAIT);
+}
+
+bool rangedCompare(long a, long b) {
+  auto diff = b - a;
+  if (diff < 0) diff *= -1;
+  if (diff < 500) return true;
+  return false;
 }
 
 
@@ -139,7 +146,8 @@ int main(int argc, char* argv[]) {
   // completes the execution. Therefore the hipStreamSynchronize() in the
   // main thread should hardly take any time to complete.
 
-  if (duration.count() < SECONDS_TO_WAIT * TO_MICROSECONDS) {
+  if ((duration.count() < (SECONDS_TO_WAIT * TO_MICROSECONDS)) ||
+      (rangedCompare(duration.count(), SECONDS_TO_WAIT * TO_MICROSECONDS))) {
     passed();
   } else {
     failed("hipStreamSynchronize is waiting untill Callback() completes.");

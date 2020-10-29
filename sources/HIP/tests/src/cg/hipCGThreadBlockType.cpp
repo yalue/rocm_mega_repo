@@ -29,136 +29,168 @@ THE SOFTWARE.
 
 #include "test_common.h"
 #include "hip/hip_cooperative_groups.h"
+#include <cmath>
+#include <cstdlib>
 
-#define HIP_ASSERT(lhs, rhs) assert(lhs == rhs)
+#define ASSERT_EQUAL(lhs, rhs) assert(lhs == rhs)
 
 using namespace cooperative_groups;
 
 static __global__
-void kernel_cg_thread_block_type(dim3 *groupIndexD,
-                                 dim3 *thdIndexD,
-                                 int *sizeD,
-                                 int *thdRankD,
-                                 int *isValidD,
-                                 int *syncValD)
+void kernel_cg_thread_block_type(int *sizeTestD,
+                                 int *thdRankTestD,
+                                 int *isValidTestD,
+                                 int *syncTestD,
+                                 dim3 *groupIndexTestD,
+                                 dim3 *thdIndexTestD)
 {
   thread_block tb = this_thread_block();
+  int gIdx = (blockIdx.x * blockDim.x) + threadIdx.x;
 
-  // Consider the workgroup id (0, 1, 1) and thread id (0, 1, 2) for validation
-  // of the test
-  int isBlockIdx011 =
-    (hipBlockIdx_x == 0 && hipBlockIdx_y == 1 && hipBlockIdx_z == 1);
-  int isThreadIdx012 =
-    (hipThreadIdx_x == 0 && hipThreadIdx_y == 1 && hipThreadIdx_z == 2);
+  // Test size
+  sizeTestD[gIdx] = tb.size();
 
-  if (isBlockIdx011 && isThreadIdx012) {
-    *groupIndexD = tb.group_index();
-    *thdIndexD = tb.thread_index();
-    *sizeD = tb.size();
-    *thdRankD = tb.thread_rank();
-    *isValidD = tb.is_valid();
-  }
+  // Test thread_rank
+  thdRankTestD[gIdx] = tb.thread_rank();
 
-  // Consider local thread id (0, 0, 0) and (0, 0, 1) for validation of sync()
-  // api
-  __shared__ int sVar[2];
-  int isThreadIdx000 =
-    (hipThreadIdx_x == 0 && hipThreadIdx_y == 0 && hipThreadIdx_z == 0);
-  int isThreadIdx001 =
-    (hipThreadIdx_x == 0 && hipThreadIdx_y == 0 && hipThreadIdx_z == 1);
+  // Test is_valid
+  isValidTestD[gIdx] = tb.is_valid();
 
-  if (isThreadIdx000)
-    sVar[0] = 10;
-  if (isThreadIdx001)
-    sVar[1] = 20;
+  // Test sync
+  __shared__ int sm[2];
+  if (threadIdx.x == 0)
+    sm[0] = 10;
+  else if (threadIdx.x == 1)
+    sm[1] = 20;
   tb.sync();
-  if (isBlockIdx011 && isThreadIdx012)
-    *syncValD = sVar[0] + sVar[1];
+  syncTestD[gIdx] = sm[1] * sm[0];
+
+  // Test group_index
+  groupIndexTestD[gIdx] = tb.group_index();
+
+  // Test thread_index
+  thdIndexTestD[gIdx] = tb.thread_index();
 }
 
-static void test_cg_thread_block_type()
+static void test_cg_thread_block_type(int blockSize)
 {
-  dim3 *groupIndexD, *groupIndexH;
-  dim3 *thdIndexD, *thdIndexH;
-  int *sizeD, *sizeH;
-  int *thdRankD, *thdRankH;
-  int *isValidD, *isValidH;
-  int *syncValD, *syncValH;
+  int nBytes = sizeof(int) * 2 * blockSize;
+  int nDim3Bytes = sizeof(dim3) * 2 * blockSize;
+  int *sizeTestD, *sizeTestH;
+  int *thdRankTestD, *thdRankTestH;
+  int *isValidTestD, *isValidTestH;
+  int *syncTestD, *syncTestH;
+  dim3 *groupIndexTestD, *groupIndexTestH;
+  dim3 *thdIndexTestD, *thdIndexTestH;
 
   // Allocate device memory
-  HIP_ASSERT(hipMalloc((void**)&groupIndexD, sizeof(dim3)), hipSuccess);
-  HIP_ASSERT(hipMalloc((void**)&thdIndexD, sizeof(dim3)), hipSuccess);
-  HIP_ASSERT(hipMalloc((void**)&sizeD, sizeof(int)), hipSuccess);
-  HIP_ASSERT(hipMalloc((void**)&thdRankD, sizeof(int)), hipSuccess);
-  HIP_ASSERT(hipMalloc((void**)&isValidD, sizeof(int)), hipSuccess);
-  HIP_ASSERT(hipMalloc((void**)&syncValD, sizeof(int)), hipSuccess);
+  ASSERT_EQUAL(hipMalloc(&sizeTestD, nBytes), hipSuccess);
+  ASSERT_EQUAL(hipMalloc(&thdRankTestD, nBytes), hipSuccess);
+  ASSERT_EQUAL(hipMalloc(&isValidTestD, nBytes), hipSuccess);
+  ASSERT_EQUAL(hipMalloc(&syncTestD, nBytes), hipSuccess);
+  ASSERT_EQUAL(hipMalloc(&groupIndexTestD, nDim3Bytes), hipSuccess);
+  ASSERT_EQUAL(hipMalloc(&thdIndexTestD, nDim3Bytes), hipSuccess);
 
   // Allocate host memory
-  HIP_ASSERT(hipHostMalloc((void**)&groupIndexH, sizeof(dim3)), hipSuccess);
-  HIP_ASSERT(hipHostMalloc((void**)&thdIndexH, sizeof(dim3)), hipSuccess);
-  HIP_ASSERT(hipHostMalloc((void**)&sizeH, sizeof(int)), hipSuccess);
-  HIP_ASSERT(hipHostMalloc((void**)&thdRankH, sizeof(int)), hipSuccess);
-  HIP_ASSERT(hipHostMalloc((void**)&isValidH, sizeof(int)), hipSuccess);
-  HIP_ASSERT(hipHostMalloc((void**)&syncValH, sizeof(int)), hipSuccess);
+  ASSERT_EQUAL(hipHostMalloc(&sizeTestH, nBytes), hipSuccess);
+  ASSERT_EQUAL(hipHostMalloc(&thdRankTestH, nBytes), hipSuccess);
+  ASSERT_EQUAL(hipHostMalloc(&isValidTestH, nBytes), hipSuccess);
+  ASSERT_EQUAL(hipHostMalloc(&syncTestH, nBytes), hipSuccess);
+  ASSERT_EQUAL(hipHostMalloc(&groupIndexTestH, nDim3Bytes), hipSuccess);
+  ASSERT_EQUAL(hipHostMalloc(&thdIndexTestH, nDim3Bytes), hipSuccess);
 
   // Launch Kernel
   hipLaunchKernelGGL(kernel_cg_thread_block_type,
-                     dim3(2, 2, 2),
-                     dim3(4, 4, 4),
+                     2,
+                     blockSize,
                      0,
                      0,
-                     groupIndexD,
-                     thdIndexD,
-                     sizeD,
-                     thdRankD,
-                     isValidD,
-                     syncValD);
+                     sizeTestD,
+                     thdRankTestD,
+                     isValidTestD,
+                     syncTestD,
+                     groupIndexTestD,
+                     thdIndexTestD);
 
   // Copy result from device to host
-  HIP_ASSERT(hipMemcpy(groupIndexH, groupIndexD, sizeof(dim3), hipMemcpyDeviceToHost), hipSuccess);
-  HIP_ASSERT(hipMemcpy(thdIndexH, thdIndexD, sizeof(dim3), hipMemcpyDeviceToHost), hipSuccess);
-  HIP_ASSERT(hipMemcpy(sizeH, sizeD, sizeof(int), hipMemcpyDeviceToHost), hipSuccess);
-  HIP_ASSERT(hipMemcpy(thdRankH, thdRankD, sizeof(int), hipMemcpyDeviceToHost), hipSuccess);
-  HIP_ASSERT(hipMemcpy(isValidH, isValidD, sizeof(int), hipMemcpyDeviceToHost), hipSuccess);
-  HIP_ASSERT(hipMemcpy(syncValH, syncValD, sizeof(int), hipMemcpyDeviceToHost), hipSuccess);
+  ASSERT_EQUAL(hipMemcpy(sizeTestH, sizeTestD, nBytes, hipMemcpyDeviceToHost),
+               hipSuccess);
+  ASSERT_EQUAL(hipMemcpy(thdRankTestH, thdRankTestD, nBytes, hipMemcpyDeviceToHost),
+               hipSuccess);
+  ASSERT_EQUAL(hipMemcpy(isValidTestH, isValidTestD, nBytes, hipMemcpyDeviceToHost),
+               hipSuccess);
+  ASSERT_EQUAL(hipMemcpy(syncTestH, syncTestD, nBytes, hipMemcpyDeviceToHost),
+               hipSuccess);
+  ASSERT_EQUAL(hipMemcpy(groupIndexTestH, groupIndexTestD, nDim3Bytes, hipMemcpyDeviceToHost),
+               hipSuccess);
+  ASSERT_EQUAL(hipMemcpy(thdIndexTestH, thdIndexTestD, nDim3Bytes, hipMemcpyDeviceToHost),
+               hipSuccess);
 
-  // Validate result
-  // Group index should be (0, 1, 1)
-  HIP_ASSERT(groupIndexH->x, 0);
-  HIP_ASSERT(groupIndexH->y, 1);
-  HIP_ASSERT(groupIndexH->z, 1);
-  // Thread index should be (0, 1, 2)
-  HIP_ASSERT(thdIndexH->x, 0);
-  HIP_ASSERT(thdIndexH->y, 1);
-  HIP_ASSERT(thdIndexH->z, 2);
-  // Workgroup size should be 64
-  HIP_ASSERT(*sizeH, 64);
-  // Thread rank should be 36
-  HIP_ASSERT(*thdRankH, 36);
-  // Call to is_valid() should return true
-  HIP_ASSERT(*isValidH, 1);
-  // syncVal should be equal to 30
-  HIP_ASSERT(*syncValH, 30);
+  // Validate results for both blocks together
+  for (int i = 0; i < 2 * blockSize; ++i) {
+    ASSERT_EQUAL(sizeTestH[i], blockSize);
+    ASSERT_EQUAL(thdRankTestH[i], i % blockSize);
+    ASSERT_EQUAL(isValidTestH[i], 1);
+    ASSERT_EQUAL(syncTestH[i], 200);
+    ASSERT_EQUAL(groupIndexTestH[i].x, i / blockSize);
+    ASSERT_EQUAL(groupIndexTestH[i].y, 0);
+    ASSERT_EQUAL(groupIndexTestH[i].z, 0);
+    ASSERT_EQUAL(thdIndexTestH[i].x, i % blockSize);
+    ASSERT_EQUAL(thdIndexTestH[i].y, 0);
+    ASSERT_EQUAL(thdIndexTestH[i].z, 0);
+  }
 
   // Free device memory
-  HIP_ASSERT(hipFree(groupIndexD), hipSuccess);
-  HIP_ASSERT(hipFree(thdIndexD), hipSuccess);
-  HIP_ASSERT(hipFree(sizeD), hipSuccess);
-  HIP_ASSERT(hipFree(thdRankD), hipSuccess);
-  HIP_ASSERT(hipFree(isValidD), hipSuccess);
-  HIP_ASSERT(hipFree(syncValD), hipSuccess);
+  ASSERT_EQUAL(hipFree(sizeTestD), hipSuccess);
+  ASSERT_EQUAL(hipFree(thdRankTestD), hipSuccess);
+  ASSERT_EQUAL(hipFree(isValidTestD), hipSuccess);
+  ASSERT_EQUAL(hipFree(syncTestD), hipSuccess);
+  ASSERT_EQUAL(hipFree(groupIndexTestD), hipSuccess);
+  ASSERT_EQUAL(hipFree(thdIndexTestD), hipSuccess);
 
   //Free host memory
-  HIP_ASSERT(hipHostFree(groupIndexH), hipSuccess);
-  HIP_ASSERT(hipHostFree(thdIndexH), hipSuccess);
-  HIP_ASSERT(hipHostFree(sizeH), hipSuccess);
-  HIP_ASSERT(hipHostFree(thdRankH), hipSuccess);
-  HIP_ASSERT(hipHostFree(isValidH), hipSuccess);
-  HIP_ASSERT(hipHostFree(syncValH), hipSuccess);
+  ASSERT_EQUAL(hipHostFree(sizeTestH), hipSuccess);
+  ASSERT_EQUAL(hipHostFree(thdRankTestH), hipSuccess);
+  ASSERT_EQUAL(hipHostFree(isValidTestH), hipSuccess);
+  ASSERT_EQUAL(hipHostFree(syncTestH), hipSuccess);
+  ASSERT_EQUAL(hipHostFree(groupIndexTestH), hipSuccess);
+  ASSERT_EQUAL(hipHostFree(thdIndexTestH), hipSuccess);
 }
 
 int main()
 {
-  test_cg_thread_block_type();
+  // Use default device for validating the test
+  int deviceId;
+  ASSERT_EQUAL(hipGetDevice(&deviceId), hipSuccess);
+  hipDeviceProp_t deviceProperties;
+  ASSERT_EQUAL(hipGetDeviceProperties(&deviceProperties, deviceId), hipSuccess);
+  int maxThreadsPerBlock = deviceProperties.maxThreadsPerBlock;
+
+  if (!deviceProperties.cooperativeLaunch) {
+    std::cout << "info: Device doesn't support cooperative launch! skipping the test!\n";
+    if (hip_skip_tests_enabled()) {
+      return hip_skip_retcode();
+    } else {
+      passed();
+    }
+    return 0;
+  }
+
+  // Test block sizes which are powers of 2
+  int i = 0;
+  while (true) {
+    int blockSize = pow(2, i);
+    if (blockSize > maxThreadsPerBlock)
+      break;
+    test_cg_thread_block_type(blockSize);
+    ++i;
+  }
+
+  // Test some random block sizes
+  for(int j = 0; j < 10 ; ++j) {
+    int blockSize = rand() % maxThreadsPerBlock;
+    test_cg_thread_block_type(blockSize);
+  }
+
   passed();
 }

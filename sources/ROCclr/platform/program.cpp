@@ -67,10 +67,6 @@ Program::~Program() {
     }
   }
 
-  if (std::get<1>(mmap_) > 0) {
-    amd::Os::MemoryUnmapFile(std::get<0>(mmap_), std::get<1>(mmap_));
-  }
-
   delete symbolTable_;
   //! @todo Make sure we have destroyed all CPU specific objects
 }
@@ -86,9 +82,10 @@ const Symbol* Program::findSymbol(const char* kernelName) const {
 }
 
 int32_t Program::addDeviceProgram(Device& device, const void* image, size_t length,
-                                 bool make_copy, amd::option::Options* options,
-                                 const amd::Program* same_prog) {
-  if (image != NULL &&  !amd::isElfMagic((const char*)image)) {
+                                  bool make_copy, amd::option::Options* options,
+                                  const amd::Program* same_prog, amd::Os::FileDesc fdesc,
+                                  size_t foffset, std::string uri) {
+  if (image != NULL &&  !amd::Elf::isElfMagic((const char*)image)) {
     if (device.settings().useLightning_) {
       return CL_INVALID_BINARY;
     }
@@ -167,8 +164,7 @@ int32_t Program::addDeviceProgram(Device& device, const void* image, size_t leng
 
         ::memcpy(image_copy, image, length);
         memory = image_copy;
-      }
-      else {
+      } else {
         memory = static_cast<const uint8_t*>(image);
       }
 
@@ -183,7 +179,8 @@ int32_t Program::addDeviceProgram(Device& device, const void* image, size_t leng
       same_dev_prog = same_dev_prog_map_.begin()->second;
     }
 
-    if (!program->setBinary(reinterpret_cast<const char*>(memory), length, same_dev_prog)) {
+    if (!program->setBinary(reinterpret_cast<const char*>(memory), length, same_dev_prog,
+                            fdesc, foffset, uri)) {
       delete program;
       return CL_INVALID_BINARY;
     }
@@ -570,34 +567,32 @@ int32_t Program::build(const std::vector<Device*>& devices, const char* options,
     }
   }
 
-  if (retval != CL_SUCCESS) {
-    return retval;
-  }
+  if (retval == CL_SUCCESS) {
+    // Rebuild the symbol table
+    for (const auto& it : devicePrograms_) {
+      const Device& device = *(it.first);
+      const device::Program& program = *(it.second);
 
-  // Rebuild the symbol table
-  for (const auto& it : devicePrograms_) {
-    const Device& device = *(it.first);
-    const device::Program& program = *(it.second);
+      const device::Program::kernels_t& kernels = program.kernels();
+      for (const auto& kit : kernels) {
+        const std::string& name = kit.first;
+        const device::Kernel* devKernel = kit.second;
 
-    const device::Program::kernels_t& kernels = program.kernels();
-    for (const auto& kit : kernels) {
-      const std::string& name = kit.first;
-      const device::Kernel* devKernel = kit.second;
-
-      Symbol& symbol = (*symbolTable_)[name];
-      if (!symbol.setDeviceKernel(device, devKernel)) {
-        retval = CL_BUILD_PROGRAM_FAILURE;
+        Symbol& symbol = (*symbolTable_)[name];
+        if (!symbol.setDeviceKernel(device, devKernel)) {
+          retval = CL_BUILD_PROGRAM_FAILURE;
+        }
       }
     }
-  }
 
-  // Create a string with all kernel names from the program
-  if (kernelNames_.length() == 0) {
-    for (auto it = symbols().cbegin(); it != symbols().cend(); ++it) {
-      if (it != symbols().cbegin()) {
-        kernelNames_.append(1, ';');
+    // Create a string with all kernel names from the program
+    if (kernelNames_.length() == 0) {
+      for (auto it = symbols().cbegin(); it != symbols().cend(); ++it) {
+        if (it != symbols().cbegin()) {
+          kernelNames_.append(1, ';');
+        }
+        kernelNames_.append(it->first.c_str());
       }
-      kernelNames_.append(it->first.c_str());
     }
   }
 

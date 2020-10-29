@@ -45,6 +45,7 @@
 #include "hsa_ext_amd.h"
 #include "hsa_ven_amd_loader.h"
 
+#include <atomic>
 #include <iostream>
 #include <vector>
 #include <memory>
@@ -231,7 +232,7 @@ class NullDevice : public amd::Device {
   AMDDeviceInfo deviceInfo_;
 
  private:
-  static const bool offlineDevice_;
+  static constexpr bool offlineDevice_ = true;
 };
 
 struct AgentInfo {
@@ -281,7 +282,7 @@ class Device : public NullDevice {
 
     size_t bufSize_;                  //!< Staged buffer size
     std::list<Memory*> freeBuffers_;  //!< The list of free buffers
-    amd::Atomic<uint> acquiredCnt_;   //!< The total number of acquired buffers
+    std::atomic_uint acquiredCnt_;   //!< The total number of acquired buffers
     amd::Monitor lock_;               //!< Stgaed buffer acquire/release lock
     const Device& gpuDevice_;         //!< GPU device object
   };
@@ -297,9 +298,6 @@ class Device : public NullDevice {
   static hsa_status_t loaderQueryHostAddress(const void* device, const void** host);
 
   static bool loadHsaModules();
-
-  bool getNumaInfo(const hsa_amd_memory_pool_t& pool, uint32_t* hop_count,
-                   uint32_t* link_type, uint32_t* numa_distance) const;
 
   bool create();
 
@@ -465,13 +463,14 @@ class Device : public NullDevice {
 
   //! For the given HSA queue, return an existing hostcall buffer or create a
   //! new one. queuePool_ keeps a mapping from HSA queue to hostcall buffer.
-  void* getOrCreateHostcallBuffer(hsa_queue_t* queue);
+  void* getOrCreateHostcallBuffer(hsa_queue_t* queue, bool coop_queue = false);
 
   //! Return multi GPU grid launch sync buffer
   address MGSync() const { return mg_sync_; }
 
-  virtual bool findLinkTypeAndHopCount(amd::Device* other_device, uint32_t* link_type,
-                                       uint32_t* hop_count);
+  //! Returns value for corresponding Link Attributes in a vector, given other device
+  virtual bool findLinkInfo(const amd::Device& other_device,
+                            std::vector<LinkAttrType>* link_attr);
 
   //! Returns a GPU memory object from AMD memory object
   roc::Memory* getGpuMemory(amd::Memory* mem  //!< Pointer to AMD memory object
@@ -481,7 +480,7 @@ class Device : public NullDevice {
   bool SvmAllocInit(void* memory, size_t size) const;
 
  private:
-  static const hsa_signal_value_t InitSignalValue = 1;
+  static constexpr hsa_signal_value_t InitSignalValue = 1;
 
   static hsa_ven_amd_loader_1_00_pfn_t amd_loader_ext_table;
 
@@ -507,7 +506,7 @@ class Device : public NullDevice {
 
   size_t gpuvm_segment_max_alloc_;
   size_t alloc_granularity_;
-  static const bool offlineDevice_;
+  static constexpr bool offlineDevice_ = false;
   amd::Context* context_;  //!< A dummy context for internal data transfer
   VirtualGPU* xferQueue_;  //!< Transfer queue, created on demand
 
@@ -531,8 +530,13 @@ class Device : public NullDevice {
   //! returns a hsa queue from queuePool with least refCount and updates the refCount as well
   hsa_queue_t* getQueueFromPool(const uint qIndex);
 
+  void* coopHostcallBuffer_;
+  //! returns value for corresponding LinkAttrbutes in a vector given Memory pool.
+  virtual bool findLinkInfo(const hsa_amd_memory_pool_t& pool,
+                            std::vector<LinkAttrType>* link_attr);
+
  public:
-  amd::Atomic<uint> numOfVgpus_;  //!< Virtual gpu unique index
+  std::atomic<uint> numOfVgpus_;  //!< Virtual gpu unique index
 
   //! enum for keeping the total and available queue priorities
   enum QueuePriority : uint { Low = 0, Normal = 1, High = 2, Total = 3};

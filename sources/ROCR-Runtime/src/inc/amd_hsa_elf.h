@@ -3,7 +3,7 @@
 // The University of Illinois/NCSA
 // Open Source License (NCSA)
 // 
-// Copyright (c) 2014-2015, Advanced Micro Devices, Inc. All rights reserved.
+// Copyright (c) 2014-2020, Advanced Micro Devices, Inc. All rights reserved.
 // 
 // Developed by:
 // 
@@ -71,6 +71,8 @@
 #define EF_AMDGPU_MACH_AMDGCN_GFX1010_LC 0x033
 #define EF_AMDGPU_MACH_AMDGCN_GFX1011_LC 0x034
 #define EF_AMDGPU_MACH_AMDGCN_GFX1012_LC 0x035
+#define EF_AMDGPU_MACH_AMDGCN_GFX1030_LC 0x036
+#define EF_AMDGPU_MACH_AMDGCN_GFX1031_LC 0x037
 #define EF_AMDGPU_XNACK_LC 0x100
 #define EF_AMDGPU_SRAM_ECC_LC 0x200
 

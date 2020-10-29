@@ -66,6 +66,14 @@ if(NOT DEFINED ROCclr_DIR OR NOT DEFINED LIBOCL_STATIC_DIR OR NOT DEFINED LIBROC
 	#	message(FATAL_ERROR "define ROCclr_DIR, LIBOCL_STATIC_DIR\n")
 
 endif()
+
+#APPEND default path for CMAKE_PREFIX_PATH
+#User provided will be searched first since defualt path is at end.
+#Custom install path can be provided at compile time as cmake parameter(-DCMAKE_PREFIX_PATH="")
+#/opt/rocm:default:For amd_comgr,hsa-runtime64
+#/opt/rocm/llvm/:default:For llvm/clang pulled in as dependency from hsa/comgr
+list( APPEND CMAKE_PREFIX_PATH ${CMAKE_PREFIX_PATH} "/opt/rocm" "/opt/rocm/llvm")
+
 list ( APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/cmake/modules" )
 set(CMAKE_MODULE_PATH${CMAKE_MODULE_PATH} "${CMAKE_CURRENT_SOURCE_DIR}/cmake" "${CMAKE_CURRENT_SOURCE_DIR}/cmake/modules")
 
@@ -88,7 +96,13 @@ find_package(amd_comgr REQUIRED CONFIG
 
 message(STATUS "Code Object Manager found at ${amd_comgr_DIR}.")
 
-add_definitions(-DBSD_LIBELF)
+find_package(LLVM REQUIRED CONFIG
+   PATHS
+     /opt/rocm/llvm
+   PATH_SUFFIXES
+     lib/cmake/llvm)
+
+message(STATUS "llvm found at ${LLVM_DIR}.")
 
 add_library(hip64 OBJECT
  hip_context.cpp
@@ -97,6 +111,7 @@ add_library(hip64 OBJECT
  hip_device_runtime.cpp
  hip_error.cpp
  hip_event.cpp
+ hip_fatbin.cpp
  hip_global.cpp
  hip_hmm.cpp
  hip_memory.cpp
@@ -121,10 +136,8 @@ target_include_directories(hip64
     ${PROJECT_SOURCE_DIR}/include
     ${PROJECT_BINARY_DIR}/include
   PRIVATE
-    ${CMAKE_SOURCE_DIR}/elfio
     ${PROJECT_SOURCE_DIR}
     ${PROJECT_SOURCE_DIR}/amdocl
-    ${PROJECT_SOURCE_DIR}/include/hip/hcc_detail/elfio
     ${ROCR_INCLUDES}
     $<TARGET_PROPERTY:amdrocclr_static,INTERFACE_INCLUDE_DIRECTORIES>
     $<TARGET_PROPERTY:amd_comgr,INTERFACE_INCLUDE_DIRECTORIES>)
@@ -141,7 +154,14 @@ if(ROCclr_FOUND)
       $<TARGET_PROPERTY:amdrocclr_static,INTERFACE_COMPILE_DEFINITIONS>)
 endif()
 
- # Enable profiling API
+# Short-Term solution for pre-compiled headers for online compilation
+# Enable pre compiled header
+if(${__HIP_ENABLE_PCH})
+    execute_process(COMMAND sh -c "${CMAKE_CURRENT_SOURCE_DIR}/../bin/hip_embed_pch.sh ${LLVM_DIR}")
+    add_definitions(-D__HIP_ENABLE_PCH)
+endif()
+
+# Enable profiling API
 if(USE_PROF_API EQUAL 1)
   find_path(PROF_API_HEADER_DIR prof_protocol.h
     HINTS
@@ -201,18 +221,34 @@ target_link_libraries(host INTERFACE hip::amdhip64)
 
 add_library(device INTERFACE)
 target_link_libraries(device INTERFACE host)
+
+# Short-Term solution for pre-compiled headers for online compilation
+if(${__HIP_ENABLE_PCH})
+  target_sources(amdhip64 PRIVATE ${CMAKE_BINARY_DIR}/hip_pch.o)
+endif()
+
 # TODO: we may create host_static and device_static to let app
 # link amdhip64_static
 
 # FIXME: Linux convention is to create static library with same base
 # filename.
-
 if(${BUILD_SHARED_LIBS})
-    target_link_libraries(amdhip64 PRIVATE amdrocclr_static Threads::Threads dl numa hsa-runtime64::hsa-runtime64)
+    target_link_libraries(amdhip64 PRIVATE amdrocclr_static Threads::Threads dl hsa-runtime64::hsa-runtime64)
+
+    add_custom_command(TARGET amdhip64 POST_BUILD COMMAND
+        ${CMAKE_COMMAND} -E create_symlink ${PROJECT_BINARY_DIR}/lib/libamdhip64.so.${HIP_LIB_VERSION_STRING}
+        ${PROJECT_BINARY_DIR}/lib/libhip_hcc.so.${HIP_LIB_VERSION_MAJOR})
+    add_custom_command(TARGET amdhip64 POST_BUILD COMMAND
+        ${CMAKE_COMMAND} -E create_symlink ${PROJECT_BINARY_DIR}/lib/libhip_hcc.so.${HIP_LIB_VERSION_MAJOR}
+        ${PROJECT_BINARY_DIR}/lib/libhip_hcc.so)
+    add_custom_command(TARGET amdhip64 POST_BUILD COMMAND
+        ${CMAKE_COMMAND} -E copy ${PROJECT_BINARY_DIR}/.hipInfo ${PROJECT_BINARY_DIR}/lib/.hipInfo)
+    add_custom_command(TARGET amdhip64 POST_BUILD COMMAND ${CMAKE_COMMAND} -E copy_directory
+        ${PROJECT_SOURCE_DIR}/include ${PROJECT_BINARY_DIR}/include)
+
     INSTALL(PROGRAMS $<TARGET_FILE:amdhip64> DESTINATION lib COMPONENT MAIN)
 else()
-
-    target_link_libraries(amdhip64 PRIVATE Threads::Threads dl numa hsa-runtime64::hsa-runtime64 amd_comgr)
+    target_link_libraries(amdhip64 PRIVATE Threads::Threads dl hsa-runtime64::hsa-runtime64 amd_comgr)
     # combine objects of vid and hip into amdhip64_static
     add_custom_target(
        amdhip64_static_combiner
@@ -224,10 +260,9 @@ else()
        DEPENDS amdhip64 amdrocclr_static # To make sure this is the last step
        COMMENT "Combining static libs into amdhip64_static"
     )
-
     INSTALL(PROGRAMS $<TARGET_FILE:amdhip64> DESTINATION lib COMPONENT MAIN)
-
 endif()
+
 
 INSTALL(TARGETS amdhip64 host device EXPORT hip-targets DESTINATION ${LIB_INSTALL_DIR})
 INSTALL(EXPORT hip-targets DESTINATION ${CONFIG_PACKAGE_INSTALL_DIR} NAMESPACE hip::)

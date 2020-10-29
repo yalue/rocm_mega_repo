@@ -30,6 +30,7 @@
 #include "comgrctx.hpp"
 
 #include <algorithm>
+#include <atomic>
 #include <cstdio>
 #include <fstream>
 #include <iostream>
@@ -74,7 +75,7 @@ Program::Program(amd::Device& device, amd::Program& owner)
       flags_(0),
       clBinary_(nullptr),
       llvmBinary_(),
-      elfSectionType_(amd::OclElf::LLVMIR),
+      elfSectionType_(amd::Elf::LLVMIR),
       compileOptions_(),
       linkOptions_(),
       binaryElf_(nullptr),
@@ -246,8 +247,7 @@ amd_comgr_status_t Program::addCodeObjData(const char *source,
   return status;
 }
 
-void Program::setLangAndTargetStr(const char* clStd, amd_comgr_language_t* langver,
-                                  std::string& targetIdent) {
+void Program::setLanguage(const char* clStd, amd_comgr_language_t* langver) {
 
   if (isHIP()) {
     if (langver != nullptr) {
@@ -272,20 +272,10 @@ void Program::setLangAndTargetStr(const char* clStd, amd_comgr_language_t* langv
       }
     }
   }
-  // Set target triple and CPU
-  targetIdent = std::string("amdgcn-amd-amdhsa--") + machineTarget_;
-  // Set xnack option if needed
-  if (xnackEnabled_) {
-    targetIdent.append("+xnack");
-  }
-  if (sramEccEnabled_) {
-    targetIdent.append("+sram-ecc");
-  }
 }
 
 
 amd_comgr_status_t Program::createAction(const amd_comgr_language_t oclver,
-                                         const std::string& targetIdent,
                                          const std::vector<std::string>& options,
                                          amd_comgr_action_info_t* action,
                                          bool* hasAction) {
@@ -300,8 +290,8 @@ amd_comgr_status_t Program::createAction(const amd_comgr_language_t oclver,
     }
   }
 
-  if (!targetIdent.empty() && (status == AMD_COMGR_STATUS_SUCCESS)) {
-    status = amd::Comgr::action_info_set_isa_name(*action, targetIdent.c_str());
+  if (status == AMD_COMGR_STATUS_SUCCESS) {
+    status = amd::Comgr::action_info_set_isa_name(*action, device().info().targetId_);
   }
 
   if (status == AMD_COMGR_STATUS_SUCCESS) {
@@ -325,10 +315,8 @@ bool Program::linkLLVMBitcode(const amd_comgr_data_set_t inputs,
                               amd::option::Options* amdOptions, amd_comgr_data_set_t* output,
                               char* binaryData[], size_t* binarySize) {
 
-  // get the language and target name
-  std::string targetIdent;
   amd_comgr_language_t langver;
-  setLangAndTargetStr(amdOptions->oVariables->CLStd, &langver, targetIdent);
+  setLanguage(amdOptions->oVariables->CLStd, &langver);
   if (langver == AMD_COMGR_LANGUAGE_NONE) {
     DevLogPrintfError("Cannot set Langauge version for %s \n",
                       amdOptions->oVariables->CLStd);
@@ -341,7 +329,7 @@ bool Program::linkLLVMBitcode(const amd_comgr_data_set_t inputs,
   bool hasAction = false;
   bool hasDataSetDevLibs = false;
 
-  amd_comgr_status_t status = createAction(langver, targetIdent, options, &action, &hasAction);
+  amd_comgr_status_t status = createAction(langver, options, &action, &hasAction);
 
   if (status == AMD_COMGR_STATUS_SUCCESS) {
     status = amd::Comgr::create_data_set(&dataSetDevLibs);
@@ -381,13 +369,12 @@ bool Program::linkLLVMBitcode(const amd_comgr_data_set_t inputs,
 }
 
 bool Program::compileToLLVMBitcode(const amd_comgr_data_set_t compileInputs,
-                                   const std::vector<std::string>& options, amd::option::Options* amdOptions,
+                                   const std::vector<std::string>& options,
+                                   amd::option::Options* amdOptions,
                                    char* binaryData[], size_t* binarySize) {
 
-  //  get the lanuage and target name
-  std::string targetIdent;
   amd_comgr_language_t langver;
-  setLangAndTargetStr(amdOptions->oVariables->CLStd, &langver, targetIdent);
+  setLanguage(amdOptions->oVariables->CLStd, &langver);
   if (langver == AMD_COMGR_LANGUAGE_NONE) {
     DevLogPrintfError("Cannot set Langauge version for %s \n",
                       amdOptions->oVariables->CLStd);
@@ -404,7 +391,7 @@ bool Program::compileToLLVMBitcode(const amd_comgr_data_set_t compileInputs,
   bool hasOutput = false;
   bool hasDataSetPCH = false;
 
-  amd_comgr_status_t status = createAction(langver, targetIdent, options, &action, &hasAction);
+  amd_comgr_status_t status = createAction(langver, options, &action, &hasAction);
 
   if (status == AMD_COMGR_STATUS_SUCCESS) {
     status = amd::Comgr::create_data_set(&output);
@@ -494,12 +481,9 @@ bool Program::compileToLLVMBitcode(const amd_comgr_data_set_t compileInputs,
 //  the input data set is converted to relocatable code, then executable binary.
 //  If assembly code is required, the input data set is converted to assembly.
 bool Program::compileAndLinkExecutable(const amd_comgr_data_set_t inputs,
-                                       const std::vector<std::string>& options, amd::option::Options* amdOptions,
+                                       const std::vector<std::string>& options,
+                                       amd::option::Options* amdOptions,
                                        char* executable[], size_t* executableSize) {
-
-  //  get the language and target name
-  std::string targetIdent;
-  setLangAndTargetStr(amdOptions->oVariables->CLStd, nullptr, targetIdent);
 
   // create the linked output
   amd_comgr_action_info_t action;
@@ -509,8 +493,7 @@ bool Program::compileAndLinkExecutable(const amd_comgr_data_set_t inputs,
   bool hasOutput = false;
   bool hasRelocatableData = false;
 
-  amd_comgr_status_t status = createAction(AMD_COMGR_LANGUAGE_NONE, targetIdent, options,
-                                           &action, &hasAction);
+  amd_comgr_status_t status = createAction(AMD_COMGR_LANGUAGE_NONE, options, &action, &hasAction);
 
   if (status == AMD_COMGR_STATUS_SUCCESS) {
     status = amd::Comgr::create_data_set(&output);
@@ -597,7 +580,7 @@ bool Program::compileImplLC(const std::string& sourceCode,
   const char* xLang = options->oVariables->XLang;
   if (xLang != nullptr) {
     if (strcmp(xLang,"asm") == 0) {
-      clBinary()->elfOut()->addSection(amd::OclElf::SOURCE, sourceCode.data(), sourceCode.size());
+      clBinary()->elfOut()->addSection(amd::Elf::SOURCE, sourceCode.data(), sourceCode.size());
       return true;
     } else if (!strcmp(xLang,"cl")) {
       buildLog_ += "Unsupported language: \"" + std::string(xLang) + "\".\n";
@@ -702,14 +685,13 @@ bool Program::compileImplLC(const std::string& sourceCode,
     // Destroy the original LLVM binary, received after compilation
     delete[] binaryData;
 
-    elfSectionType_ = amd::OclElf::LLVMIR;
+    elfSectionType_ = amd::Elf::LLVMIR;
 
     if (clBinary()->saveSOURCE()) {
-      clBinary()->elfOut()->addSection(amd::OclElf::SOURCE, sourceCode.data(), sourceCode.size());
+      clBinary()->elfOut()->addSection(amd::Elf::SOURCE, sourceCode.data(), sourceCode.size());
     }
     if (clBinary()->saveLLVMIR()) {
-      clBinary()->elfOut()->addSection(amd::OclElf::LLVMIR, llvmBinary_.data(), llvmBinary_.size(),
-                                       false);
+      clBinary()->elfOut()->addSection(amd::Elf::LLVMIR, llvmBinary_.data(), llvmBinary_.size());
       // store the original compile options
       clBinary()->storeCompileOptions(compileOptions_);
     }
@@ -875,7 +857,7 @@ bool Program::linkImplLC(const std::vector<Program*>& inputPrograms,
     }
 
     if (result) {
-      result = (program->elfSectionType_ == amd::OclElf::LLVMIR);
+      result = (program->elfSectionType_ == amd::Elf::LLVMIR);
     }
 
     if (result) {
@@ -926,11 +908,10 @@ bool Program::linkImplLC(const std::vector<Program*>& inputPrograms,
   // Destroy llvm binary, received after compilation
   delete[] binaryData;
 
-  elfSectionType_ = amd::OclElf::LLVMIR;
+  elfSectionType_ = amd::Elf::LLVMIR;
 
   if (clBinary()->saveLLVMIR()) {
-    clBinary()->elfOut()->addSection(amd::OclElf::LLVMIR, llvmBinary_.data(), llvmBinary_.size(),
-                                     false);
+    clBinary()->elfOut()->addSection(amd::Elf::LLVMIR, llvmBinary_.data(), llvmBinary_.size());
     // store the original link options
     clBinary()->storeLinkOptions(linkOptions_);
     // store the original compile options
@@ -1093,7 +1074,7 @@ bool Program::linkImplLC(amd::option::Options* options) {
     case ACL_TYPE_ASM_TEXT: {
       char* section;
       size_t sz;
-      clBinary()->elfOut()->getSection(amd::OclElf::SOURCE, &section, &sz);
+      clBinary()->elfOut()->getSection(amd::Elf::SOURCE, &section, &sz);
 
       if (addCodeObjData(section, sz, AMD_COMGR_DATA_KIND_BC, "Assembly Text",
                          &inputs) != AMD_COMGR_STATUS_SUCCESS) {
@@ -1108,10 +1089,12 @@ bool Program::linkImplLC(amd::option::Options* options) {
     case ACL_TYPE_ISA: {
       amd::Comgr::destroy_data_set(inputs);
       binary_t isaBinary = binary();
+      finfo_t isaFdesc = BinaryFd();
       if (GPU_DUMP_CODE_OBJECT) {
         dumpCodeObject(std::string{(const char*)isaBinary.first, isaBinary.second});
       }
-      return setKernels(options, const_cast<void *>(isaBinary.first), isaBinary.second);
+      return setKernels(options, const_cast<void *>(isaBinary.first), isaBinary.second,
+                        isaFdesc.first, isaFdesc.second, BinaryURI());
       break;
     }
     default:
@@ -1129,7 +1112,7 @@ bool Program::linkImplLC(amd::option::Options* options) {
         linkOptions.push_back("correctly_rounded_sqrt");
     }
     if (options->oVariables->DenormsAreZero || AMD_GPU_FORCE_SINGLE_FP_DENORM == 0 ||
-        (device().info().gfxipVersion_ < 900 && AMD_GPU_FORCE_SINGLE_FP_DENORM < 0)) {
+        (device().info().gfxipMajor_ < 9 && AMD_GPU_FORCE_SINGLE_FP_DENORM < 0)) {
         linkOptions.push_back("daz_opt");
     }
     if (options->oVariables->FiniteMathOnly || options->oVariables->FastRelaxedMath) {
@@ -1187,14 +1170,6 @@ bool Program::linkImplLC(amd::option::Options* options) {
   // Pass clang options
   codegenOptions.insert(codegenOptions.end(),
       options->clangOptions.begin(), options->clangOptions.end());
-
-  // Set SRAM ECC option if needed
-  if (sramEccEnabled_) {
-    codegenOptions.push_back("-msram-ecc");
-  }
-  else {
-    codegenOptions.push_back("-mno-sram-ecc");
-  }
 
   // Set whole program mode
   codegenOptions.push_back("-mllvm");
@@ -1373,7 +1348,7 @@ bool Program::initBuild(amd::option::Options* options) {
   programOptions_ = options;
 
   if (options->oVariables->DumpFlags > 0) {
-    static amd::Atomic<unsigned> build_num = 0;
+    static std::atomic<uint> build_num{0};
     options->setBuildNo(build_num++);
   }
   buildLog_.clear();
@@ -1879,7 +1854,8 @@ bool isSPIRVMagicL(const void* Image, size_t Length) {
 }
 
 // ================================================================================================
-bool Program::initClBinary(const char* binaryIn, size_t size) {
+bool Program::initClBinary(const char* binaryIn, size_t size, amd::Os::FileDesc fdesc,
+                           size_t foffset, std::string uri) {
   if (!initClBinary()) {
     DevLogError("Init CL Binary failed \n");
     return false;
@@ -1974,12 +1950,13 @@ bool Program::initClBinary(const char* binaryIn, size_t size) {
 
   clBinary()->setFlags(encryptCode);
 
-  return clBinary()->setBinary(bin, sz, (decryptedBin != nullptr));
+  return clBinary()->setBinary(bin, sz, (decryptedBin != nullptr), fdesc, foffset, uri);
 }
 
 // ================================================================================================
-bool Program::setBinary(const char* binaryIn, size_t size, const device::Program* same_dev_prog) {
-  if (!initClBinary(binaryIn, size)) {
+bool Program::setBinary(const char* binaryIn, size_t size, const device::Program* same_dev_prog,
+                        amd::Os::FileDesc fdesc, size_t foffset, std::string uri) {
+  if (!initClBinary(binaryIn, size, fdesc, foffset, uri)) {
     DevLogError("Init CL Binary failed \n");
     return false;
   }
@@ -2028,7 +2005,7 @@ bool Program::setBinary(const char* binaryIn, size_t size, const device::Program
   if (same_dev_prog != nullptr) {
     compileOptions_ = same_dev_prog->compileOptions();
     linkOptions_ = same_dev_prog->linkOptions();
-  } else {
+  } else if (!amd::IS_HIP) {
     clBinary()->loadCompileOptions(compileOptions_);
     clBinary()->loadLinkOptions(linkOptions_);
   }
@@ -2214,6 +2191,8 @@ aclType Program::getCompilationStagesFromBinary(std::vector<aclType>& completeSt
 aclType Program::getNextCompilationStageFromBinary(amd::option::Options* options) {
   aclType continueCompileFrom = ACL_TYPE_DEFAULT;
   binary_t binary = this->binary();
+  finfo_t finfo = this->BinaryFd();
+  std::string uri = this->BinaryURI();
   // If the binary already exists
   if ((binary.first != nullptr) && (binary.second > 0)) {
 #if defined(WITH_COMPILER_LIB)
@@ -2234,7 +2213,8 @@ aclType Program::getNextCompilationStageFromBinary(amd::option::Options* options
 
     // Saving binary in the interface class,
     // which also load compile & link options from binary
-    setBinary(static_cast<const char*>(binary.first), binary.second);
+    setBinary(static_cast<const char*>(binary.first), binary.second, nullptr,
+              finfo.first, finfo.second, uri);
 
     // Calculate the next stage to compile from, based on sections in binaryElf_;
     // No any validity checks here
@@ -2408,33 +2388,32 @@ bool Program::FindGlobalVarSize(void* binary, size_t binSize) {
   size_t dynamicSize = 0;
   size_t progvarsWriteSize = 0;
 
-  // Begin the Elf image from memory
-  Elf* e = elf_memory((char*)binary, binSize, nullptr);
-  if (elf_kind(e) != ELF_K_ELF) {
-    buildLog_ += "Error while reading the ELF program binary\n";
+  amd::Elf elfIn(ELFCLASSNONE, reinterpret_cast<const char *>(binary), binSize,
+                    nullptr, amd::Elf::ELF_C_READ);
+
+  if (!elfIn.isSuccessful()) {
+    buildLog_ += "Creating input amd::Elf object failed\n";
     return false;
   }
 
-  size_t numpHdrs;
-  if (elf_getphdrnum(e, &numpHdrs) != 0) {
-    buildLog_ += "Error while reading the ELF program binary\n";
-    return false;
-  }
+  auto numpHdrs = elfIn.getSegmentNum();
   bool metadata_found = false;
-  for (size_t i = 0; i < numpHdrs; ++i) {
-    GElf_Phdr pHdr;
-    if (gelf_getphdr(e, i, &pHdr) != &pHdr) {
+  for (unsigned int i = 0; i < numpHdrs; ++i) {
+    amd::ELFIO::segment* seg = nullptr;
+    if (!elfIn.getSegment(i, seg)) {
       continue;
     }
     // Look for the runtime metadata note
-    if (pHdr.p_type == PT_NOTE && pHdr.p_align >= sizeof(int)) {
+    if (seg->get_type() == PT_NOTE && seg->get_align() >= sizeof(int)) {
       // Iterate over the notes in this segment
-      address ptr = (address)binary + pHdr.p_offset;
-      address segmentEnd = ptr + pHdr.p_filesz;
+      address ptr = (address)binary + seg->get_offset();
+      address segmentEnd = ptr + seg->get_file_size();
 
       while (ptr < segmentEnd) {
-        Elf_Note* note = (Elf_Note*)ptr;
-        address name = (address)&note[1];
+        // see spec of note:
+        // https://docs.oracle.com/cd/E19683-01/816-1386/6m7qcoblj/index.html#chapter6-18048
+        auto note = reinterpret_cast<amd::Elf::ElfNote*>(ptr);
+        address name = reinterpret_cast<address>(&note[1]);
         address desc = name + amd::alignUp(note->n_namesz, sizeof(int));
 
         if (note->n_type == 7 ||
@@ -2473,20 +2452,18 @@ bool Program::FindGlobalVarSize(void* binary, size_t binSize) {
       }
     }
     // Accumulate the size of R & !X loadable segments
-    else if (pHdr.p_type == PT_LOAD && !(pHdr.p_flags & PF_X)) {
-      if (pHdr.p_flags & PF_R) {
-        progvarsTotalSize += pHdr.p_memsz;
+    else if (seg->get_type() == PT_LOAD && !(seg->get_flags() & PF_X)) {
+      if (seg->get_flags() & PF_R) {
+        progvarsTotalSize += seg->get_memory_size();
       }
-      if (pHdr.p_flags & PF_W) {
-        progvarsWriteSize += pHdr.p_memsz;
+      if (seg->get_flags() & PF_W) {
+        progvarsWriteSize += seg->get_memory_size();
       }
     }
-    else if (pHdr.p_type == PT_DYNAMIC) {
-      dynamicSize += pHdr.p_memsz;
+    else if (seg->get_type() == PT_DYNAMIC) {
+      dynamicSize += seg->get_memory_size();
     }
   }
-
-  elf_end(e);
 
   if (!metadata_found) {
     buildLog_ += "Error: runtime metadata section not present in ELF program binary\n";
@@ -2494,8 +2471,7 @@ bool Program::FindGlobalVarSize(void* binary, size_t binSize) {
   }
 
   if (!createKernelMetadataMap()) {
-    buildLog_ +=
-      "Error: create kernel metadata map using COMgr\n";
+    buildLog_ += "Error: create kernel metadata map using COMgr\n";
     return false;
   }
 
@@ -2580,13 +2556,14 @@ bool Program::getSymbolsFromCodeObj(std::vector<std::string>* var_names, amd_com
     sym_info.sym_type = sym_type;
     sym_info.var_names = var_names;
 
-  /* Iterate through list of symbols */
+    /* Iterate through list of symbols */
     status = amd::Comgr::iterate_symbols(dataObject, getSymbolFromModule, &sym_info);
     if (status != AMD_COMGR_STATUS_SUCCESS) {
       buildLog_ += "COMGR:  Cannot iterate comgr symbols \n";
       ret_val = false;
       break;
     }
+    amd::Comgr::release_data(dataObject);
   } while (0);
 
   return ret_val;

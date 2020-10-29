@@ -235,10 +235,6 @@ class VirtualGPU : public device::VirtualDevice {
   hsa_agent_t gpu_device() { return gpu_device_; }
   hsa_queue_t* gpu_queue() { return gpu_queue_; }
 
-  // Since the VirtualGPU class is backed by a HSA queue, we can override the
-  // VirtualDevice method to get the handle.
-  virtual hsa_queue_t* hsaQueue() { return gpu_queue(); }
-
   // Return pointer to PrintfDbg
   PrintfDbg* printfDbg() const { return printfdbg_; }
 
@@ -372,7 +368,7 @@ class VirtualGPU : public device::VirtualDevice {
   uint16_t dispatchPacketHeader_;
 
   //!< bit-vector representing the CU mask. Each active bit represents using one CU
-  const std::vector<uint32_t>& cuMask_;
+  const std::vector<uint32_t> cuMask_;
   amd::CommandQueue::Priority priority_; //!< The priority for the hsa queue
 };
 

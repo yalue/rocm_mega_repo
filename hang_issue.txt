@@ -1,0 +1,65 @@
+Here is a stacktrace obtained when attaching gdb to a hanging process:
+
+0x00007f2acef41f37 in sched_yield () at ../sysdeps/unix/syscall-template.S:78
+78      ../sysdeps/unix/syscall-template.S: No such file or directory.
+(gdb) bt
+#0  0x00007f2acef41f37 in sched_yield () at ../sysdeps/unix/syscall-template.S:78
+#1  0x00007f2ace3cb535 in amd::Os::yield () at /playpen/otternes/rocm/sources/ROCclr/os/os_posix.cpp:399
+#2  0x00007f2ace3bc475 in amd::Event::awaitCompletion (this=0x557e63b4e1f0) at /playpen/otternes/rocm/sources/ROCclr/platform/command.cpp:196
+#3  0x00007f2ace2f9684 in ihipMemcpy (dst=dst@entry=0x7ffd16dd3100, src=src@entry=0x7f29c1a00000, sizeBytes=sizeBytes@entry=16, kind=kind@entry=hipMemcpyDeviceToHost, queue=..., isAsync=<optimized out>, isAsync@entry=false)
+    at /playpen/otternes/rocm/sources/HIP/rocclr/hip_memory.cpp:215
+#4  0x00007f2ace2f9c5a in hipMemcpy (dst=0x7ffd16dd3100, src=0x7f29c1a00000, sizeBytes=16, kind=hipMemcpyDeviceToHost) at /playpen/otternes/rocm/sources/HIP/rocclr/hip_memory.cpp:285
+#5  0x00007f2acec35107 in GetDeviceInformation (device_id=0, info=0x7f2acf877000) at src/hip_host_utilities.cpp:89
+#6  0x0000557e61b80066 in GetDeviceInfo (device_id=0, info=<optimized out>) at src/runner.c:218
+#7  0x0000557e61b7f99c in main (argc=<optimized out>, argv=<optimized out>) at src/runner.c:1083
+
+Here is a bit of output after modifying ROCclr/platform/command.cpp to print the status awaitCompletion is waiting on:
+
+Waiting for event 0x55dc2f667e70 to complete (status 0), current status 3
+event 0x55dc2f667e70 wait completed
+Waiting for event 0x55dc2f667e70 to complete (status 0), current status 3
+event 0x55dc2f667e70 wait completed
+Waiting for event 0x55dc2f667e70 to complete (status 0), current status 3
+event 0x55dc2f667e70 wait completed
+Waiting for event 0x55dc2f667e70 to complete (status 0), current status 3
+event 0x55dc2f667e70 wait completed
+Waiting for event 0x55dc2f667e70 to complete (status 0), current status 3
+event 0x55dc2f667e70 wait completed
+Waiting for event 0x55dc2f667e70 to complete (status 0), current status 3
+event 0x55dc2f667e70 wait completed
+Waiting for event 0x55dc2f667e70 to complete (status 0), current status 3
+event 0x55dc2f667e70 wait completed
+All plugins completed successfully.
+Testing with competitor using 15 streams.
+Plugin configuration loaded.
+Waiting for event 0x561188f321f0 to complete (status 0), current status 2
+event 0x561188f321f0 wait completed
+Waiting for event 0x561189030890 to complete (status 0), current status 3
+event 0x561189030890 wait completed
+Waiting for event 0x561188f321f0 to complete (status 0), current status 3
+^CTraceback (most recent call last):
+  File "scripts/test_oversubscription.py", line 56, in <module>
+    run_process(stream_count)
+  File "scripts/test_oversubscription.py", line 52, in run_process
+    process.communicate(input=config)
+  File "/usr/lib/python2.7/subprocess.py", line 480, in communicate
+    self.wait()
+  File "/usr/lib/python2.7/subprocess.py", line 1099, in wait
+    pid, sts = _eintr_retry_call(os.waitpid, self.pid, 0)
+  File "/usr/lib/python2.7/subprocess.py", line 125, in _eintr_retry_call
+    return func(*args)
+KeyboardInterrupt
+
+
+Here is a another trace of a hung process, with a slightly different stack:
+
+#0  0x00007f16af530f37 in sched_yield () at ../sysdeps/unix/syscall-template.S:78
+#1  0x00007f16ae9b2535 in amd::Os::yield () at /playpen/otternes/rocm/sources/ROCclr/os/os_posix.cpp:399
+#2  0x00007f16ae9a3475 in amd::Event::awaitCompletion (this=0x55d9527792b0) at /playpen/otternes/rocm/sources/ROCclr/platform/command.cpp:196
+#3  0x00007f16ae9af690 in amd::HostQueue::finish (this=0x55d95275dbd0) at /playpen/otternes/rocm/sources/ROCclr/platform/commandqueue.cpp:91
+#4  0x00007f16ae944cbc in hipStreamSynchronize (stream=0x55d95275db00) at /playpen/otternes/rocm/sources/HIP/rocclr/hip_stream.cpp:274
+#5  0x00007f16af21da98 in Execute (data=0x55d9527590e0) at src/dummy_streams.cpp:153
+#6  0x000055d950737b0e in RunPlugin (data=0x55d9526542b8) at src/runner.c:899
+#7  0x000055d950737e98 in RunAsProcesses (shared_state=0x55d952656280) at src/runner.c:976
+#8  0x000055d950738347 in main (argc=2, argv=0x7ffe11223408) at src/runner.c:1099
+

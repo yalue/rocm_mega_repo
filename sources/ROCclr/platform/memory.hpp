@@ -146,7 +146,7 @@ class Memory : public amd::RuntimeObject {
   DeviceMemory* deviceMemories_;
 
   //! The device alloced state
-  std::unordered_map<const Device*, AllocState> deviceAlloced_;
+  std::unordered_map<const Device*, std::atomic<AllocState>> deviceAlloced_;
 
   //! Linked list of destructor callbacks.
   std::atomic<DestructorCallBackEntry*> destructorCallbacks_;
@@ -420,9 +420,9 @@ class Pipe : public Buffer {
 class Image : public Memory {
  public:
   // declaration of list of supported formats
-  static cl_image_format supportedFormats[];
-  static cl_image_format supportedFormatsRA[];
-  static cl_image_format supportedDepthStencilFormats[];
+  static const cl_image_format supportedFormats[];
+  static const cl_image_format supportedFormatsRA[];
+  static const cl_image_format supportedDepthStencilFormats[];
   static uint32_t numSupportedFormats(const Context& context, cl_mem_object_type image_type,
                                      cl_mem_flags flags = 0);
   static uint32_t getSupportedFormats(const Context& context, cl_mem_object_type image_type,

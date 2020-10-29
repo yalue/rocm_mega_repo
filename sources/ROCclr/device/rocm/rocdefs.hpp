@@ -25,10 +25,10 @@
 namespace roc {
 
 //! Alignment restriciton for the pinned memory
-const static size_t PinnedMemoryAlignment = 4 * Ki;
+static constexpr size_t PinnedMemoryAlignment = 4 * Ki;
 
 //! Specific defines for images for Dynamic Parallelism
-const static uint DeviceQueueMaskSize = 32;
+static constexpr uint DeviceQueueMaskSize = 32;
 
 typedef uint HsaDeviceId;
 
@@ -47,9 +47,9 @@ struct AMDDeviceInfo {
   uint pciDeviceId_;           //!< PCIe device id
 };
 
-const HsaDeviceId HSA_INVALID_DEVICE_ID = -1;
+constexpr HsaDeviceId HSA_INVALID_DEVICE_ID = -1;
 
-static const AMDDeviceInfo DeviceInfo[] = {
+static constexpr AMDDeviceInfo DeviceInfo[] = {
   /* KAVERI_SPECTRE */ {"Spectre", "",         4, 16, 1, 256, 64 * Ki, 32, 7, 0, 1, 0},
   /* KAVERI_SPOOKY */  {"Spooky", "",          4, 16, 1, 256, 64 * Ki, 32, 7, 0, 1, 0},
   /* HAWAII */         {"Hawaii", "gfx701",    4, 16, 1, 256, 64 * Ki, 32, 7, 0, 1, 0},
@@ -67,10 +67,12 @@ static const AMDDeviceInfo DeviceInfo[] = {
   /* ARCTURUS */       {"gfx908", "gfx908",    4, 16, 1, 256, 64 * Ki, 32, 9, 0, 8, 0},
   /* NAVI10 */         {"gfx1010", "gfx1010",  2, 32, 1, 256, 64 * Ki, 32, 10, 1, 0, 0},
   /* NAVI12 */         {"gfx1011", "gfx1011",  2, 32, 1, 256, 64 * Ki, 32, 10, 1, 1, 0},
-  /* NAVI14 */         {"gfx1012", "gfx1012",  2, 32, 1, 256, 64 * Ki, 32, 10, 1, 2, 0}
+  /* NAVI14 */         {"gfx1012", "gfx1012",  2, 32, 1, 256, 64 * Ki, 32, 10, 1, 2, 0},
+  /* SIENNA_CICHILD */ {"gfx1030", "gfx1030",  2, 32, 1, 256, 64 * Ki, 32, 10, 3, 0, 0},
+  /* NAVY_FLOUNDER */  {"gfx1031", "gfx1031",  2, 32, 1, 256, 64 * Ki, 32, 10, 3, 1, 0}
 };
 
 }
 
-const uint kMaxAsyncQueues = 8;   // set to match the number of pipes, which is 8
+constexpr uint kMaxAsyncQueues = 8;   // set to match the number of pipes, which is 8
 #endif

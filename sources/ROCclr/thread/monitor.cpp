@@ -19,11 +19,11 @@
  THE SOFTWARE. */
 
 #include "thread/monitor.hpp"
-#include "thread/atomic.hpp"
 #include "thread/semaphore.hpp"
 #include "thread/thread.hpp"
 #include "utils/util.hpp"
 
+#include <atomic>
 #include <cstring>
 #include <tuple>
 #include <utility>
@@ -205,6 +205,10 @@ void Monitor::finishUnlock() {
       return;
     }
 
+    // A StoreLoad barrier is required to make sure the onDeck_ store is published before
+    // the contendersList_ micro-lock check.
+    std::atomic_thread_fence(std::memory_order_seq_cst);
+
     // We do not have an on-deck thread (semaphore == NULL). Return if
     // the contention list is empty or if the lock got acquired again.
     head = contendersList_;
@@ -247,7 +251,7 @@ void Monitor::wait() {
     }
     // now go to sleep
     else {
-      suspend.wait();
+      suspend.timedWait(10);
     }
     spinCount++;
   }

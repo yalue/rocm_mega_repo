@@ -197,7 +197,7 @@ bool NullDevice::init() {
             ShouldNotReachHere();
             break;
           case 3:
-            ShouldNotReachHere();
+            ipLevel = Pal::GfxIpLevel::GfxIp10_3;
             break;
           case 4:
             ShouldNotReachHere();
@@ -258,7 +258,7 @@ bool NullDevice::init() {
         ShouldNotReachHere();
         break;
       case 1030:
-        ShouldNotReachHere();
+        revision = Pal::AsicRevision::Navi21;
         break;
       case 1031:
         ShouldNotReachHere();
@@ -296,6 +296,11 @@ bool NullDevice::init() {
 
 bool NullDevice::create(Pal::AsicRevision asicRevision, Pal::GfxIpLevel ipLevel,
                         uint xNACKSupported) {
+  if (amd::IS_HIP && IS_MAINLINE &&
+      (asicRevision != Pal::AsicRevision::Vega20)) {
+    return false;
+  }
+
   online_ = false;
   Pal::DeviceProperties properties = {};
 
@@ -527,8 +532,6 @@ void NullDevice::fillDeviceInfo(const Pal::DeviceProperties& palProp,
   info_.maxConstantBufferSize_ = info_.maxMemAllocSize_;
   info_.maxConstantArgs_ = MaxConstArguments;
 
-  info_.sramEccEnabled_ = palProp.gfxipProperties.shaderCore.flags.eccProtectedGprs;
-
   // Image support fields
   if (settings().imageSupport_) {
     info_.imageSupport_ = CL_TRUE;
@@ -573,9 +576,11 @@ void NullDevice::fillDeviceInfo(const Pal::DeviceProperties& palProp,
     if (hwInfo()->xnackEnabled_) {
       ::strcat(info_.name_, "+xnack");
     }
-    if (info_.sramEccEnabled_) {
+    if (palProp.gfxipProperties.shaderCore.flags.eccProtectedGprs) {
       ::strcat(info_.name_, "+sram-ecc");
     }
+    ::strcpy(info_.targetId_, "amdgcn-amd-amdhsa--");
+    ::strcat(info_.targetId_, info_.name_);
   } else {
     ::strcpy(info_.name_, hwInfo()->machineTarget_);
   }
@@ -674,12 +679,13 @@ void NullDevice::fillDeviceInfo(const Pal::DeviceProperties& palProp,
     info_.globalMemChannelBankWidth_ = hwInfo()->memChannelBankWidth_;
     info_.localMemSizePerCU_ = palProp.gfxipProperties.shaderCore.ldsSizePerCu;
     info_.localMemBanks_ = hwInfo()->localMemBanks_;
-    info_.gfxipVersion_ =
+
+    uint gfxipVersion =
         settings().useLightning_ ? hwInfo()->gfxipVersionLC_ : hwInfo()->gfxipVersion_;
 
-    info_.gfxipMajor_ = info_.gfxipVersion_ / 100;
-    info_.gfxipMinor_ = info_.gfxipVersion_ / 10 % 10;
-    info_.gfxipStepping_ = info_.gfxipVersion_ % 10;
+    info_.gfxipMajor_ = gfxipVersion / 100;
+    info_.gfxipMinor_ = gfxipVersion / 10 % 10;
+    info_.gfxipStepping_ = gfxipVersion % 10;
 
     info_.timeStampFrequency_ = 1000000;
     info_.numAsyncQueues_ = numComputeRings;

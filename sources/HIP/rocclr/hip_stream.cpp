@@ -22,6 +22,9 @@
 #include "hip_internal.hpp"
 #include "hip_event.hpp"
 #include "thread/monitor.hpp"
+#include "hip_prof_api.h"
+
+extern api_callbacks_table_t callbacks_table;
 
 static amd::Monitor streamSetLock{"Guards global stream set"};
 static std::unordered_set<hip::Stream*> streamSet;
@@ -50,7 +53,12 @@ Stream::Stream(hip::Device* dev, Priority p,
 
 // ================================================================================================
 bool Stream::Create() {
-  cl_command_queue_properties properties = CL_QUEUE_PROFILING_ENABLE;
+  // Enable queue profiling if a profiler is attached which sets the callback_table flag
+  // or if we force it with env var. This would enable time stamp collection for every
+  // command submitted to the stream(queue).
+  cl_command_queue_properties properties = (callbacks_table.is_enabled() ||
+                                            HIP_FORCE_QUEUE_PROFILING) ?
+                                             CL_QUEUE_PROFILING_ENABLE : 0;
   amd::CommandQueue::Priority p;
   switch (priority_) {
     case Priority::High:
@@ -64,8 +72,9 @@ bool Stream::Create() {
       p = amd::CommandQueue::Priority::Normal;
       break;
   }
-  amd::HostQueue* queue = new amd::HostQueue(*device_->asContext(), *device_->devices()[0], properties,
-                             amd::CommandQueue::RealTimeDisabled, p, cuMask_);
+  amd::HostQueue* queue = new amd::HostQueue(*device_->asContext(), *device_->devices()[0],
+                                             properties, amd::CommandQueue::RealTimeDisabled,
+                                             p, cuMask_);
 
   // Create a host queue
   bool result = (queue != nullptr) ? queue->create() : false;
@@ -150,10 +159,14 @@ void iHipWaitActiveStreams(amd::HostQueue* blocking_queue, bool wait_null_stream
           (stream->Null() == wait_null_stream)) {
         // Get the last valid command
         amd::Command* command = active_queue->getLastQueuedCommand(true);
-        if ((command != nullptr) &&
-            // Check the current active status
-            (command->status() != CL_COMPLETE)) {
-          eventWaitList.push_back(command);
+        if (command != nullptr) {
+          // Check the current active status
+          if (command->status() != CL_COMPLETE) {
+            command->notifyCmdQueue();
+            eventWaitList.push_back(command);
+          } else {
+            command->release();
+          }
         }
       }
     }
@@ -379,23 +392,3 @@ hipError_t hipStreamGetPriority(hipStream_t stream, int* priority) {
   HIP_RETURN(hipSuccess);
 
 }
-
-hipError_t hipStreamSetComputeUnitMask(hipStream_t stream, uint64_t mask) {
-  HIP_INIT_API(hipStreamSetComputeUnitMask, stream, mask);
-
-  auto queue = hip::getQueue(stream)->asHostQueue();
-  if (!queue) {
-    printf("Error setting CU mask: couldn't get host queue.\n");
-    HIP_RETURN(hipErrorNotSupported);
-  }
-
-  uint32_t mask32[2];
-  mask32[0] = mask & 0xffffffff;
-  mask32[1] = mask >> 32;
-  if (!queue->setCUMask(mask32, 64)) {
-    printf("Setting CU mask returned false.\n");
-    HIP_RETURN(hipErrorNotSupported);
-  }
-  HIP_RETURN(hipSuccess);
-}
-

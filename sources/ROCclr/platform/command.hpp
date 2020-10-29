@@ -90,7 +90,7 @@ class Event : public RuntimeObject {
   Monitor lock_;
 
   std::atomic<CallBackEntry*> callbacks_;  //!< linked list of callback entries.
-  volatile int32_t status_;                 //!< current execution status.
+  std::atomic<int32_t> status_;            //!< current execution status.
   std::atomic_flag notified_;              //!< Command queue was notified
 
  protected:
@@ -100,7 +100,7 @@ class Event : public RuntimeObject {
     ProfilingInfo(bool enabled = false) : enabled_(enabled), waves_(0) {
       if (enabled) {
         clear();
-        callback_ = NULL;
+        callback_ = nullptr;
       }
     }
 
@@ -163,7 +163,7 @@ class Event : public RuntimeObject {
   const ProfilingInfo& profilingInfo() const { return profilingInfo_; }
 
   //! Return this command's execution status.
-  int32_t status() const { return status_; }
+  int32_t status() const { return status_.load(std::memory_order_relaxed); }
 
   //! Insert the given \a callback into the callback stack.
   bool setCallback(int32_t status, CallBackFunction callback, void* data);
@@ -551,7 +551,7 @@ class WriteMemoryCommand : public OneMemoryArgCommand {
 
 class FillMemoryCommand : public OneMemoryArgCommand {
  public:
-  const static size_t MaxFillPatterSize = sizeof(double[16]);
+  static constexpr size_t MaxFillPatterSize = sizeof(double[16]);
 
  private:
   Coord3D origin_;                   //!< Origin of the region to write to.
@@ -801,7 +801,8 @@ class NDRangeKernelCommand : public Command {
   NDRangeKernelCommand(HostQueue& queue, const EventWaitList& eventWaitList, Kernel& kernel,
                        const NDRangeContainer& sizes, uint32_t sharedMemBytes = 0,
                        uint32_t extraParam = 0, uint32_t gridId = 0, uint32_t numGrids = 0,
-                       uint64_t prevGridSum = 0, uint64_t allGridSum = 0, uint32_t firstDevice = 0);
+                       uint64_t prevGridSum = 0, uint64_t allGridSum = 0,
+                       uint32_t firstDevice = 0, bool forceProfiling = false);
 
   virtual void submit(device::VirtualDevice& device) { device.submitKernel(*this); }
 
@@ -1309,9 +1310,9 @@ class SvmUnmapMemoryCommand : public Command {
  */
 class TransferBufferFileCommand : public OneMemoryArgCommand {
  public:
-  static const uint NumStagingBuffers = 2;
-  static const size_t StagingBufferSize = 4 * Mi;
-  static const uint StagingBufferMemType = CL_MEM_USE_PERSISTENT_MEM_AMD;
+  static constexpr uint NumStagingBuffers = 2;
+  static constexpr size_t StagingBufferSize = 4 * Mi;
+  static constexpr uint StagingBufferMemType = CL_MEM_USE_PERSISTENT_MEM_AMD;
 
  protected:
   const Coord3D origin_;                     //!< Origin of the region to write to

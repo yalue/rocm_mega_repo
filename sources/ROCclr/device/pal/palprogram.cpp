@@ -32,9 +32,6 @@
 #include "hsa.h"
 #include "hsa_ext_image.h"
 #include "amd_hsa_loader.hpp"
-#if defined(USE_COMGR_LIBRARY)
-#include "gelf.h"
-#endif  // defined(USE_COMGR_LIBRARY)
 
 namespace pal {
 
@@ -170,7 +167,7 @@ bool Segment::freeze(bool destroySysmem) {
   return result;
 }
 
-const static char* Carrizo = "Carrizo";
+static constexpr const char* Carrizo = "Carrizo";
 HSAILProgram::HSAILProgram(Device& device, amd::Program& owner)
     : Program(device, owner),
       rawBinary_(nullptr),
@@ -180,8 +177,6 @@ HSAILProgram::HSAILProgram(Device& device, amd::Program& owner)
       maxScratchRegs_(0),
       executable_(nullptr),
       loaderContext_(this) {
-  xnackEnabled_ = dev().hwInfo()->xnackEnabled_;
-  sramEccEnabled_ = dev().info().sramEccEnabled_;
   if (dev().asicRevision() == Pal::AsicRevision::Bristol) {
     machineTarget_ = Carrizo;
   } else {
@@ -200,8 +195,6 @@ HSAILProgram::HSAILProgram(NullDevice& device, amd::Program& owner)
       executable_(nullptr),
       loaderContext_(this) {
   isNull_ = true;
-  xnackEnabled_ = dev().hwInfo()->xnackEnabled_;
-  sramEccEnabled_ = dev().info().sramEccEnabled_;
   if (dev().asicRevision() == Pal::AsicRevision::Bristol) {
     machineTarget_ = Carrizo;
   } else {
@@ -245,7 +238,8 @@ inline static std::vector<std::string> splitSpaceSeparatedString(char* str) {
   return vec;
 }
 
-bool HSAILProgram::setKernels(amd::option::Options* options, void* binary, size_t binSize) {
+bool HSAILProgram::setKernels(amd::option::Options* options, void* binary, size_t binSize,
+                              amd::Os::FileDesc fdesc, size_t foffset, std::string uri) {
 #if defined(WITH_COMPILER_LIB)
   // ACL_TYPE_CG stage is not performed for offline compilation
   hsa_agent_t agent;
@@ -742,7 +736,8 @@ bool LightningProgram::createBinary(amd::option::Options* options) {
   return true;
 }
 
-bool LightningProgram::setKernels(amd::option::Options* options, void* binary, size_t binSize) {
+bool LightningProgram::setKernels(amd::option::Options* options, void* binary, size_t binSize,
+                                  amd::Os::FileDesc fdesc, size_t foffset, std::string uri) {
 #if defined(USE_COMGR_LIBRARY)
   hsa_agent_t agent;
   agent.handle = 1;

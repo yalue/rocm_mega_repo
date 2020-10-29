@@ -90,12 +90,10 @@ hipError_t Event::elapsedTime(Event& eStop, float& ms) {
     return hipErrorNotReady;
   }
 
-  // For certain HIP API's that take start and stop event
-  // and no hipEventRecord needs to be called
-  if (event_ == eStop.event_ && !recorded_  && !eStop.recorded_) {
+  if (event_ != eStop.event_ && recorded_ && eStop.recorded_) {
     ms = static_cast<float>(static_cast<int64_t>(eStop.event_->profilingInfo().end_ -
-                          event_->profilingInfo().start_))/1000000.f;
-  } else if (event_ == eStop.event_) {
+                          event_->profilingInfo().end_))/1000000.f;
+  } else if (event_ == eStop.event_ && (recorded_ || eStop.recorded_)) {
     // Events are the same, which indicates the stream is empty and likely
     // eventRecord is called on another stream. For such cases insert and measure a
     // marker.
@@ -107,8 +105,10 @@ hipError_t Event::elapsedTime(Event& eStop, float& ms) {
     command->release();
 
   } else {
+  // For certain HIP API's that take both start and stop event
+  // or scenarios where HIP API takes one of the events and the other event is recorded with hipEventRecord
     ms = static_cast<float>(static_cast<int64_t>(eStop.event_->profilingInfo().end_ -
-                          event_->profilingInfo().end_))/1000000.f;
+                          event_->profilingInfo().start_))/1000000.f;
   }
   return hipSuccess;
 }
@@ -139,6 +139,25 @@ hipError_t Event::streamWait(amd::HostQueue* hostQueue, uint flags) {
 
 void Event::addMarker(amd::HostQueue* queue, amd::Command* command, bool record) {
   amd::ScopedLock lock(lock_);
+
+  if (queue->properties().test(CL_QUEUE_PROFILING_ENABLE)) {
+    if (command == nullptr) {
+      command = queue->getLastQueuedCommand(true);
+      if ((command == nullptr) || (command->type() == 0)) {
+        // if lastEnqueuedCommand is user invisible command(command->type() == 0),
+        // which is only used for sync, create a new amd:Marker
+        // and release() lastEnqueuedCommand
+        if (command != nullptr) {
+          command->release();
+        }
+        command = new amd::Marker(*queue, kMarkerDisableFlush);
+        command->enqueue();
+      }
+    }
+  } else if (command == nullptr) {
+    command = new hip::ProfileMarker(*queue, false);
+    command->enqueue();
+  }
 
   if (event_ == &command->event()) return;
 
@@ -239,16 +258,9 @@ hipError_t hipEventRecord(hipEvent_t event, hipStream_t stream) {
   }
 
   hip::Event* e = reinterpret_cast<hip::Event*>(event);
-  amd::ScopedLock lock(e->lock());
-
   amd::HostQueue* queue = hip::getQueue(stream);
-  amd::Command* command = queue->getLastQueuedCommand(true);
-  if (command == nullptr) {
-    command = new amd::Marker(*queue, kMarkerDisableFlush);
-    command->enqueue();
-  }
 
-  e->addMarker(queue, command, true);
+  e->addMarker(queue, nullptr, true);
   HIP_RETURN(hipSuccess);
 }
 

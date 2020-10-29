@@ -19,7 +19,7 @@
  THE SOFTWARE. */
 
 #include <hip/hip_runtime.h>
-#include <libelf.h>
+#include <elf/elf.hpp>
 #include <fstream>
 
 #include "hip_internal.hpp"
@@ -45,23 +45,7 @@ const std::string& FunctionName(const hipFunction_t f) {
 
 static uint64_t ElfSize(const void *emi)
 {
-  const Elf64_Ehdr *ehdr = (const Elf64_Ehdr*)emi;
-  const Elf64_Shdr *shdr = (const Elf64_Shdr*)((char*)emi + ehdr->e_shoff);
-
-  uint64_t max_offset = ehdr->e_shoff;
-  uint64_t total_size = max_offset + ehdr->e_shentsize * ehdr->e_shnum;
-
-  for (uint16_t i=0; i < ehdr->e_shnum; ++i){
-    uint64_t cur_offset = static_cast<uint64_t>(shdr[i].sh_offset);
-    if (max_offset < cur_offset) {
-      max_offset = cur_offset;
-      total_size = max_offset;
-      if(SHT_NOBITS != shdr[i].sh_type) {
-        total_size += static_cast<uint64_t>(shdr[i].sh_size);
-      }
-    }
-  }
-  return total_size;
+  return amd::Elf::getElfSize(emi);
 }
 
 hipError_t hipModuleUnload(hipModule_t hmod) {
@@ -193,16 +177,42 @@ hipError_t hipFuncGetAttributes(hipFuncAttributes* attr, const void* func)
   HIP_RETURN(hipSuccess);
 }
 
-hipError_t ihipModuleLaunchKernel(hipFunction_t f,
-                                 uint32_t gridDimX, uint32_t gridDimY, uint32_t gridDimZ,
+hipError_t hipFuncSetAttribute ( const void* func, hipFuncAttribute attr, int value ) {
+  HIP_INIT_API(hipFuncSetAttribute, func, attr, value);
+
+  // No way to set function attribute yet.
+
+  HIP_RETURN(hipSuccess);
+}
+
+hipError_t hipFuncSetCacheConfig (const void* func, hipFuncCache_t cacheConfig) {
+
+  HIP_INIT_API(hipFuncSetCacheConfig, cacheConfig);
+
+  // No way to set cache config yet.
+
+  HIP_RETURN(hipSuccess);
+}
+
+hipError_t hipFuncSetSharedMemConfig ( const void* func, hipSharedMemConfig config) {
+  HIP_INIT_API(hipFuncSetSharedMemConfig, func, config);
+
+  // No way to set Shared Memory config function yet.
+
+  HIP_RETURN(hipSuccess);
+}
+
+hipError_t ihipModuleLaunchKernel(hipFunction_t f, uint32_t globalWorkSizeX,
+                                 uint32_t globalWorkSizeY, uint32_t globalWorkSizeZ,
                                  uint32_t blockDimX, uint32_t blockDimY, uint32_t blockDimZ,
                                  uint32_t sharedMemBytes, hipStream_t hStream,
                                  void **kernelParams, void **extra,
                                  hipEvent_t startEvent, hipEvent_t stopEvent, uint32_t flags = 0,
                                  uint32_t params = 0, uint32_t gridId = 0, uint32_t numGrids = 0,
                                  uint64_t prevGridSum = 0, uint64_t allGridSum = 0, uint32_t firstDevice = 0) {
-  HIP_INIT_API(ihipModuleLaunchKernel, f, gridDimX, gridDimY, gridDimZ, blockDimX, blockDimY, blockDimZ,
-    sharedMemBytes, hStream, kernelParams, extra, startEvent, stopEvent, flags, params);
+  HIP_INIT_API(ihipModuleLaunchKernel, f, globalWorkSizeX, globalWorkSizeY, globalWorkSizeZ,
+    blockDimX, blockDimY, blockDimZ, sharedMemBytes, hStream, kernelParams, extra, startEvent,
+    stopEvent, flags, params);
 
   hip::DeviceFunc* function = hip::DeviceFunc::asFunction(f);
   amd::Kernel* kernel = function->kernel();
@@ -229,7 +239,8 @@ hipError_t ihipModuleLaunchKernel(hipFunction_t f,
     int block_size = blockDimX * blockDimY * blockDimZ;
     hip_impl::ihipOccupancyMaxActiveBlocksPerMultiprocessor(
       &num_blocks, &max_blocks_per_grid, &best_block_size, device, f, block_size, sharedMemBytes, true);
-    if (((gridDimX * gridDimY * gridDimZ) / block_size) > unsigned(max_blocks_per_grid)) {
+    if (((globalWorkSizeX * globalWorkSizeY * globalWorkSizeZ) / block_size) >
+       unsigned(max_blocks_per_grid)) {
       return hipErrorCooperativeLaunchTooLarge;
     }
   }
@@ -243,11 +254,11 @@ hipError_t ihipModuleLaunchKernel(hipFunction_t f,
   }
 
   size_t globalWorkOffset[3] = {0};
-  size_t globalWorkSize[3] = { gridDimX, gridDimY, gridDimZ };
+  size_t globalWorkSize[3] = { globalWorkSizeX, globalWorkSizeY, globalWorkSizeZ };
   size_t localWorkSize[3] = { blockDimX, blockDimY, blockDimZ };
   amd::NDRangeContainer ndrange(3, globalWorkOffset, globalWorkSize, localWorkSize);
   amd::Command::EventWaitList waitList;
-
+  bool profileNDRange = false;
   address kernargs = nullptr;
 
   // 'extra' is a struct that contains the following info: {
@@ -271,13 +282,21 @@ hipError_t ihipModuleLaunchKernel(hipFunction_t f,
                                desc.type_ == T_POINTER/*svmBound*/);
     } else {
       assert(extra == nullptr);
-      kernel->parameters().set(i, desc.size_, kernelParams[i], desc.type_ == T_POINTER/*svmBound*/);
+      kernel->parameters().set(i, desc.size_, kernelParams[i],
+                               desc.type_ == T_POINTER/*svmBound*/);
     }
+  }
+
+  profileNDRange = (startEvent != nullptr || stopEvent != nullptr);
+
+  // Flag set to 1 signifies that kernel can be launched in anyorder
+  if (flags & hipExtAnyOrderLaunch) {
+      params |= amd::NDRangeKernelCommand::AnyOrderLaunch;
   }
 
   amd::NDRangeKernelCommand* command = new amd::NDRangeKernelCommand(
     *queue, waitList, *kernel, ndrange, sharedMemBytes,
-    params, gridId, numGrids, prevGridSum, allGridSum, firstDevice);
+    params, gridId, numGrids, prevGridSum, allGridSum, firstDevice, profileNDRange);
   if (!command) {
     return hipErrorOutOfMemory;
   }
@@ -290,11 +309,11 @@ hipError_t ihipModuleLaunchKernel(hipFunction_t f,
 
   command->enqueue();
 
-  if(startEvent != nullptr) {
+  if (startEvent != nullptr) {
     eStart->addMarker(queue, command, false);
     command->retain();
   }
-  if(stopEvent != nullptr) {
+  if (stopEvent != nullptr) {
     eStop->addMarker(queue, command, false);
     command->retain();
   }
@@ -313,8 +332,17 @@ hipError_t hipModuleLaunchKernel(hipFunction_t f,
                blockDimX, blockDimY, blockDimZ,
                sharedMemBytes, hStream,
                kernelParams, extra);
-
-  HIP_RETURN(ihipModuleLaunchKernel(f, gridDimX * blockDimX, gridDimY * blockDimY, gridDimZ * blockDimZ,
+  size_t globalWorkSizeX = gridDimX * blockDimX;
+  size_t globalWorkSizeY = gridDimY * blockDimY;
+  size_t globalWorkSizeZ = gridDimZ * blockDimZ;
+  if (globalWorkSizeX > std::numeric_limits<uint32_t>::max() ||
+      globalWorkSizeY > std::numeric_limits<uint32_t>::max() ||
+      globalWorkSizeZ > std::numeric_limits<uint32_t>::max()) {
+    HIP_RETURN(hipErrorInvalidConfiguration);
+  }
+  HIP_RETURN(ihipModuleLaunchKernel(f, static_cast<uint32_t>(globalWorkSizeX),
+                                static_cast<uint32_t>(globalWorkSizeY),
+                                static_cast<uint32_t>(globalWorkSizeZ),
                                 blockDimX, blockDimY, blockDimZ,
                                 sharedMemBytes, hStream, kernelParams, extra, nullptr, nullptr));
 }
@@ -337,37 +365,37 @@ hipError_t hipExtModuleLaunchKernel(hipFunction_t f, uint32_t globalWorkSizeX,
 
 
 
-hipError_t hipHccModuleLaunchKernel(hipFunction_t f, uint32_t gridDimX,
-                                    uint32_t gridDimY, uint32_t gridDimZ,
+hipError_t hipHccModuleLaunchKernel(hipFunction_t f, uint32_t globalWorkSizeX,
+                                    uint32_t globalWorkSizeY, uint32_t globalWorkSizeZ,
                                     uint32_t blockDimX, uint32_t blockDimY,
                                     uint32_t blockDimZ, size_t sharedMemBytes,
                                     hipStream_t hStream, void** kernelParams, void** extra,
                                     hipEvent_t startEvent,
                                     hipEvent_t stopEvent)
 {
-  HIP_INIT_API(hipHccModuleLaunchKernel, f, gridDimX, gridDimY, gridDimZ,
+  HIP_INIT_API(hipHccModuleLaunchKernel, f, globalWorkSizeX, globalWorkSizeY, globalWorkSizeZ,
                blockDimX, blockDimY, blockDimZ,
                sharedMemBytes, hStream,
                kernelParams, extra, startEvent, stopEvent);
 
-  HIP_RETURN(ihipModuleLaunchKernel(f, gridDimX, gridDimY, gridDimZ, blockDimX, blockDimY, blockDimZ,
+  HIP_RETURN(ihipModuleLaunchKernel(f, globalWorkSizeX, globalWorkSizeY, globalWorkSizeZ, blockDimX, blockDimY, blockDimZ,
                                 sharedMemBytes, hStream, kernelParams, extra, startEvent, stopEvent));
 }
 
-hipError_t hipModuleLaunchKernelExt(hipFunction_t f, uint32_t gridDimX,
-                                    uint32_t gridDimY, uint32_t gridDimZ,
+hipError_t hipModuleLaunchKernelExt(hipFunction_t f, uint32_t globalWorkSizeX,
+                                    uint32_t globalWorkSizeY, uint32_t globalWorkSizeZ,
                                     uint32_t blockDimX, uint32_t blockDimY,
                                     uint32_t blockDimZ, size_t sharedMemBytes,
                                     hipStream_t hStream, void** kernelParams, void** extra,
                                     hipEvent_t startEvent,
                                     hipEvent_t stopEvent)
 {
-  HIP_INIT_API(hipModuleLaunchKernelExt, f, gridDimX, gridDimY, gridDimZ,
+  HIP_INIT_API(hipModuleLaunchKernelExt, f, globalWorkSizeX, globalWorkSizeY, globalWorkSizeZ,
                blockDimX, blockDimY, blockDimZ,
                sharedMemBytes, hStream,
                kernelParams, extra, startEvent, stopEvent);
 
-  HIP_RETURN(ihipModuleLaunchKernel(f, gridDimX, gridDimY, gridDimZ, blockDimX, blockDimY, blockDimZ,
+  HIP_RETURN(ihipModuleLaunchKernel(f, globalWorkSizeX, globalWorkSizeY, globalWorkSizeZ, blockDimX, blockDimY, blockDimZ,
                                 sharedMemBytes, hStream, kernelParams, extra, startEvent, stopEvent));
 }
 
@@ -406,8 +434,17 @@ hipError_t hipLaunchCooperativeKernel(const void* f,
   int deviceId = ihipGetDevice();
   hipFunction_t func = nullptr;
   HIP_RETURN_ONFAIL(PlatformState::instance().getStatFunc(&func, f, deviceId));
-
-  HIP_RETURN(ihipModuleLaunchKernel(func, gridDim.x * blockDim.x, gridDim.y * blockDim.y, gridDim.z * blockDim.z,
+  size_t globalWorkSizeX = gridDim.x * blockDim.x;
+  size_t globalWorkSizeY = gridDim.y * blockDim.y;
+  size_t globalWorkSizeZ = gridDim.z * blockDim.z;
+  if (globalWorkSizeX > std::numeric_limits<uint32_t>::max() ||
+      globalWorkSizeY > std::numeric_limits<uint32_t>::max() ||
+      globalWorkSizeZ > std::numeric_limits<uint32_t>::max()) {
+    HIP_RETURN(hipErrorInvalidConfiguration);
+  }
+  HIP_RETURN(ihipModuleLaunchKernel(func, static_cast<uint32_t>(globalWorkSizeX),
+                                static_cast<uint32_t>(globalWorkSizeY),
+                                static_cast<uint32_t>(globalWorkSizeZ),
                                 blockDim.x, blockDim.y, blockDim.z,
                                 sharedMemBytes, hStream, kernelParams, nullptr, nullptr, nullptr, 0,
                                 amd::NDRangeKernelCommand::CooperativeGroups));
@@ -425,14 +462,17 @@ hipError_t ihipLaunchCooperativeKernelMultiDevice(hipLaunchParams* launchParamsL
 
   hipError_t result = hipErrorUnknown;
   uint64_t allGridSize = 0;
+  uint32_t blockDims = 0;
   std::vector<const amd::Device*> mgpu_list(numDevices);
 
   for (int i = 0; i < numDevices; ++i) {
     const hipLaunchParams& launch = launchParamsList[i];
-    allGridSize += launch.gridDim.x * launch.gridDim.y * launch.gridDim.z;
+    blockDims = launch.blockDim.x * launch.blockDim.y * launch.blockDim.z;
+    allGridSize += launch.gridDim.x * launch.gridDim.y * launch.gridDim.z *
+                   blockDims;
 
     // Make sure block dimensions are valid
-    if (0 == launch.blockDim.x * launch.blockDim.y * launch.blockDim.z) {
+    if (0 == blockDims) {
       return hipErrorInvalidConfiguration;
     }
     if (launch.stream != nullptr) {
@@ -452,7 +492,7 @@ hipError_t ihipLaunchCooperativeKernelMultiDevice(hipLaunchParams* launchParamsL
   uint64_t prevGridSize = 0;
   uint32_t firstDevice = 0;
 
-  // Sync the execution streams on all devices 
+  // Sync the execution streams on all devices
   if ((flags & hipCooperativeLaunchMultiDeviceNoPreSync) == 0) {
     for (int i = 0; i < numDevices; ++i) {
       amd::HostQueue* queue =
@@ -481,11 +521,16 @@ hipError_t ihipLaunchCooperativeKernelMultiDevice(hipLaunchParams* launchParamsL
       result = hipErrorInvalidDeviceFunction;
       HIP_RETURN(result);
     }
-
-    result = ihipModuleLaunchKernel(func,
-      launch.gridDim.x * launch.blockDim.x,
-      launch.gridDim.y * launch.blockDim.y,
-      launch.gridDim.z * launch.blockDim.z,
+    size_t globalWorkSizeX = launch.gridDim.x * launch.blockDim.x;
+    size_t globalWorkSizeY = launch.gridDim.y * launch.blockDim.y;
+    size_t globalWorkSizeZ = launch.gridDim.z * launch.blockDim.z;
+    if (globalWorkSizeX > std::numeric_limits<uint32_t>::max() ||
+        globalWorkSizeY > std::numeric_limits<uint32_t>::max() ||
+        globalWorkSizeZ > std::numeric_limits<uint32_t>::max()) {
+      HIP_RETURN(hipErrorInvalidConfiguration);
+    }
+    result = ihipModuleLaunchKernel(func, static_cast<uint32_t>(globalWorkSizeX),
+      static_cast<uint32_t>(globalWorkSizeY), static_cast<uint32_t>(globalWorkSizeZ),
       launch.blockDim.x, launch.blockDim.y, launch.blockDim.z,
       launch.sharedMem, launch.stream, launch.args, nullptr, nullptr, nullptr,
       flags, extFlags, i, numDevices, prevGridSize, allGridSize, firstDevice);
@@ -495,7 +540,7 @@ hipError_t ihipLaunchCooperativeKernelMultiDevice(hipLaunchParams* launchParamsL
     prevGridSize += launch.gridDim.x * launch.gridDim.y * launch.gridDim.z;
   }
 
-  // Sync the execution streams on all devices 
+  // Sync the execution streams on all devices
   if ((flags & hipCooperativeLaunchMultiDeviceNoPostSync) == 0) {
     for (int i = 0; i < numDevices; ++i) {
       amd::HostQueue* queue =

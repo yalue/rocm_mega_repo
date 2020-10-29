@@ -157,7 +157,7 @@ class DmaBlitManager : public device::HostBlitManager {
                          ) const;
 
  protected:
-  const static uint MaxPinnedBuffers = 4;
+  static constexpr uint MaxPinnedBuffers = 4;
 
   //! Synchronizes the blit operations if necessary
   inline void synchronize() const;
@@ -365,8 +365,8 @@ class KernelBlitManager : public DmaBlitManager {
                             ) const;
 
  private:
-  static const size_t MaxXferBuffers = 2;
-  static const uint TransferSplitSize = 3;
+  static constexpr size_t MaxXferBuffers = 2;
+  static constexpr uint TransferSplitSize = 3;
 
   //! Copies a buffer object to an image object
   bool copyBufferToImageKernel(device::Memory& srcMemory,      //!< Source memory object
@@ -414,10 +414,10 @@ class KernelBlitManager : public DmaBlitManager {
 };
 
 static const char* BlitName[KernelBlitManager::BlitTotal] = {
-    "copyImage",         "copyImage1DA",      "copyImageToBuffer",
-    "copyBufferToImage", "copyBufferRect",    "copyBufferRectAligned",
-    "copyBuffer",        "copyBufferAligned", "fillBuffer",
-    "fillImage",         "scheduler",
+    "__amd_rocclr_copyImage", "__amd_rocclr_copyImage1DA", "__amd_rocclr_copyImageToBuffer",
+    "__amd_rocclr_copyBufferToImage", "__amd_rocclr_copyBufferRect", "__amd_rocclr_copyBufferRectAligned",
+    "__amd_rocclr_copyBuffer", "__amd_rocclr_copyBufferAligned", "__amd_rocclr_fillBuffer",
+    "__amd_rocclr_fillImage", "__amd_rocclr_scheduler",
 };
 
 /*@}*/} // namespace gpu

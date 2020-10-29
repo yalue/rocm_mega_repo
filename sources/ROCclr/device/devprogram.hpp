@@ -70,7 +70,8 @@ struct SymbolLoweredName {
 //! A program object for a specific device.
 class Program : public amd::HeapObject {
  public:
-  typedef std::pair<const void*, size_t> binary_t;
+  typedef std::pair<const void* /* binary_image */, size_t /* binary size */> binary_t;
+  typedef std::pair<amd::Os::FileDesc /* file_desc */, size_t /* file_offset */> finfo_t;
   typedef std::unordered_map<std::string, Kernel*> kernels_t;
   // type of the program
   typedef enum {
@@ -96,8 +97,6 @@ class Program : public amd::HeapObject {
        uint32_t internal_ : 1;        //!< Internal blit program
        uint32_t isLC_ : 1;            //!< LC was used for the program compilation
        uint32_t hasGlobalStores_ : 1; //!< Program has writable program scope variables
-       uint32_t xnackEnabled_ : 1;    //!< Xnack was enabled during compilation
-       uint32_t sramEccEnabled_ : 1;  //!< SRAM ECC was enabled during compilation
        uint32_t isHIP_          : 1;  //!< Determine if the program is for HIP
      };
      uint32_t flags_;  //!< Program flags
@@ -105,7 +104,7 @@ class Program : public amd::HeapObject {
 
   ClBinary* clBinary_;                          //!< The CL program binary file
   std::string llvmBinary_;                      //!< LLVM IR binary code
-  amd::OclElf::oclElfSections elfSectionType_;  //!< LLVM IR binary code is in SPIR format
+  amd::Elf::ElfSections elfSectionType_;        //!< LLVM IR binary code is in SPIR format
   std::string compileOptions_;                  //!< compile/build options.
   std::string linkOptions_;                     //!< link options.
                                                 //!< the option arg passed in to clCompileProgram(), clLinkProgram(),
@@ -188,12 +187,16 @@ class Program : public amd::HeapObject {
   //! Return the binary image.
   inline const binary_t binary() const;
   inline binary_t binary();
+  inline finfo_t BinaryFd() const;
+  inline std::string BinaryURI() const;
 
   //! Returns the CL program binary file
   ClBinary* clBinary() { return clBinary_; }
   const ClBinary* clBinary() const { return clBinary_; }
 
-  bool setBinary(const char* binaryIn, size_t size, const device::Program* same_dev_prog = nullptr);
+  bool setBinary(const char* binaryIn, size_t size, const device::Program* same_dev_prog = nullptr,
+                 amd::Os::FileDesc fdesc = amd::Os::FDescInit(), size_t foffset = 0,
+                 std::string uri = std::string());
 
   type_t type() const { return type_; }
 
@@ -236,12 +239,6 @@ class Program : public amd::HeapObject {
 
   //! Get the machine target for the program
   const char* machineTarget() const { return machineTarget_; }
-
-  //! Check if xnack is enable
-  const bool xnackEnable() const { return (xnackEnabled_ == 1); }
-
-  //! Check if SRAM ECC is enable
-  const bool sramEccEnable() const { return (sramEccEnabled_ == 1); }
 
   //! Check if program is HIP based
   const bool isHIP() const { return (isHIP_ == 1); }
@@ -287,7 +284,9 @@ class Program : public amd::HeapObject {
   virtual bool createBinary(amd::option::Options* options) = 0;
 
   //! Initialize Binary (used only for clCreateProgramWithBinary()).
-  bool initClBinary(const char* binaryIn, size_t size);
+  bool initClBinary(const char* binaryIn, size_t size,
+                    amd::Os::FileDesc fdesc = amd::Os::FDescInit(),
+                    size_t foffset = 0, std::string uri = std::string());
 
   //! Initialize Binary
   virtual bool initClBinary();
@@ -301,7 +300,9 @@ class Program : public amd::HeapObject {
   virtual const aclTargetInfo& info(const char* str = "") = 0;
 
   virtual bool setKernels(
-    amd::option::Options* options, void* binary, size_t binSize) { return true; }
+    amd::option::Options* options, void* binary, size_t binSize,
+    amd::Os::FileDesc fdesc = amd::Os::FDescInit(), size_t foffset = 0,
+    std::string uri = std::string()) { return true; }
 
   //! Returns all the options to be appended while passing to the compiler library
   std::vector<std::string> ProcessOptions(amd::option::Options* options);
@@ -332,7 +333,7 @@ class Program : public amd::HeapObject {
   //! Finds the total size of all global variables in the program
   bool FindGlobalVarSize(void* binary, size_t binSize);
 
-  bool isElf(const char* bin) const { return amd::isElfMagic(bin); }
+  bool isElf(const char* bin) const { return amd::Elf::isElfMagic(bin); }
 
   virtual bool defineGlobalVar(const char* name, void* dptr) {
     ShouldNotReachHere();
@@ -378,9 +379,8 @@ class Program : public amd::HeapObject {
     const amd_comgr_data_kind_t dataKind, const std::string& outFileName,
     char* outBinary[] = nullptr, size_t* outSize = nullptr);
 
-  //! Set the OCL language and target triples with feature
-  void setLangAndTargetStr(const char* clStd, amd_comgr_language_t* oclver,
-                           std::string& targetIdent);
+  //! Set the OCL language
+  void setLanguage(const char* clStd, amd_comgr_language_t* oclver);
 
   //! Create code object and add it into the data set
   amd_comgr_status_t addCodeObjData(const char *source,
@@ -389,8 +389,8 @@ class Program : public amd::HeapObject {
 
   //! Create action for the specified language, target and options
   amd_comgr_status_t createAction(const amd_comgr_language_t oclvar,
-    const std::string& targetIdent, const std::vector<std::string>& options,
-    amd_comgr_action_info_t* action, bool* hasAction);
+    const std::vector<std::string>& options, amd_comgr_action_info_t* action,
+    bool* hasAction);
 
   //! Create the bitcode of the linked input dataset
   bool linkLLVMBitcode(const amd_comgr_data_set_t inputs,

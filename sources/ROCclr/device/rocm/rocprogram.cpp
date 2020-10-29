@@ -24,9 +24,6 @@
 
 #include "utils/options.hpp"
 #include "rockernel.hpp"
-#if defined(USE_COMGR_LIBRARY)
-#include <gelf.h>
-#endif  // defined(USE_COMGR_LIBRARY)
 
 #include "utils/bif_section_labels.hpp"
 #include "amd_hsa_kernel_code.h"
@@ -112,7 +109,7 @@ bool Program::initClBinary(char* binaryIn, size_t size) {
   }
 
   // Both 32-bit and 64-bit are allowed!
-  if (!amd::isElfMagic(bin)) {
+  if (!amd::Elf::isElfMagic(bin)) {
     // Invalid binary.
     if (decryptedBin != nullptr) {
       delete[] decryptedBin;
@@ -230,8 +227,6 @@ bool Program::createGlobalVarObj(amd::Memory** amd_mem_obj, void** device_pptr,
 }
 
 HSAILProgram::HSAILProgram(roc::NullDevice& device, amd::Program& owner) : roc::Program(device, owner) {
-  xnackEnabled_ = dev().settings().enableXNACK_;
-  sramEccEnabled_ = dev().info().sramEccEnabled_;
   machineTarget_ = dev().deviceInfo().machineTarget_;
 }
 
@@ -269,7 +264,8 @@ bool HSAILProgram::saveBinaryAndSetType(type_t type) {
   return true;
 }
 
-bool HSAILProgram::setKernels(amd::option::Options* options, void* binary, size_t binSize) {
+bool HSAILProgram::setKernels(amd::option::Options* options, void* binary, size_t binSize,
+                              amd::Os::FileDesc fdesc, size_t foffset, std::string uri) {
 #if defined(WITH_COMPILER_LIB)
   // Stop compilation if it is an offline device - HSA runtime does not
   // support ISA compiled offline
@@ -437,8 +433,6 @@ LightningProgram::LightningProgram(roc::NullDevice& device, amd::Program& owner)
   : roc::Program(device, owner) {
   isLC_ = true;
   isHIP_ = (owner.language() == amd::Program::HIP);
-  xnackEnabled_ = dev().settings().enableXNACK_;
-  sramEccEnabled_ = dev().info().sramEccEnabled_;
   machineTarget_ = dev().deviceInfo().machineTargetLC_;
 }
 
@@ -474,7 +468,8 @@ bool LightningProgram::saveBinaryAndSetType(type_t type, void* rawBinary, size_t
   return true;
 }
 
-bool LightningProgram::setKernels(amd::option::Options* options, void* binary, size_t binSize) {
+bool LightningProgram::setKernels(amd::option::Options* options, void* binary, size_t binSize,
+                                  amd::Os::FileDesc fdesc, size_t foffset, std::string uri) {
 #if defined(USE_COMGR_LIBRARY)
   // Find the size of global variables from the binary
   if (!FindGlobalVarSize(binary, binSize)) {
@@ -495,7 +490,9 @@ bool LightningProgram::setKernels(amd::option::Options* options, void* binary, s
     return false;
   }
 
-  // Load the code object.
+  // Load the code object, either with file descriptor and offset
+  // or binary image and binary size with URI
+  // or binary image and binary size
   status = hsa_code_object_reader_create_from_memory(binary, binSize, &hsaCodeObjectReader_);
   if (status != HSA_STATUS_SUCCESS) {
     buildLog_ += "Error: AMD HSA Code Object Reader create failed: ";

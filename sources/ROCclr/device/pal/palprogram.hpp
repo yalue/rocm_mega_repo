@@ -195,7 +195,9 @@ class HSAILProgram : public device::Program {
 
   virtual const aclTargetInfo& info(const char* str = "");
 
-  virtual bool setKernels(amd::option::Options* options, void* binary, size_t binSize) override;
+  virtual bool setKernels(amd::option::Options* options, void* binary, size_t binSize,
+                          amd::Os::FileDesc fdesc = amd::Os::FDescInit(), size_t foffset = 0,
+                          std::string uri = std::string()) override;
 
   //! Destroys CPU allocations in the code segment
   void DestroySegmentCpuAccess() const {
@@ -239,20 +241,19 @@ class LightningProgram : public HSAILProgram {
   LightningProgram(NullDevice& device, amd::Program& owner) : HSAILProgram(device, owner) {
     isLC_ = true;
     isHIP_ = (owner.language() == amd::Program::HIP);
-    xnackEnabled_ = dev().hwInfo()->xnackEnabled_;
     machineTarget_ = dev().hwInfo()->machineTargetLC_;
   }
 
   LightningProgram(Device& device, amd::Program& owner) : HSAILProgram(device, owner) {
     isLC_ = true;
     isHIP_ = (owner.language() == amd::Program::HIP);
-    xnackEnabled_ = dev().hwInfo()->xnackEnabled_;
-    machineTarget_ = dev().hwInfo()->machineTargetLC_;
   }
   virtual ~LightningProgram() {}
 
  protected:
-  virtual bool setKernels(amd::option::Options* options, void* binary, size_t binSize) override;
+  virtual bool setKernels(amd::option::Options* options, void* binary, size_t binSize,
+                          amd::Os::FileDesc fdesc = amd::Os::FDescInit(), size_t foffset = 0,
+                          std::string uri = std::string()) override;
 
   virtual bool createBinary(amd::option::Options* options) override;
 };

@@ -3,7 +3,7 @@
 // The University of Illinois/NCSA
 // Open Source License (NCSA)
 // 
-// Copyright (c) 2014-2015, Advanced Micro Devices, Inc. All rights reserved.
+// Copyright (c) 2014-2020, Advanced Micro Devices, Inc. All rights reserved.
 // 
 // Developed by:
 // 
@@ -46,6 +46,7 @@
 #include <sstream>
 #include <utility>
 
+namespace rocr {
 namespace core {
 
 bool Wavefront::GetInfo(
@@ -235,8 +236,12 @@ const IsaRegistry::IsaMap IsaRegistry::GetSupportedIsas() {
   ISAREG_ENTRY_GEN(10, 1, 1, true,  false)
   ISAREG_ENTRY_GEN(10, 1, 2, false, false)
   ISAREG_ENTRY_GEN(10, 1, 2, true,  false)
-
+  ISAREG_ENTRY_GEN(10, 3, 0, false, false)
+  ISAREG_ENTRY_GEN(10, 3, 0, true,  false)
+  ISAREG_ENTRY_GEN(10, 3, 1, false, false)
+  ISAREG_ENTRY_GEN(10, 3, 1, true,  false)
   return supported_isas;
 }
 
 } // namespace core
+} // namespace rocr

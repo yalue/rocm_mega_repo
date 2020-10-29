@@ -337,6 +337,7 @@ RUNTIME_ENTRY(cl_int, clGetDeviceInfo,
       CASE(CL_DEVICE_MAX_SEMAPHORE_SIZE_AMD, maxSemaphoreSize_);
       CASE(CL_DEVICE_BOARD_NAME_AMD, boardName_);
       CASE(CL_DEVICE_SPIR_VERSIONS, spirVersions_);
+      CASE(CL_DEVICE_IL_VERSION, spirVersions_);
       CASE(CL_DEVICE_MAX_PIPE_ARGS, maxPipeArgs_);
       CASE(CL_DEVICE_PIPE_MAX_ACTIVE_RESERVATIONS, maxPipeActiveReservations_);
       CASE(CL_DEVICE_PIPE_MAX_PACKET_SIZE, maxPipePacketSize_);
@@ -410,11 +411,11 @@ RUNTIME_ENTRY(cl_int, clGetDeviceInfo,
         CASE(CL_DEVICE_LOCAL_MEM_BANKS_AMD, localMemBanks_);
         CASE(CL_DEVICE_THREAD_TRACE_SUPPORTED_AMD, threadTraceEnable_);
       case CL_DEVICE_GFXIP_MAJOR_AMD: {
-        cl_uint major = as_amd(device)->info().gfxipVersion_ / 100;
+        cl_uint major = as_amd(device)->info().gfxipMajor_;
         return amd::clGetInfo(major, param_value_size, param_value, param_value_size_ret);
       }
       case CL_DEVICE_GFXIP_MINOR_AMD: {
-        cl_uint minor = as_amd(device)->info().gfxipVersion_ % 100;
+        cl_uint minor = as_amd(device)->info().gfxipMinor_;
         return amd::clGetInfo(minor, param_value_size, param_value, param_value_size_ret);
       }
         CASE(CL_DEVICE_AVAILABLE_ASYNC_QUEUES_AMD, numAsyncQueues_);

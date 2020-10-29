@@ -748,11 +748,6 @@ bool Buffer::create() {
 #endif // AMD_HMM_SUPPORT
     }
 
-    if (!isFineGrain && (owner()->parent() != nullptr) &&
-        (owner()->parent()->getSvmPtr() != nullptr)) {
-      owner()->parent()->commitSvmMemory();
-    }
-
     if ((deviceMemory_ != nullptr) && (dev().settings().apuSystem_ || !isFineGrain)) {
       const_cast<Device&>(dev()).updateFreeMemory(size(), false);
     }
@@ -900,7 +895,7 @@ typedef struct ChannelTypeMap {
   hsa_ext_image_channel_type_t hsa_channel_type;
 } ChannelTypeMap;
 
-static const ChannelOrderMap kChannelOrderMapping[] = {
+static constexpr ChannelOrderMap kChannelOrderMapping[] = {
     {CL_R, HSA_EXT_IMAGE_CHANNEL_ORDER_R},
     {CL_A, HSA_EXT_IMAGE_CHANNEL_ORDER_A},
     {CL_RG, HSA_EXT_IMAGE_CHANNEL_ORDER_RG},
@@ -923,7 +918,7 @@ static const ChannelOrderMap kChannelOrderMapping[] = {
     {CL_ABGR, HSA_EXT_IMAGE_CHANNEL_ORDER_ABGR},
 };
 
-static const ChannelTypeMap kChannelTypeMapping[] = {
+static constexpr ChannelTypeMap kChannelTypeMapping[] = {
     {CL_SNORM_INT8, HSA_EXT_IMAGE_CHANNEL_TYPE_SNORM_INT8},
     {CL_SNORM_INT16, HSA_EXT_IMAGE_CHANNEL_TYPE_SNORM_INT16},
     {CL_UNORM_INT8, HSA_EXT_IMAGE_CHANNEL_TYPE_UNORM_INT8},
@@ -1307,10 +1302,11 @@ bool Image::ValidateMemory() {
        owner()->asImage()->getRowPitch())) {
     constexpr bool ForceLinear = true;
     amd::Image* img = owner()->asImage();
-    // Create a native image without pitch for validation 
+    // Create a native image without pitch for validation
     copyImageBuffer_ =
-        new (dev().context()) amd::Image(dev().context(), CL_MEM_OBJECT_IMAGE2D, img->getMemFlags(),
-        img->getImageFormat(), img->getWidth(), img->getHeight(), 1, 0, 0);
+        new (dev().context()) amd::Image(
+                                dev().context(), CL_MEM_OBJECT_IMAGE2D, 0, img->getImageFormat(),
+                                img->getWidth(), img->getHeight(), 1, 0, 0);
 
     if ((copyImageBuffer_ == nullptr) || !copyImageBuffer_->create()) {
       return false;

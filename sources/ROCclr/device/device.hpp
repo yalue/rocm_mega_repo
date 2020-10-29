@@ -21,7 +21,6 @@
 #ifndef DEVICE_HPP_
 #define DEVICE_HPP_
 
-#include "hsa/hsa.h"
 #include "top.hpp"
 #include "thread/thread.hpp"
 #include "thread/monitor.hpp"
@@ -161,7 +160,7 @@ enum OclExtensions {
   ClExtTotal
 };
 
-static const char* OclExtensionsString[] = {"cl_khr_fp64 ",
+static constexpr const char* OclExtensionsString[] = {"cl_khr_fp64 ",
                                             "cl_amd_fp64 ",
                                             "cl_khr_select_fprounding_mode ",
                                             "cl_khr_global_int32_base_atomics ",
@@ -484,8 +483,6 @@ struct Info : public amd::EmbeddedObject {
   uint32_t localMemSizePerCU_;
   //! Number of banks of local memory
   uint32_t localMemBanks_;
-  //! The core engine GFXIP version
-  uint32_t gfxipVersion_;
   //! The core engine major/minor/stepping
   uint32_t gfxipMajor_;
   uint32_t gfxipMinor_;
@@ -498,8 +495,6 @@ struct Info : public amd::EmbeddedObject {
   uint32_t numRTCUs_;
   //! Thread trace enable
   uint32_t threadTraceEnable_;
-  //! ECC protected GPRs support (only available Vega20+)
-  uint32_t sramEccEnabled_;
 
   //! Image pitch alignment for image2d_from_buffer
   uint32_t imagePitchAlignment_;
@@ -874,9 +869,10 @@ class ClBinary : public amd::HeapObject {
 
   void init(amd::option::Options* optionsObj, bool amdilRequired = false);
 
-  /** called only in loading image routines,
-      never called in storing routines */
-  bool setBinary(const char* theBinary, size_t theBinarySize, bool allocated = false);
+  /** called only in loading image routines, never storing routines */
+  bool setBinary(const char* theBinary, size_t theBinarySize, bool allocated = false,
+                 amd::Os::FileDesc fd = amd::Os::FDescInit(), size_t foffset = 0,
+                 std::string uri = std::string());
 
   //! setin elfIn_
   bool setElfIn();
@@ -890,11 +886,11 @@ class ClBinary : public amd::HeapObject {
   virtual bool setElfTarget();
 
   // class used in for loading images in new format
-  amd::OclElf* elfIn() { return elfIn_; }
+  amd::Elf* elfIn() { return elfIn_; }
 
   // classes used storing and loading images in new format
-  amd::OclElf* elfOut() { return elfOut_; }
-  void elfOut(amd::OclElf* v) { elfOut_ = v; }
+  amd::Elf* elfOut() { return elfOut_; }
+  void elfOut(amd::Elf* v) { elfOut_ = v; }
 
   //! Create and save ELF binary image
   bool createElfBinary(bool doencrypt, Program::type_t type);
@@ -905,13 +901,15 @@ class ClBinary : public amd::HeapObject {
   bool decryptElf(const char* binaryIn, size_t size, char** decryptBin, size_t* decryptSize,
                   int* encryptCode);
 
-  //! Returns the binary pair for the abstraction layer
+  //! Returns the binary pair, fdesc pair, uri for the abstraction layer
   Program::binary_t data() const;
+  Program::finfo_t Datafd() const;
+  std::string DataURI() const;
 
   //! Loads llvmir binary from OCL binary file
   bool loadLlvmBinary(
       std::string& llvmBinary,                     //!< LLVMIR binary code
-      amd::OclElf::oclElfSections& elfSectionType  //!< LLVMIR binary is in SPIR format
+      amd::Elf::ElfSections& elfSectionType  //!< LLVMIR binary is in SPIR format
       ) const;
 
   //! Loads compile options from OCL binary file
@@ -931,7 +929,7 @@ class ClBinary : public amd::HeapObject {
   );
 
   //! Check if the binary is recompilable
-  bool isRecompilable(std::string& llvmBinary, amd::OclElf::oclElfPlatform thePlatform);
+  bool isRecompilable(std::string& llvmBinary, amd::Elf::ElfPlatform thePlatform);
 
   void saveOrigBinary(const char* origBinary, size_t origSize) {
     origBinary_ = origBinary;
@@ -1021,14 +1019,18 @@ class ClBinary : public amd::HeapObject {
   size_t size_;         //!< binary size
   uint flags_;          //!< CL binary object flags
 
+  amd::Os::FileDesc fdesc_; //!< file descriptor
+  size_t foffset_;          //!< file offset
+  std::string uri_;         //!< memory URI
+
   const char* origBinary_;  //!< original binary data
   size_t origSize_;         //!< original binary size
 
   int encryptCode_;  //!< Encryption Code for input binary (0 for not encrypted)
 
  protected:
-  amd::OclElf* elfIn_;        //!< ELF object for input ELF binary
-  amd::OclElf* elfOut_;       //!< ELF object for output ELF binary
+  amd::Elf* elfIn_;        //!< ELF object for input ELF binary
+  amd::Elf* elfOut_;       //!< ELF object for output ELF binary
   BinaryImageFormat format_;  //!< which binary image format to use
 };
 
@@ -1037,6 +1039,20 @@ inline const Program::binary_t Program::binary() const {
     return {(const void*)0, 0};
   }
   return clBinary()->data();
+}
+
+inline std::string Program::BinaryURI() const {
+  if (clBinary() == NULL) {
+    return std::string();
+  }
+  return clBinary()->DataURI();
+}
+
+inline Program::finfo_t Program::BinaryFd() const {
+  if (clBinary() == NULL) {
+    return {amd::Os::FDescInit(), 0};
+  }
+  return clBinary()->Datafd();
 }
 
 inline Program::binary_t Program::binary() {
@@ -1153,12 +1169,6 @@ class VirtualDevice : public amd::HeapObject {
   //! Returns true if device has active wait setting
   bool ActiveWait() const;
 
-  // If this virtual device is backed by a HSA queue, this will return the
-  // a pointer to the hsa_queue_t. Returns nullptr otherwise.
-  // TODO: This is probably not the cleanest interface. Would be nice to figure
-  // out a way that doesn't rely on the hsa_queue_t type.
-  virtual hsa_queue_t* hsaQueue() { return nullptr; }
-
  private:
   //! Disable default copy constructor
   VirtualDevice& operator=(const VirtualDevice&);
@@ -1219,6 +1229,16 @@ class Device : public RuntimeObject {
     uint64_t prev_sum;
     uint64_t all_sum;
   };
+
+  //Attributes that could be retrived from hsa_amd_memory_pool_link_info_t.
+  typedef enum LinkAttribute {
+    kLinkLinkType = 0,
+    kLinkHopCount,
+    kLinkDistance,
+    kLinkAtomicSupport
+  } LinkAttribute;
+
+  typedef std::pair<LinkAttribute, int32_t /* value */> LinkAttrType;
 
   static constexpr size_t kP2PStagingSize = 4 * Mi;
   static constexpr size_t kMGSyncDataSize = sizeof(MGSyncData);
@@ -1486,8 +1506,9 @@ class Device : public RuntimeObject {
   //! Returns index of current device
   uint32_t index() const { return index_; }
 
-  virtual bool findLinkTypeAndHopCount(amd::Device* other_device, uint32_t* link_type,
-                                       uint32_t* hop_count) {
+  //! Returns value for LinkAttribute for lost of vectors
+  virtual bool findLinkInfo(const amd::Device& other_device,
+                            std::vector<LinkAttrType>* link_attr) {
     ShouldNotReachHere();
     return false;
   }

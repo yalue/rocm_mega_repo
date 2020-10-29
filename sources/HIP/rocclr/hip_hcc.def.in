@@ -29,6 +29,7 @@ hipDeviceGetLimit
 hipDeviceGetName
 hipDeviceGetPCIBusId
 hipDeviceGetSharedMemConfig
+hipDeviceGetP2PAttribute
 hipDevicePrimaryCtxGetState
 hipDevicePrimaryCtxRelease
 hipDevicePrimaryCtxReset
@@ -54,7 +55,9 @@ hipExtModuleLaunchKernel
 hipExtLaunchKernel
 hipFree
 hipFreeArray
+hipFuncSetAttribute
 hipFuncSetCacheConfig
+hipFuncSetSharedMemConfig
 hipGetDevice
 hipGetDeviceCount
 hipGetDeviceProperties
@@ -175,8 +178,6 @@ __hipRegisterVar
 __hipRegisterSurface
 __hipRegisterTexture
 __hipUnregisterFatBinary
-__gnu_h2f_ieee
-__gnu_f2h_ieee
 hipConfigureCall
 hipSetupArgument
 hipLaunchByPtr
@@ -260,9 +261,10 @@ hipTexObjectGetResourceViewDesc
 hipTexObjectGetTextureDesc
 hipExtStreamCreateWithCUMask
 hipStreamGetPriority
-hipStreamSetComputeUnitMask
 hipMemcpy2DFromArray
 hipMemcpy2DFromArrayAsync
 hipMemcpyAtoH
 hipMemcpyHtoA
 hipMemcpyParam2DAsync
+__gnu_h2f_ieee
+__gnu_f2h_ieee

@@ -52,6 +52,14 @@ class Thread;  // For Os::createOsThread()
 
 class Os : AllStatic {
  public:
+
+// File Desc abstraction between OS
+#if defined(_WIN32)
+  typedef void* FileDesc;
+#else
+  typedef int FileDesc;
+#endif
+
   enum MemProt { MEM_PROT_NONE = 0, MEM_PROT_READ, MEM_PROT_RW, MEM_PROT_RWX };
 
   class ThreadAffinityMask {
@@ -91,11 +99,32 @@ class Os : AllStatic {
 #endif
   };
 
+  static FileDesc FDescInit() {
+#if defined(__linux__)
+    return -1;
+#else
+    return reinterpret_cast<void*>(-1);
+#endif
+  }
+
+  // Returns unique resource indicator for a particular memory
+  static bool GetURIFromMemory(const void* image, size_t image_size, std::string& uri);
+
+  // Closes the file Handle
+  static bool CloseFileHandle(FileDesc fdesc);
+  // Given a valid file name, returns file descriptor and file size
+  static bool GetFileHandle(const char* fname, FileDesc* fd_ptr, size_t* sz_ptr);
+
+  // Given a valid file descriptor returns mmaped memory for size and offset
+  static bool MemoryMapFileDesc(FileDesc fdesc, size_t fsize, size_t foffset,
+                                const void** mmap_ptr);
+  // Given a valid file name, returns mmapped memory with the mapped size.
   static bool MemoryMapFile(const char* fname, const void** mmap_ptr, size_t* mmap_size);
+  // Given a valid mmaped ptr with correct size, unmaps the ptr from memory
   static bool MemoryUnmapFile(const void* mmap_ptr, size_t mmap_size);
 
  private:
-  static const size_t FILE_PATH_MAX_LENGTH = 1024;
+  static constexpr size_t FILE_PATH_MAX_LENGTH = 1024;
 
   static size_t pageSize_;     //!< The default os page size.
   static int processorCount_;  //!< The number of active processors.

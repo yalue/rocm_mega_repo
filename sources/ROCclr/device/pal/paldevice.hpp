@@ -39,6 +39,7 @@
 #include "acl.h"
 #include "memory"
 
+#include <atomic>
 #include <unordered_set>
 
 /*! \addtogroup PAL
@@ -222,7 +223,7 @@ class Device : public NullDevice {
   //! Transfer buffers
   class XferBuffers : public amd::HeapObject {
    public:
-    static const size_t MaxXferBufListSize = 8;
+    static constexpr size_t MaxXferBufListSize = 8;
 
     //! Default constructor
     XferBuffers(const Device& device, Resource::MemoryType type, size_t bufSize)
@@ -258,7 +259,7 @@ class Device : public NullDevice {
     Resource::MemoryType type_;       //!< The buffer's type
     size_t bufSize_;                  //!< Staged buffer size
     std::list<Memory*> freeBuffers_;  //!< The list of free buffers
-    amd::Atomic<uint> acquiredCnt_;   //!< The total number of acquired buffers
+    std::atomic<uint> acquiredCnt_;   //!< The total number of acquired buffers
     amd::Monitor lock_;               //!< Stgaed buffer acquire/release lock
     const Device& gpuDevice_;         //!< GPU device object
   };
@@ -310,7 +311,7 @@ class Device : public NullDevice {
       Chunk() : buf_(NULL), flags_(NULL) {}
     };
 
-    static const uint MaskBits = 32;
+    static constexpr uint MaskBits = 32;
     const Device& dev_;        //!< GPU device for the chunk manager
     amd::Monitor ml_;          //!< Global lock for the SRD manager
     std::vector<Chunk> pool_;  //!< Pool of SRD buffers
@@ -570,9 +571,9 @@ class Device : public NullDevice {
   std::map<Pal::IQueue*, QueueRecycleInfo*>& QueuePool() { return queue_pool_; }
   const std::map<Pal::IQueue*, QueueRecycleInfo*>& QueuePool() const { return queue_pool_; }
 
-  virtual bool findLinkTypeAndHopCount(amd::Device* other_device, uint32_t* link_type,
-                                       uint32_t* hop_count) {
-    /* Not Supported in PAL yet */
+  virtual bool findLinkInfo(const amd::Device& other_device,
+                            std::vector<LinkAttrType>* link_attr) {
+    // Not implemented in PAL yet
     ShouldNotReachHere();
     return false;
   }

@@ -1408,6 +1408,22 @@ hipError_t hipFuncGetAttributes(hipFuncAttributes* attr, const void* func)
     return ihipLogStatus(hipSuccess);
 }
 
+hipError_t hipFuncSetAttribute(const void* func, hipFuncAttribute attr, int value) {
+    HIP_INIT_API(hipFuncSetCacheConfig, func, attr, value);
+
+    // Nop, AMD does not support setting shared memory size for function.
+
+    return ihipLogStatus(hipSuccess);
+}
+
+hipError_t hipFuncSetSharedMemConfig(const void* func, hipSharedMemConfig config) {
+    HIP_INIT_API(hipFuncSetSharedMemConfig, func, config);
+
+    // Nop, AMD does not support setting shared memory size for function.
+
+    return ihipLogStatus(hipSuccess);
+}
+
 hipError_t hipFuncGetAttribute(int* value, hipFunction_attribute attrib, hipFunction_t hfunc)
 {
     HIP_INIT_API(hipFuncGetAttribute, value, attrib, hfunc);

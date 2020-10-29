@@ -3,7 +3,7 @@
 // The University of Illinois/NCSA
 // Open Source License (NCSA)
 //
-// Copyright (c) 2014-2016, Advanced Micro Devices, Inc. All rights reserved.
+// Copyright (c) 2014-2020, Advanced Micro Devices, Inc. All rights reserved.
 //
 // Developed by:
 //
@@ -44,6 +44,7 @@
 #include <cassert>
 #include "loaders.hpp"
 
+namespace rocr {
 namespace amd {
 namespace hsa {
 namespace loader {
@@ -95,6 +96,8 @@ namespace loader {
     gfx1010.handle = 1010;
     gfx1011.handle = 1011;
     gfx1012.handle = 1012;
+    gfx1030.handle = 1030;
+    gfx1031.handle = 1031;
   }
 
   hsa_isa_t OfflineLoaderContext::IsaFromName(const char *name)
@@ -132,6 +135,10 @@ namespace loader {
       return gfx1011;
     } else if (sname == "AMD:AMDGPU:10:1:2") {
       return gfx1012;
+    } else if (sname == "AMD:AMDGPU:10:3:0") {
+      return gfx1030;
+    } else if (sname == "AMD:AMDGPU:10:3:1") {
+      return gfx1031;
     }
 
     assert(0);
@@ -253,6 +260,7 @@ namespace loader {
     return HSA_STATUS_SUCCESS;
   }
 
-}
-}
-}
+}   //  namespace loader
+}   //  namespace hsa
+}   //  namespace amd
+}   //  namespace rocr

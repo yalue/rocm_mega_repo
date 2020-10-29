@@ -26,7 +26,6 @@
 #include "platform/runtime.hpp"
 
 #include <unordered_map>
-#include "elfio.hpp"
 
 constexpr unsigned __hipFatMAGIC2 = 0x48495046; // "HIPF"
 
@@ -69,7 +68,7 @@ static bool isCompatibleCodeObject(const std::string& codeobj_target_id,
   return codeobj_target_id == short_name;
 }
 
-extern "C" hip::FatBinaryInfoType* __hipRegisterFatBinary(const void* data)
+extern "C" hip::FatBinaryInfo** __hipRegisterFatBinary(const void* data)
 {
   const __CudaFatBinaryWrapper* fbwrapper = reinterpret_cast<const __CudaFatBinaryWrapper*>(data);
   if (fbwrapper->magic != __hipFatMAGIC2 || fbwrapper->version != 1) {
@@ -103,7 +102,7 @@ bool CL_CALLBACK getSvarInfo(cl_program program, std::string var_name, void** va
 }
 
 extern "C" void __hipRegisterFunction(
-  hip::FatBinaryInfoType* modules,
+  hip::FatBinaryInfo** modules,
   const void*  hostFunction,
   char*        deviceFunction,
   const char*  deviceName,
@@ -127,7 +126,7 @@ extern "C" void __hipRegisterFunction(
     hipError_t hip_error = hipSuccess;
     for (size_t dev_idx = 0; dev_idx < g_devices.size(); ++dev_idx) {
       hip_error = PlatformState::instance().getStatFunc(&hfunc, hostFunction, dev_idx);
-      guarantee(hip_error == hipSuccess);
+      guarantee((hip_error == hipSuccess) && "Cannot Retrieve Static function");
     }
   }
 }
@@ -138,7 +137,7 @@ extern "C" void __hipRegisterFunction(
 // track of the value of the device side global variable between kernel
 // executions.
 extern "C" void __hipRegisterVar(
-  hip::FatBinaryInfoType* modules,   // The device modules containing code object
+  hip::FatBinaryInfo** modules,   // The device modules containing code object
   void*       var,       // The shadow variable in host code
   char*       hostVar,   // Variable name in host code
   char*       deviceVar, // Variable name in device code
@@ -151,7 +150,7 @@ extern "C" void __hipRegisterVar(
   PlatformState::instance().registerStatGlobalVar(var, var_ptr);
 }
 
-extern "C" void __hipRegisterSurface(hip::FatBinaryInfoType* modules,      // The device modules containing code object
+extern "C" void __hipRegisterSurface(hip::FatBinaryInfo** modules,      // The device modules containing code object
                                      void* var,        // The shadow variable in host code
                                      char* hostVar,    // Variable name in host code
                                      char* deviceVar,  // Variable name in device code
@@ -160,7 +159,7 @@ extern "C" void __hipRegisterSurface(hip::FatBinaryInfoType* modules,      // Th
   PlatformState::instance().registerStatGlobalVar(var, var_ptr);
 }
 
-extern "C" void __hipRegisterTexture(hip::FatBinaryInfoType* modules,      // The device modules containing code object
+extern "C" void __hipRegisterTexture(hip::FatBinaryInfo** modules,      // The device modules containing code object
                                      void* var,        // The shadow variable in host code
                                      char* hostVar,    // Variable name in host code
                                      char* deviceVar,  // Variable name in device code
@@ -169,7 +168,7 @@ extern "C" void __hipRegisterTexture(hip::FatBinaryInfoType* modules,      // Th
   PlatformState::instance().registerStatGlobalVar(var, var_ptr);
 }
 
-extern "C" void __hipUnregisterFatBinary(hip::FatBinaryInfoType* modules)
+extern "C" void __hipUnregisterFatBinary(hip::FatBinaryInfo** modules)
 {
   HIP_INIT();
 
@@ -351,10 +350,10 @@ hipError_t ihipOccupancyMaxActiveBlocksPerMultiprocessor(
   size_t GprWaves = VgprWaves;
   if (wrkGrpInfo->usedSGPRs_ > 0) {
     size_t maxSGPRs;
-    if (device.info().gfxipVersion_ < 800) {
+    if (device.info().gfxipMajor_ < 8) {
       maxSGPRs = 512;
     }
-    else if (device.info().gfxipVersion_ < 1000) {
+    else if (device.info().gfxipMajor_ < 10) {
       maxSGPRs = 800;
     }
     else {
@@ -467,7 +466,7 @@ hipError_t hipModuleOccupancyMaxPotentialBlockSizeWithFlags(int* gridSize, int* 
   HIP_RETURN(ret);
 }
 
-hipError_t hipModuleOccupancyMaxActiveBlocksPerMultiprocessor(int* numBlocks, 
+hipError_t hipModuleOccupancyMaxActiveBlocksPerMultiprocessor(int* numBlocks,
                                              hipFunction_t f, int blockSize, size_t dynSharedMemPerBlk)
 {
   HIP_INIT_API(hipModuleOccupancyMaxActiveBlocksPerMultiprocessor, f, blockSize, dynSharedMemPerBlk);
@@ -486,7 +485,7 @@ hipError_t hipModuleOccupancyMaxActiveBlocksPerMultiprocessor(int* numBlocks,
 }
 
 hipError_t hipModuleOccupancyMaxActiveBlocksPerMultiprocessorWithFlags(int* numBlocks,
-                                                              hipFunction_t f, int blockSize, 
+                                                              hipFunction_t f, int blockSize,
                                                               size_t dynSharedMemPerBlk, unsigned int flags)
 {
   HIP_INIT_API(hipModuleOccupancyMaxActiveBlocksPerMultiprocessorWithFlags, f, blockSize, dynSharedMemPerBlk, flags);
@@ -561,202 +560,6 @@ hipError_t hipOccupancyMaxActiveBlocksPerMultiprocessorWithFlags(int* numBlocks,
 
 namespace hip_impl {
 
-struct dl_phdr_info {
-  ELFIO::Elf64_Addr        dlpi_addr;
-  const char       *dlpi_name;
-  const ELFIO::Elf64_Phdr *dlpi_phdr;
-  ELFIO::Elf64_Half        dlpi_phnum;
-};
-
-extern "C" int dl_iterate_phdr(
-  int (*callback) (struct dl_phdr_info *info, size_t size, void *data), void *data
-);
-
-struct Symbol {
-  std::string name;
-  ELFIO::Elf64_Addr value = 0;
-  ELFIO::Elf_Xword size = 0;
-  ELFIO::Elf_Half sect_idx = 0;
-  uint8_t bind = 0;
-  uint8_t type = 0;
-  uint8_t other = 0;
-};
-
-inline Symbol read_symbol(const ELFIO::symbol_section_accessor& section, unsigned int idx) {
-  assert(idx < section.get_symbols_num());
-
-  Symbol r;
-  section.get_symbol(idx, r.name, r.value, r.size, r.bind, r.type, r.sect_idx, r.other);
-
-  return r;
-}
-
-template <typename P>
-inline ELFIO::section* find_section_if(ELFIO::elfio& reader, P p) {
-    const auto it = find_if(reader.sections.begin(), reader.sections.end(), std::move(p));
-
-    return it != reader.sections.end() ? *it : nullptr;
-}
-
-std::vector<std::pair<uintptr_t, std::string>> function_names_for(const ELFIO::elfio& reader,
-                                                                  ELFIO::section* symtab) {
-  std::vector<std::pair<uintptr_t, std::string>> r;
-  ELFIO::symbol_section_accessor symbols{reader, symtab};
-
-  for (auto i = 0u; i != symbols.get_symbols_num(); ++i) {
-    auto tmp = read_symbol(symbols, i);
-
-    if (tmp.type == STT_FUNC && tmp.sect_idx != SHN_UNDEF && !tmp.name.empty()) {
-      r.emplace_back(tmp.value, tmp.name);
-    }
-  }
-
-  return r;
-}
-
-const std::vector<std::pair<uintptr_t, std::string>>& function_names_for_process() {
-  static constexpr const char self[] = "/proc/self/exe";
-
-  static std::vector<std::pair<uintptr_t, std::string>> r;
-  static std::once_flag f;
-
-  std::call_once(f, []() {
-    ELFIO::elfio reader;
-
-    if (reader.load(self)) {
-      const auto it = find_section_if(
-          reader, [](const ELFIO::section* x) { return x->get_type() == SHT_SYMTAB; });
-
-      if (it) r = function_names_for(reader, it);
-    }
-  });
-
-  return r;
-}
-
-
-const std::unordered_map<uintptr_t, std::string>& function_names()
-{
-  static std::unordered_map<uintptr_t, std::string> r{
-    function_names_for_process().cbegin(),
-    function_names_for_process().cend()};
-  static std::once_flag f;
-
-  std::call_once(f, []() {
-    dl_iterate_phdr([](dl_phdr_info* info, size_t, void*) {
-      ELFIO::elfio reader;
-
-      if (reader.load(info->dlpi_name)) {
-        const auto it = find_section_if(
-            reader, [](const ELFIO::section* x) { return x->get_type() == SHT_SYMTAB; });
-
-        if (it) {
-          auto n = function_names_for(reader, it);
-
-          for (auto&& f : n) f.first += info->dlpi_addr;
-
-          r.insert(make_move_iterator(n.begin()), make_move_iterator(n.end()));
-        }
-      }
-      return 0;
-    },
-    nullptr);
-  });
-
-  return r;
-}
-
-std::vector<char> bundles_for_process() {
-  static constexpr const char self[] = "/proc/self/exe";
-  static constexpr const char kernel_section[] = ".kernel";
-  std::vector<char> r;
-
-  ELFIO::elfio reader;
-
-  if (reader.load(self)) {
-    auto it = find_section_if(
-        reader, [](const ELFIO::section* x) { return x->get_name() == kernel_section; });
-
-    if (it) r.insert(r.end(), it->get_data(), it->get_data() + it->get_size());
-  }
-
-  return r;
-}
-
-const std::vector<hipModule_t>& modules() {
-    static std::vector<hipModule_t> r;
-    static std::once_flag f;
-
-    std::call_once(f, []() {
-      static std::vector<std::vector<char>> bundles{bundles_for_process()};
-
-      dl_iterate_phdr(
-          [](dl_phdr_info* info, std::size_t, void*) {
-        ELFIO::elfio tmp;
-        if (tmp.load(info->dlpi_name)) {
-          const auto it = find_section_if(
-              tmp, [](const ELFIO::section* x) { return x->get_name() == ".kernel"; });
-
-          if (it) bundles.emplace_back(it->get_data(), it->get_data() + it->get_size());
-        }
-        return 0;
-      },
-      nullptr);
-
-      for (auto&& bundle : bundles) {
-        if (bundle.empty()) {
-          continue;
-        }
-        std::string magic(&bundle[0], sizeof(CLANG_OFFLOAD_BUNDLER_MAGIC_STR) - 1);
-        if (magic.compare(CLANG_OFFLOAD_BUNDLER_MAGIC_STR))
-          continue;
-
-        const auto obheader = reinterpret_cast<const hip::CodeObject::__ClangOffloadBundleHeader*>(&bundle[0]);
-        const auto* desc = &obheader->desc[0];
-        for (uint64_t i = 0; i < obheader->numBundles; ++i,
-             desc = reinterpret_cast<const hip::CodeObject::__ClangOffloadBundleDesc*>(
-                 reinterpret_cast<uintptr_t>(&desc->triple[0]) + desc->tripleSize)) {
-
-          std::string triple(desc->triple, sizeof(HCC_AMDGCN_AMDHSA_TRIPLE) - 1);
-          if (triple.compare(HCC_AMDGCN_AMDHSA_TRIPLE))
-            continue;
-
-          std::string target(desc->triple + sizeof(HCC_AMDGCN_AMDHSA_TRIPLE),
-                             desc->tripleSize - sizeof(HCC_AMDGCN_AMDHSA_TRIPLE));
-
-          if (isCompatibleCodeObject(target, hip::getCurrentDevice()->devices()[0]->info().name_)) {
-            hipModule_t module;
-            if (hipSuccess == hipModuleLoadData(&module, reinterpret_cast<const void*>(
-                reinterpret_cast<uintptr_t>(obheader) + desc->offset)))
-              r.push_back(module);
-              break;
-          }
-        }
-      }
-    });
-
-    return r;
-}
-
-const std::unordered_map<uintptr_t, hipFunction_t>& functions()
-{
-  static std::unordered_map<uintptr_t, hipFunction_t> r;
-  static std::once_flag f;
-
-  std::call_once(f, []() {
-    for (auto&& function : function_names()) {
-      for (auto&& module : modules()) {
-        hipFunction_t f;
-        if (hipSuccess == hipModuleGetFunction(&f, module, function.second.c_str())) {
-          r[function.first] = f;
-        }
-      }
-    }
-  });
-
-  return r;
-}
-
 void hipLaunchKernelGGLImpl(
   uintptr_t function_address,
   const dim3& numBlocks,
@@ -767,11 +570,19 @@ void hipLaunchKernelGGLImpl(
 {
   HIP_INIT();
 
-  const auto it = functions().find(function_address);
-  if (it == functions().cend())
-    assert(0);
+  hip::Stream* s = reinterpret_cast<hip::Stream*>(stream);
+  int deviceId = (s != nullptr)? s->DeviceId() : ihipGetDevice();
+  if (deviceId == -1) {
+    DevLogPrintfError("Wrong Device Id: %d \n", deviceId);
+  }
 
-  hipModuleLaunchKernel(it->second,
+  hipFunction_t func = nullptr;
+  hipError_t hip_error = PlatformState::instance().getStatFunc(&func, reinterpret_cast<void*>(function_address), deviceId);
+  if ((hip_error != hipSuccess) || (func == nullptr)) {
+    DevLogPrintfError("Cannot find the static function: 0x%x", function_address);
+  }
+
+  hipModuleLaunchKernel(func,
     numBlocks.x, numBlocks.y, numBlocks.z,
     dimBlocks.x, dimBlocks.y, dimBlocks.z,
     sharedMemBytes, stream, nullptr, kernarg);
@@ -815,34 +626,45 @@ hipError_t ihipLaunchKernel(const void* hostFunction,
   hipFunction_t func =  nullptr;
   hipError_t hip_error = PlatformState::instance().getStatFunc(&func, hostFunction, deviceId);
   if ((hip_error != hipSuccess) || (func == nullptr)) {
-#ifdef ATI_OS_LINUX
-    const auto it = hip_impl::functions().find(reinterpret_cast<uintptr_t>(hostFunction));
-    if (it == hip_impl::functions().cend()) {
-      DevLogPrintfError("Cannot find function: 0x%x \n", hostFunction);
-      HIP_RETURN(hipErrorInvalidDeviceFunction);
-    }
-    func = it->second;
-#else
     HIP_RETURN(hipErrorInvalidDeviceFunction);
-#endif
   }
-  HIP_RETURN(ihipModuleLaunchKernel(func, (gridDim.x * blockDim.x), (gridDim.y * blockDim.y),
-                                    (gridDim.z * blockDim.z), blockDim.x, blockDim.y, blockDim.z,
+  size_t globalWorkSizeX = gridDim.x * blockDim.x;
+  size_t globalWorkSizeY = gridDim.y * blockDim.y;
+  size_t globalWorkSizeZ = gridDim.z * blockDim.z;
+  if (globalWorkSizeX > std::numeric_limits<uint32_t>::max() ||
+      globalWorkSizeY > std::numeric_limits<uint32_t>::max() ||
+      globalWorkSizeZ > std::numeric_limits<uint32_t>::max()) {
+    HIP_RETURN(hipErrorInvalidConfiguration);
+  }
+  HIP_RETURN(ihipModuleLaunchKernel(func, static_cast<uint32_t>(globalWorkSizeX),
+                                    static_cast<uint32_t>(globalWorkSizeY),
+                                    static_cast<uint32_t>(globalWorkSizeZ),
+                                    blockDim.x, blockDim.y, blockDim.z,
                                     sharedMemBytes, stream, args, nullptr, startEvent, stopEvent,
                                     flags));
 }
 
 // conversion routines between float and half precision
+
 static inline std::uint32_t f32_as_u32(float f) { union { float f; std::uint32_t u; } v; v.f = f; return v.u; }
+
 static inline float u32_as_f32(std::uint32_t u) { union { float f; std::uint32_t u; } v; v.u = u; return v.f; }
+
 static inline int clamp_int(int i, int l, int h) { return std::min(std::max(i, l), h); }
 
+
 // half float, the f16 is in the low 16 bits of the input argument
+
 static inline float __convert_half_to_float(std::uint32_t a) noexcept {
+
   std::uint32_t u = ((a << 13) + 0x70000000U) & 0x8fffe000U;
+
   std::uint32_t v = f32_as_u32(u32_as_f32(u) * u32_as_f32(0x77800000U)/*0x1.0p+112f*/) + 0x38000000U;
+
   u = (a & 0x7fff) != 0 ? v : u;
+
   return u32_as_f32(u) * u32_as_f32(0x07800000U)/*0x1.0p-112f*/;
+
 }
 
 // float half with nearest even rounding
@@ -864,31 +686,35 @@ static inline std::uint32_t __convert_float_to_half(float a) noexcept {
   return s | v;
 }
 
-extern "C" float __gnu_h2f_ieee(unsigned short h){
+extern "C"
+#if !defined(_MSC_VER)
+__attribute__((weak))
+#endif
+float  __gnu_h2f_ieee(unsigned short h){
   return __convert_half_to_float((std::uint32_t) h);
 }
 
-extern "C" unsigned short __gnu_f2h_ieee(float f){
+extern "C"
+#if !defined(_MSC_VER)
+__attribute__((weak))
+#endif
+unsigned short  __gnu_f2h_ieee(float f){
   return (unsigned short)__convert_float_to_half(f);
 }
 
 void PlatformState::init()
 {
   amd::ScopedLock lock(lock_);
-
   if(initialized_ || g_devices.empty()) {
     return;
   }
   initialized_ = true;
-
   for (auto& it : statCO_.modules_) {
     digestFatBinary(it.first, it.second);
   }
-
   for (auto &it : statCO_.vars_) {
     it.second->resize_dVar(g_devices.size());
   }
-
   for (auto &it : statCO_.functions_) {
     it.second->resize_dFunc(g_devices.size());
   }
@@ -945,6 +771,9 @@ hipError_t PlatformState::getDynFunc(hipFunction_t* hfunc, hipModule_t hmod,
   auto it = dynCO_map_.find(hmod);
   if (it == dynCO_map_.end()) {
     DevLogPrintfError("Cannot find the module: 0x%x", hmod);
+    return hipErrorNotFound;
+  }
+  if (0 == strlen(func_name)) {
     return hipErrorNotFound;
   }
 
@@ -1017,15 +846,15 @@ hipError_t PlatformState::getDynTexRef(const char* hostVar, hipModule_t hmod, te
   return hipSuccess;
 }
 
-hipError_t PlatformState::digestFatBinary(const void* data, hip::FatBinaryInfoType& programs) {
+hipError_t PlatformState::digestFatBinary(const void* data, hip::FatBinaryInfo*& programs) {
  return statCO_.digestFatBinary(data, programs);
 }
 
-hip::FatBinaryInfoType* PlatformState::addFatBinary(const void* data) {
+hip::FatBinaryInfo** PlatformState::addFatBinary(const void* data) {
   return statCO_.addFatBinary(data, initialized_);
 }
 
-hipError_t PlatformState::removeFatBinary(hip::FatBinaryInfoType* module) {
+hipError_t PlatformState::removeFatBinary(hip::FatBinaryInfo** module) {
   return statCO_.removeFatBinary(module);
 }
 
@@ -1074,4 +903,3 @@ void PlatformState::popExec(ihipExec_t& exec) {
   exec = std::move(execStack_.top());
   execStack_.pop();
 }
-

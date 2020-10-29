@@ -29,6 +29,7 @@
 #include <time.h>
 #include <intrin.h>
 
+#include <atomic>
 #include <vector>
 #include <string>
 #include <sstream>
@@ -819,6 +820,54 @@ void Os::getAppPathAndFileName(std::string& appName, std::string& appPathAndName
 
   delete[] buff;
   return;
+}
+
+bool Os::GetURIFromMemory(const void* image, size_t image_size, std::string& uri_) {
+  // Not implemented yet for windows
+  uri_ = std::string();
+  return true;
+}
+
+bool Os::CloseFileHandle(FileDesc fdesc) {
+  // return false on failure
+  if (CloseHandle(fdesc) < 0) {
+    return false;
+  }
+  return true;
+}
+
+bool Os::GetFileHandle(const char* fname, FileDesc* fd_ptr, size_t* sz_ptr) {
+  if ((fd_ptr == nullptr) || (sz_ptr == nullptr)) {
+    return false;
+  }
+
+  *fd_ptr = INVALID_HANDLE_VALUE;
+  *fd_ptr = CreateFileA(fname, GENERIC_READ, 0, NULL, OPEN_EXISTING,
+                        FILE_ATTRIBUTE_READONLY, NULL);
+  if (*fd_ptr == INVALID_HANDLE_VALUE) {
+    return false;
+  }
+
+  *sz_ptr = GetFileSize(*fd_ptr, NULL);
+  return true;
+}
+
+bool Os::MemoryMapFileDesc(FileDesc fdesc, size_t fsize, size_t foffset, const void** mmap_ptr) {
+  if (fdesc == INVALID_HANDLE_VALUE) {
+    return false;
+  }
+
+  HANDLE map_handle = INVALID_HANDLE_VALUE;
+
+  map_handle = CreateFileMappingA(fdesc, NULL, PAGE_READONLY, 0, 0, NULL);
+  if (map_handle == INVALID_HANDLE_VALUE) {
+    CloseHandle(map_handle);
+    return false;
+  }
+
+  *mmap_ptr = MapViewOfFile(map_handle, FILE_MAP_READ, 0,0,0);
+
+  return true;
 }
 
 bool Os::MemoryUnmapFile(const void* mmap_ptr, size_t mmap_size) {

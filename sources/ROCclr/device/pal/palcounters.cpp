@@ -154,7 +154,7 @@ bool PalCounterReference::finalize() {
   }
 }
 
-static const std::array<PCIndexSelect, 46> blockIdToIndexSelect = {{
+static constexpr std::array<PCIndexSelect, 49> blockIdToIndexSelect = {{
     PCIndexSelect::None,                     // CPF
     PCIndexSelect::ShaderEngine,             // IA
     PCIndexSelect::ShaderEngine,             // VGT
@@ -201,17 +201,15 @@ static const std::array<PCIndexSelect, 46> blockIdToIndexSelect = {{
     PCIndexSelect::None,                     // GCR
     PCIndexSelect::None,                     // PH
     PCIndexSelect::ShaderArray,              // UTCL1
-#if 0
     PCIndexSelect::None,                     // GeDist
     PCIndexSelect::ShaderEngine,             // GeSe
     PCIndexSelect::None,                     // Df
-#endif
 }};
 
 static_assert(blockIdToIndexSelect.size() ==  static_cast<size_t>(Pal::GpuBlock::Count), "size of blockIdToIndexSelect does not match GpuBlock::Count");
 
 // Converting from ORCA cmndefs.h to PAL palPerfExperiment.h
-static const std::array<std::pair<int, int>, 83> ciBlockIdOrcaToPal = {{
+static constexpr std::array<std::pair<int, int>, 83> ciBlockIdOrcaToPal = {{
     {0x0E, 0},     // CB0
     {0x0E, 1},     // CB1
     {0x0E, 2},     // CB2
@@ -297,7 +295,7 @@ static const std::array<std::pair<int, int>, 83> ciBlockIdOrcaToPal = {{
     {0x17, 0},     // CPC
 }};
 
-static const std::array<std::pair<int, int>, 97> viBlockIdOrcaToPal = {{
+static constexpr std::array<std::pair<int, int>, 97> viBlockIdOrcaToPal = {{
     {0x0E, 0},     // CB0
     {0x0E, 1},     // CB1
     {0x0E, 2},     // CB2
@@ -400,7 +398,7 @@ static const std::array<std::pair<int, int>, 97> viBlockIdOrcaToPal = {{
 // The number of counters per block has been increased for gfx9 but this table may not reflect all
 // of them
 // as compute may not use all of them.
-static const std::array<std::pair<int, int>, 123> gfx9BlockIdPal = {{
+static constexpr std::array<std::pair<int, int>, 123> gfx9BlockIdPal = {{
     {0x0E, 0},     // CB0       - 0
     {0x0E, 1},     // CB1       - 1
     {0x0E, 2},     // CB2       - 2
@@ -526,7 +524,7 @@ static const std::array<std::pair<int, int>, 123> gfx9BlockIdPal = {{
     {0x1F, 7},     // RMI7      - 122
 }};
 
-static const std::array<std::pair<int, int>, 139> gfx10BlockIdPal = {{
+static constexpr std::array<std::pair<int, int>, 139> gfx10BlockIdPal = {{
     {0x0E, 0},     // CB0       - 0
     {0x0E, 1},     // CB1       - 1
     {0x0E, 2},     // CB2       - 2
@@ -692,6 +690,7 @@ void PerfCounter::convertInfo() {
       }
       break;
     case Pal::GfxIpLevel::GfxIp10_1:
+    case Pal::GfxIpLevel::GfxIp10_3:
       if (info_.blockIndex_ < gfx10BlockIdPal.size()) {
         auto p = gfx10BlockIdPal[info_.blockIndex_];
         info_.blockIndex_ = std::get<0>(p);

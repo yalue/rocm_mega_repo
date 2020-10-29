@@ -30,6 +30,7 @@ global:
     hipDeviceGetName;
     hipDeviceGetPCIBusId;
     hipDeviceGetSharedMemConfig;
+    hipDeviceGetP2PAttribute;
     hipDevicePrimaryCtxGetState;
     hipDevicePrimaryCtxRelease;
     hipDevicePrimaryCtxReset;
@@ -55,7 +56,9 @@ global:
     hipExtLaunchKernel;
     hipFree;
     hipFreeArray;
+    hipFuncSetAttribute;
     hipFuncSetCacheConfig;
+    hipFuncSetSharedMemConfig;
     hipGetDevice;
     hipGetDeviceCount;
     hipGetDeviceProperties;
@@ -268,12 +271,12 @@ global:
     hipGetCmdName*;
     hipExtStreamCreateWithCUMask;
     hipStreamGetPriority;
-    hipStreamSetComputeUnitMask;
     hipMemcpy2DFromArray;
     hipMemcpy2DFromArrayAsync;
     hipMemcpyAtoH;
     hipMemcpyHtoA;
     hipMemcpyParam2DAsync;
+    __hipGetPCH;
     };
 local:
     *;

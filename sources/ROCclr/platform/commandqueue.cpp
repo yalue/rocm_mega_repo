@@ -18,8 +18,6 @@
  OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
  THE SOFTWARE. */
 
-#include "hsa.h"
-#include "hsa_ext_amd.h"
 #include "commandqueue.hpp"
 #include "thread/monitor.hpp"
 #include "device/device.hpp"
@@ -37,8 +35,8 @@ namespace amd {
 
 HostQueue::HostQueue(Context& context, Device& device, cl_command_queue_properties properties,
                      uint queueRTCUs, Priority priority, const std::vector<uint32_t>& cuMask)
-    : CommandQueue(context, device, properties, device.info().queueProperties_,
-                   queueRTCUs, priority, cuMask),
+    : CommandQueue(context, device, properties, device.info().queueProperties_, queueRTCUs,
+                   priority, cuMask),
       lastEnqueueCommand_(nullptr) {
   if (thread_.state() >= Thread::INITIALIZED) {
     ScopedLock sl(queueLock_);
@@ -52,10 +50,14 @@ bool HostQueue::terminate() {
     Command* marker = nullptr;
 
     // Send a finish if the queue is still accepting commands.
-    if (thread_.acceptingCommands_) {
-      marker = new Marker(*this, false);
-      if (marker != nullptr) {
-        append(*marker);
+    {
+      ScopedLock sl(queueLock_);
+      if (thread_.acceptingCommands_) {
+        marker = new Marker(*this, false);
+        if (marker != nullptr) {
+          append(*marker);
+          queueLock_.notify();
+        }
       }
     }
     if (marker != nullptr) {
@@ -183,20 +185,26 @@ void HostQueue::append(Command& command) {
   }
   command.retain();
   command.setStatus(CL_QUEUED);
-  ScopedLock l(lastCmdLock_);
-  ScopedLock l2(queueLock_);
   queue_.enqueue(&command);
   if (!IS_HIP) {
-    queueLock_.notify();
     return;
   }
   // Set last submitted command
-  if (lastEnqueueCommand_ != nullptr) {
-    lastEnqueueCommand_->release();
+  Command* prevLastEnqueueCommand;
+  command.retain();
+  {
+    // lastCmdLock_ ensures that lastEnqueueCommand() can retain the command before it is swapped
+    // out. We want to keep this critical section as short as possible, so the command should be
+    // released outside this section.
+    ScopedLock l(lastCmdLock_);
+
+    prevLastEnqueueCommand = lastEnqueueCommand_;
+    lastEnqueueCommand_ = &command;
   }
-  lastEnqueueCommand_ = &command;
-  lastEnqueueCommand_->retain();
-  queueLock_.notify();
+
+  if (prevLastEnqueueCommand != nullptr) {
+    prevLastEnqueueCommand->release();
+  }
 }
 
 bool HostQueue::isEmpty() {
@@ -208,30 +216,13 @@ Command* HostQueue::getLastQueuedCommand(bool retain) {
   // Get last submitted command
   ScopedLock l(lastCmdLock_);
 
+  // Since the lastCmdLock_ is acquired, it is safe to read and retain the lastEnqueueCommand. It is
+  // guaranteed that the pointer will not change.
   if (retain && lastEnqueueCommand_ != nullptr) {
     lastEnqueueCommand_->retain();
   }
 
   return lastEnqueueCommand_;
-}
-
-bool HostQueue::setCUMask(uint32_t *bits, uint32_t count) {
-  hsa_queue_t *hsa_queue = nullptr;
-  hsa_queue = vdev()->hsaQueue();
-  if (!hsa_queue) {
-    printf("Failed setting CU mask: couldn't get HSA queue.\n");
-    return false;
-  }
-  printf("Setting a new CU mask:\n");
-  for (uint32_t i = 0; i < (count / 32); i++) {
-    printf("  Mask part %d: 0x%08x\n", (int) i, bits[i]);
-  }
-  hsa_status_t result = hsa_amd_queue_cu_set_mask(hsa_queue, count, bits);
-  if (result != HSA_STATUS_SUCCESS) {
-    printf("Failed setting CU mask: HSA error %d\n", (int) result);
-    return false;
-  }
-  return true;
 }
 
 DeviceQueue::~DeviceQueue() {

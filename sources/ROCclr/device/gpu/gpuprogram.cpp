@@ -169,14 +169,14 @@ bool NullProgram::linkImpl(amd::option::Options* options) {
           char* section;
           size_t sz;
           if (clBinary()->saveSOURCE() &&
-              clBinary()->elfIn()->getSection(amd::OclElf::SOURCE, &section, &sz)) {
-            clBinary()->elfOut()->addSection(amd::OclElf::SOURCE, section, sz);
+              clBinary()->elfIn()->getSection(amd::Elf::SOURCE, &section, &sz)) {
+            clBinary()->elfOut()->addSection(amd::Elf::SOURCE, section, sz);
           }
           if (clBinary()->saveLLVMIR()) {
             if (clBinary()->loadLlvmBinary(llvmBinary_, elfSectionType_) &&
                 (!llvmBinary_.empty())) {
               clBinary()->elfOut()->addSection(elfSectionType_, llvmBinary_.data(),
-                                               llvmBinary_.size(), false);
+                                               llvmBinary_.size());
             }
           }
 
@@ -193,7 +193,7 @@ bool NullProgram::linkImpl(amd::option::Options* options) {
         }
         return true;
       } else if (clBinary()->loadLlvmBinary(llvmBinary_, elfSectionType_) &&
-                 clBinary()->isRecompilable(llvmBinary_, amd::OclElf::CAL_PLATFORM)) {
+                 clBinary()->isRecompilable(llvmBinary_, amd::Elf::CAL_PLATFORM)) {
         char* section;
         size_t sz;
 
@@ -205,12 +205,11 @@ bool NullProgram::linkImpl(amd::option::Options* options) {
         }
 
         if (clBinary()->saveSOURCE() &&
-            clBinary()->elfIn()->getSection(amd::OclElf::SOURCE, &section, &sz)) {
-          clBinary()->elfOut()->addSection(amd::OclElf::SOURCE, section, sz);
+            clBinary()->elfIn()->getSection(amd::Elf::SOURCE, &section, &sz)) {
+          clBinary()->elfOut()->addSection(amd::Elf::SOURCE, section, sz);
         }
         if (clBinary()->saveLLVMIR()) {
-          clBinary()->elfOut()->addSection(elfSectionType_, llvmBinary_.data(), llvmBinary_.size(),
-                                           false);
+          clBinary()->elfOut()->addSection(elfSectionType_, llvmBinary_.data(), llvmBinary_.size());
         }
       } else {
         buildLog_ += "Internal error: Input OpenCL binary is not for the target!\n";
@@ -239,7 +238,7 @@ bool NullProgram::linkImpl(amd::option::Options* options) {
     size_t dbgSize = debugILStr.size();
     // Add an IL section that contains debug information and is the
     // output of LLVM codegen.
-    clBinary()->elfOut()->addSection(amd::OclElf::ILDEBUG, dbgSec, dbgSize);
+    clBinary()->elfOut()->addSection(amd::Elf::ILDEBUG, dbgSec, dbgSize);
 
     if ((dbgSize > 0) && options->isDumpFlagSet(amd::option::DUMP_DEBUGIL)) {
       std::string debugilWithLine;
@@ -275,7 +274,7 @@ bool NullProgram::linkImpl(amd::option::Options* options) {
         continue;
       }
       clBinary()->elfOut()->addSection(
-          static_cast<amd::OclElf::oclElfSections>(x + amd::OclElf::DEBUG_INFO), dbgSec, dbgSize);
+          static_cast<amd::Elf::ElfSections>(x + amd::Elf::DEBUG_INFO), dbgSec, dbgSize);
     }
 
   }
@@ -410,7 +409,7 @@ bool NullProgram::linkImpl(amd::option::Options* options) {
           aStream << "__OpenCL_" << baseFunc->name_ << "_fmetadata";
           std::string metaName = aStream.str();
           // Save metadata symbols in .rodata
-          if (!clBinary()->elfOut()->addSymbol(amd::OclElf::RODATA, metaName.c_str(),
+          if (!clBinary()->elfOut()->addSymbol(amd::Elf::RODATA, metaName.c_str(),
                                                metadataStr.data(), metadataStr.size())) {
             buildLog_ += "Internal error: addSymbol failed!\n";
             LogError("AddSymbol failed");
@@ -437,7 +436,7 @@ bool NullProgram::linkImpl(amd::option::Options* options) {
 bool NullProgram::linkImpl(const std::vector<device::Program*>& inputPrograms,
                            amd::option::Options* options, bool createLibrary) {
   std::vector<std::string*> llvmBinaries(inputPrograms.size());
-  std::vector<amd::OclElf::oclElfSections> elfSectionType(inputPrograms.size());
+  std::vector<amd::Elf::ElfSections> elfSectionType(inputPrograms.size());
   auto it = inputPrograms.cbegin();
   const auto itEnd = inputPrograms.cend();
   for (size_t i = 0; it != itEnd; ++it, ++i) {
@@ -464,7 +463,7 @@ bool NullProgram::linkImpl(const std::vector<device::Program*>& inputPrograms,
         return false;
       }
 
-      if (!program->clBinary()->isRecompilable(program->llvmBinary_, amd::OclElf::CAL_PLATFORM)) {
+      if (!program->clBinary()->isRecompilable(program->llvmBinary_, amd::Elf::CAL_PLATFORM)) {
         buildLog_ +=
             "Internal error: Input OpenCL binary is not"
             " for the target!\n";
@@ -477,8 +476,8 @@ bool NullProgram::linkImpl(const std::vector<device::Program*>& inputPrograms,
                 size_t sz;
 
                 if (clBinary()->saveSOURCE() &&
-                    clBinary()->elfIn()->getSection(amd::OclElf::SOURCE, &section, &sz)) {
-                    clBinary()->elfOut()->addSection(amd::OclElf::SOURCE, section, sz);
+                    clBinary()->elfIn()->getSection(amd::Elf::SOURCE, &section, &sz)) {
+                    clBinary()->elfOut()->addSection(amd::Elf::SOURCE, section, sz);
                 }
 #endif
     }
@@ -505,9 +504,9 @@ bool NullProgram::linkImpl(const std::vector<device::Program*>& inputPrograms,
     }
 
     _bif_sections_enum_0_8 aclTypeUsed;
-    if (elfSectionType[i] == amd::OclElf::SPIRV) {
+    if (elfSectionType[i] == amd::Elf::SPIRV) {
       aclTypeUsed = aclSPIRV;
-    } else if (elfSectionType[i] == amd::OclElf::SPIR) {
+    } else if (elfSectionType[i] == amd::Elf::SPIR) {
       aclTypeUsed = aclSPIR;
     } else {
       aclTypeUsed = aclLLVMIR;
@@ -542,9 +541,9 @@ bool NullProgram::linkImpl(const std::vector<device::Program*>& inputPrograms,
 
       size_t size = 0;
       _bif_sections_enum_0_8 aclTypeUsed;
-      if (elfSectionType[0] == amd::OclElf::SPIRV && numLibs == 0) {
+      if (elfSectionType[0] == amd::Elf::SPIRV && numLibs == 0) {
         aclTypeUsed = aclSPIRV;
-      } else if (elfSectionType[0] == amd::OclElf::SPIR && numLibs == 0) {
+      } else if (elfSectionType[0] == amd::Elf::SPIR && numLibs == 0) {
         aclTypeUsed = aclSPIR;
       } else {
         aclTypeUsed = aclLLVMIR;
@@ -556,7 +555,7 @@ bool NullProgram::linkImpl(const std::vector<device::Program*>& inputPrograms,
       }
 
       llvmBinary_.assign(reinterpret_cast<const char*>(llvmir), size);
-      elfSectionType_ = amd::OclElf::LLVMIR;
+      elfSectionType_ = amd::Elf::LLVMIR;
     } while (0);
 
   std::for_each(libs.begin(), libs.end(), std::ptr_fun(aclBinaryFini));
@@ -567,8 +566,7 @@ bool NullProgram::linkImpl(const std::vector<device::Program*>& inputPrograms,
   }
 
   if (clBinary()->saveLLVMIR()) {
-    clBinary()->elfOut()->addSection(amd::OclElf::LLVMIR, llvmBinary_.data(), llvmBinary_.size(),
-                                     false);
+    clBinary()->elfOut()->addSection(amd::Elf::LLVMIR, llvmBinary_.data(), llvmBinary_.size());
     // store the original link options
     clBinary()->storeLinkOptions(linkOptions_);
 
@@ -603,7 +601,7 @@ bool NullProgram::linkImpl(const std::vector<device::Program*>& inputPrograms,
     size_t dbgSize = debugILStr.size();
     // Add an IL section that contains debug information and is the
     // output of LLVM codegen.
-    clBinary()->elfOut()->addSection(amd::OclElf::ILDEBUG, dbgSec, dbgSize);
+    clBinary()->elfOut()->addSection(amd::Elf::ILDEBUG, dbgSec, dbgSize);
 
     if ((dbgSize > 0) && options->isDumpFlagSet(amd::option::DUMP_DEBUGIL)) {
       std::string debugilWithLine;
@@ -639,7 +637,7 @@ bool NullProgram::linkImpl(const std::vector<device::Program*>& inputPrograms,
         continue;
       }
       clBinary()->elfOut()->addSection(
-          static_cast<amd::OclElf::oclElfSections>(x + amd::OclElf::DEBUG_INFO), dbgSec, dbgSize);
+          static_cast<amd::Elf::ElfSections>(x + amd::Elf::DEBUG_INFO), dbgSec, dbgSize);
     }
 
   }
@@ -774,7 +772,7 @@ bool NullProgram::linkImpl(const std::vector<device::Program*>& inputPrograms,
           aStream << "__OpenCL_" << baseFunc->name_ << "_fmetadata";
           std::string metaName = aStream.str();
           // Save metadata symbols in .rodata
-          if (!clBinary()->elfOut()->addSymbol(amd::OclElf::RODATA, metaName.c_str(),
+          if (!clBinary()->elfOut()->addSymbol(amd::Elf::RODATA, metaName.c_str(),
                                                metadataStr.data(), metadataStr.size())) {
             buildLog_ += "Internal error: addSymbol failed!\n";
             LogError("AddSymbol failed");

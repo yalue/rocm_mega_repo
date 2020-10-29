@@ -8,6 +8,15 @@ set(BUILD_SHARED_LIBS ON  CACHE BOOL "Build shared library (.so) or static lib (
 
 set(CMAKE_MODULE_PATH ${CMAKE_MODULE_PATH} "${CMAKE_CURRENT_SOURCE_DIR}/cmake")
 
+if(NOT DEFINED __HIP_ENABLE_PCH)
+  set(__HIP_ENABLE_PCH ON CACHE BOOL "enable/disable pre-compiled hip headers")
+endif()
+
+if(${__HIP_ENABLE_PCH})
+  set(_pchStatus 1)
+else()
+  set(_pchStatus 0)
+endif()
 #############################
 # Options
 #############################
@@ -98,7 +107,6 @@ else ()
    set (HIP_LIB_VERSION_PATCH ${HIP_VERSION_PATCH})
 endif ()
 set (HIP_LIB_VERSION_STRING "${HIP_LIB_VERSION_MAJOR}.${HIP_LIB_VERSION_MINOR}.${HIP_LIB_VERSION_PATCH}")
-
 if (DEFINED ENV{ROCM_RPATH})
     set (CMAKE_INSTALL_RPATH "$ENV{ROCM_RPATH}")
     set (CMAKE_BUILD_WITH_INSTALL_RPATH TRUE)
@@ -221,10 +229,8 @@ endif()
 if(CMAKE_INSTALL_PREFIX_INITIALIZED_TO_DEFAULT)
     if(CMAKE_BUILD_TYPE MATCHES Debug)
         set(CMAKE_INSTALL_PREFIX ${CMAKE_CURRENT_SOURCE_DIR} CACHE PATH "Installation path for HIP" FORCE)
-    elseif(CMAKE_BUILD_TYPE MATCHES Release)
-        set(CMAKE_INSTALL_PREFIX ${HIP_DEFAULT_INSTALL_PREFIX} CACHE PATH "Installation path for HIP" FORCE)
     else()
-        message(FATAL_ERROR "Invalid CMAKE_BUILD_TYPE specified. Valid values are Debug and Release")
+        set(CMAKE_INSTALL_PREFIX ${HIP_DEFAULT_INSTALL_PREFIX} CACHE PATH "Installation path for HIP" FORCE)
     endif()
 endif()
 
@@ -452,6 +458,7 @@ set(_versionInfoHeader
 #define HIP_VERSION_MINOR ${HIP_VERSION_MINOR}
 #define HIP_VERSION_PATCH ${HIP_VERSION_GITDATE}
 #define HIP_VERSION       (HIP_VERSION_MAJOR * 100 + HIP_VERSION_MINOR)\n
+#define __HIP_HAS_GET_PCH ${_pchStatus}\n
 #endif\n
 ")
 file(WRITE "${PROJECT_BINARY_DIR}/include/hip/hip_version.h" ${_versionInfoHeader})
@@ -476,9 +483,6 @@ endif()
 if(HIP_PLATFORM STREQUAL "hcc" OR HIP_PLATFORM STREQUAL "rocclr")
     install(FILES ${PROJECT_BINARY_DIR}/.hipInfo DESTINATION lib)
 endif()
-
-# Install .hipInfo
-install(FILES ${PROJECT_BINARY_DIR}/.hipInfo DESTINATION lib)
 
 # Install .hipVersion
 install(FILES ${PROJECT_BINARY_DIR}/.hipVersion DESTINATION bin)
@@ -668,8 +672,11 @@ endif()
 # Testing steps
 #############################
 # Target: test
-set(HIP_ROOT_DIR ${CMAKE_INSTALL_PREFIX})
+set(HIP_ROOT_DIR ${CMAKE_CURRENT_BINARY_DIR})
 set(HIP_SRC_PATH ${CMAKE_CURRENT_SOURCE_DIR})
+if(HIP_PLATFORM STREQUAL "nvcc")
+	execute_process(COMMAND "${CMAKE_COMMAND}" -E copy_directory "${HIP_SRC_PATH}/include" "${CMAKE_CURRENT_BINARY_DIR}/include" RESULT_VARIABLE RUN_HIT ERROR_QUIET)
+endif()
 execute_process(COMMAND "${CMAKE_COMMAND}" -E copy_directory "${HIP_SRC_PATH}/cmake" "${HIP_ROOT_DIR}/cmake" RESULT_VARIABLE RUN_HIT ERROR_QUIET)
 if(${RUN_HIT} EQUAL 0)
     execute_process(COMMAND "${CMAKE_COMMAND}" -E copy_directory "${HIP_SRC_PATH}/bin" "${HIP_ROOT_DIR}/bin" RESULT_VARIABLE RUN_HIT ERROR_QUIET)
@@ -712,7 +719,7 @@ endif()
 #############################
 # Target: clang
 if(HIP_HIPCC_EXECUTABLE)
-    add_custom_target(analyze 
+    add_custom_target(analyze
         COMMAND ${HIP_HIPCC_EXECUTABLE} -fvisibility=hidden -fvisibility-inlines-hidden --analyze --analyzer-outputtext  -isystem /opt/rocm/include ${HIP_HCC_BUILD_FLAGS} -Wno-unused-command-line-argument -I/opt/rocm/include -c  src/*.cpp -Iinclude/ -I./
     WORKING_DIRECTORY ${HIP_SRC_PATH})
     if(CPPCHECK_EXE)

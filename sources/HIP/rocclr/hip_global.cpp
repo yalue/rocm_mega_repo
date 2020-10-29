@@ -5,6 +5,15 @@
 #include "hip_code_object.hpp"
 #include "platform/program.hpp"
 
+#ifdef __HIP_ENABLE_PCH
+extern const char __hip_pch[];
+extern unsigned __hip_pch_size;
+void __hipGetPCH(const char** pch, unsigned int *size) {
+  *pch = __hip_pch;
+  *size = __hip_pch_size;
+}
+#endif
+
 namespace hip {
 
 //Device Vars
@@ -14,20 +23,20 @@ DeviceVar::DeviceVar(std::string name, hipModule_t hmod) : shadowVptr(nullptr), 
   amd::Program* program = as_amd(reinterpret_cast<cl_program>(hmod));
   device::Program* dev_program = program->getDeviceProgram(*hip::getCurrentDevice()->devices()[0]);
   if (dev_program == nullptr) {
-    DevLogPrintfError("Cannot get Device Function for module: 0x%x \n", hmod);
-    guarantee(false);
+    DevLogPrintfError("Cannot get Device Program for module: 0x%x \n", hmod);
+    guarantee(false && "Cannot get Device Program");
   }
 
   if(!dev_program->createGlobalVarObj(&amd_mem_obj_, &device_ptr_, &size_, name.c_str())) {
     DevLogPrintfError("Cannot create Global Var obj for symbol: %s \n", name.c_str());
-    guarantee(false);
+    guarantee(false && "Cannot create GlobalVar Obj");
   }
 
   // Handle size 0 symbols
   if (size_ != 0) {
     if (amd_mem_obj_ == nullptr || device_ptr_ == nullptr) {
       DevLogPrintfError("Cannot get memory for creating device Var: %s", name.c_str());
-      guarantee(false);
+      guarantee(false && "Cannot get memory for creating device var");
     }
     amd::MemObjMap::AddMemObj(device_ptr_, amd_mem_obj_);
   }
@@ -57,13 +66,13 @@ DeviceFunc::DeviceFunc(std::string name, hipModule_t hmod) : dflock_("function l
   const amd::Symbol *symbol = program->findSymbol(name.c_str());
   if (symbol == nullptr) {
     DevLogPrintfError("Cannot find Symbol with name: %s \n", name.c_str());
-    guarantee(false);
+    guarantee(false && "Cannot find Symbol");
   }
 
   kernel_ = new amd::Kernel(*program, *symbol, name);
   if (kernel_ == nullptr) {
     DevLogPrintfError("Cannot create kernel with name: %s \n", name.c_str());
-    guarantee(false);
+    guarantee(false && "Cannot Create kernel");
   }
 }
 
@@ -74,7 +83,7 @@ DeviceFunc::~DeviceFunc() {
 }
 
 //Abstract functions
-Function::Function(std::string name, FatBinaryInfoType* modules)
+Function::Function(std::string name, FatBinaryInfo** modules)
                    : name_(name), modules_(modules) {
   dFunc_.resize(g_devices.size());
 }
@@ -88,7 +97,7 @@ Function::~Function() {
 }
 
 hipError_t Function::getDynFunc(hipFunction_t* hfunc, hipModule_t hmod) {
-  guarantee(dFunc_.size() == g_devices.size());
+  guarantee((dFunc_.size() == g_devices.size()) && "dFunc Size mismatch");
   if (dFunc_[ihipGetDevice()] == nullptr) {
     dFunc_[ihipGetDevice()] = new DeviceFunc(name_, hmod);
   }
@@ -98,22 +107,14 @@ hipError_t Function::getDynFunc(hipFunction_t* hfunc, hipModule_t hmod) {
 }
 
 hipError_t Function::getStatFunc(hipFunction_t* hfunc, int deviceId) {
-  guarantee(modules_ != nullptr);
-  guarantee(deviceId >= 0);
-  guarantee(static_cast<size_t>(deviceId) < modules_->size());
+  guarantee(modules_ != nullptr && "Module not initialized");
 
-  hipModule_t module = (*modules_)[deviceId].first;
-  FatBinaryMetaInfo* fb_meta = (*modules_)[deviceId].second;
-
-  if (!fb_meta->built()) {
-    IHIP_RETURN_ONFAIL(CodeObject::add_program(deviceId, module, fb_meta->binary_ptr(),
-                                               fb_meta->binary_size()));
-    IHIP_RETURN_ONFAIL(CodeObject::build_module(module, g_devices[deviceId]->devices()));
-    fb_meta->set_built();
-  }
+  hipModule_t hmod = nullptr;
+  (*modules_)->BuildProgram(deviceId);
+  (*modules_)->GetModule(deviceId, &hmod);
 
   if (dFunc_[deviceId] == nullptr) {
-    dFunc_[deviceId] = new DeviceFunc(name_, (*modules_)[deviceId].first);
+    dFunc_[deviceId] = new DeviceFunc(name_, hmod);
   }
   *hfunc = dFunc_[deviceId]->asHipFunction();
 
@@ -121,22 +122,14 @@ hipError_t Function::getStatFunc(hipFunction_t* hfunc, int deviceId) {
 }
 
 hipError_t Function::getStatFuncAttr(hipFuncAttributes* func_attr, int deviceId) {
-  guarantee(modules_ != nullptr);
-  guarantee(deviceId >= 0);
-  guarantee(static_cast<size_t>(deviceId) < modules_->size());
+  guarantee((modules_ != nullptr) && "Module not initialized");
 
-  hipModule_t module = (*modules_)[deviceId].first;
-  FatBinaryMetaInfo* fb_meta = (*modules_)[deviceId].second;
-
-  if (!fb_meta->built()) {
-    IHIP_RETURN_ONFAIL(CodeObject::add_program(deviceId, module, fb_meta->binary_ptr(),
-                                               fb_meta->binary_size()));
-    IHIP_RETURN_ONFAIL(CodeObject::build_module(module, g_devices[deviceId]->devices()));
-    fb_meta->set_built();
-  }
+  hipModule_t hmod = nullptr;
+  (*modules_)->BuildProgram(deviceId);
+  (*modules_)->GetModule(deviceId, &hmod);
 
   if (dFunc_[deviceId] == nullptr) {
-    dFunc_[deviceId] = new DeviceFunc(name_, (*modules_)[deviceId].first);
+    dFunc_[deviceId] = new DeviceFunc(name_, hmod);
   }
 
   const std::vector<amd::Device*>& devices = amd::Device::getDevices(CL_DEVICE_TYPE_GPU, false);
@@ -162,7 +155,7 @@ hipError_t Function::getStatFuncAttr(hipFuncAttributes* func_attr, int deviceId)
 
 //Abstract Vars
 Var::Var(std::string name, DeviceVarKind dVarKind, size_t size, int type, int norm,
-         FatBinaryInfoType* modules) : name_(name), dVarKind_(dVarKind), size_(size),
+         FatBinaryInfo** modules) : name_(name), dVarKind_(dVarKind), size_(size),
          type_(type), norm_(norm), modules_(modules) {
   dVar_.resize(g_devices.size());
 }
@@ -175,9 +168,11 @@ Var::~Var() {
 }
 
 hipError_t Var::getDeviceVar(DeviceVar** dvar, int deviceId, hipModule_t hmod) {
-  guarantee(deviceId >= 0);
-  guarantee(static_cast<size_t>(deviceId) < g_devices.size());
-  guarantee(dVar_.size() == g_devices.size());
+  guarantee((deviceId >= 0) && "Invalid DeviceId, less than zero");
+  guarantee((static_cast<size_t>(deviceId) < g_devices.size())
+            && "Invalid DeviceId, greater than no of code objects");
+  guarantee((dVar_.size() == g_devices.size())
+            && "Device Var not initialized to size");
 
   if (dVar_[deviceId] == nullptr) {
     dVar_[deviceId] = new DeviceVar(name_, hmod);
@@ -188,21 +183,16 @@ hipError_t Var::getDeviceVar(DeviceVar** dvar, int deviceId, hipModule_t hmod) {
 }
 
 hipError_t Var::getStatDeviceVar(DeviceVar** dvar, int deviceId) {
-  guarantee(deviceId >= 0);
-  guarantee(static_cast<size_t>(deviceId) < g_devices.size());
+  guarantee((deviceId >= 0) && "Invalid DeviceId, less than zero");
+  guarantee((static_cast<size_t>(deviceId) < g_devices.size())
+            && "Invalid DeviceId, greater than no of code objects");
 
-  hipModule_t module = (*modules_)[deviceId].first;
-  FatBinaryMetaInfo* fb_meta = (*modules_)[deviceId].second;
-
-  if (!fb_meta->built()) {
-    IHIP_RETURN_ONFAIL(CodeObject::add_program(deviceId, module, fb_meta->binary_ptr(),
-                                               fb_meta->binary_size()));
-    IHIP_RETURN_ONFAIL(CodeObject::build_module(module, g_devices[deviceId]->devices()));
-    fb_meta->set_built();
-  }
+  hipModule_t hmod = nullptr;
+  (*modules_)->BuildProgram(deviceId);
+  (*modules_)->GetModule(deviceId, &hmod);
 
   if (dVar_[deviceId] == nullptr) {
-    dVar_[deviceId] = new DeviceVar(name_, (*modules_)[deviceId].first);
+    dVar_[deviceId] = new DeviceVar(name_, hmod);
   }
 
   *dvar = dVar_[deviceId];

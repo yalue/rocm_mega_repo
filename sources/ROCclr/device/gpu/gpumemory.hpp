@@ -22,7 +22,6 @@
 #define GPUMEMORY_HPP_
 
 #include "top.hpp"
-#include "thread/atomic.hpp"
 #include "device/gpu/gpuresource.hpp"
 #include <map>
 
@@ -232,10 +231,10 @@ class Buffer : public gpu::Memory {
   Buffer& operator=(const Buffer&);
 
   //! The size of buffer element in bytes
-  static const size_t ElementSize = 4;
+  static constexpr size_t ElementSize = 4;
 
   //! The type of buffer element
-  static const cmSurfFmt ElementType = CM_SURF_FMT_R32I;
+  static constexpr cmSurfFmt ElementType = CM_SURF_FMT_R32I;
 };
 
 class Image : public gpu::Memory {

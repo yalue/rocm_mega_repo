@@ -49,8 +49,10 @@
 #include <iostream>
 #include <vector>
 #include <algorithm>
+#ifdef ROCCLR_SUPPORT_NUMA_POLICY
 #include <numaif.h>
-#endif  // WITHOUT_HSA_BACKEND
+#endif // ROCCLR_SUPPORT_NUMA_POLICY
+#endif // WITHOUT_HSA_BaCKEND
 
 #define OPENCL_VERSION_STR XSTR(OPENCL_MAJOR) "." XSTR(OPENCL_MINOR)
 #define OPENCL_C_VERSION_STR XSTR(OPENCL_C_MAJOR) "." XSTR(OPENCL_C_MINOR)
@@ -66,8 +68,6 @@ bool roc::Device::isHsaInitialized_ = false;
 std::vector<hsa_agent_t> roc::Device::gpu_agents_;
 std::vector<AgentInfo> roc::Device::cpu_agents_;
 
-const bool roc::Device::offlineDevice_ = false;
-const bool roc::NullDevice::offlineDevice_ = true;
 address Device::mg_sync_ = nullptr;
 
 static HsaDeviceId getHsaDeviceId(hsa_agent_t device, uint32_t& pci_id) {
@@ -142,6 +142,7 @@ Device::Device(hsa_agent_t bkendDevice)
     , vgpusAccess_("Virtual GPU List Ops Lock", true)
     , hsa_exclusive_gpu_access_(false)
     , queuePool_(QueuePriority::Total)
+    , coopHostcallBuffer_(nullptr)
     , numOfVgpus_(0) {
   group_segment_.handle = 0;
   system_segment_.handle = 0;
@@ -152,16 +153,15 @@ Device::Device(hsa_agent_t bkendDevice)
 }
 
 void Device::setupCpuAgent() {
-  uint32_t numaDistance = std::numeric_limits<uint32_t>::max();
+  int32_t numaDistance = std::numeric_limits<int32_t>::max();
   uint32_t index = 0; // 0 as default
   auto size = cpu_agents_.size();
   for (uint32_t i = 0; i < size; i++) {
-    uint32_t hops = 0;
-    uint32_t link_type = 0;
-    uint32_t distance = 0;
-    if (getNumaInfo(cpu_agents_[i].fine_grain_pool, &hops, &link_type, &distance)) {
-      if (distance < numaDistance) {
-        numaDistance = distance;
+    std::vector<amd::Device::LinkAttrType> link_attrs;
+    link_attrs.push_back(std::make_pair(LinkAttribute::kLinkDistance, 0));
+    if (findLinkInfo(cpu_agents_[i].fine_grain_pool, &link_attrs)) {
+      if (link_attrs[0].second < numaDistance) {
+        numaDistance = link_attrs[0].second;
         index = i;
       }
     }
@@ -233,6 +233,12 @@ Device::~Device() {
   }
 
   delete[] p2p_agents_list_;
+
+  if (coopHostcallBuffer_) {
+    disableHostcalls(coopHostcallBuffer_);
+    context().svmFree(coopHostcallBuffer_);
+    coopHostcallBuffer_ = nullptr;
+  }
 }
 bool NullDevice::initCompiler(bool isOffline) {
 #if defined(WITH_COMPILER_LIB)
@@ -288,8 +294,8 @@ bool NullDevice::init() {
     bool isOnline = false;
     // Check if the particular device is online
     for (unsigned int i = 0; i < devices.size(); i++) {
-      if (static_cast<NullDevice*>(devices[i])->deviceInfo_.hsaDeviceId_ ==
-          DeviceInfo[id].hsaDeviceId_) {
+      if (::strcmp(static_cast<NullDevice*>(devices[i])->deviceInfo_.machineTarget_,
+          DeviceInfo[id].machineTarget_) == 0) {
         isOnline = true;
       }
     }
@@ -448,11 +454,18 @@ bool Device::init() {
   if (ordinals[0] != '\0') {
     size_t end, pos = 0;
     std::vector<hsa_agent_t> valid_agents;
+    std::set<size_t> valid_indexes;
     do {
       bool deviceIdValid = true;
       end = ordinals.find_first_of(',', pos);
-      int index = atoi(ordinals.substr(pos, end - pos).c_str());
-      if (index < 0 || static_cast<size_t>(index) >= gpu_agents_.size()) {
+      if (end == std::string::npos) {
+        end = ordinals.size();
+      }
+      std::string strIndex = ordinals.substr(pos, end - pos);
+      int index = atoi(strIndex.c_str());
+      if (index < 0 ||
+          static_cast<size_t>(index) >= gpu_agents_.size() ||
+          strIndex != std::to_string(index)) {
         deviceIdValid = false;
       }
 
@@ -461,10 +474,13 @@ bool Device::init() {
         // has to be discarded
         break;
       } else {
-        valid_agents.push_back(gpu_agents_[index]);
+        if (valid_indexes.find(index) == valid_indexes.end()) {
+          valid_agents.push_back(gpu_agents_[index]);
+          valid_indexes.insert(index);
+        }
       }
       pos = end + 1;
-    } while (end != std::string::npos);
+    } while (pos < ordinals.size());
     gpu_agents_ = valid_agents;
   }
 
@@ -970,22 +986,6 @@ bool Device::populateOCLDeviceConstants() {
   info_.gfxipMinor_ = deviceInfo_.gfxipMinor_;
   info_.gfxipStepping_ = deviceInfo_.gfxipStepping_;
 
-  // TODO: gfxipVersion_ and sramEccEnabled_ will be removed when Target ID
-  // feature is fully implemented
-  info_.gfxipVersion_ = info_.gfxipMajor_ * 100 + info_.gfxipMinor_ * 10 + info_.gfxipStepping_;
-
-  if ((info_.gfxipMajor_ == 9) && (info_.gfxipMinor_ == 0)) {
-    switch (info_.gfxipStepping_) {
-    case 6:
-    case 8:
-      info_.sramEccEnabled_ = true;
-      break;
-    default:
-      info_.sramEccEnabled_ = false;
-      break;
-    }
-  }
-
   char device_name[64] = {0};
   if (HSA_STATUS_SUCCESS == hsa_agent_get_info(_bkendDevice,
                                                (hsa_agent_info_t)HSA_AMD_AGENT_INFO_PRODUCT_NAME,
@@ -1043,6 +1043,14 @@ bool Device::populateOCLDeviceConstants() {
           &info_.maxMemoryClockFrequency_)) {
       return false;
   }
+
+  if (HSA_STATUS_SUCCESS !=
+      hsa_agent_get_info(_bkendDevice,
+                         static_cast<hsa_agent_info_t>(HSA_AMD_AGENT_INFO_MEMORY_WIDTH),
+                         &info_.globalMemChannels_)) {
+    return false;
+  }
+  assert(info_.globalMemChannels_ > 0);
 
   setupCpuAgent();
 
@@ -1134,13 +1142,12 @@ bool Device::populateOCLDeviceConstants() {
 
   freeMem_ = info_.globalMemSize_;
 
-  // Make sure the max allocation size is not larger than the available
-  // memory size.
+  // Make sure the max allocation size is not larger than the available memory size.
   info_.maxMemAllocSize_ = std::min(info_.maxMemAllocSize_, info_.globalMemSize_);
+  info_.maxMemAllocSize_ = amd::alignDown(info_.maxMemAllocSize_, sizeof(uint64_t));
 
-  /*make sure we don't run anything over 8 params for now*/
-  info_.maxParameterSize_ = 1024;  // [TODO]: CAL stack values: 1024*
-  // constant
+  // make sure we don't run anything over 8 params for now
+  info_.maxParameterSize_ = 1024;
 
   uint32_t max_work_group_size = 0;
   if (HSA_STATUS_SUCCESS !=
@@ -1732,6 +1739,9 @@ void* Device::hostAgentAlloc(size_t size, const AgentInfo& agentInfo, bool atomi
 
 void* Device::hostNumaAlloc(size_t size, size_t alignment, bool atomics) const {
   void* ptr = nullptr;
+#ifndef ROCCLR_SUPPORT_NUMA_POLICY
+  ptr = hostAlloc(size, alignment, atomics);
+#else
   int mode = MPOL_DEFAULT;
   unsigned long nodeMask = 0;
   auto cpuCount = cpu_agents_.size();
@@ -1762,6 +1772,7 @@ void* Device::hostNumaAlloc(size_t size, size_t alignment, bool atomics) const {
       //  All other modes fall back to default mode
       ptr = hostAlloc(size, alignment, atomics);
   }
+#endif // ROCCLR_SUPPORT_NUMA_POLICY
   return ptr;
 }
 
@@ -1807,6 +1818,16 @@ void Device::updateFreeMemory(size_t size, bool free) {
     freeMem_ += size;
   }
   else {
+    if (size > freeMem_) {
+      // To avoid underflow of the freeMem_
+      // This can happen if the free mem tracked is inaccurate, as some allocations can happen
+      // directly via ROCr
+      ClPrint(amd::LOG_ERROR, amd::LOG_ALWAYS,
+             "Free memory set to zero on device 0x%lx, requested size = 0x%x, freeMem_ = 0x%x",
+             this, size, freeMem_.load());
+      freeMem_ = 0;
+      return;
+    }
     freeMem_ -= size;
   }
   ClPrint(amd::LOG_INFO, amd::LOG_MEM, "device=0x%lx, freeMem_ = 0x%x", this, freeMem_.load());
@@ -2008,7 +2029,7 @@ bool Device::GetSvmAttributes(void** data, size_t* data_sizes, int* attributes,
 #if AMD_HMM_SUPPORT
   std::vector<hsa_amd_svm_attribute_pair_t> attr;
 
-  for (int i = 0; i < num_attributes; ++i) {
+  for (size_t i = 0; i < num_attributes; ++i) {
     switch (attributes[i]) {
       case amd::MemRangeAttribute::ReadMostly:
         attr.push_back({HSA_AMD_SVM_ATTRIB_READ_ONLY, 0});
@@ -2324,20 +2345,26 @@ void Device::releaseQueue(hsa_queue_t* queue) {
   hsa_queue_destroy(queue);
 }
 
-void* Device::getOrCreateHostcallBuffer(hsa_queue_t* queue) {
+void* Device::getOrCreateHostcallBuffer(hsa_queue_t* queue, bool coop_queue) {
   decltype(queuePool_)::value_type::iterator qIter;
-  for (auto& it : queuePool_) {
-    qIter = it.find(queue);
-    if (qIter != it.end()) {
-      break;
+
+  if (!coop_queue) {
+    for (auto &it : queuePool_) {
+      qIter = it.find(queue);
+      if (qIter != it.end()) {
+        break;
+      }
     }
-  }
 
-  assert(qIter != queuePool_[QueuePriority::High].end());
+    assert(qIter != queuePool_[QueuePriority::High].end());
 
-  auto& qInfo = qIter->second;
-  if (qInfo.hostcallBuffer_) {
-    return qInfo.hostcallBuffer_;
+    if (qIter->second.hostcallBuffer_) {
+      return qIter->second.hostcallBuffer_;
+    }
+  } else {
+    if (coopHostcallBuffer_) {
+      return coopHostcallBuffer_;
+    }
   }
 
   // The number of packets required in each buffer is at least equal to the
@@ -2356,7 +2383,11 @@ void* Device::getOrCreateHostcallBuffer(hsa_queue_t* queue) {
   }
   ClPrint(amd::LOG_INFO, amd::LOG_QUEUE, "Created hostcall buffer %p for hardware queue %p", buffer,
           queue);
-  qInfo.hostcallBuffer_ = buffer;
+  if (!coop_queue) {
+    qIter->second.hostcallBuffer_ = buffer;
+  } else {
+    coopHostcallBuffer_ = buffer;
+  }
   if (!enableHostcalls(buffer, numPackets)) {
     ClPrint(amd::LOG_ERROR, amd::LOG_QUEUE, "Failed to register hostcall buffer %p with listener",
             buffer);
@@ -2365,63 +2396,122 @@ void* Device::getOrCreateHostcallBuffer(hsa_queue_t* queue) {
   return buffer;
 }
 
-bool Device::findLinkTypeAndHopCount(amd::Device* other_device,
-                                     uint32_t* link_type, uint32_t* hop_count) {
-  uint32_t distance = 0;
-  return getNumaInfo((static_cast<roc::Device*>(other_device))->gpuvm_segment_,
-                     hop_count, link_type, &distance);
+bool Device::findLinkInfo(const amd::Device& other_device,
+                          std::vector<LinkAttrType>* link_attrs) {
+  return findLinkInfo((static_cast<const roc::Device*>(&other_device))->gpuvm_segment_,
+                       link_attrs);
 }
 
-bool Device::getNumaInfo(const hsa_amd_memory_pool_t& pool, uint32_t* hop_count,
-                         uint32_t* link_type, uint32_t* numa_distance) const {
-  uint32_t hops = 0;
+bool Device::findLinkInfo(const hsa_amd_memory_pool_t& pool,
+                          std::vector<LinkAttrType>* link_attrs) {
 
-  if (!pool.handle) {
+  if ((!pool.handle) || (link_attrs == nullptr)) {
     return false;
   }
 
-  hsa_status_t res = hsa_amd_agent_memory_pool_get_info(_bkendDevice, pool,
-      HSA_AMD_AGENT_MEMORY_POOL_INFO_NUM_LINK_HOPS, &hops);
-  if (res != HSA_STATUS_SUCCESS) {
+  // Retrieve the hops between 2 devices.
+  int32_t hops = 0;
+  hsa_status_t hsa_status = hsa_amd_agent_memory_pool_get_info(_bkendDevice, pool,
+                            HSA_AMD_AGENT_MEMORY_POOL_INFO_NUM_LINK_HOPS, &hops);
+
+  if (hsa_status != HSA_STATUS_SUCCESS) {
+    DevLogPrintfError("Cannot get hops info, hsa failed with status: %d", hsa_status);
     return false;
   }
 
   if (hops < 0) {
     return false;
-  } else if (hops == 0) {
-    //This pool is on its agent
-    *hop_count = 0;  // No hop
-    *link_type = -1; // No link, so type is meaningless, caller should ignore it.
-    *numa_distance = 0;
+  }
+
+  // The pool is on its agent
+  if (hops == 0) {
+    for (auto& link_attr : (*link_attrs)) {
+      switch (link_attr.first) {
+        case kLinkLinkType: {
+          // No link, so type is meaningless,
+          // caller should ignore it
+          link_attr.second = -1;
+          break;
+        }
+        case kLinkHopCount: {
+          // no hop
+          link_attr.second = 0;
+          break;
+        }
+        case kLinkDistance: {
+          // distance is zero, if no hops
+          link_attr.second = 0;
+          break;
+        }
+        case kLinkAtomicSupport: {
+          // atomic support if its on the same agent
+          link_attr.second = 1;
+          break;
+        }
+        default: {
+          DevLogPrintfError("Invalid LinkAttribute: %d ", link_attr.first);
+          return false;
+        }
+      }
+    }
     return true;
   }
 
-  hsa_amd_memory_pool_link_info_t *link_info = new hsa_amd_memory_pool_link_info_t[hops];
+  // Retrieve link info on the pool.
+  hsa_amd_memory_pool_link_info_t* link_info = new hsa_amd_memory_pool_link_info_t[hops];
+  hsa_status = hsa_amd_agent_memory_pool_get_info(_bkendDevice, pool,
+               HSA_AMD_AGENT_MEMORY_POOL_INFO_LINK_INFO, link_info);
 
-  res = hsa_amd_agent_memory_pool_get_info(_bkendDevice, pool,
-        HSA_AMD_AGENT_MEMORY_POOL_INFO_LINK_INFO, link_info);
-
-  if (res == HSA_STATUS_SUCCESS) {
-    // Now RocR always set hops=1 between two different devices.
-    // If RocR changes the behavior, we need revisit here.
-    *link_type = link_info[0].link_type;
-
-    uint32_t distance = 0;
-    for (uint32_t i = 0; i < hops; i++) {
-      distance += link_info[i].numa_distance;
-    }
-    *numa_distance = distance;
-
-    // The following logics will be subject to change in rocm3.7
-    uint32_t oneHopDistance = 20; // Default to PCIE
-    if (*link_type == HSA_AMD_LINK_INFO_TYPE_XGMI) {
-      oneHopDistance = 15;
-    }
-    *hop_count = distance/oneHopDistance;
+  if (hsa_status != HSA_STATUS_SUCCESS) {
+    DevLogPrintfError("Cannot retrieve link info, hsa failed with status: %d", hsa_status);
+    delete[] link_info;
+    return false;
   }
 
-  delete [] link_info;
-  return res == HSA_STATUS_SUCCESS;
+  for (auto& link_attr : (*link_attrs)) {
+    switch (link_attr.first) {
+      case kLinkLinkType: {
+        link_attr.second = static_cast<int32_t>(link_info[0].link_type);
+        break;
+      }
+      case kLinkHopCount: {
+        uint32_t distance = 0;
+        // Because of Rocrs limitation hops is set to 1 always between two different devices
+        // If Rocr Changes the behaviour revisit this logic
+        for (size_t hop_idx = 0; hop_idx < static_cast<size_t>(hops); ++hop_idx) {
+          distance += link_info[hop_idx].numa_distance;
+        }
+        uint32_t oneHopDistance
+          = (link_info[0].link_type == HSA_AMD_LINK_INFO_TYPE_XGMI) ? 15 : 20;
+        link_attr.second = static_cast<int32_t>(distance/oneHopDistance);
+        break;
+      }
+      case kLinkDistance: {
+        uint32_t distance = 0;
+        // Sum of distances between hops
+        for (size_t hop_idx = 0; hop_idx < static_cast<size_t>(hops); ++hop_idx) {
+          distance += link_info[hop_idx].numa_distance;
+        }
+        link_attr.second = static_cast<int32_t>(distance);
+        break;
+      }
+      case kLinkAtomicSupport: {
+        // if either of the atomic is supported
+        link_attr.second = static_cast<int32_t>(link_info[0].atomic_support_64bit
+                                                || link_info[0].atomic_support_32bit);
+        break;
+      }
+      default: {
+        DevLogPrintfError("Invalid LinkAttribute: %d ", link_attr.first);
+        delete[] link_info;
+        return false;
+      }
+    }
+  }
+
+  delete[] link_info;
+
+  return true;
 }
 
 } // namespace roc

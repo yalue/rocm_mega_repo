@@ -297,7 +297,7 @@ void RunCmdTemplateDispatch(
 }
 \n
 __kernel void
-scheduler(
+__amd_rocclr_scheduler(
     __global void * queue,
     __global void * params,
     uint paramIdx)

@@ -22,7 +22,6 @@
 #define MONITOR_HPP_
 
 #include "top.hpp"
-#include "thread/atomic.hpp"
 #include "thread/semaphore.hpp"
 #include "thread/thread.hpp"
 
@@ -74,10 +73,10 @@ class Monitor : public HeapObject {
   typedef details::SimplyLinkedNode<Semaphore*, StackObject> LinkedNode;
 
  private:
-  static const intptr_t kLockBit = 0x1;
+  static constexpr intptr_t kLockBit = 0x1;
 
-  static const int kMaxSpinIter = 55;      //!< Total number of spin iterations.
-  static const int kMaxReadSpinIter = 50;  //!< Read iterations before yielding
+  static constexpr int kMaxSpinIter = 55;      //!< Total number of spin iterations.
+  static constexpr int kMaxReadSpinIter = 50;  //!< Read iterations before yielding
 
   /*! Linked list of semaphores the contending threads are waiting on
    *  and main lock.
@@ -228,6 +227,11 @@ inline void Monitor::unlock() {
   while (!contendersList_.compare_exchange_weak(ptr, ptr & ~kLockBit, std::memory_order_acq_rel,
                                                 std::memory_order_acquire))
     ;
+
+  // A StoreLoad barrier is required to make sure future loads do not happen before the
+  // contendersList_ store is published.
+  std::atomic_thread_fence(std::memory_order_seq_cst);
+
   //
   // We succeeded the CAS from locked to unlocked.
   // This is the end of the critical region.

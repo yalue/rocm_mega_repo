@@ -14,14 +14,29 @@ export PROJECT_TOP_DIR="$(pwd)"
 cd sources
 export ROCclr_DIR="$(readlink -f ROCclr)"
 export OPENCL_DIR="$(readlink -f ROCm-OpenCL-Runtime)"
+cd "$PROJECT_TOP_DIR"
 
-echo -e "\nBuilding ROCclr\n"
-cd ROCclr
+echo -e "\nBuilding ROCR-Runtime\n"
+cd sources/ROCR-Runtime/src
 rm -rf build
 mkdir build
 cd build
 cmake \
-	-DCMAKE_BUILD_TYPE=Release \
+	-DCMAKE_BUILD_TYPE=RelWithDebInfo \
+	-DCMAKE_INSTALL_PREFIX=/opt/rocm \
+	..
+make -j4
+sudo make install
+check_install_error "ROCR-Runtime"
+cd "$PROJECT_TOP_DIR"
+
+echo -e "\nBuilding ROCclr\n"
+cd sources/ROCclr
+rm -rf build
+mkdir build
+cd build
+cmake \
+	-DCMAKE_BUILD_TYPE=RelWithDebInfo \
 	-DOPENCL_DIR="$OPENCL_DIR" \
 	-DCMAKE_INSTALL_PREFIX=/opt/rocm/rocclr \
 	..
@@ -39,7 +54,7 @@ rm -rf build
 mkdir build
 cd build
 cmake \
-	-DCMAKE_BUILD_TYPE=Release \
+	-DCMAKE_BUILD_TYPE=RelWithDebInfo \
 	-DHIP_COMPILER=clang \
 	-DHIP_PLATFORM=rocclr \
 	-DCMAKE_PREFIX_PATH="$ROCclr_DIR/build" \

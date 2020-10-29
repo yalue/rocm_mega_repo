@@ -119,15 +119,12 @@ option(BUILD_PAL "Build PAL backend" OFF)
 if (BUILD_PAL)
   add_subdirectory(device/pal)
 
-  add_definitions(-DAMD_LIBELF)
   add_subdirectory(compiler/sc/HSAIL)
 else ()
   add_subdirectory(device/rocm)
 endif()
 
 set(COMGR_CPP device/comgrctx.cpp)
-
-add_subdirectory(elf/utils/libelf)
 
 set(oclruntime_src
   thread/thread.cpp
@@ -161,13 +158,11 @@ set(oclruntime_src
   os/os_posix.cpp
   compiler/lib/utils/options.cpp
   elf/elf.cpp
-  elf/elf_utils.cpp
   #${CMAKE_CURRENT_SOURCE_DIR}/compiler/tools/caching/cache.cpp
 )
 
 add_library(amdrocclr_static STATIC
-  ${oclruntime_src} ${COMGR_CPP}
-  $<TARGET_OBJECTS:oclelf_obj>)
+  ${oclruntime_src} ${COMGR_CPP})
 
 set_target_properties(amdrocclr_static PROPERTIES POSITION_INDEPENDENT_CODE ON)
 
@@ -180,17 +175,12 @@ target_include_directories(amdrocclr_static
     $<BUILD_INTERFACE:${PROJECT_SOURCE_DIR}/compiler/lib/include>
     $<BUILD_INTERFACE:${PROJECT_SOURCE_DIR}/compiler/lib>
     $<BUILD_INTERFACE:${PROJECT_SOURCE_DIR}/compiler/lib/backends/common>
-    $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/elf/utils/common>
-    $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/elf/utils/libelf>
+    $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/elf>
     $<BUILD_INTERFACE:${OPENCL_DIR}>
     # GL and EGL headers.
     $<BUILD_INTERFACE:${OPENCL_DIR}/khronos/headers>
     $<BUILD_INTERFACE:${OPENCL_DIR}/khronos/headers/opencl2.2>
-    $<TARGET_PROPERTY:amd_comgr,INTERFACE_INCLUDE_DIRECTORIES>
-  PRIVATE
-    $<TARGET_PROPERTY:oclelf_obj,INTERFACE_INCLUDE_DIRECTORIES>)
-
-target_compile_definitions(amdrocclr_static PRIVATE BSD_LIBELF)
+    $<TARGET_PROPERTY:amd_comgr,INTERFACE_INCLUDE_DIRECTORIES>)
 
 if(USE_COMGR_LIBRARY)
   # FIXME: This should not be part of the public interface. Downstream
@@ -216,7 +206,7 @@ if (BUILD_PAL)
 
   target_compile_definitions(amdrocclr_static PRIVATE WITH_PAL_DEVICE)
 
-  export(TARGETS amdrocclr_static rocclrpal amdhsaloader amdhsacode pal addrlib vam metrohash cwpack gpuopen ddCore mpack rapidjson
+  export(TARGETS amdrocclr_static rocclrpal amdhsaloader amdhsacode pal addrlib vam metrohash cwpack gpuopen ddCore tiny_printf mpack rapidjson
     FILE ${ROCCLR_TARGETS_PATH})
 else()
   target_compile_definitions(amdrocclr_static PRIVATE WITH_HSA_DEVICE)
@@ -235,6 +225,13 @@ if (UNIX)
     find_library(LIBRT rt)
     if (LIBRT)
         target_link_libraries(amdrocclr_static PUBLIC ${LIBRT})
+    endif()
+
+    find_library(LIBNUMA numa)
+    if (LIBNUMA)
+        target_compile_definitions(amdrocclr_static PUBLIC ROCCLR_SUPPORT_NUMA_POLICY)
+        target_link_libraries(amdrocclr_static PUBLIC ${LIBNUMA})
+        message(STATUS "Found: ${LIBNUMA}")
     endif()
 endif()
 #comment out as it's not available in cmake 3.5
