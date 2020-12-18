@@ -1,0 +1,137 @@
+diff --git a/drivers/gpu/drm/amd/amdkfd/kfd_chardev.c b/drivers/gpu/drm/amd/amdkfd/kfd_chardev.c
+index 8cc51cec988a..ee0aab32db90 100644
+--- a/drivers/gpu/drm/amd/amdkfd/kfd_chardev.c
++++ b/drivers/gpu/drm/amd/amdkfd/kfd_chardev.c
+@@ -33,6 +33,7 @@
+ #include <linux/time.h>
+ #include <linux/mm.h>
+ #include <linux/mman.h>
++#include <linux/pid.h>
+ #include <linux/dma-buf.h>
+ #include <asm/processor.h>
+ #include "kfd_priv.h"
+@@ -1764,6 +1765,63 @@ static int kfd_ioctl_smi_events(struct file *filep,
+ 	return kfd_smi_event_open(dev, &args->anon_fd);
+ }
+ 
++// Returns the kfd_proces associated with the given PID, or NULL if the process
++// isn't found.
++static struct kfd_process *kfd_get_process_by_pid(int pid)
++{
++	struct task_struct *target = get_pid_task(find_get_pid(pid),
++		PIDTYPE_PID);
++	if (!target) {
++		printk("KFD: Couldn't find task_struct for PID %d.\n", pid);
++		return NULL;
++	}
++	return kfd_get_process(target);
++}
++
++static int kfd_ioctl_evict_process_queues(struct file *filep,
++	struct kfd_process *p, void *data)
++{
++	struct kfd_process *target = NULL;
++	struct kfd_ioctl_evict_queues_args *args = data;
++	int pid = args->process_pid;
++	if (pid <= 0) return -EINVAL;
++	target = kfd_get_process_by_pid(pid);
++	if (!target) {
++		printk("KFD: Couldn't get kfd_process for eviction with PID "
++			"%d.\n", pid);
++		return -EINVAL;
++	}
++	if (kfd_process_evict_queues(target) != 0) {
++		printk("KFD: Failed evicting queues for PID %d.\n", pid);
++		return -EINVAL;
++	}
++	printk("KFD: Evicted queues for PID %d (PASID 0x%x).\n", pid,
++		target->pasid);
++	return 0;
++}
++
++static int kfd_ioctl_restore_process_queues(struct file *filep,
++	struct kfd_process *p, void *data)
++{
++	struct kfd_ioctl_restore_queues_args *args = data;
++	struct kfd_process *target = NULL;
++	int pid = args->process_pid;
++	if (pid <= 0) return -EINVAL;
++	target = kfd_get_process_by_pid(pid);
++	if (!target) {
++		printk("KFD: Couldn't get kfd_process for restore with PID "
++			"%d.\n", pid);
++		return -EINVAL;
++	}
++	if (kfd_process_restore_queues(target) != 0) {
++		printk("KFD: Failed restoring queues for PID %d.\n", pid);
++		return -EINVAL;
++	}
++	printk("KFD: Restored queues for PID %d (PASID 0x%x).\n", pid,
++		target->pasid);
++	return 0;
++}
++
+ #define AMDKFD_IOCTL_DEF(ioctl, _func, _flags) \
+ 	[_IOC_NR(ioctl)] = {.cmd = ioctl, .func = _func, .flags = _flags, \
+ 			    .cmd_drv = 0, .name = #ioctl}
+@@ -1862,6 +1920,12 @@ static const struct amdkfd_ioctl_desc amdkfd_ioctls[] = {
+ 
+ 	AMDKFD_IOCTL_DEF(AMDKFD_IOC_SMI_EVENTS,
+ 			kfd_ioctl_smi_events, 0),
++
++	AMDKFD_IOCTL_DEF(AMDKFD_IOC_EVICT_PROCESS_QUEUES,
++			kfd_ioctl_evict_process_queues, 0),
++
++	AMDKFD_IOCTL_DEF(AMDKFD_IOC_RESTORE_PROCESS_QUEUES,
++			kfd_ioctl_restore_process_queues, 0),
+ };
+ 
+ #define AMDKFD_CORE_IOCTL_COUNT	ARRAY_SIZE(amdkfd_ioctls)
+diff --git a/drivers/gpu/drm/amd/amdkfd/kfd_packet_manager.c b/drivers/gpu/drm/amd/amdkfd/kfd_packet_manager.c
+index 47ee40fbbd86..c9d3a3f93d61 100644
+--- a/drivers/gpu/drm/amd/amdkfd/kfd_packet_manager.c
++++ b/drivers/gpu/drm/amd/amdkfd/kfd_packet_manager.c
+@@ -147,6 +147,9 @@ static int pm_create_runlist_ib(struct packet_manager *pm,
+ 	/* build the run list ib packet */
+ 	list_for_each_entry(cur, queues, list) {
+ 		qpd = cur->qpd;
++
++		pr_debug("Adding queues from process with lead thread ID %d\n",
++			(int) qpd->pqm->process->lead_thread->pid);
+ 		/* build map process packet */
+ 		if (proccesses_mapped >= pm->dqm->processes_count) {
+ 			pr_debug("Not enough space left in runlist IB\n");
+diff --git a/include/uapi/linux/kfd_ioctl.h b/include/uapi/linux/kfd_ioctl.h
+index 695b606da4b1..ec454a137f8c 100644
+--- a/include/uapi/linux/kfd_ioctl.h
++++ b/include/uapi/linux/kfd_ioctl.h
+@@ -471,6 +471,16 @@ enum kfd_mmio_remap {
+ 	KFD_MMIO_REMAP_HDP_REG_FLUSH_CNTL = 4,
+ };
+ 
++struct kfd_ioctl_evict_queues_args {
++	__u32 process_pid;
++	__u32 pad;
++};
++
++struct kfd_ioctl_restore_queues_args {
++	__u32 process_pid;
++	__u32 pad;
++};
++
+ #define AMDKFD_IOCTL_BASE 'K'
+ #define AMDKFD_IO(nr)			_IO(AMDKFD_IOCTL_BASE, nr)
+ #define AMDKFD_IOR(nr, type)		_IOR(AMDKFD_IOCTL_BASE, nr, type)
+@@ -571,6 +581,12 @@ enum kfd_mmio_remap {
+ #define AMDKFD_IOC_SMI_EVENTS			\
+ 		AMDKFD_IOWR(0x1F, struct kfd_ioctl_smi_events_args)
+ 
++#define AMDKFD_IOC_EVICT_PROCESS_QUEUES		\
++		AMDKFD_IOW(0x20, struct kfd_ioctl_evict_queues_args)
++
++#define AMDKFD_IOC_RESTORE_PROCESS_QUEUES	\
++		AMDKFD_IOW(0x20, struct kfd_ioctl_restore_queues_args)
++
+ #define AMDKFD_COMMAND_START		0x01
+ #define AMDKFD_COMMAND_END		0x20
+ 
