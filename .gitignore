@@ -3,5 +3,6 @@
 install/
 hip_vectoradd_test/vector_add
 hip_vectoradd_test/kill_kernel_test
+kernel_patch/ioctl_tool/ioctl_tool
 **/build/
 
