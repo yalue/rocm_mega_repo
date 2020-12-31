@@ -12,35 +12,7 @@
 #include <sys/stat.h>
 #include <sys/types.h>
 #include <unistd.h>
-
-// The arg struct to pass to the evict-queues ioctl. Must exactly match the
-// definition from include/uapi/linux/kfd_ioctl.h in the patched kernel.
-typedef struct {
-  uint32_t pid;
-  uint32_t pad;
-} EvictQueuesArgs;
-
-// The arg struct to pass to the restore-queues ioctl. Must exactly match the
-// definition from include/uapi/linux/kfd_ioctl.h in the patched kernel.
-typedef struct {
-  uint32_t pid;
-  uint32_t pad;
-} RestoreQueuesArgs;
-
-// These numbers and structs must exactly match the ones in the patched kernel
-// source tree at include/uapi/linux/kfd_ioctl.h.
-#define AMDKFD_IOC_EVICT_PROCESS_QUEUES _IOW('K', 0x20, EvictQueuesArgs)
-#define AMDKFD_IOC_RESTORE_PROCESS_QUEUES _IOW('K', 0x21, RestoreQueuesArgs)
-
-// Opens and returns the file handle to /dev/kfd. Exits on error.
-static int GetKFDFD(void) {
-  int fd = open("/dev/kfd", O_RDWR);
-  if (fd < 0) {
-    printf("Error opening /dev/kfd: %s\n", strerror(errno));
-    exit(1);
-  }
-  return fd;
-}
+#include "amdkfd_ioctl_helper.h"
 
 static void PrintUsage(const char *name) {
   printf("Usage: %s <options>\n\n", name);
@@ -51,36 +23,6 @@ static void PrintUsage(const char *name) {
     "  -r <PID>: Restores the queues of the process with the given PID.\n"
     "     Can be repeated for multiple PIDs.\n"
     "");
-}
-
-// Evicts all GPU queues for the process with the given PID. Requires an fd to
-// /dev/kfd. Returns 0 on error.
-static int EvictQueues(int fd, int pid) {
-  EvictQueuesArgs args;
-  int result;
-  memset(&args, 0, sizeof(args));
-  args.pid = pid;
-  result = ioctl(fd, AMDKFD_IOC_EVICT_PROCESS_QUEUES, &args);
-  if (result != 0) {
-    printf("Evicting queues for %d failed: %s\n", pid, strerror(errno));
-    return 0;
-  }
-  return 1;
-}
-
-// Restores all GPU queues for the process with the given PID. Requres an fd to
-// /dev/kfd. Returns 0 on error.
-static int RestoreQueues(int fd, int pid) {
-  RestoreQueuesArgs args;
-  int result;
-  memset(&args, 0, sizeof(args));
-  args.pid = pid;
-  result = ioctl(fd, AMDKFD_IOC_RESTORE_PROCESS_QUEUES, &args);
-  if (result != 0) {
-    printf("Restoring queues for %d failed: %s\n", pid, strerror(errno));
-    return 0;
-  }
-  return 1;
 }
 
 // Returns an integer at the argument after index in argv. Exits if the integer
@@ -110,6 +52,7 @@ static int ParseArgumentsAndRun(int argc, char **argv) {
   int pid, fd, ok, i;
   ok = 1;
   fd = GetKFDFD();
+  if (fd < 0) return 0;
   for (i = 1; i < argc; i++) {
     if (strcmp(argv[i], "-h") == 0) {
       PrintUsage(argv[0]);
