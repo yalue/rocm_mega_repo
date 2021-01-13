@@ -7,7 +7,7 @@ if(CMAKE_CXX_FLAGS MATCHES "fsanitize=address")
   set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -shared-libasan")
 endif()
 
-set(CMAKE_SHARED_LINKER_FLAGS ${CMAKE_SHARED_LINKER_FLAGS} " -Wl,-Bsymbolic -Wl,--unresolved-symbols=report-all -Wl,--version-script=${CMAKE_SOURCE_DIR}/amdocl/amdocl.map")
+set(CMAKE_SHARED_LINKER_FLAGS "${CMAKE_SHARED_LINKER_FLAGS} -Wl,-Bsymbolic -Wl,--unresolved-symbols=report-all -Wl,--version-script=${CMAKE_CURRENT_LIST_DIR}/amdocl.map")
 
 set(CMAKE_LIBRARY_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/lib)
 
@@ -19,10 +19,10 @@ if(CMAKE_BUILD_TYPE MATCHES "^Debug$")
   add_definitions(-DDEBUG)
 endif()
 
-include_directories(${CMAKE_SOURCE_DIR})
-include_directories(${CMAKE_SOURCE_DIR}/khronos)
-include_directories(${CMAKE_SOURCE_DIR}/khronos/headers)
-include_directories(${CMAKE_SOURCE_DIR}/khronos/headers/opencl2.2)
+include_directories(${CMAKE_CURRENT_LIST_DIR}/..)
+include_directories(${CMAKE_CURRENT_LIST_DIR}/../khronos)
+include_directories(${CMAKE_CURRENT_LIST_DIR}/../khronos/headers)
+include_directories(${CMAKE_CURRENT_LIST_DIR}/../khronos/headers/opencl2.2)
 
 if((CMAKE_CXX_COMPILER_ID STREQUAL "GNU") OR
    (CMAKE_${COMPILER}_COMPILER_ID MATCHES "Clang"))

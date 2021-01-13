@@ -1,5 +1,5 @@
 /*
-Copyright (c) 2015 - present Advanced Micro Devices, Inc. All rights reserved.
+Copyright (c) 2020-Present Advanced Micro Devices, Inc. All rights reserved.
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal
@@ -20,27 +20,22 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE.
 */
 
-/**
- *  @file  hip_cooperative_groups.h
- *
- *  @brief Defines new types and device API wrappers for `Cooperative Group`
- *  feature.
- */
+#include "hip/hip_runtime.h"
+#define GLOBAL_BUF_SIZE 2048
 
-#ifndef  HIP_INCLUDE_HIP_HIP_COOPERATIVE_GROUP_H
-#define  HIP_INCLUDE_HIP_HIP_COOPERATIVE_GROUP_H
+__device__ float deviceGlobalFloat;
+__device__ int   deviceGlobalInt1;
+__device__ int   deviceGlobalInt2;
+__device__ short deviceGlobalShort;
+__device__ char  deviceGlobalChar;
 
-#include <hip/hip_version.h>
-#include <hip/hip_common.h>
+__device__ int getSquareOfGlobalFloat() {
+  return static_cast<int>(deviceGlobalFloat*deviceGlobalFloat);
+}
 
-#if defined(__HIP_PLATFORM_HCC__) && !defined(__HIP_PLATFORM_NVCC__)
-#if __cplusplus && defined(__clang__) && defined(__HIP__)
-#include <hip/hcc_detail/hip_cooperative_groups.h>
-#endif
-#elif defined(__HIP_PLATFORM_NVCC__) && !defined(__HIP_PLATFORM_HCC__)
-#include <hip/nvcc_detail/hip_cooperative_groups.h>
-#else
-#error("Must define exactly one of __HIP_PLATFORM_HCC__ or __HIP_PLATFORM_NVCC__");
-#endif
-
-#endif // HIP_INCLUDE_HIP_HIP_COOPERATIVE_GROUP_H
+extern "C" __global__ void testWeightedCopy(int* a, int* b) {
+  int tx = hipThreadIdx_x;
+  b[tx] = deviceGlobalInt1*a[tx] + deviceGlobalInt2 +
+  static_cast<int>(deviceGlobalShort) + static_cast<int>(deviceGlobalChar)
+  + getSquareOfGlobalFloat();
+}

@@ -95,6 +95,7 @@ int main(int argc, char **argv) {
   uint64_t *host_block_times = NULL;
   double start_time, end_time;
   int evict_seconds = -1;
+  int pre_evict_seconds = 3;
   int kfd_fd, pid;
   size_t size;
 
@@ -128,7 +129,9 @@ int main(int argc, char **argv) {
   hipLaunchKernelGGL(CounterSpinKernel, BLOCK_COUNT, THREAD_COUNT, 0, 0,
     SPIN_ITERATIONS, (uint64_t *) NULL, device_block_times);
   if (evict_seconds >= 0) {
-    printf("Evicting queues for %d seconds.\n", evict_seconds);
+    printf("Evicting queues for %d s, after letting them run for %d s.\n",
+      evict_seconds, pre_evict_seconds);
+    sleep(pre_evict_seconds);
     if (!EvictQueues(kfd_fd, pid)) {
       printf("Failed evicting queues.\n");
       exit(1);

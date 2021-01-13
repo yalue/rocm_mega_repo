@@ -702,6 +702,11 @@ void NullDevice::fillDeviceInfo(const Pal::DeviceProperties& palProp,
 
     info_.cooperativeGroups_ = settings().enableCoopGroups_;
     info_.cooperativeMultiDeviceGroups_ = settings().enableCoopMultiDeviceGroups_;
+
+    if (heaps[Pal::GpuHeapInvisible].heapSize == 0) {
+      info_.largeBar_ = true;
+      ClPrint(amd::LOG_INFO, amd::LOG_INIT, "Resizable bar enabled");
+    }
   }
 }
 
@@ -917,7 +922,9 @@ bool Device::create(Pal::IDevice* device) {
 
   // Save the IP level for the offline detection
   ipLevel_ = properties().gfxLevel;
-  asicRevision_ = properties().revision;
+  asicRevision_ = flagIsDefault(PAL_FORCE_ASIC_REVISION) ?
+                  properties().revision :
+                  static_cast<Pal::AsicRevision>(PAL_FORCE_ASIC_REVISION);
 
   // XNACK flag should be set for  PageMigration | IOMMUv2 Support
   // Note: Navi2x should have a fix in HW

@@ -1,5 +1,5 @@
 diff --git a/drivers/gpu/drm/amd/amdkfd/kfd_chardev.c b/drivers/gpu/drm/amd/amdkfd/kfd_chardev.c
-index 8cc51cec988a..ebe1d2ea0937 100644
+index 8cc51cec988a..8f15ea9d116b 100644
 --- a/drivers/gpu/drm/amd/amdkfd/kfd_chardev.c
 +++ b/drivers/gpu/drm/amd/amdkfd/kfd_chardev.c
 @@ -33,6 +33,7 @@
@@ -10,7 +10,7 @@ index 8cc51cec988a..ebe1d2ea0937 100644
  #include <linux/dma-buf.h>
  #include <asm/processor.h>
  #include "kfd_priv.h"
-@@ -1764,6 +1765,73 @@ static int kfd_ioctl_smi_events(struct file *filep,
+@@ -1764,6 +1765,88 @@ static int kfd_ioctl_smi_events(struct file *filep,
  	return kfd_smi_event_open(dev, &args->anon_fd);
  }
  
@@ -35,12 +35,10 @@ index 8cc51cec988a..ebe1d2ea0937 100644
 +	return kfd_get_process(target);
 +}
 +
-+static int kfd_ioctl_evict_process_queues(struct file *filep,
-+	struct kfd_process *p, void *data)
++// Takes a given process PID and evicts the queues for that process.
++int kfd_evict_process_queues_by_pid(int pid)
 +{
 +	struct kfd_process *target = NULL;
-+	struct kfd_ioctl_evict_queues_args *args = data;
-+	int pid = args->process_pid;
 +	if (pid <= 0) return -EINVAL;
 +	printk("KFD: About to look up process PID %d for eviction.\n", pid);
 +	target = kfd_get_process_by_pid(pid);
@@ -57,13 +55,21 @@ index 8cc51cec988a..ebe1d2ea0937 100644
 +		target->pasid);
 +	return 0;
 +}
++EXPORT_SYMBOL(kfd_evict_process_queues_by_pid);
 +
-+static int kfd_ioctl_restore_process_queues(struct file *filep,
++static int kfd_ioctl_evict_process_queues(struct file *filep,
 +	struct kfd_process *p, void *data)
 +{
-+	struct kfd_ioctl_restore_queues_args *args = data;
-+	struct kfd_process *target = NULL;
++	struct kfd_ioctl_evict_queues_args *args = data;
 +	int pid = args->process_pid;
++	return kfd_evict_process_queues_by_pid(pid);
++}
++
++// Restores queues for the process with the given PID after they have been
++// evicted.
++int kfd_restore_process_queues_by_pid(int pid)
++{
++	struct kfd_process *target = NULL;
 +	if (pid <= 0) return -EINVAL;
 +	printk("KFD: About to look up process PID %d for restoration.\n", pid);
 +	target = kfd_get_process_by_pid(pid);
@@ -80,11 +86,20 @@ index 8cc51cec988a..ebe1d2ea0937 100644
 +		target->pasid);
 +	return 0;
 +}
++EXPORT_SYMBOL(kfd_restore_process_queues_by_pid);
++
++static int kfd_ioctl_restore_process_queues(struct file *filep,
++	struct kfd_process *p, void *data)
++{
++	struct kfd_ioctl_restore_queues_args *args = data;
++	int pid = args->process_pid;
++	return kfd_restore_process_queues_by_pid(pid);
++}
 +
  #define AMDKFD_IOCTL_DEF(ioctl, _func, _flags) \
  	[_IOC_NR(ioctl)] = {.cmd = ioctl, .func = _func, .flags = _flags, \
  			    .cmd_drv = 0, .name = #ioctl}
-@@ -1862,6 +1930,12 @@ static const struct amdkfd_ioctl_desc amdkfd_ioctls[] = {
+@@ -1862,6 +1945,12 @@ static const struct amdkfd_ioctl_desc amdkfd_ioctls[] = {
  
  	AMDKFD_IOCTL_DEF(AMDKFD_IOC_SMI_EVENTS,
  			kfd_ioctl_smi_events, 0),
@@ -98,7 +113,7 @@ index 8cc51cec988a..ebe1d2ea0937 100644
  
  #define AMDKFD_CORE_IOCTL_COUNT	ARRAY_SIZE(amdkfd_ioctls)
 diff --git a/drivers/gpu/drm/amd/amdkfd/kfd_packet_manager.c b/drivers/gpu/drm/amd/amdkfd/kfd_packet_manager.c
-index 47ee40fbbd86..c9d3a3f93d61 100644
+index 5d541e0cc8ca..680b97596993 100644
 --- a/drivers/gpu/drm/amd/amdkfd/kfd_packet_manager.c
 +++ b/drivers/gpu/drm/amd/amdkfd/kfd_packet_manager.c
 @@ -147,6 +147,9 @@ static int pm_create_runlist_ib(struct packet_manager *pm,

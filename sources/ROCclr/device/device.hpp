@@ -452,6 +452,9 @@ struct Info : public amd::EmbeddedObject {
   //! Returns the topology for the device
   cl_device_topology_amd deviceTopology_;
 
+  //! Returns PCI Bus Domain ID
+  uint32_t pciDomainID;
+
   //! Semaphore information
   uint32_t maxSemaphores_;
   uint32_t maxSemaphoreSize_;
@@ -473,6 +476,10 @@ struct Info : public amd::EmbeddedObject {
   uint32_t wavefrontWidth_;
   //! Available number of SGPRs
   uint32_t availableSGPRs_;
+  //! Available number of VGPRs
+  uint32_t availableVGPRs_;
+  //! Available number of registers per CU
+  uint32_t availableRegistersPerCU_;
   //! Number of global memory channels
   uint32_t globalMemChannels_;
   //! Number of banks in each global memory channel
@@ -552,6 +559,10 @@ struct Info : public amd::EmbeddedObject {
 
   //! Target ID string
   char targetId_[0x40];
+
+  uint32_t  hmmSupported_;            //!< ROCr supports HMM interfaces
+  uint32_t  hmmCpuMemoryAccessible_;  //!< CPU memory is accessible by GPU without pinning/register
+  uint32_t  hmmDirectHostAccess_;     //!< HMM memory is accessible from the host without migration
 };
 
 //! Device settings
@@ -788,6 +799,16 @@ class Memory : public amd::HeapObject {
   //! Returns CPU pointer to HW state
   virtual const address cpuSrd() const { return nullptr; }
 
+  bool getAllowedPeerAccess() const { return (flags_ & AllowedPeerAccess) ? true : false; }
+  void setAllowedPeerAccess(bool flag) {
+    if (flag == true) {
+      flags_ |= AllowedPeerAccess;
+    }
+    else {
+      flags_ &= ~AllowedPeerAccess;
+    }
+  }
+
  protected:
   enum Flags {
     HostMemoryDirectAccess = 0x00000001,  //!< GPU has direct access to the host memory
@@ -795,7 +816,8 @@ class Memory : public amd::HeapObject {
     PinnedMemoryAlloced = 0x00000004,     //!< An extra pinned resource was allocated
     SubMemoryObject = 0x00000008,         //!< Memory is sub-memory
     HostMemoryRegistered = 0x00000010,    //!< Host memory was registered
-    MemoryCpuUncached = 0x00000020        //!< Memory is uncached on CPU access(slow read)
+    MemoryCpuUncached = 0x00000020,       //!< Memory is uncached on CPU access(slow read)
+    AllowedPeerAccess = 0x00000040        //!< Memory can be accessed from peer
   };
   uint flags_;  //!< Memory object flags
 
@@ -1199,6 +1221,7 @@ class MemObjMap : public AllStatic {
   static void RemoveMemObj(const void* k);  //!< Remove an entry of mem object from the container
   static amd::Memory* FindMemObj(
       const void* k);  //!< find the mem object based on the input pointer
+  static void UpdateAccess(amd::Device *peerDev);
  private:
   static std::map<uintptr_t, amd::Memory*>
       MemObjMap_;                      //!< the mem object<->hostptr information container
@@ -1381,6 +1404,21 @@ class Device : public RuntimeObject {
     return NULL;
   }
 
+  virtual bool deviceAllowAccess(void* dst) const {
+    ShouldNotCallThis();
+    return true;
+  }
+
+  virtual bool enableP2P(amd::Device* ptrDev) {
+    ShouldNotCallThis();
+    return true;
+  }
+
+  virtual bool disableP2P(amd::Device* ptrDev) {
+    ShouldNotCallThis();
+    return true;
+  }
+
   /**
    * @copydoc amd::Context::hostFree
    */
@@ -1400,7 +1438,7 @@ class Device : public RuntimeObject {
    * @return True if the device successfully applied the SVM attributes in HMM for device memory
    */
   virtual bool SetSvmAttributes(const void* dev_ptr, size_t count,
-                                amd::MemoryAdvice advice, bool first_alloc = false) const {
+                                amd::MemoryAdvice advice, bool use_cpu = false) const {
     ShouldNotCallThis();
     return false;
   }

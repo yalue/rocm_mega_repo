@@ -155,7 +155,7 @@ hipError_t hipGetDeviceProperties ( hipDeviceProp_t* props, hipDevice_t device )
   ::strncpy(deviceProps.name, info.boardName_, 128);
   deviceProps.totalGlobalMem = info.globalMemSize_;
   deviceProps.sharedMemPerBlock = info.localMemSizePerCU_;
-  deviceProps.regsPerBlock = info.availableSGPRs_;
+  deviceProps.regsPerBlock = info.availableRegistersPerCU_;
   deviceProps.warpSize = info.wavefrontWidth_;
   deviceProps.maxThreadsPerBlock = info.maxWorkGroupSize_;
   deviceProps.maxThreadsDim[0] = info.maxWorkItemSizes_[0];
@@ -193,7 +193,7 @@ hipError_t hipGetDeviceProperties ( hipDeviceProp_t* props, hipDevice_t device )
   deviceProps.arch.has3dGrid                   = 1;
   deviceProps.arch.hasDynamicParallelism       = 0;
   deviceProps.concurrentKernels = 1;
-  deviceProps.pciDomainID = info.deviceTopology_.pcie.function;
+  deviceProps.pciDomainID = info.pciDomainID;
   deviceProps.pciBusID = info.deviceTopology_.pcie.bus;
   deviceProps.pciDeviceID = info.deviceTopology_.pcie.device;
   deviceProps.maxSharedMemoryPerMultiProcessor = info.localMemSizePerCU_;
@@ -226,22 +226,13 @@ hipError_t hipGetDeviceProperties ( hipDeviceProp_t* props, hipDevice_t device )
   deviceProps.isLargeBar = info.largeBar_ ? 1 : 0;
   deviceProps.asicRevision = info.asicRevision_;
 
+  // HMM capabilities
+  deviceProps.managedMemory = info.hmmSupported_;
+  deviceProps.concurrentManagedAccess =  info.hmmSupported_;
+  deviceProps.directManagedMemAccessFromHost = info.hmmDirectHostAccess_;
+  deviceProps.pageableMemoryAccess = info.hmmCpuMemoryAccessible_;
+  deviceProps.pageableMemoryAccessUsesHostPageTables = info.hostUnifiedMemory_;
+
   *props = deviceProps;
   HIP_RETURN(hipSuccess);
-}
-
-hipError_t hipHccGetAccelerator(int deviceId, hc::accelerator* acc) {
-  HIP_INIT_API(hipHccGetAccelerator, deviceId, acc);
-
-  assert(0 && "Unimplemented");
-
-  HIP_RETURN(hipErrorNotSupported);
-}
-
-hipError_t hipHccGetAcceleratorView(hipStream_t stream, hc::accelerator_view** av) {
-  HIP_INIT_API(hipHccGetAcceleratorView, stream, av);
-
-  assert(0 && "Unimplemented");
-
-  HIP_RETURN(hipErrorNotSupported);
 }

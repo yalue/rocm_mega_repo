@@ -98,11 +98,6 @@ Program::Program(amd::Device& device, amd::Program& owner)
 Program::~Program() {
   clear();
 
-  /* Delete the undefined memory object */
-  for (auto it = undef_mem_obj_.begin(); it != undef_mem_obj_.end(); ++it) {
-    (*it)->release();
-  }
-
   if (isLC()) {
 #if defined(USE_COMGR_LIBRARY)
     for (auto const& kernelMeta : kernelMetadataMap_) {
@@ -1585,7 +1580,7 @@ int32_t Program::link(const std::vector<Program*>& inputPrograms, const char* or
 
 // ================================================================================================
 int32_t Program::build(const std::string& sourceCode, const char* origOptions,
-                      amd::option::Options* options) {
+                       amd::option::Options* options) {
   uint64_t start_time = 0;
   if (options->oVariables->EnableBuildTiming) {
     buildLog_ = "\nStart timing major build components.....\n\n";
@@ -1613,16 +1608,29 @@ int32_t Program::build(const std::string& sourceCode, const char* origOptions,
         "specified without device support";
   }
 
-  // Compile the source code if any
   std::vector<const std::string*> headers;
-  if ((buildStatus_ == CL_BUILD_IN_PROGRESS) && !sourceCode.empty() &&
-      !compileImpl(sourceCode, headers, nullptr, options)) {
+  std::vector<const char*> headerIncludeNames;
+  const std::vector<std::string>& tmpHeaderNames = owner()->headerNames();
+  const std::vector<std::string>& tmpHeaders = owner()->headers();
+  for (size_t i = 0; i < tmpHeaders.size(); ++i){
+    headers.push_back(&tmpHeaders[i]);
+    headerIncludeNames.push_back(tmpHeaderNames[i].c_str());
+  }
+  // Compile the source code if any
+  bool compileStatus = true;
+  if ((buildStatus_ == CL_BUILD_IN_PROGRESS) && !sourceCode.empty()) {
+    if (!headerIncludeNames.empty()) {
+      compileStatus = compileImpl(sourceCode, headers, &headerIncludeNames[0], options);
+    } else {
+      compileStatus = compileImpl(sourceCode, headers, nullptr, options);
+    }
+  }
+  if (!compileStatus) {
     buildStatus_ = CL_BUILD_ERROR;
     if (buildLog_.empty()) {
       buildLog_ = "Internal error: Compilation failed.";
     }
   }
-
   if ((buildStatus_ == CL_BUILD_IN_PROGRESS) && !linkImpl(options)) {
     buildStatus_ = CL_BUILD_ERROR;
     if (buildLog_.empty()) {
@@ -1701,10 +1709,6 @@ std::vector<std::string> Program::ProcessOptions(amd::option::Options* options) 
 
     if (isHIP()) {
       optionsVec.push_back("-D__HIP_ROCclr__=1");
-      scratchStr.clear();
-      std::string target(machineTarget_);
-      std::transform(target.begin(), target.end(), target.begin(), ::toupper);
-      optionsVec.push_back(scratchStr.append("-D__HIP_ARCH_").append(target).append("__=1"));
     } else {
       int major, minor;
       ::sscanf(device().info().version_, "OpenCL %d.%d ", &major, &minor);
@@ -2606,77 +2610,4 @@ bool Program::getGlobalVarFromCodeObj(std::vector<std::string>* var_names) const
   return true;
 #endif
 }
-
-bool Program::getUndefinedVarFromCodeObj(std::vector<std::string>* var_names) const {
-#if defined(USE_COMGR_LIBRARY)
-  return getSymbolsFromCodeObj(var_names, AMD_COMGR_SYMBOL_TYPE_NOTYPE);
-#else
-  return true;
-#endif
-}
-
-bool Program::getUndefinedVarInfo(std::string var_name, void** var_addr, size_t* var_size) {
-  if (owner()->varcallback != nullptr) {
-    return owner()->varcallback(as_cl(owner()), var_name.c_str(), var_addr, var_size);
-  } else {
-    buildLog_ += "SVAR HIP Call back is not set \n";
-    return false;
-  }
-}
-
-bool Program::defineUndefinedVars() {
-  size_t address = 0;
-  size_t hsize = 0;
-  void* dptr = nullptr;
-  void* hptr = nullptr;
-  device::Memory* dev_mem = nullptr;
-  amd::Memory* amd_mem_obj = nullptr;
-  std::vector<std::string> var_names;
-
-  if (!getUndefinedVarFromCodeObj(&var_names)) {
-    DevLogError("Cannot get Undefined Var from Code Object \n");
-    return false;
-  }
-
-  for (auto it = var_names.begin(); it != var_names.end(); ++it) {
-    if (!getUndefinedVarInfo(*it, &hptr, &hsize)) {
-      continue;
-    }
-
-    amd_mem_obj = new (owner()->context()) amd::Buffer(const_cast<amd::Context&>(owner()->context()),
-                                                       CL_MEM_USE_HOST_PTR, hsize);
-    if (amd_mem_obj == nullptr) {
-      LogError("[OCL] failed to create a mem object!");
-      return false;
-    }
-
-    if (!amd_mem_obj->create(hptr)) {
-      LogError("[OCL] failed to create a svm hidden buffer!");
-      amd_mem_obj->release();
-      return false;
-    }
-
-    undef_mem_obj_.push_back(amd_mem_obj);
-
-    dev_mem = amd_mem_obj->getDeviceMemory(device());
-    if (dev_mem == nullptr) {
-      LogError("[OCL] failed to create a mem object!");
-      return false;
-    }
-
-    dptr = reinterpret_cast<void*>(dev_mem->virtualAddress());
-    if (dev_mem == nullptr) {
-      LogError("[OCL] failed to create a mem object!");
-      return false;
-    }
-
-    if(!defineGlobalVar(it->c_str(), dptr)) {
-      LogError("[OCL] failed to define global var");
-      return false;
-    }
-  }
-
-  return true;
-}
-
 } /* namespace device*/

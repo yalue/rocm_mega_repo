@@ -298,7 +298,22 @@ hipError_t hipDeviceGetAttribute(int* pi, hipDeviceAttribute_t attr, int device)
     break;
   case hipDeviceAttributeAsicRevision:
     *pi = prop.asicRevision;
-     break;
+    break;
+  case hipDeviceAttributeManagedMemory:
+    *pi = prop.managedMemory;
+    break;
+  case hipDeviceAttributeDirectManagedMemAccessFromHost:
+    *pi = prop.directManagedMemAccessFromHost;
+    break;
+  case hipDeviceAttributeConcurrentManagedAccess:
+    *pi = prop.concurrentManagedAccess;
+    break;
+  case hipDeviceAttributePageableMemoryAccess:
+    *pi = prop.pageableMemoryAccess;
+    break;
+  case hipDeviceAttributePageableMemoryAccessUsesHostPageTables:
+    *pi = prop.pageableMemoryAccessUsesHostPageTables;
+    break;
   default:
     HIP_RETURN(hipErrorInvalidValue);
   }
@@ -322,12 +337,13 @@ hipError_t hipDeviceGetByPCIBusId(int* device, const char*pciBusIdstr) {
     int count = 0;
     ihipDeviceGetCount(&count);
     for (cl_int i = 0; i < count; i++) {
-      int pi = 0;
       hipDevice_t dev;
       hipDeviceGet(&dev, i);
-      hipDeviceGetAttribute(&pi, hipDeviceAttributePciBusId, dev);
+      hipDeviceProp_t prop;
+      hipGetDeviceProperties(&prop, dev);
 
-      if (pciBusID == pi) {
+      if ((pciBusID == prop.pciBusID) && (pciDomainID == prop.pciDomainID)
+                    && (pciDeviceID == prop.pciDeviceID)) {
         *device = i;
         break;
       }

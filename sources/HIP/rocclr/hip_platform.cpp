@@ -80,27 +80,6 @@ extern "C" hip::FatBinaryInfo** __hipRegisterFatBinary(const void* data)
   return PlatformState::instance().addFatBinary(fbwrapper->binary);
 }
 
-bool PlatformState::getShadowVarInfo(std::string var_name, hipModule_t hmod,
-                                     void** var_addr, size_t* var_size) {
-
-  amd::ScopedLock lock(lock_);
-  if (hipSuccess == getDynGlobalVar(var_name.c_str(), ihipGetDevice(), hmod, var_addr, var_size)) {
-    return true;
-  }
-
-  if (hipSuccess == getStatGlobalVarByName(var_name, ihipGetDevice(), hmod, var_addr, var_size)) {
-    return true;
-  }
-
-  return false;
-}
-
-bool CL_CALLBACK getSvarInfo(cl_program program, std::string var_name, void** var_addr,
-                             size_t* var_size) {
-  return PlatformState::instance().getShadowVarInfo(var_name, reinterpret_cast<hipModule_t>(program),
-                                                    var_addr, var_size);
-}
-
 extern "C" void __hipRegisterFunction(
   hip::FatBinaryInfo** modules,
   const void*  hostFunction,
@@ -780,7 +759,7 @@ hipError_t PlatformState::getDynFunc(hipFunction_t* hfunc, hipModule_t hmod,
   return it->second->getDynFunc(hfunc, func_name);
 }
 
-hipError_t PlatformState::getDynGlobalVar(const char* hostVar, int deviceId, hipModule_t hmod,
+hipError_t PlatformState::getDynGlobalVar(const char* hostVar, hipModule_t hmod,
                                           hipDeviceptr_t* dev_ptr, size_t* size_ptr) {
   amd::ScopedLock lock(lock_);
 
@@ -791,7 +770,7 @@ hipError_t PlatformState::getDynGlobalVar(const char* hostVar, int deviceId, hip
   }
 
   hip::DeviceVar* dvar = nullptr;
-  IHIP_RETURN_ONFAIL(it->second->getDeviceVar(&dvar, hostVar, deviceId));
+  IHIP_RETURN_ONFAIL(it->second->getDeviceVar(&dvar, hostVar));
   *dev_ptr = dvar->device_ptr();
   *size_ptr = dvar->size();
 
@@ -805,8 +784,8 @@ hipError_t PlatformState::registerTexRef(textureReference* texRef, hipModule_t h
   return hipSuccess;
 }
 
-hipError_t PlatformState::getDynTexGlobalVar(textureReference* texRef, int deviceId,
-                                             hipDeviceptr_t* dev_ptr, size_t* size_ptr) {
+hipError_t PlatformState::getDynTexGlobalVar(textureReference* texRef, hipDeviceptr_t* dev_ptr,
+                                             size_t* size_ptr) {
   amd::ScopedLock lock(lock_);
 
   auto tex_it = texRef_map_.find(texRef);
@@ -822,7 +801,7 @@ hipError_t PlatformState::getDynTexGlobalVar(textureReference* texRef, int devic
   }
 
   hip::DeviceVar* dvar = nullptr;
-  IHIP_RETURN_ONFAIL(it->second->getDeviceVar(&dvar, tex_it->second.second, deviceId));
+  IHIP_RETURN_ONFAIL(it->second->getDeviceVar(&dvar, tex_it->second.second));
   *dev_ptr = dvar->device_ptr();
   *size_ptr = dvar->size();
 
@@ -839,7 +818,7 @@ hipError_t PlatformState::getDynTexRef(const char* hostVar, hipModule_t hmod, te
   }
 
   hip::DeviceVar* dvar = nullptr;
-  IHIP_RETURN_ONFAIL(it->second->getDeviceVar(&dvar, hostVar, ihipGetDevice()));
+  IHIP_RETURN_ONFAIL(it->second->getDeviceVar(&dvar, hostVar));
 
   dvar->shadowVptr = new texture<char>();
   *texRef =  reinterpret_cast<textureReference*>(dvar->shadowVptr);
@@ -877,11 +856,6 @@ hipError_t PlatformState::getStatFuncAttr(hipFuncAttributes* func_attr, const vo
 hipError_t PlatformState::getStatGlobalVar(const void* hostVar, int deviceId, hipDeviceptr_t* dev_ptr,
                                            size_t* size_ptr) {
   return statCO_.getStatGlobalVar(hostVar, deviceId, dev_ptr, size_ptr);
-}
-
-hipError_t PlatformState::getStatGlobalVarByName(std::string hostVar, int deviceId, hipModule_t hmod,
-                                                 hipDeviceptr_t* dev_ptr, size_t* size_ptr) {
-  return statCO_.getStatGlobalVarByName(hostVar, deviceId, hmod, dev_ptr, size_ptr);
 }
 
 void PlatformState::setupArgument(const void *arg, size_t size, size_t offset) {

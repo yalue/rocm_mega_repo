@@ -219,6 +219,16 @@ class NullDevice : public amd::Device {
     return false;
   }
 
+  virtual bool disableP2P(amd::Device* peerDev) {
+    ShouldNotReachHere();
+    return true;
+  }
+
+  virtual bool enableP2P(amd::Device* peerDev) {
+    ShouldNotReachHere();
+    return true;
+  }
+
   virtual bool SetClockMode(const cl_set_device_clock_mode_input_amd setClockModeInput, cl_set_device_clock_mode_output_amd* pSetClockModeOutput) { return true; }
 
  protected:
@@ -369,6 +379,11 @@ class Device : public NullDevice {
 
   virtual void hostFree(void* ptr, size_t size = 0) const;
 
+  virtual bool enableP2P(amd::Device* peerDev);
+  virtual bool disableP2P(amd::Device* peerDev);
+
+  bool deviceAllowAccess(void* dst) const;
+
   void* deviceLocalAlloc(size_t size, bool atomics = false) const;
 
   void memFree(void* ptr, size_t size) const;
@@ -379,7 +394,7 @@ class Device : public NullDevice {
   virtual void svmFree(void* ptr) const;
 
   virtual bool SetSvmAttributes(const void* dev_ptr, size_t count,
-                                amd::MemoryAdvice advice, bool first_alloc = false) const;
+                                amd::MemoryAdvice advice, bool use_cpu = false) const;
   virtual bool GetSvmAttributes(void** data, size_t* data_sizes, int* attributes,
                                 size_t num_attributes, const void* dev_ptr, size_t count) const;
 
@@ -427,6 +442,9 @@ class Device : public NullDevice {
   // P2P agents avaialble for this device
   const std::vector<hsa_agent_t>& p2pAgents() const { return p2p_agents_; }
 
+  // User enabled peer devices
+  const bool isP2pEnabled() const { return (enabled_p2p_devices_.size() > 0) ? true : false; }
+
   // Update the global free memory size
   void updateFreeMemory(size_t size, bool free);
 
@@ -459,11 +477,12 @@ class Device : public NullDevice {
                             amd::CommandQueue::Priority priority = amd::CommandQueue::Priority::Normal);
 
   //! Release HSA queue
-  void releaseQueue(hsa_queue_t*);
+  void releaseQueue(hsa_queue_t*, const std::vector<uint32_t>& cuMask = {});
 
   //! For the given HSA queue, return an existing hostcall buffer or create a
   //! new one. queuePool_ keeps a mapping from HSA queue to hostcall buffer.
-  void* getOrCreateHostcallBuffer(hsa_queue_t* queue, bool coop_queue = false);
+  void* getOrCreateHostcallBuffer(hsa_queue_t* queue, bool coop_queue = false,
+                                  const std::vector<uint32_t>& cuMask = {});
 
   //! Return multi GPU grid launch sync buffer
   address MGSync() const { return mg_sync_; }
@@ -480,6 +499,8 @@ class Device : public NullDevice {
   bool SvmAllocInit(void* memory, size_t size) const;
 
  private:
+  bool SetSvmAttributesInt(const void* dev_ptr, size_t count, amd::MemoryAdvice advice,
+                           bool first_alloc = false, bool use_cpu = false) const;
   static constexpr hsa_signal_value_t InitSignalValue = 1;
 
   static hsa_ven_amd_loader_1_00_pfn_t amd_loader_ext_table;
@@ -494,6 +515,8 @@ class Device : public NullDevice {
 
   hsa_agent_t cpu_agent_;
   std::vector<hsa_agent_t> p2p_agents_;  //!< List of P2P agents available for this device
+  std::vector<Device*> enabled_p2p_devices_;  //!< List of user enabled P2P devices for this device
+  mutable std::mutex lock_allow_access_; //!< To serialize allow_access calls
   hsa_agent_t _bkendDevice;
   hsa_agent_t* p2p_agents_list_;
   hsa_profile_t agent_profile_;
@@ -524,7 +547,7 @@ class Device : public NullDevice {
     void* hostcallBuffer_;
   };
 
-  //!< a vector for keeping Pool of HSA queues with low, normal and high priorities for recycling
+  //! a vector for keeping Pool of HSA queues with low, normal and high priorities for recycling
   std::vector<std::map<hsa_queue_t*, QueueInfo>> queuePool_;
 
   //! returns a hsa queue from queuePool with least refCount and updates the refCount as well
@@ -534,6 +557,9 @@ class Device : public NullDevice {
   //! returns value for corresponding LinkAttrbutes in a vector given Memory pool.
   virtual bool findLinkInfo(const hsa_amd_memory_pool_t& pool,
                             std::vector<LinkAttrType>* link_attr);
+
+  //! Pool of HSA queues with custom CU masks
+  std::vector<std::map<hsa_queue_t*, QueueInfo>> queueWithCUMaskPool_;
 
  public:
   std::atomic<uint> numOfVgpus_;  //!< Virtual gpu unique index

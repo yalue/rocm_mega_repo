@@ -1850,17 +1850,26 @@ hipError_t ihipMemset3D(hipPitchedPtr pitchedDevPtr,
                         hipExtent extent,
                         hipStream_t stream,
                         bool isAsync = false) {
-  if (pitchedDevPtr.pitch == extent.width) {
-    return ihipMemset(pitchedDevPtr.ptr, value, sizeof(int8_t), extent.width * extent.height * extent.depth, stream, isAsync);
-  }
-
-  // Workaround for cases when pitch > row untill fill kernel will be updated to support pitch.
-  // Fallback to filling one row at a time.
-
-  amd::HostQueue* queue = hip::getQueue(stream);
-
   size_t offset = 0;
   amd::Memory* memory = getMemoryObject(pitchedDevPtr.ptr, offset);
+
+  auto sizeBytes = extent.width * extent.height * extent.depth;
+
+  if (memory == nullptr) {
+    return hipErrorInvalidValue;
+  }
+  if (sizeBytes > memory->getSize()) {
+    return hipErrorInvalidValue;
+  }
+
+  if (pitchedDevPtr.pitch == extent.width) {
+    return ihipMemset(pitchedDevPtr.ptr, value, sizeof(int8_t), static_cast<size_t>(sizeBytes), stream, isAsync);
+  }
+
+  // Workaround for cases when pitch > row until fill kernel will be updated to support pitch.
+  // Fall back to filling one row at a time.
+
+  amd::HostQueue* queue = hip::getQueue(stream);
 
   amd::Coord3D origin(offset);
   amd::Coord3D region(pitchedDevPtr.xsize, pitchedDevPtr.ysize, extent.depth);
@@ -1870,34 +1879,26 @@ hipError_t ihipMemset3D(hipPitchedPtr pitchedDevPtr,
     return hipErrorInvalidValue;
   }
 
-  if (memory != nullptr) {
-    std::vector<amd::FillMemoryCommand*> commands;
+  std::vector<amd::FillMemoryCommand*> commands;
 
-    for (size_t slice = 0; slice < extent.depth; slice++) {
-      for (size_t row = 0; row < extent.height; row++) {
-        const size_t rowOffset = rect.offset(0, row, slice);
-        amd::FillMemoryCommand* command = new amd::FillMemoryCommand(*queue,
-                                                                     CL_COMMAND_FILL_BUFFER,
-                                                                     amd::Command::EventWaitList{},
-                                                                     *memory->asBuffer(),
-                                                                     &value,
-                                                                     sizeof(int8_t),
-                                                                     amd::Coord3D{rowOffset, 0, 0},
-                                                                     amd::Coord3D{extent.width, 1, 1});
+  for (size_t slice = 0; slice < extent.depth; slice++) {
+    for (size_t row = 0; row < extent.height; row++) {
+      const size_t rowOffset = rect.offset(0, row, slice);
+      amd::FillMemoryCommand *command = new amd::FillMemoryCommand(*queue,
+          CL_COMMAND_FILL_BUFFER, amd::Command::EventWaitList { },
+          *memory->asBuffer(), &value, sizeof(int8_t), amd::Coord3D { rowOffset,
+              0, 0 }, amd::Coord3D { extent.width, 1, 1 });
 
-        command->enqueue();
-        commands.push_back(command);
-      }
+      command->enqueue();
+      commands.push_back(command);
     }
+  }
 
-    for (auto &command: commands) {
-      if (!isAsync) {
-        command->awaitCompletion();
-      }
-      command->release();
+  for (auto &command : commands) {
+    if (!isAsync) {
+      command->awaitCompletion();
     }
-  } else {
-	return hipErrorInvalidValue;
+    command->release();
   }
 
   return hipSuccess;
@@ -1969,13 +1970,17 @@ hipError_t hipIpcOpenMemHandle(void** dev_ptr, hipIpcMemHandle_t handle, unsigne
   amd::Device* device = nullptr;
   ihipIpcMemHandle_t* ihandle = nullptr;
 
-  if (dev_ptr == nullptr) {
+  if (dev_ptr == nullptr || flags != hipIpcMemLazyEnablePeerAccess) {
     HIP_RETURN(hipErrorInvalidValue);
   }
 
   /* Call the IPC Attach from Device class */
   device = hip::getCurrentDevice()->devices()[0];
   ihandle = reinterpret_cast<ihipIpcMemHandle_t *>(&handle);
+
+  if (ihandle->psize == 0) {
+    HIP_RETURN(hipErrorInvalidValue);
+  }
 
   if(!device->IpcAttach(&(ihandle->ipc_handle), ihandle->psize, flags, dev_ptr)) {
     DevLogPrintfError("cannot attach ipc_handle: with ipc_size: %u flags: %u", ihandle->psize, flags);
@@ -2026,6 +2031,7 @@ hipError_t hipHostGetDevicePointer(void** devicePointer, void* hostPointer, unsi
   HIP_RETURN(hipSuccess);
 }
 
+// ================================================================================================
 hipError_t hipPointerGetAttributes(hipPointerAttribute_t* attributes, const void* ptr) {
   HIP_INIT_API(hipPointerGetAttributes, attributes, ptr);
 
@@ -2038,12 +2044,15 @@ hipError_t hipPointerGetAttributes(hipPointerAttribute_t* attributes, const void
   memset(attributes, 0, sizeof(hipPointerAttribute_t));
 
   if (memObj != nullptr) {
-    attributes->memoryType = (CL_MEM_SVM_FINE_GRAIN_BUFFER & memObj->getMemFlags())? hipMemoryTypeHost : hipMemoryTypeDevice;
+    attributes->memoryType = ((CL_MEM_SVM_FINE_GRAIN_BUFFER | CL_MEM_USE_HOST_PTR) &
+        memObj->getMemFlags())? hipMemoryTypeHost : hipMemoryTypeDevice;
     if (attributes->memoryType == hipMemoryTypeHost) {
       attributes->hostPointer = static_cast<char*>(memObj->getSvmPtr()) + offset;
     }
     attributes->devicePointer = static_cast<char*>(memObj->getSvmPtr()) + offset;
-    attributes->isManaged = 0;
+    constexpr uint32_t kManagedAlloc = (CL_MEM_SVM_FINE_GRAIN_BUFFER | CL_MEM_ALLOC_HOST_PTR);
+    attributes->isManaged =
+        ((memObj->getMemFlags() & kManagedAlloc) == kManagedAlloc) ? true : false;
     attributes->allocationFlags = memObj->getMemFlags() >> 16;
 
     amd::Context* memObjCtx = &memObj->getContext();
@@ -2058,8 +2067,7 @@ hipError_t hipPointerGetAttributes(hipPointerAttribute_t* attributes, const void
       }
       ++device;
     }
-    DevLogPrintfError("Cannot find memory object context, memObjCtx: 0x%x \n",
-                      memObjCtx);
+    DevLogPrintfError("Cannot find memory object context, memObjCtx: 0x%x \n", memObjCtx);
     HIP_RETURN(hipErrorInvalidDevice);
   }
 
@@ -2067,6 +2075,7 @@ hipError_t hipPointerGetAttributes(hipPointerAttribute_t* attributes, const void
   HIP_RETURN(hipErrorInvalidValue);
 }
 
+// ================================================================================================
 hipError_t hipArrayDestroy(hipArray* array) {
   HIP_INIT_API(hipArrayDestroy, array);
 
