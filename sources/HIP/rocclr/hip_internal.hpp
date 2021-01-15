@@ -232,6 +232,15 @@ namespace hip {
   extern amd::HostQueue* getNullStream(amd::Context&);
   /// Get default stream of the thread
   extern amd::HostQueue* getNullStream();
+
+  // (otternes): Tacked-on additions to interact with my GPU locking module.
+  // Both AcquireGPULock() and ReleaseGPULock() are configured using
+  // environment variables, and will simply exit on error. If the module isn't
+  // available, gpu_lock_fd will be set to -1, and Acquire/Release functions
+  // will be no-ops that silently return.
+  extern int gpu_lock_fd;
+  extern void AcquireGPULock();
+  extern void ReleaseGPULock();
 };
 
 struct ihipExec_t {

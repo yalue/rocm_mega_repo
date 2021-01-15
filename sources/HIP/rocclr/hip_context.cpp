@@ -25,6 +25,19 @@
 #include "utils/flags.hpp"
 #include "utils/versions.hpp"
 
+// Pull in some junk needed to issue our ioctls.
+#include <errno.h>
+#include <fcntl.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <sys/ioctl.h>
+#include <sys/stat.h>
+#include <sys/types.h>
+#include <unistd.h>
+// Ensure this is an exact copy from the running version of the module.
+#include "gpu_locking_module.h"
+
 std::vector<hip::Device*> g_devices;
 
 namespace hip {
@@ -35,7 +48,19 @@ thread_local hipError_t g_lastError = hipSuccess;
 std::once_flag g_ihipInitialized;
 Device* host_device = nullptr;
 
+int gpu_lock_fd = -1;
+
 void init() {
+  // (otternes): Hacky code to connect to my kernel-module chardev for
+  // priority-based locking of the GPU.
+  gpu_lock_fd = ::open("/dev/gpu_locking_module", O_RDWR);
+  if (gpu_lock_fd < 0) {
+    printf("Error opening /dev/gpu_locking_module: %s\n", ::strerror(errno));
+    gpu_lock_fd = -1;
+  } else {
+    printf("/dev/gpu_locking_module is available. Will try to use it.\n");
+  }
+
   if (!amd::Runtime::initialized()) {
     amd::IS_HIP = true;
     GPU_NUM_MEM_DEPENDENCY = 0;
@@ -68,6 +93,39 @@ void init() {
   host_device = new Device(hContext, -1);
 
   PlatformState::instance().init();
+}
+
+// Used to acquire a lock before any kernel launch. See hip_internal.hpp.
+void AcquireGPULock() {
+  // Silently do nothing if the locking module wasn't loaded.
+  if (gpu_lock_fd < 0) return;
+  GPULockArgs args;
+  int result;
+  // TODO (otternes): Allow configuring the lock ID using an environment
+  // variable. GPU_PARTITION_ID, maybe? Will be nice to do when we've modified
+  // rocclr to use environment variables to set a CU mask when creating its
+  // shared pool of HSA queues. For now, just use lock 0.
+  args.lock_id = 0;
+  result = ioctl(gpu_lock_fd, GPU_LOCK_ACQUIRE_IOC, &args);
+  if (result != 0) {
+    printf("AcquireGPULock failed: %s\n", strerror(errno));
+    exit(1);
+  }
+}
+
+// Releases the GPU lock. Must be called after a kernel completes. See
+// hip_internal.hpp.
+void ReleaseGPULock() {
+  if (gpu_lock_fd < 0) return;
+  GPULockArgs args;
+  int result;
+  // See comment in AcquireGPULock.
+  args.lock_id = 0;
+  result = ioctl(gpu_lock_fd, GPU_LOCK_ACQUIRE_IOC, &args);
+  if (result != 0) {
+    printf("ReleaseGPULock failed: %s\n", strerror(errno));
+    exit(1);
+  }
 }
 
 Device* getCurrentDevice() {

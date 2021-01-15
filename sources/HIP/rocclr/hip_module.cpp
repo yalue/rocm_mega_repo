@@ -202,6 +202,25 @@ hipError_t hipFuncSetSharedMemConfig ( const void* func, hipSharedMemConfig conf
   HIP_RETURN(hipSuccess);
 }
 
+double CurrentSeconds(void) {
+  struct timespec ts;
+  if (clock_gettime(CLOCK_MONOTONIC_RAW, &ts) != 0) {
+    printf("Error getting time.\n");
+    exit(1);
+  }
+  return ((double) ts.tv_sec) + (((double) ts.tv_nsec) / 1e9);
+}
+
+#include <time.h>
+
+static void CL_CALLBACK releaseGPULockCallback(cl_event event, cl_int status,
+    void *user_data) {
+  auto command = reinterpret_cast<amd::NDRangeKernelCommand*>(user_data);
+  printf("Kernel completed! t=%.02f s.\n", CurrentSeconds());
+  hip::ReleaseGPULock();
+  command->release();
+}
+
 hipError_t ihipModuleLaunchKernel(hipFunction_t f, uint32_t globalWorkSizeX,
                                  uint32_t globalWorkSizeY, uint32_t globalWorkSizeZ,
                                  uint32_t blockDimX, uint32_t blockDimY, uint32_t blockDimZ,
@@ -307,6 +326,18 @@ hipError_t ihipModuleLaunchKernel(hipFunction_t f, uint32_t globalWorkSizeX,
     return hipErrorOutOfMemory;
   }
 
+  // Acquire the lock before we enqueue the command.
+  hip::AcquireGPULock();
+  // NOTE (otternes): If it looks like we're leaking memory, check whether this
+  // is necessary. I *think* it is (and we call command->release in the
+  // callback), but I could be wrong.
+  command->retain();
+  if (!command->setCallback(CL_COMPLETE, releaseGPULockCallback,
+      reinterpret_cast<void*>(command))) {
+    printf("Error! Failed adding command-completion callback!\n");
+    exit(1);
+  }
+  printf("About to enqueue kernel command! t=%.02f s.\n", CurrentSeconds());
   command->enqueue();
 
   if (startEvent != nullptr) {

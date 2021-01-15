@@ -16,6 +16,7 @@ export ROCclr_DIR="$(readlink -f ROCclr)"
 export OPENCL_DIR="$(readlink -f ROCm-OpenCL-Runtime)"
 cd "$PROJECT_TOP_DIR"
 
+
 echo -e "\nBuilding ROCR-Runtime\n"
 cd sources/ROCR-Runtime/src
 rm -rf build
@@ -29,6 +30,7 @@ make -j4
 sudo make install
 check_install_error "ROCR-Runtime"
 cd "$PROJECT_TOP_DIR"
+
 
 echo -e "\nBuilding ROCclr\n"
 cd sources/ROCclr
