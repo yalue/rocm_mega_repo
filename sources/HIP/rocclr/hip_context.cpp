@@ -121,7 +121,7 @@ void ReleaseGPULock() {
   int result;
   // See comment in AcquireGPULock.
   args.lock_id = 0;
-  result = ioctl(gpu_lock_fd, GPU_LOCK_ACQUIRE_IOC, &args);
+  result = ioctl(gpu_lock_fd, GPU_LOCK_RELEASE_IOC, &args);
   if (result != 0) {
     printf("ReleaseGPULock failed: %s\n", strerror(errno));
     exit(1);

@@ -202,24 +202,45 @@ hipError_t hipFuncSetSharedMemConfig ( const void* func, hipSharedMemConfig conf
   HIP_RETURN(hipSuccess);
 }
 
-double CurrentSeconds(void) {
-  struct timespec ts;
-  if (clock_gettime(CLOCK_MONOTONIC_RAW, &ts) != 0) {
-    printf("Error getting time.\n");
-    exit(1);
-  }
-  return ((double) ts.tv_sec) + (((double) ts.tv_nsec) / 1e9);
-}
-
-#include <time.h>
-
+/* ////////////////////////////////////////////////////////////////////////////////// OLD (otterness)
 static void CL_CALLBACK releaseGPULockCallback(cl_event event, cl_int status,
     void *user_data) {
   auto command = reinterpret_cast<amd::NDRangeKernelCommand*>(user_data);
-  printf("Kernel completed! t=%.02f s.\n", CurrentSeconds());
+  printf("Kernel completed!\n");
   hip::ReleaseGPULock();
   command->release();
 }
+
+static void CL_CALLBACK acquireGPULockCallback(cl_event event, cl_int status,
+    void *user_data) {
+  printf("Acquiring GPU lock!\n");
+  auto command = reinterpret_cast<amd::Command *>(user_data);
+  hip::AcquireGPULock();
+  command->release();
+  printf("GPU lock acquired.\n");
+}
+
+// Modifies the last event currently in the queue to add a callback that
+// acquires the global GPU lock. Inserts another event into the queue if there
+// isn't already a command in there.
+static void insertAcquireGPULockEvent(amd::HostQueue *queue) {
+  // A lot of this code is based heavily on the hipStreamAddCallback function.
+  amd::Command *command = queue->getLastQueuedCommand(true);
+  if (command == nullptr) {
+    amd::Command::EventWaitList eventWaitList;
+    command = new amd::Marker(*queue, kMarkerDisableFlush, eventWaitList);
+    command->enqueue();
+  }
+  amd::Event& event = command->event();
+  if (!event.setCallback(CL_COMPLETE, acquireGPULockCallback,
+    reinterpret_cast<void*>(command))) {
+    printf("Failed setting command callback to acquire GPU lock.\n");
+    command->release();
+    exit(1);
+  }
+  event.notifyCmdQueue();
+}
+*/
 
 hipError_t ihipModuleLaunchKernel(hipFunction_t f, uint32_t globalWorkSizeX,
                                  uint32_t globalWorkSizeY, uint32_t globalWorkSizeZ,
@@ -235,11 +256,15 @@ hipError_t ihipModuleLaunchKernel(hipFunction_t f, uint32_t globalWorkSizeX,
 
   hip::DeviceFunc* function = hip::DeviceFunc::asFunction(f);
   amd::Kernel* kernel = function->kernel();
-
   amd::ScopedLock lock(function->dflock_);
 
   hip::Event* eStart = reinterpret_cast<hip::Event*>(startEvent);
   hip::Event* eStop = reinterpret_cast<hip::Event*>(stopEvent);
+
+  // TODO (otternes): Make sure that we only use one stream per process! Just
+  // short-circuit stream creation to always return the NULL stream maybe? Or
+  // just always use the null stream here (probably a bad idea!). In any case,
+  // we want to make sure that all streams use the same queue.
   amd::HostQueue* queue = hip::getQueue(hStream);
   const amd::Device& device = queue->vdev()->device();
 
@@ -326,8 +351,12 @@ hipError_t ihipModuleLaunchKernel(hipFunction_t f, uint32_t globalWorkSizeX,
     return hipErrorOutOfMemory;
   }
 
-  // Acquire the lock before we enqueue the command.
-  hip::AcquireGPULock();
+
+  /* ///////////////////////////////////////////////////////////////////////////// OLD (otterness)
+  // Insert an event into the stream in order to acquire the lock before the
+  // kernel event gets executed.
+  insertAcquireGPULockEvent(queue);
+
   // NOTE (otternes): If it looks like we're leaking memory, check whether this
   // is necessary. I *think* it is (and we call command->release in the
   // callback), but I could be wrong.
@@ -337,7 +366,10 @@ hipError_t ihipModuleLaunchKernel(hipFunction_t f, uint32_t globalWorkSizeX,
     printf("Error! Failed adding command-completion callback!\n");
     exit(1);
   }
-  printf("About to enqueue kernel command! t=%.02f s.\n", CurrentSeconds());
+  printf("About to enqueue kernel command!\n");
+  */
+
+  hip::AcquireGPULock();
   command->enqueue();
 
   if (startEvent != nullptr) {
@@ -349,6 +381,14 @@ hipError_t ihipModuleLaunchKernel(hipFunction_t f, uint32_t globalWorkSizeX,
     command->retain();
   }
   command->release();
+
+  // otternes: Wait for the kernel to complete. (This is basically a hipStreamSynchronize)
+  // Since this is high overhead, we won't do it unless we're using the locking
+  // module.
+  if (hip::gpu_lock_fd >= 0) {
+    queue->finish();
+    hip::ReleaseGPULock();
+  }
 
   return hipSuccess;
 }

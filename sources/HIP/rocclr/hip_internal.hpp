@@ -241,6 +241,9 @@ namespace hip {
   extern int gpu_lock_fd;
   extern void AcquireGPULock();
   extern void ReleaseGPULock();
+  // This mutex ensures that the *same* thread won't attempt to acquire the
+  // lock before a previous kernel has completed.
+  extern std::mutex acquire_gpu_lock_mutex;
 };
 
 struct ihipExec_t {
