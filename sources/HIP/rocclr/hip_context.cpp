@@ -49,16 +49,51 @@ std::once_flag g_ihipInitialized;
 Device* host_device = nullptr;
 
 int gpu_lock_fd = -1;
+int gpu_lock_id = 0;
+
+// Takes the name of an environment variable expected to contain a single
+// integer. The integer may be specified in hex or octal (it must be a format
+// that strtol can handle).  If the variable exists and contains a valid
+// integer, then *value will be set to the integer's value and this function
+// will return true. In any other case this will return false.
+static bool GetEnvVarValue(const char *name, long *value) {
+  char *s = getenv(name);
+  char *end = NULL;
+  long v = 0;
+  if (!s) return false;
+  v = strtol(s, &end, 0);
+  // The string was either empty or contained a non-numeric character.
+  if ((s == end) || (*end != 0)) {
+    printf("Env var %s was defined, but wasn't a valid number!\n", name);
+    return false;
+  }
+  *value = v;
+  return true;
+}
 
 void init() {
   // (otternes): Hacky code to connect to my kernel-module chardev for
-  // priority-based locking of the GPU.
-  gpu_lock_fd = ::open("/dev/gpu_locking_module", O_RDWR);
-  if (gpu_lock_fd < 0) {
-    printf("Error opening /dev/gpu_locking_module: %s\n", ::strerror(errno));
-    gpu_lock_fd = -1;
-  } else {
-    printf("/dev/gpu_locking_module is available. Will try to use it.\n");
+  // priority-based locking of the GPU. We check for the chardev's presence as
+  // well as the environment-variable settings here.
+  long v;
+  bool found_env_var;
+  gpu_lock_fd = -1;
+  gpu_lock_id = 0;
+  found_env_var = GetEnvVarValue("IGNORE_GPU_LOCK_CHARDEV", &v);
+  if (!found_env_var || (v <= 0)) {
+    gpu_lock_fd = open("/dev/gpu_locking_module", O_RDWR);
+    if (gpu_lock_fd < 0) {
+      printf("Error opening /dev/gpu_locking_module: %s\n", strerror(errno));
+      gpu_lock_fd = -1;
+    } else {
+      printf("/dev/gpu_locking_module is available. Will try to use it.\n");
+    }
+  }
+  if (GetEnvVarValue("GPU_LOCK_ID", &v)) {
+    gpu_lock_id = v;
+    if (gpu_lock_id < 0) {
+      printf("Likely error: Setting a negative GPU lock ID %d\n", gpu_lock_id);
+    }
   }
 
   if (!amd::Runtime::initialized()) {
@@ -101,11 +136,8 @@ void AcquireGPULock() {
   if (gpu_lock_fd < 0) return;
   GPULockArgs args;
   int result;
-  // TODO (otternes): Allow configuring the lock ID using an environment
-  // variable. GPU_PARTITION_ID, maybe? Will be nice to do when we've modified
-  // rocclr to use environment variables to set a CU mask when creating its
-  // shared pool of HSA queues. For now, just use lock 0.
-  args.lock_id = 0;
+  // This lock id was set using the GPU_LOCK_ID env var in hip::init().
+  args.lock_id = gpu_lock_id;
   result = ioctl(gpu_lock_fd, GPU_LOCK_ACQUIRE_IOC, &args);
   if (result != 0) {
     printf("AcquireGPULock failed: %s\n", strerror(errno));
@@ -120,7 +152,7 @@ void ReleaseGPULock() {
   GPULockArgs args;
   int result;
   // See comment in AcquireGPULock.
-  args.lock_id = 0;
+  args.lock_id = gpu_lock_id;
   result = ioctl(gpu_lock_fd, GPU_LOCK_RELEASE_IOC, &args);
   if (result != 0) {
     printf("ReleaseGPULock failed: %s\n", strerror(errno));

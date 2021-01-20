@@ -238,12 +238,17 @@ namespace hip {
   // environment variables, and will simply exit on error. If the module isn't
   // available, gpu_lock_fd will be set to -1, and Acquire/Release functions
   // will be no-ops that silently return.
+  //
+  // Two environment variables control this behavior:
+  //  - IGNORE_GPU_LOCK_CHARDEV: Set this environment variable to any positive
+  //    integer (e.g. "1") to cause HIP to behave as if the GPU lock chardev
+  //    isn't available.
+  //  - GPU_LOCK_ID: Set this environment variable to an integer of the lock
+  //    ID to be used by this process.
   extern int gpu_lock_fd;
+  extern int gpu_lock_id;
   extern void AcquireGPULock();
   extern void ReleaseGPULock();
-  // This mutex ensures that the *same* thread won't attempt to acquire the
-  // lock before a previous kernel has completed.
-  extern std::mutex acquire_gpu_lock_mutex;
 };
 
 struct ihipExec_t {
