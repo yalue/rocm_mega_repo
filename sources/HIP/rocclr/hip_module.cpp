@@ -307,9 +307,22 @@ hipError_t ihipModuleLaunchKernel(hipFunction_t f, uint32_t globalWorkSizeX,
     return hipErrorOutOfMemory;
   }
 
-  // (otterness) Acquire the GPU lock before launching a kernel. This will be
-  // a no-op if the GPU-locking Linux kernel module isn't loaded.
-  hip::AcquireGPULock();
+  // (otterness) Before trying to acquire the GPU lock always make sure that
+  // the previous kernel has completed and the lock has been released.
+  if (hip::last_launch_command != nullptr) {
+    hip::last_launch_command->awaitCompletion();
+    hip::last_launch_command->release();
+    hip::ReleaseGPULock();
+    hip::last_launch_command = nullptr;
+  }
+
+  // (otterness) Make sure we'll wait for the new command next time, if we're
+  // using locking, and acquire the lock.
+  if (hip::gpu_lock_fd >= 0) {
+    command->retain();
+    hip::last_launch_command = command;
+    hip::AcquireGPULock();
+  }
 
   command->enqueue();
 
@@ -322,15 +335,6 @@ hipError_t ihipModuleLaunchKernel(hipFunction_t f, uint32_t globalWorkSizeX,
     command->retain();
   }
   command->release();
-
-  // (otterness) Wait for the kernel to complete; it's essential to make sure
-  // this thread doesn't try to acquire the lock again before this kernel
-  // finishes executing and can release the lock. Since this is high overhead,
-  // we won't do it unless we're using the locking module.
-  if (hip::gpu_lock_fd >= 0) {
-    queue->finish();
-    hip::ReleaseGPULock();
-  }
 
   return hipSuccess;
 }

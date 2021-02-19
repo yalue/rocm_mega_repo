@@ -93,6 +93,7 @@ amd::Device::Compiler* NullDevice::compilerHandle_;
 bool roc::Device::isHsaInitialized_ = false;
 std::vector<hsa_agent_t> roc::Device::gpu_agents_;
 std::vector<AgentInfo> roc::Device::cpu_agents_;
+std::vector<uint32_t> roc::Device::defaultCUMask_;
 
 address Device::mg_sync_ = nullptr;
 
@@ -454,6 +455,26 @@ void Device::XferBuffers::release(VirtualGPU& gpu, Memory& buffer) {
   --acquiredCnt_;
 }
 
+void Device::initDefaultCUMask() {
+  unsigned long long value;
+  uint32_t lower, upper;
+  char *env_var = NULL;
+  char *endptr = NULL;
+  env_var = getenv("ROCCLR_DEFAULT_CU_MASK");
+  if (!env_var) return;
+  // The default CU mask must be a 64-bit hexadecimal value.
+  value = strtoull(env_var, &endptr, 16);
+  if ((value == 0) || (*endptr != 0)) {
+    printf("Invalid ROCCLR_DEFAULT_CU_MASK setting: %s\n", env_var);
+    return;
+  }
+  lower = value & 0xffffffff;
+  value = value >> 32;
+  upper = value & 0xffffffff;
+  defaultCUMask_.push_back(lower);
+  defaultCUMask_.push_back(upper);
+}
+
 bool Device::init() {
   ClPrint(amd::LOG_INFO, amd::LOG_INIT, "Initializing HSA stack.");
 
@@ -473,6 +494,8 @@ bool Device::init() {
   if (HSA_STATUS_SUCCESS != hsa_iterate_agents(iterateAgentCallback, nullptr)) {
     return false;
   }
+
+  initDefaultCUMask();
 
   std::string ordinals = amd::IS_HIP ? ((HIP_VISIBLE_DEVICES[0] != '\0') ?
                          HIP_VISIBLE_DEVICES : CUDA_VISIBLE_DEVICES)
@@ -2408,6 +2431,18 @@ hsa_queue_t* Device::acquireQueue(uint32_t queue_size_hint, bool coop_queue,
       " cooperative: %i", queue, queue_size, queue_priority, coop_queue);
 
   hsa_amd_profiling_set_profiler_enabled(queue, 1);
+
+  // Set the queue's CU mask to the default mask, if one was specified.
+  if (defaultCUMask_.size() != 0) {
+    hsa_status_t status = HSA_STATUS_SUCCESS;
+    status = hsa_amd_queue_cu_set_mask(queue, defaultCUMask_.size() * 32, defaultCUMask_.data());
+    if (status != HSA_STATUS_SUCCESS) {
+      printf("Failed setting default CU mask!\n");
+      hsa_queue_destroy(queue);
+      return nullptr;
+    }
+  }
+
   if (cuMask.size() != 0) {
     std::stringstream ss;
     ss << std::hex;

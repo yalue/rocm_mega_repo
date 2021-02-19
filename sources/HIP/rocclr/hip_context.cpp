@@ -48,6 +48,7 @@ thread_local hipError_t g_lastError = hipSuccess;
 std::once_flag g_ihipInitialized;
 Device* host_device = nullptr;
 
+thread_local amd::Command *last_launch_command = nullptr;
 int gpu_lock_fd = -1;
 int gpu_lock_id = 0;
 
@@ -79,6 +80,7 @@ void init() {
   bool found_env_var;
   gpu_lock_fd = -1;
   gpu_lock_id = 0;
+  last_launch_command = nullptr;
   found_env_var = GetEnvVarValue("IGNORE_GPU_LOCK_CHARDEV", &v);
   if (!found_env_var || (v <= 0)) {
     gpu_lock_fd = open("/dev/gpu_locking_module", O_RDWR);

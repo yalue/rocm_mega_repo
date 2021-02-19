@@ -77,6 +77,9 @@ class VirtualDevice;
 class PrintfDbg;
 class IProDevice;
 
+// Will be set in th
+extern std::vector<uint32_t> defaultCUMask;
+
 class Sampler : public device::Sampler {
  public:
   //! Constructor
@@ -567,6 +570,12 @@ class Device : public NullDevice {
   //! enum for keeping the total and available queue priorities
   enum QueuePriority : uint { Low = 0, Normal = 1, High = 2, Total = 3};
 
+  // Reads the ROCCLR_DEFAULT_CU_MASK environment variable, setting the defaultCUMask vector.
+  static void initDefaultCUMask();
+
+  // Default CU mask, set by an environment variable during Device::init. Will
+  // be an empty vector if the variable isn't set.
+  static std::vector<uint32_t> defaultCUMask_;
 };                                // class roc::Device
 }  // namespace roc
 
