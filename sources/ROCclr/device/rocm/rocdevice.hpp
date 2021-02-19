@@ -77,9 +77,6 @@ class VirtualDevice;
 class PrintfDbg;
 class IProDevice;
 
-// Will be set in th
-extern std::vector<uint32_t> defaultCUMask;
-
 class Sampler : public device::Sampler {
  public:
   //! Constructor
