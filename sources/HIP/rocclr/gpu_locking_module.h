@@ -20,20 +20,26 @@ typedef struct {
   uint32_t lock_id;
 } GPULockArgs;
 
-// A pointer to this struct is used as an argument to the ioctl for setting
-// a deadline associated with a given thread-group ID (PID from userspace). If
-// no deadline has been set, then the lock will be granted in best-effort FIFO
-// order (any process with an explicitly-set deadline will have higher priority
-// than one for which no deadline has been set).
+// A pointer to this struct is used as an argument to the ioctl for setting the
+// deadline for the calling process. If no lock has been set, the process
+// defaults to using a best-effort FIFO priority (expiring when it no longer
+// has pending GPU work).  Processes with explicit deadlines always have higher
+// priority than FIFO processes.
 typedef struct {
-  // The PID of the process for which the deadline should be set. (Must match
-  // the tgid of the task making the LOCK_ACQUIRE ioctl.)
-  int pid;
   // The deadline to set. This must be a number of *nanoseconds relative to the
   // current time*.  Set this to 0 to unset task's deadline, making it revert
   // back to best-effort FIFO if it attempts to acquire the lock again.
   uint64_t deadline;
 } SetDeadlineArgs;
+
+// A pointer to this struct is used as an argument to the barrier-sync ioctl
+// for waiting until the given number of processes have reached the barrier.
+typedef struct {
+  // The number of waiters to wait for (*including*) the caller. If any process
+  // invokes the barrier-sync ioctl with this set incorrectly, then the ioctl
+  // will immediately wake up all waiters and return an error.
+  int count;
+} BarrierSyncArgs;
 
 // Send this ioctl to acquire the lock. This will return -EINTR *without*
 // acquiring the lock, if a signal is received before the lock is acquired.
@@ -44,28 +50,17 @@ typedef struct {
 // partition ID.
 #define GPU_LOCK_RELEASE_IOC _IOW('h', 0xab, GPULockArgs)
 
-// Send this ioctl to set or remove a deadline associated with a particular
-// PID. Does not check that the PID is a process that actually exists when
-// setting a deadline.  Does *not* affect any lock-acquire requests made before
-// this ioctl--only subsequent ones.  The caller *must* call this to unset any
-// deadline that has been previously set, when the deadline is no longer
-// needed.  Failure to do so will result in subsequent invocations of this
-// ioctl failing, as the module can only track a small number of deadlines for
-// now.
+// Send this ioctl to update a deadline associated with the calling task. If
+// the "deadline" arg is set to 0, then this will make the task use the next
+// best-effort FIFO priority. Otherwise, the arg specifies the relative number
+// of nanoseconds to use as the deadline. This is applied even if the task is
+// currently holding or waiting for each GPU lock, possibly causing it to be
+// preempted or acquire the lock.
 #define GPU_LOCK_SET_DEADLINE_IOC _IOW('h', 0xac, SetDeadlineArgs)
 
-// A fail-safe mechanism to unset all deadlines being tracked by the module.
-#define GPU_LOCK_CLEAR_ALL_DEADLINES_IOC _IO('h', 0xad)
-
-// Send this ioctl to release all waiters on the given lock ID.
-#define GPU_LOCK_RELEASE_ALL_IOC _IOW('h', 0xae, GPULockArgs)
-
-// Send this ioctl to release all waiters for all locks. Intended to be used
-// as a failsafe mechanism when testing.
-#define PRIORITY_DEBUG_RELEASE_ALL_IOC _IO('h', 0xaf)
-
-// TODO (next): Test these. Also, probably just copy this file to the HIP
-// source directory.
+// This ioctl will return only after the number of processes specified in the
+// "count" field of the arg have invoked it.
+#define GPU_LOCK_BARRIER_SYNC_IOC _IOW('h', 0xb0, BarrierSyncArgs)
 
 #ifdef __cplusplus
 }  // extern "C"

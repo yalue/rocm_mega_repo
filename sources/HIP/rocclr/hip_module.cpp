@@ -202,6 +202,16 @@ hipError_t hipFuncSetSharedMemConfig ( const void* func, hipSharedMemConfig conf
   HIP_RETURN(hipSuccess);
 }
 
+// Called when a kernel completes, in order to "release" the GPU lock. (In
+// reality, with the preemptive locks, this will only decrease the counter of
+// pending operations.)
+static void CL_CALLBACK releaseGPULockCallback(cl_event event, cl_int status,
+    void *user_data) {
+  auto command = reinterpret_cast<amd::NDRangeKernelCommand*>(user_data);
+  hip::ReleaseGPULock();
+  command->release();
+}
+
 hipError_t ihipModuleLaunchKernel(hipFunction_t f, uint32_t globalWorkSizeX,
                                  uint32_t globalWorkSizeY, uint32_t globalWorkSizeZ,
                                  uint32_t blockDimX, uint32_t blockDimY, uint32_t blockDimZ,
@@ -307,11 +317,16 @@ hipError_t ihipModuleLaunchKernel(hipFunction_t f, uint32_t globalWorkSizeX,
     return hipErrorOutOfMemory;
   }
 
-  // (otterness) Make sure we'll wait for the new command next time, if we're
-  // using locking, and acquire the lock.
-  // (optternes) Acquire the GPU lock before enqueuing the command.
+  // (otternes) Acquire the GPU lock before enqueuing the command, and have it
+  // call the release-lock callback when it completes.
   if (hip::gpu_lock_fd >= 0) {
     hip::AcquireGPULock();
+    command->retain();
+    if (!command->setCallback(CL_COMPLETE, releaseGPULockCallback,
+        reinterpret_cast<void*>(command))) {
+      printf("Error! Failed adding command-completion callback!\n");
+      exit(1);
+    }
   }
 
   command->enqueue();
@@ -323,15 +338,6 @@ hipError_t ihipModuleLaunchKernel(hipFunction_t f, uint32_t globalWorkSizeX,
   if (stopEvent != nullptr) {
     eStop->addMarker(queue, command, false);
     command->retain();
-  }
-
-  // (otternes) Unfortunately, we need to wait for the command to complete
-  // here, as otherwise a new kernel-launch command could try to acquire the
-  // lock again, which would be a problem because the process would already be
-  // holding the lock and put itself to sleep while holding the lock.
-  if (hip::gpu_lock_fd >= 0) {
-    command->awaitCompletion();
-    hip::ReleaseGPULock();
   }
 
   command->release();
