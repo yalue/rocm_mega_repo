@@ -31,11 +31,9 @@ sudo apt install cmake pkg-config libpci-dev libelf-dev liblapack-dev \
 ```
 
 You will need to make sure that you are running a sufficiently recent version
-of the Linux kernel, supporting the `amdgpu` and `amdkfd` modules. Anything
-past kernel version 5.0 should be fine. Additionally, make sure you are running
-a version of the Linux kernel with the `amdkfd` module available, that the
-`video` group has RW access to `/dev/kfd`, and that your user is a member of
-the `video` and possibly the `render` group.
+of the Linux kernel, supporting not only ROCm but also my own kernel
+modifications, which are tracked in a different repo. (I will add a link
+later.)
 
 Finally, you will need to install the following packages from AMD's pre-built
 ROCm repositories AMD's repositories (see
