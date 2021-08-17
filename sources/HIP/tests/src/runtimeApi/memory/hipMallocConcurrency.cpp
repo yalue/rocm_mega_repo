@@ -85,16 +85,20 @@ Testcase Scenarios :
 /* Buffer size for alloc/free cycles */
 #define BUFF_SIZE_AF (5*1024*1024)
 
+/* You may change it for individual test.
+ * But default 100 is for quick return in Jenkin Build */
+#define NUM_DIV 100
+
 /* Max alloc/free iterations for smaller chunks */
-#define MAX_ALLOCFREE_SC (5000000)
+#define MAX_ALLOCFREE_SC (5000000/NUM_DIV)
 
 /* Max alloc and pool iterations (TBD) */
-#define MAX_ALLOCPOOL_ITER (2000000)
+#define MAX_ALLOCPOOL_ITER (2000000/NUM_DIV)
 
 /**
  * Validates data consitency on supplied gpu
  */
-bool validateMemoryOnGPU(int gpu) {
+bool validateMemoryOnGPU(int gpu, bool concurOnOneGPU = false) {
   size_t Nbytes = N * sizeof(int);
   int *A_d, *B_d, *C_d;
   int *A_h, *B_h, *C_h;
@@ -127,9 +131,10 @@ bool validateMemoryOnGPU(int gpu) {
   HipTest::freeArrays(A_d, B_d, C_d, A_h, B_h, C_h, false);
   HIPCHECK(hipMemGetInfo(&curAvl, &curTot));
 
-  if ((prevAvl != curAvl) || (prevTot != curTot)) {
+  if (!concurOnOneGPU && (prevAvl != curAvl || prevTot != curTot)) {
+    //In concurrent calls on one GPU, we cannot verify leaking in this way
     printf("%s : Memory allocation mismatch observed."
-        "Possible memory leak.", __func__);
+        "Possible memory leak.\n", __func__);
     TestPassed &= false;
   }
 
@@ -206,10 +211,12 @@ bool regressAllocInLoop(int gpu) {
     HIPCHECK(hipMalloc(&ptr, numBytes));
     HIPCHECK(hipMemGetInfo(&avail, &tot));
 
-    if (pavail-avail != numBytes) {
-      printf("LoopAllocation : Memory allocation of %6.2fMB"
-             "not matching with hipMemGetInfo - FAIL\n",
-              numBytes/(1024.0*1024.0));
+    if (pavail-avail < numBytes)  // We expect pavail-avail >= numBytes
+    {
+      printf("LoopAllocation %d : Memory allocation of %6.2fMB "
+             "not matching with hipMemGetInfo - FAIL\n"
+             "pavail=%zu, ptot=%zu, avail=%zu, tot=%zu, pavail-avail=%zu \n",
+             i, numBytes/(1024.0*1024.0), pavail, ptot, avail, tot, pavail-avail);
       TestPassed &= false;
       HIPCHECK(hipFree(ptr));
       break;
@@ -369,8 +376,7 @@ int main(int argc, char* argv[]) {
 
     } else if (!pid) {   // Child process
       bool TestPassedChild = true;
-
-      TestPassedChild = validateMemoryOnGPU(0);
+      TestPassedChild = validateMemoryOnGPU(0, true);
 
       if (TestPassedChild) {
         exit(0);  // child exit with success status
@@ -381,7 +387,7 @@ int main(int argc, char* argv[]) {
 
     } else {  // Parent process
       int exitStatus;
-      TestPassed = validateMemoryOnGPU(0);
+      TestPassed = validateMemoryOnGPU(0, true);
 
       pid = wait(&exitStatus);
       if ( WEXITSTATUS(exitStatus) || ( pid < 0 ) )

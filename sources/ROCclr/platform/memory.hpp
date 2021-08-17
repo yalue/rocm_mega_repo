@@ -37,6 +37,7 @@
 #include <unordered_map>
 #include <memory>
 #define CL_MEM_FOLLOW_USER_NUMA_POLICY              (1u << 31)
+#define ROCCLR_MEM_HSA_SIGNAL_MEMORY (1u << 30)
 
 namespace device {
 class Memory;
@@ -214,6 +215,8 @@ class Memory : public amd::RuntimeObject {
 
   void setSize(size_t size) { size_ = size; }
   void setInteropObj(InteropObject* obj) { interopObj_ = obj; }
+
+  void resetAllocationState();
 
  public:
   //! Placement new operator.
@@ -581,10 +584,6 @@ class Image : public Memory {
 
   //! Sets the byte pitch obtained from HWL
   void setBytePitch(size_t bytePitch) { impl_.bp_ = bytePitch; }
-
-  //! Creates and initializes device (cache) memory for all devices
-  bool create(void* initFrom = NULL  //!< Pointer to the initialization data
-  );
 };
 
 //! SVM-related functionality.

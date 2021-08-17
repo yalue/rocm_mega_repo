@@ -39,9 +39,9 @@ __global__ void bit_extract_kernel(uint32_t* C_d, const uint32_t* A_d, size_t N)
     size_t stride = hipBlockDim_x * hipGridDim_x;
 
     for (size_t i = offset; i < N; i += stride) {
-#ifdef __HIP_PLATFORM_HCC__
+#ifdef __HIP_PLATFORM_AMD__
         C_d[i] = __bitextract_u32(A_d[i], 8, 4);
-#else /* defined __HIP_PLATFORM_NVCC__ or other path */
+#else /* defined __HIP_PLATFORM_NVIDIA__ or other path */
         C_d[i] = ((A_d[i] & 0xf00) >> 8);
 #endif
     }
@@ -53,6 +53,20 @@ int main(int argc, char* argv[]) {
     uint32_t *A_h, *C_h;
     size_t N = 1000000;
     size_t Nbytes = N * sizeof(uint32_t);
+
+#ifdef __HIP_ENABLE_PCH
+    // Verify hip_pch.o
+    const char* pch = nullptr;
+    unsigned int size = 0;
+    __hipGetPCH(&pch, &size);
+    printf("pch size: %u\n", size);
+    if (size == 0) {
+        printf("__hipGetPCH failed!\n");
+        return -1;
+    } else {
+        printf("__hipGetPCH succeeded!\n");
+    }
+#endif
 
     int deviceId;
     CHECK(hipGetDevice(&deviceId));

@@ -48,13 +48,23 @@
 
 /*! IHIP IPC MEMORY Structure */
 #define IHIP_IPC_MEM_HANDLE_SIZE   32
-#define IHIP_IPC_MEM_RESERVED_SIZE LP64_SWITCH(28,24)
+#define IHIP_IPC_MEM_RESERVED_SIZE LP64_SWITCH(24,16)
 
 typedef struct ihipIpcMemHandle_st {
   char ipc_handle[IHIP_IPC_MEM_HANDLE_SIZE];  ///< ipc memory handle on ROCr
   size_t psize;
+  size_t poffset;
   char reserved[IHIP_IPC_MEM_RESERVED_SIZE];
 } ihipIpcMemHandle_t;
+
+#define IHIP_IPC_EVENT_HANDLE_SIZE 32
+#define IHIP_IPC_EVENT_RESERVED_SIZE LP64_SWITCH(28,24)
+typedef struct ihipIpcEventHandle_st {
+    //hsa_amd_ipc_signal_t ipc_handle;  ///< ipc signal handle on ROCr
+    //char ipc_handle[IHIP_IPC_EVENT_HANDLE_SIZE];
+    //char reserved[IHIP_IPC_EVENT_RESERVED_SIZE];
+    char shmem_name[IHIP_IPC_EVENT_HANDLE_SIZE];
+}ihipIpcEventHandle_t;
 
 #ifdef _WIN32
   inline int getpid() { return _getpid(); }
@@ -156,6 +166,8 @@ namespace hip {
     unsigned int Flags() const { return flags_; }
     /// Returns the priority for the current stream
     Priority GetPriority() const { return priority_; }
+    /// Returns the CU mask for the current stream
+    const std::vector<uint32_t> GetCUMask() const { return cuMask_; }
 
     /// Sync all non-blocking streams
     static void syncNonBlockingStreams();
@@ -232,28 +244,6 @@ namespace hip {
   extern amd::HostQueue* getNullStream(amd::Context&);
   /// Get default stream of the thread
   extern amd::HostQueue* getNullStream();
-
-  // (otternes): Tacked-on additions to interact with my GPU locking module.
-  // Both AcquireGPULock() and ReleaseGPULock() are configured using
-  // environment variables, and will simply exit on error. If the module isn't
-  // available, gpu_lock_fd will be set to -1, and Acquire/Release functions
-  // will be no-ops that silently return.
-  //
-  // Two environment variables control the behavior of our modifications:
-  //  - IGNORE_GPU_LOCK_CHARDEV: Set this environment variable to any positive
-  //    integer (e.g. "1") to cause HIP to behave as if the GPU lock chardev
-  //    isn't available.
-  //  - GPU_LOCK_ID: Set this environment variable to an integer of the lock
-  //    ID to be used by this process.
-  //
-  // On top of this, the simple_hip_trace is controlled by the SIMPLE_HIP_TRACE
-  // environment variable. If it's set and nonzero, then a line is printed to
-  // stdout with information about various events as programs run.
-  extern int gpu_lock_fd;
-  extern int gpu_lock_id;
-  extern int simple_hip_trace;
-  extern void AcquireGPULock();
-  extern void ReleaseGPULock();
 };
 
 struct ihipExec_t {

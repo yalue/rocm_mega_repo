@@ -24,7 +24,7 @@ THE SOFTWARE.
  */
 
 /* HIT_START
- * BUILD: %t %s ../../test_common.cpp NVCC_OPTIONS -std=c++11 EXCLUDE_HIP_PLATFORM nvcc
+ * BUILD: %t %s ../../test_common.cpp NVCC_OPTIONS -std=c++11 EXCLUDE_HIP_PLATFORM nvidia
  * TEST: %t
  * HIT_END
  */
@@ -573,10 +573,13 @@ void HipMemcpyWithStreamMultiThreadtests::TestkindHtoH(void) {
 
 
 void HipMemcpyWithStreamMultiThreadtests::TestwithMultiThreaded(ops op) {
-  int n = min(THREADS * std::thread::hardware_concurrency(), MAX_THREADS);
+  size_t thread_count = getHostThreadCount();
+  if (thread_count == 0) {
+    failed("Thread Count is 0");
+  }
   std::vector<joinable_thread> threads;
 
-  for (uint32_t i = 0; i < n; i++) {
+  for (uint32_t i = 0; i < thread_count; i++) {
     threads.emplace_back(std::thread{[&] {
       switch ( op ) {
         case ops::TestwithOnestream:

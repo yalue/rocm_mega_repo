@@ -190,9 +190,13 @@ bool Memory::create(Resource::MemoryType memType, Resource::CreateParams* params
       memRef()->gpu_ = params->gpu_;
     }
     if (memRef() != nullptr) {
-      ClPrint(amd::LOG_DEBUG, amd::LOG_RESOURCE, "Alloc: %8llx bytes, VM[%10llx, %10llx]",
-        iMem()->Desc().size, iMem()->Desc().gpuVirtAddr,
-        iMem()->Desc().gpuVirtAddr + iMem()->Desc().size);
+      ClPrint(amd::LOG_DEBUG, amd::LOG_RESOURCE,
+              "Alloc: %llx bytes, ptr[%p-%p], obj[%p-%p]",
+              size(),
+              vmAddress(),
+              vmAddress() + size(),
+              iMem()->Desc().gpuVirtAddr,
+              iMem()->Desc().gpuVirtAddr + iMem()->Desc().size);
     }
   }
 
@@ -747,7 +751,8 @@ void* Memory::allocMapTarget(const amd::Coord3D& origin, const amd::Coord3D& reg
     owner()->commitSvmMemory();
   }
 
-  if (owner()->numDevices() > 1) {
+  constexpr size_t largeAlloc = (1ull << 31);
+  if ((owner()->numDevices() > 1) || (owner()->getSize() > largeAlloc)) {
     if ((nullptr == initHostPtr) && (owner()->getHostMem() == nullptr)) {
       static const bool forceAllocHostMem = true;
       if (!owner()->allocHostMemory(nullptr, forceAllocHostMem)) {
@@ -1134,7 +1139,7 @@ bool Image::ValidateMemory(Resource::MemoryType memType) {
         !copyImageBuffer_->create(Resource::Local, nullptr, ForceLinear)) {
       return false;
     }
-    constexpr Pal::SubresId ImgSubresId = {Pal::ImageAspect::Color, 0, 0};
+    constexpr Pal::SubresId ImgSubresId = {0, 0, 0};
     Pal::SubresLayout layout;
     copyImageBuffer_->image()->GetSubresourceLayout(ImgSubresId, &layout);
     // Destroy temporary linear image, since it was allocated for the pitch validation only

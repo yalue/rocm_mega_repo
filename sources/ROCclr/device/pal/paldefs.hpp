@@ -45,11 +45,11 @@ struct HwDbgKernelInfo {
   uint64_t scratchBufAddr;          ///< Handle of GPU local memory for kernel private scratch space
   size_t scratchBufferSizeInBytes;  ///< size of memory pointed to by pScratchBuffer,
   uint64_t heapBufAddr;             ///< Address of the global heap base
-  const void* pAqlDispatchPacket;   ///< Pointer to the dipatch packet
+  const void* pAqlDispatchPacket;   ///< Pointer to the dispatch packet
   const void* pAqlQueuePtr;         ///< pointer to the AQL Queue
   void* trapHandler;                ///< address of the trap handler (TBA)
   void* trapHandlerBuffer;          ///< address of the trap handler buffer (TMA)
-  uint32_t excpEn;                  ///< excecption mask
+  uint32_t excpEn;                  ///< exception mask
   bool trapPresent;                 ///< trap present flag
   bool sqDebugMode;                 ///< debug mode flag (GPU single step mode)
   uint32_t mgmtSe0Mask;             ///< mask for SE0 (reserving CU for display)
@@ -110,7 +110,7 @@ static constexpr uint MaxConstArguments = 8;
 //! Maximum number of supported kernel UAV arguments
 static constexpr uint MaxUavArguments = 1024;
 //! Maximum number of pixels for a 1D image created from a buffer
-static constexpr size_t MaxImageBufferSize = 1 << 27;
+static constexpr size_t MaxImageBufferSize = (1ull << 32) - 1;
 //! Maximum number of pixels for a 1D image created from a buffer
 static constexpr size_t MaxImageArraySize = 2048;
 
@@ -120,7 +120,7 @@ static constexpr uint MaxConstBuffers = MaxConstArguments + 8;
 //! Maximum number of constant buffers for arguments
 static constexpr uint MaxConstBuffersArguments = 2;
 
-//! Alignment restriciton for the pinned memory
+//! Alignment restriction for the pinned memory
 static constexpr size_t PinnedMemoryAlignment = 4 * Ki;
 
 //! HSA path specific defines for images
@@ -131,98 +131,6 @@ static constexpr uint HsaSamplerObjectAlignment = 16;
 
 //! HSA path specific defines for images
 static constexpr uint DeviceQueueMaskSize = 32;
-
-struct AMDDeviceInfo {
-  const char* machineTarget_;    //!< Machine target
-  const char* machineTargetLC_;  //!< Machine target for LC
-  uint simdWidth_;               //!< Number of workitems processed per SIMD
-  uint memChannelBankWidth_;     //!< Memory channel bank width
-  uint localMemBanks_;           //!< Number of banks of local memory
-  uint gfxipVersionLC_;          //!< The core engine GFXIP version for LC
-  uint gfxipVersion_;            //!< The core engine GFXIP version
-  bool xnackEnabled_;            //!< Enable XNACK feature
-};
-
-static constexpr AMDDeviceInfo UnknownDevice = {"", "", 16, 256, 32, 0, 0, false};
-
-static constexpr AMDDeviceInfo DeviceInfo[] = {
-    /* Unknown */   UnknownDevice,
-    /* Tahiti */    {"", "", 16, 256, 32, 600, 600, false},
-    /* Pitcairn */  {"", "", 16, 256, 32, 600, 600, false},
-    /* Capeverde */ {"", "", 16, 256, 32, 700, 700, false},
-    /* Oland */     {"", "", 16, 256, 32, 600, 600, false},
-    /* Hainan */    {"", "", 16, 256, 32, 600, 600, false},
-
-    /* Bonaire */   {"Bonaire", "", 16, 256, 32, 700, 700, false},
-    /* Hawaii */    {"Hawaii", "", 16, 256, 32, 701, 701, false},
-    /* Hawaii */    {"", "", 16, 256, 32, 701, 701, false},
-    /* Hawaii */    {"", "", 16, 256, 32, 701, 701, false},
-
-    /* Kalindi */   {"Kalindi", "", 16, 256, 32, 702, 702, false},
-    /* Godavari */  {"Mullins", "", 16, 256, 32, 702, 702, false},
-    /* Spectre */   {"Spectre", "", 16, 256, 32, 701, 701, false},
-    /* Spooky */    {"Spooky", "", 16, 256, 32, 701, 701, false},
-
-    /* Carrizo */   {"Carrizo", "", 16, 256, 32, 801, 801, false},
-    /* Bristol */   {"Bristol Ridge", "", 16, 256, 32, 801, 801, false},
-    /* Stoney */    {"Stoney", "", 16, 256, 32, 810, 810, false},
-
-    /* Iceland */   {"Iceland", "gfx802", 16, 256, 32, 802, 800, false},
-    /* Tonga */     {"Tonga", "gfx802", 16, 256, 32, 802, 800, false},
-    /* Fiji */      {"Fiji", "gfx803", 16, 256, 32, 803, 804, false},
-    /* Ellesmere */ {"Ellesmere", "gfx803", 16, 256, 32, 803, 804, false},
-    /* Baffin */    {"Baffin", "gfx803", 16, 256, 32, 803, 804, false},
-    /* Lexa */      {"gfx804", "gfx803", 16, 256, 32, 803, 804, false},
-};
-
-// Ordering as per AsicRevision# in palDevice.h & AMDGPU Target Names
-
-static constexpr AMDDeviceInfo Gfx9PlusSubDeviceInfo[] = {
-    /* 0x18 Vega10              */ {"gfx900", "gfx900", 16, 256, 32, 900, 900, false},
-    /*      Vega10 XNACK        */ {"gfx901", "gfx900", 16, 256, 32, 900, 901, true},
-    /* 0x19 Vega12              */ {"gfx904", "gfx904", 16, 256, 32, 904, 904, false},
-    /*      Vega12 XNACK        */ {"gfx905", "gfx904", 16, 256, 32, 904, 905, true},
-    /* 0x1a Vega20              */ {"gfx906", "gfx906", 16, 256, 32, 906, 906, false},
-    /*      Vega20 XNACK        */ {"gfx907", "gfx906", 16, 256, 32, 906, 907, true},
-    /* 0x1b Raven               */ {"gfx902", "gfx902", 16, 256, 32, 902, 902, false},
-    /*      Raven XNACK         */ {"gfx903", "gfx902", 16, 256, 32, 902, 903, true},
-    /* 0x1c Raven2              */ {"gfx902", "gfx902", 16, 256, 32, 902, 902, false},
-    /*      Raven2 XNACK        */ {"gfx903", "gfx902", 16, 256, 32, 902, 903, true},
-    /* 0x1d Renoir              */ {"gfx902", "gfx902", 16, 256, 32, 902, 902, false},
-    /*      Renoir XNACK        */ {"gfx903", "gfx902", 16, 256, 32, 902, 903, true},
-    /* 0x1e Navi10_A0           */ {"gfx1010", "gfx1010", 32, 256, 32, 1010, 1010, false},
-    /*      Navi10_A0 XNACK     */ {"gfx1010", "gfx1010", 32, 256, 32, 1010, 1010, true},
-    /* 0x1f Navi10              */ {"gfx1010", "gfx1010", 32, 256, 32, 1010, 1010, false},
-    /*      Navi10 XNACK        */ {"gfx1010", "gfx1010", 32, 256, 32, 1010, 1010, true},
-    /* 0x20 Navi10Lite          */ UnknownDevice,
-    /*      Navi10LiteXNACK     */ UnknownDevice,
-    /* 0x21 Navi12              */ {"gfx1011", "gfx1011", 32, 256, 32, 1011, 1011, false},
-    /*      Navi12  XNACK       */ {"gfx1011", "gfx1011", 32, 256, 32, 1011, 1011, true},
-    /* 0x22 Navi12Lite          */ UnknownDevice,
-    /*      Navi12LiteXNACK     */ UnknownDevice,
-    /* 0x23 Navi14              */ {"gfx1012", "gfx1012", 32, 256, 32, 1012, 1012, false},
-    /*      Navi14 XNACK        */ {"gfx1012", "gfx1012", 32, 256, 32, 1012, 1012, true},
-    /* 0x24 Navi21              */ {"gfx1030", "gfx1030", 32, 256, 32, 1030, 1030, false},
-    /*      Navi21 XNACK        */ UnknownDevice,
-    /* 0x25 UnknownDevice       */ UnknownDevice,
-    /*      UnknownDevice XNACK */ UnknownDevice,
-    /* 0x26 UnknownDevice       */ UnknownDevice,
-    /*      UnknownDevice XNACK */ UnknownDevice,
-    /* 0x27 UnknownDevice       */ UnknownDevice,
-    /*      UnknownDevice XNACK */ UnknownDevice,
-    /* 0x28 UnknownDevice       */ UnknownDevice,
-    /*      UnknownDevice XNACK */ UnknownDevice,
-    /* 0x29 UnknownDevice       */ UnknownDevice,
-    /*      UnknownDevice XNACK */ UnknownDevice,
-    /* 0x2a UnknownDevice       */ UnknownDevice,
-    /*      UnknownDevice XNACK */ UnknownDevice,
-    /* 0x2b UnknownDevice       */ UnknownDevice,
-    /*      UnknownDevice XNACK */ UnknownDevice,
-    /* 0x2c UnknownDevice       */ UnknownDevice,
-    /*      UnknownDevice XNACK */ UnknownDevice,
-    /* 0x2d UnknownDevice       */ UnknownDevice,
-    /*      UnknownDevice XNACK */ UnknownDevice,
-};
 
 // Supported OpenCL versions
 enum OclVersion {

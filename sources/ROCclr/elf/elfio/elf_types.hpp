@@ -1,5 +1,6 @@
 /*
 Copyright (C) 2001-2015 by Serge Lamikhov-Center
+Modifications Copyright (C) 2020-2021 Advanced Micro Devices, Inc.
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal
@@ -367,60 +368,6 @@ typedef uint64_t Elf64_Off;
 #define ELFOSABI_NSK           14 // Hewlett-Packard Non-Stop Kernel
 #define ELFOSABI_AROS          15 // Amiga Research OS
 #define ELFOSABI_FENIXOS       16 // The FenixOS highly scalable multi-core OS
-//                             64-255 Architecture-specific value range
-#define ELFOSABI_AMDGPU_HSA    64 // AMDGPU OS for HSA compatible compute
-                                  // kernels.
-#define ELFOSABI_AMDGPU_PAL    65 // AMDGPU OS for AMD PAL compatible graphics
-                                  // shaders and compute kernels.
-#define ELFOSABI_AMDGPU_MESA3D 66 // AMDGPU OS for Mesa3D compatible graphics
-                                  // shaders and compute kernels.
-
-
-// AMDGPU specific e_flags
-#define EF_AMDGPU_MACH  0x0ff // AMDGPU processor selection mask.
-//#define EF_AMDGPU_XNACK 0x100 // Indicates if the XNACK target feature is
-                              // enabled for all code contained in the ELF.
-// AMDGPU processors
-#define EF_AMDGPU_MACH_NONE                0x000 // Unspecified processor.
-#define EF_AMDGPU_MACH_R600_R600           0x001
-#define EF_AMDGPU_MACH_R600_R630           0x002
-#define EF_AMDGPU_MACH_R600_RS880          0x003
-#define EF_AMDGPU_MACH_R600_RV670          0x004
-#define EF_AMDGPU_MACH_R600_RV710          0x005
-#define EF_AMDGPU_MACH_R600_RV730          0x006
-#define EF_AMDGPU_MACH_R600_RV770          0x007
-#define EF_AMDGPU_MACH_R600_CEDAR          0x008
-#define EF_AMDGPU_MACH_R600_CYPRESS        0x009
-#define EF_AMDGPU_MACH_R600_JUNIPER        0x00a
-#define EF_AMDGPU_MACH_R600_REDWOOD        0x00b
-#define EF_AMDGPU_MACH_R600_SUMO           0x00c
-#define EF_AMDGPU_MACH_R600_BARTS          0x00d
-#define EF_AMDGPU_MACH_R600_CAICOS         0x00e
-#define EF_AMDGPU_MACH_R600_CAYMAN         0x00f
-#define EF_AMDGPU_MACH_R600_TURKS          0x010
-#define EF_AMDGPU_MACH_R600_RESERVED_FIRST 0x011
-#define EF_AMDGPU_MACH_R600_RESERVED_LAST  0x01f
-#define EF_AMDGPU_MACH_R600_FIRST          EF_AMDGPU_MACH_R600_R600
-#define EF_AMDGPU_MACH_R600_LAST           EF_AMDGPU_MACH_R600_TURKS
-#define EF_AMDGPU_MACH_AMDGCN_GFX600       0x020
-#define EF_AMDGPU_MACH_AMDGCN_GFX601       0x021
-#define EF_AMDGPU_MACH_AMDGCN_GFX700       0x022
-#define EF_AMDGPU_MACH_AMDGCN_GFX701       0x023
-#define EF_AMDGPU_MACH_AMDGCN_GFX702       0x024
-#define EF_AMDGPU_MACH_AMDGCN_GFX703       0x025
-#define EF_AMDGPU_MACH_AMDGCN_GFX704       0x026
-#define EF_AMDGPU_MACH_AMDGCN_GFX801       0x028
-#define EF_AMDGPU_MACH_AMDGCN_GFX802       0x029
-#define EF_AMDGPU_MACH_AMDGCN_GFX803       0x02a
-#define EF_AMDGPU_MACH_AMDGCN_GFX810       0x02b
-#define EF_AMDGPU_MACH_AMDGCN_GFX900       0x02c
-#define EF_AMDGPU_MACH_AMDGCN_GFX902       0x02d
-#define EF_AMDGPU_MACH_AMDGCN_GFX904       0x02e
-#define EF_AMDGPU_MACH_AMDGCN_GFX906       0x02f
-#define EF_AMDGPU_MACH_AMDGCN_RESERVED0    0x027
-#define EF_AMDGPU_MACH_AMDGCN_RESERVED1    0x030
-#define EF_AMDGPU_MACH_AMDGCN_FIRST        EF_AMDGPU_MACH_AMDGCN_GFX600
-#define EF_AMDGPU_MACH_AMDGCN_LAST         EF_AMDGPU_MACH_AMDGCN_GFX906
 
 /////////////////////
 // Sections constants

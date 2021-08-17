@@ -75,7 +75,10 @@ __attribute__((noinline)) static void _loader_debug_state() {
 // r_version history:
 // 1: Initial debug protocol
 // 2: New trap handler ABI. The reason for halting a wave is recorded in ttmp11[8:7].
-HSA_API r_debug _amdgpu_r_debug = {2,
+// 3: New trap handler ABI. A wave halted at S_ENDPGM rewinds its PC by 8 bytes, and sets ttmp11[9]=1.
+// 4: New trap handler ABI. Save the trap id in ttmp11[16:9]
+// 5: New trap handler ABI. Save the PC in ttmp11[22:7] ttmp6[31:0], and park the wave if stopped
+HSA_API r_debug _amdgpu_r_debug = {5,
                            nullptr,
                            reinterpret_cast<uintptr_t>(&_loader_debug_state),
                            r_debug::RT_CONSISTENT,
@@ -1216,7 +1219,7 @@ hsa_status_t ExecutableImpl::LoadCodeObject(
     return HSA_STATUS_ERROR_INVALID_CODE_OBJECT;
   }
 
-  if (majorVersion != 1 && majorVersion != 2 && majorVersion != 3) {
+  if (majorVersion < 1 || majorVersion > 4) {
     logger_ << "LoaderError: unsupported code object version: " << majorVersion << "\n";
     return HSA_STATUS_ERROR_INVALID_CODE_OBJECT;
   }
@@ -1309,7 +1312,7 @@ hsa_status_t ExecutableImpl::LoadSegmentsV1(hsa_agent_t agent,
 
 hsa_status_t ExecutableImpl::LoadSegmentsV2(hsa_agent_t agent,
                                             const code::AmdHsaCode *c) {
-  assert(c->Machine() == EM_AMDGPU && "Program code objects are not supported");
+  assert(c->Machine() == ELF::EM_AMDGPU && "Program code objects are not supported");
 
   if (!c->DataSegmentCount()) return HSA_STATUS_ERROR_INVALID_CODE_OBJECT;
 
@@ -1422,8 +1425,8 @@ hsa_status_t ExecutableImpl::LoadDefinitionSymbol(hsa_agent_t agent,
     llvm::amdhsa::kernel_descriptor_t kd;
     sym->GetSection()->getData(sym->SectionOffset(), &kd, sizeof(kd));
 
-    uint32_t kernarg_segment_size = 0;      // FIXME.
-    uint32_t kernarg_segment_alignment = 0; // FIXME.
+    uint32_t kernarg_segment_size = kd.kernarg_size; // FIXME: If 0 then the compiler is not specifying the size.
+    uint32_t kernarg_segment_alignment = 16;         // FIXME: Use the minumum HSA required alignment.
     uint32_t group_segment_size = kd.group_segment_fixed_size;
     uint32_t private_segment_size = kd.private_segment_fixed_size;
     bool is_dynamic_callstack = false;

@@ -21,7 +21,7 @@ THE SOFTWARE.
 */
 
 /* HIT_START
- * BUILD: %t %s ../../test_common.cpp NVCC_OPTIONS -std=c++11 EXCLUDE_HIP_PLATFORM rocclr
+ * BUILD: %t %s ../../test_common.cpp NVCC_OPTIONS -std=c++11 EXCLUDE_HIP_RUNTIME rocclr
  * TEST: %t
  * HIT_END
  */
@@ -35,7 +35,7 @@ void NegativeTests(){
         hipEvent_t start,end;
         float tms = 1.0f;
         HIPASSERT(hipEventElapsedTime(nullptr,start,end) == hipErrorInvalidValue);
-#ifndef __HIP_PLATFORM_NVCC__
+#ifndef __HIP_PLATFORM_NVIDIA__
         // On NVCC platform API throws seg fault hence skipping
         HIPASSERT(hipEventElapsedTime(&tms,nullptr,end) == hipErrorInvalidHandle);
         HIPASSERT(hipEventElapsedTime(&tms,start,nullptr) == hipErrorInvalidHandle);
@@ -61,13 +61,13 @@ void NegativeTests(){
             hipEvent_t start;
             HIPCHECK(hipEventCreate(&start));
 
+            HIPCHECK(hipEventRecord(start, nullptr));
+            HIPCHECK(hipEventSynchronize(start));
+
             // create event on dev=1
             HIPCHECK(hipSetDevice(1));
             hipEvent_t stop;
             HIPCHECK(hipEventCreate(&stop));
-
-            HIPCHECK(hipEventRecord(start, nullptr));
-            HIPCHECK(hipEventSynchronize(start));
 
             HIPCHECK(hipEventRecord(stop, nullptr));
             HIPCHECK(hipEventSynchronize(stop));

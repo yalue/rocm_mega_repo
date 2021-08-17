@@ -19,7 +19,7 @@
  THE SOFTWARE. */
 
 #include <hip/hip_runtime.h>
-#include <hip/hcc_detail/texture_types.h>
+#include <hip/amd_detail/texture_types.h>
 #include "hip_internal.hpp"
 #include "hip_platform.hpp"
 #include "hip_conversions.hpp"
@@ -76,6 +76,11 @@ hipError_t ihipCreateTextureObject(hipTextureObject_t* pTexObject,
                                    const hipResourceViewDesc* pResViewDesc) {
   amd::Device* device = hip::getCurrentDevice()->devices()[0];
   const device::Info& info = device->info();
+
+  // Validate input params
+  if (pTexObject == nullptr || pResDesc == nullptr || pTexDesc == nullptr) {
+    return hipErrorInvalidValue;
+  }
 
   // pResViewDesc can only be specified if the type of resource is a HIP array or a HIP mipmapped array.
   if ((pResViewDesc != nullptr) &&
@@ -387,7 +392,7 @@ inline bool ihipGetTextureAlignmentOffset(size_t* offset,
   // If the device memory pointer was returned from hipMalloc(),
   // the offset is guaranteed to be 0 and NULL may be passed as the offset parameter.
   if ((alignedOffset != 0) && (offset == nullptr)) {
-    DevLogPrintfError("Texture object not aligned with offset %u \n", alignedOffset);
+    LogPrintfError("Texture object not aligned with offset %u \n", alignedOffset);
     return false;
   }
 
@@ -729,8 +734,10 @@ hipError_t hipTexRefGetAddressMode(hipTextureAddressMode* pam,
 
   // Currently, the only valid value for dim are 0 and 1.
   if ((dim != 0) && (dim != 1)) {
-    DevLogPrintfError("Currently only 2 dimensions (0,1) are valid,"
-                      "dim : %d \n", dim);
+    LogPrintfError(
+        "Currently only 2 dimensions (0,1) are valid,"
+        "dim : %d \n",
+        dim);
     HIP_RETURN(hipErrorInvalidValue);
   }
 
@@ -749,8 +756,10 @@ hipError_t hipTexRefSetAddressMode(textureReference* texRef,
   }
 
   if ((dim < 0) || (dim > 2)) {
-    DevLogPrintfError("Currently only 3 dimensions (0,1,2) are valid,"
-                      "dim : %d \n", dim);
+    LogPrintfError(
+        "Currently only 3 dimensions (0,1,2) are valid,"
+        "dim : %d \n",
+        dim);
     HIP_RETURN(hipErrorInvalidValue);
   }
 
@@ -844,8 +853,8 @@ hipError_t hipTexRefGetAddress(hipDeviceptr_t* dptr,
   // TODO use ihipGetTextureObjectResourceDesc() to not pollute the API trace.
   hipError_t error = hipGetTextureObjectResourceDesc(&resDesc, texRef->textureObject);
   if (error != hipSuccess) {
-    DevLogPrintfError("hipGetTextureObjectResourceDesc failed with error code: %s \n",
-                      hipGetErrorName(error));
+    LogPrintfError("hipGetTextureObjectResourceDesc failed with error code: %s \n",
+                   hipGetErrorName(error));
     HIP_RETURN(error);
   }
 

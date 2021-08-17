@@ -9,7 +9,7 @@ About
 -----
 
 This repository currently contains copies of the `ROCR-Runtime`, `HIP`, and
-`ROCclr` code.  The source code is based on ROCm 4.0.
+`ROCclr` code.  The source code is based on ROCm 4.2.
 
 This repository is where I keep track of modifications to the ROCm stack for my
 own personal research.  For example, it previously contained a separate
@@ -40,17 +40,17 @@ ROCm repositories AMD's repositories (see
 [these instructions](https://github.com/RadeonOpenCompute/ROCm#Ubuntu) for
 information about adding the repo):
 ```
-sudo apt install rocm-dev4.0.0 rocm-libs4.0.0 rocm-utils4.0.0 rccl4.0.0
+sudo apt install rocm-dev4.2.0 rocm-libs4.2.0 rocm-utils4.2.0 rccl4.2.0
 ```
 
-After running the above command to install ROCm version 4.0.0, you will need to
-create a symlink to link `/opt/rocm` to `/opt/rocm/4.0.0`.
+After running the above command to install ROCm version 4.2.0, you will need to
+create a symlink to link `/opt/rocm` to `/opt/rocm/4.2.0`.
 
 Finally, make sure that `/opt/rocm/bin` is on your PATH, and that your system
 looks for shared libraries in `/opt/rocm/lib`.
 
 (Note that if you need to install additional ROCm libraries, always use the
-package versions with names ending in `4.0.0`: mixing the `<...>4.0.0` packages
+package versions with names ending in `4.2.0`: mixing the `<...>4.2.0` packages
 with the packages that don't have a version number EASILY leads to broken
 installations.  (Speaking from experience.)
 

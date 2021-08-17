@@ -82,6 +82,7 @@ namespace amd {
 #endif  // __APPLE__
 
 bool IS_HIP = false;
+std::atomic_bool IS_PROFILER_ON(false);
 
 #if defined(WITH_GPU_DEVICE)
 bool IS_LEGACY = true;
@@ -143,6 +144,12 @@ bool Flag::init() {
     const auto it = vars.find(flag.name_);
     if (it != vars.cend()) {
       flag.setValue(it->second);
+    }
+  }
+  if (!flagIsDefault(AMD_LOG_LEVEL)) {
+    if (!flagIsDefault(AMD_LOG_LEVEL_FILE)) {
+      std::string fileName = AMD_LOG_LEVEL_FILE;
+      outFile = fopen(fileName.c_str(), "w");
     }
   }
 

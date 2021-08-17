@@ -37,44 +37,55 @@ HostQueue::HostQueue(Context& context, Device& device, cl_command_queue_properti
                      uint queueRTCUs, Priority priority, const std::vector<uint32_t>& cuMask)
     : CommandQueue(context, device, properties, device.info().queueProperties_, queueRTCUs,
                    priority, cuMask),
-      lastEnqueueCommand_(nullptr) {
-  if (thread_.state() >= Thread::INITIALIZED) {
-    ScopedLock sl(queueLock_);
-    thread_.start(this);
-    queueLock_.wait();
+      lastEnqueueCommand_(nullptr),
+      head_(nullptr),
+      tail_(nullptr) {
+  if (AMD_DIRECT_DISPATCH) {
+    // Initialize the queue
+    thread_.Init(this);
+  } else {
+    if (thread_.state() >= Thread::INITIALIZED) {
+      ScopedLock sl(queueLock_);
+      thread_.start(this);
+      queueLock_.wait();
+    }
   }
 }
 
 bool HostQueue::terminate() {
-  if (Os::isThreadAlive(thread_)) {
-    Command* marker = nullptr;
+  if (AMD_DIRECT_DISPATCH) {
+    thread_.Release();
+  } else {
+    if (Os::isThreadAlive(thread_)) {
+      Command* marker = nullptr;
 
-    // Send a finish if the queue is still accepting commands.
-    {
-      ScopedLock sl(queueLock_);
-      if (thread_.acceptingCommands_) {
-        marker = new Marker(*this, false);
-        if (marker != nullptr) {
-          append(*marker);
-          queueLock_.notify();
+      // Send a finish if the queue is still accepting commands.
+      {
+        ScopedLock sl(queueLock_);
+        if (thread_.acceptingCommands_) {
+          marker = new Marker(*this, false);
+          if (marker != nullptr) {
+            append(*marker);
+            queueLock_.notify();
+          }
         }
       }
-    }
-    if (marker != nullptr) {
-      marker->awaitCompletion();
-      marker->release();
-    }
+      if (marker != nullptr) {
+        marker->awaitCompletion();
+        marker->release();
+      }
 
-    // Wake-up the command loop, so it can exit
-    {
-      ScopedLock sl(queueLock_);
-      thread_.acceptingCommands_ = false;
-      queueLock_.notify();
-    }
+      // Wake-up the command loop, so it can exit
+      {
+        ScopedLock sl(queueLock_);
+        thread_.acceptingCommands_ = false;
+        queueLock_.notify();
+      }
 
-    // FIXME_lmoriche: fix termination handshake
-    while (thread_.state() < Thread::FINISHED) {
-      Os::yield();
+      // FIXME_lmoriche: fix termination handshake
+      while (thread_.state() < Thread::FINISHED) {
+        Os::yield();
+      }
     }
   }
 
@@ -162,7 +173,7 @@ void HostQueue::loop(device::VirtualDevice* virtualDevice) {
       continue;
     }
 
-    ClPrint(LOG_DEBUG, LOG_CMD, "command is submitted: %p", command);
+    ClPrint(LOG_DEBUG, LOG_CMD, "command (%s) is submitted: %p", getOclCommandKindString(command->type()), command);
 
     command->setStatus(CL_SUBMITTED);
 
@@ -213,16 +224,28 @@ bool HostQueue::isEmpty() {
 }
 
 Command* HostQueue::getLastQueuedCommand(bool retain) {
-  // Get last submitted command
-  ScopedLock l(lastCmdLock_);
+  if (AMD_DIRECT_DISPATCH) {
+    // The batch update must be lock protected to avoid a race condition
+    // when multiple threads submit/flush/update the batch at the same time
+    ScopedLock sl(vdev()->execution());
 
-  // Since the lastCmdLock_ is acquired, it is safe to read and retain the lastEnqueueCommand. It is
-  // guaranteed that the pointer will not change.
-  if (retain && lastEnqueueCommand_ != nullptr) {
-    lastEnqueueCommand_->retain();
+    // Since the lastCmdLock_ is acquired, it is safe to read and retain the lastEnqueueCommand.
+    // It is guaranteed that the pointer will not change.
+    if (retain && lastEnqueueCommand_ != nullptr) {
+      lastEnqueueCommand_->retain();
+    }
+    return lastEnqueueCommand_;
+  } else {
+    // Get last submitted command
+    ScopedLock l(lastCmdLock_);
+
+    // Since the lastCmdLock_ is acquired, it is safe to read and retain the lastEnqueueCommand.
+    // It is guaranteed that the pointer will not change.
+    if (retain && lastEnqueueCommand_ != nullptr) {
+      lastEnqueueCommand_->retain();
+    }
+    return lastEnqueueCommand_;
   }
-
-  return lastEnqueueCommand_;
 }
 
 DeviceQueue::~DeviceQueue() {

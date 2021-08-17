@@ -19,7 +19,7 @@
  THE SOFTWARE. */
 
 #include <hip/hip_runtime.h>
-#include <hip/hcc_detail/texture_types.h>
+#include <hip/amd_detail/texture_types.h>
 #include "hip_platform.hpp"
 #include "hip_internal.hpp"
 #include "platform/program.hpp"
@@ -31,6 +31,11 @@ constexpr unsigned __hipFatMAGIC2 = 0x48495046; // "HIPF"
 
 thread_local std::stack<ihipExec_t> execStack_;
 PlatformState* PlatformState::platform_; // Initiaized as nullptr by default
+
+//forward declaration of methods required for __hipRegisrterManagedVar
+hipError_t ihipMallocManaged(void** ptr, size_t size, unsigned int align = 0);
+hipError_t ihipMemcpy(void* dst, const void* src, size_t sizeBytes, hipMemcpyKind kind,
+                      amd::HostQueue& queue, bool isAsync = false);
 
 struct __CudaFatBinaryWrapper {
   unsigned int magic;
@@ -72,11 +77,10 @@ extern "C" hip::FatBinaryInfo** __hipRegisterFatBinary(const void* data)
 {
   const __CudaFatBinaryWrapper* fbwrapper = reinterpret_cast<const __CudaFatBinaryWrapper*>(data);
   if (fbwrapper->magic != __hipFatMAGIC2 || fbwrapper->version != 1) {
-    DevLogPrintfError("Cannot Register fat binary. FatMagic: %u version: %u ",
-                      fbwrapper->magic, fbwrapper->version);
+    LogPrintfError("Cannot Register fat binary. FatMagic: %u version: %u ", fbwrapper->magic,
+                   fbwrapper->version);
     return nullptr;
   }
-
   return PlatformState::instance().addFatBinary(fbwrapper->binary);
 }
 
@@ -105,7 +109,7 @@ extern "C" void __hipRegisterFunction(
     hipError_t hip_error = hipSuccess;
     for (size_t dev_idx = 0; dev_idx < g_devices.size(); ++dev_idx) {
       hip_error = PlatformState::instance().getStatFunc(&hfunc, hostFunction, dev_idx);
-      guarantee((hip_error == hipSuccess) && "Cannot Retrieve Static function");
+      guarantee((hip_error == hipSuccess), "Cannot Retrieve Static function");
     }
   }
 }
@@ -138,6 +142,30 @@ extern "C" void __hipRegisterSurface(hip::FatBinaryInfo** modules,      // The d
   PlatformState::instance().registerStatGlobalVar(var, var_ptr);
 }
 
+extern "C" void __hipRegisterManagedVar(void *hipModule,   // Pointer to hip module returned from __hipRegisterFatbinary
+                                        void **pointer,    // Pointer to a chunk of managed memory with size \p size and alignment \p align
+                                                           // HIP runtime allocates such managed memory and assign it to \p pointer
+                                        void *init_value,  // Initial value to be copied into \p pointer
+                                        const char *name,  // Name of the variable in code object
+                                        size_t size,
+                                        unsigned align) {
+  HIP_INIT();
+  hipError_t status = ihipMallocManaged(pointer, size, align);
+  if( status == hipSuccess) {
+    amd::HostQueue* queue = hip::getNullStream();
+    if(queue != nullptr) {
+      ihipMemcpy(*pointer, init_value, size, hipMemcpyHostToDevice, *queue);
+    } else {
+      ClPrint(amd::LOG_ERROR, amd::LOG_API, "Host Queue is NULL");
+    }
+  } else {
+    guarantee(false, "Error during allocation of managed memory!");
+  }
+  hip::Var* var_ptr = new hip::Var(std::string(name), hip::Var::DeviceVarKind::DVK_Managed, pointer,
+                                   size, align, reinterpret_cast<hip::FatBinaryInfo**>(hipModule));
+  PlatformState::instance().registerStatManagedVar(var_ptr);
+}
+
 extern "C" void __hipRegisterTexture(hip::FatBinaryInfo** modules,      // The device modules containing code object
                                      void* var,        // The shadow variable in host code
                                      char* hostVar,    // Variable name in host code
@@ -149,8 +177,6 @@ extern "C" void __hipRegisterTexture(hip::FatBinaryInfo** modules,      // The d
 
 extern "C" void __hipUnregisterFatBinary(hip::FatBinaryInfo** modules)
 {
-  HIP_INIT();
-
   PlatformState::instance().removeFatBinary(modules);
 }
 
@@ -218,13 +244,13 @@ extern "C" hipError_t hipLaunchByPtr(const void *hostFunction)
   hip::Stream* stream = reinterpret_cast<hip::Stream*>(exec.hStream_);
   int deviceId = (stream != nullptr)? stream->DeviceId() : ihipGetDevice();
   if (deviceId == -1) {
-    DevLogPrintfError("Wrong DeviceId: %d \n", deviceId);
+    LogPrintfError("Wrong DeviceId: %d \n", deviceId);
     HIP_RETURN(hipErrorNoDevice);
   }
   hipFunction_t func = nullptr;
   hipError_t hip_error = PlatformState::instance().getStatFunc(&func, hostFunction, deviceId);
   if ((hip_error != hipSuccess) || (func == nullptr)) {
-    DevLogPrintfError("Could not retrieve hostFunction: 0x%x \n", hostFunction);
+    LogPrintfError("Could not retrieve hostFunction: 0x%x \n", hostFunction);
     HIP_RETURN(hipErrorInvalidDeviceFunction);
   }
 
@@ -274,12 +300,12 @@ hipError_t ihipCreateGlobalVarObj(const char* name, hipModule_t hmod, amd::Memor
   dev_program = program->getDeviceProgram(*hip::getCurrentDevice()->devices()[0]);
 
   if (dev_program == nullptr) {
-    DevLogPrintfError("Cannot get Device Function for module: 0x%x \n", hmod);
+    LogPrintfError("Cannot get Device Function for module: 0x%x \n", hmod);
     HIP_RETURN(hipErrorInvalidDeviceFunction);
   }
   /* Find the global Symbols */
   if (!dev_program->createGlobalVarObj(amd_mem_obj, dptr, bytes, name)) {
-    DevLogPrintfError("Cannot create Global Var obj for symbol: %s \n", name);
+    LogPrintfError("Cannot create Global Var obj for symbol: %s \n", name);
     HIP_RETURN(hipErrorInvalidSymbol);
   }
 
@@ -298,7 +324,7 @@ hipError_t ihipOccupancyMaxActiveBlocksPerMultiprocessor(
 
   const device::Kernel::WorkGroupInfo* wrkGrpInfo = kernel.getDeviceKernel(device)->workGroupInfo();
   if (bCalcPotentialBlkSz == false) {
-    if (inputBlockSize == 0) {
+    if (inputBlockSize <= 0) {
       return hipErrorInvalidValue;
     }
     *bestBlockSize = 0;
@@ -311,7 +337,7 @@ hipError_t ihipOccupancyMaxActiveBlocksPerMultiprocessor(
   }
   else {
     if (inputBlockSize > int(device.info().maxWorkGroupSize_) ||
-            inputBlockSize == 0) {
+            inputBlockSize <= 0) {
       // The user wrote the kernel to work with a workgroup size
       // bigger than this hardware can support. Or they do not care
       // about the size So just assume its maximum size is
@@ -329,10 +355,10 @@ hipError_t ihipOccupancyMaxActiveBlocksPerMultiprocessor(
   size_t GprWaves = VgprWaves;
   if (wrkGrpInfo->usedSGPRs_ > 0) {
     size_t maxSGPRs;
-    if (device.info().gfxipMajor_ < 8) {
+    if (device.isa().versionMajor() < 8) {
       maxSGPRs = 512;
     }
-    else if (device.info().gfxipMajor_ < 10) {
+    else if (device.isa().versionMajor() < 10) {
       maxSGPRs = 800;
     }
     else {
@@ -552,13 +578,13 @@ void hipLaunchKernelGGLImpl(
   hip::Stream* s = reinterpret_cast<hip::Stream*>(stream);
   int deviceId = (s != nullptr)? s->DeviceId() : ihipGetDevice();
   if (deviceId == -1) {
-    DevLogPrintfError("Wrong Device Id: %d \n", deviceId);
+    LogPrintfError("Wrong Device Id: %d \n", deviceId);
   }
 
   hipFunction_t func = nullptr;
   hipError_t hip_error = PlatformState::instance().getStatFunc(&func, reinterpret_cast<void*>(function_address), deviceId);
   if ((hip_error != hipSuccess) || (func == nullptr)) {
-    DevLogPrintfError("Cannot find the static function: 0x%x", function_address);
+    LogPrintfError("Cannot find the static function: 0x%x", function_address);
   }
 
   hipModuleLaunchKernel(func,
@@ -598,7 +624,7 @@ hipError_t ihipLaunchKernel(const void* hostFunction,
   hip::Stream* s = reinterpret_cast<hip::Stream*>(stream);
   int deviceId = (s != nullptr)? s->DeviceId() : ihipGetDevice();
   if (deviceId == -1) {
-    DevLogPrintfError("Wrong Device Id: %d \n", deviceId);
+    LogPrintfError("Wrong Device Id: %d \n", deviceId);
     HIP_RETURN(hipErrorNoDevice);
   }
 
@@ -607,9 +633,9 @@ hipError_t ihipLaunchKernel(const void* hostFunction,
   if ((hip_error != hipSuccess) || (func == nullptr)) {
     HIP_RETURN(hipErrorInvalidDeviceFunction);
   }
-  size_t globalWorkSizeX = gridDim.x * blockDim.x;
-  size_t globalWorkSizeY = gridDim.y * blockDim.y;
-  size_t globalWorkSizeZ = gridDim.z * blockDim.z;
+  size_t globalWorkSizeX = static_cast<size_t>(gridDim.x) * blockDim.x;
+  size_t globalWorkSizeY = static_cast<size_t>(gridDim.y) * blockDim.y;
+  size_t globalWorkSizeZ = static_cast<size_t>(gridDim.z) * blockDim.z;
   if (globalWorkSizeX > std::numeric_limits<uint32_t>::max() ||
       globalWorkSizeY > std::numeric_limits<uint32_t>::max() ||
       globalWorkSizeZ > std::numeric_limits<uint32_t>::max()) {
@@ -702,6 +728,10 @@ void PlatformState::init()
 hipError_t PlatformState::loadModule(hipModule_t *module, const char* fname, const void* image) {
   amd::ScopedLock lock(lock_);
 
+  if(module == nullptr) {
+    return hipErrorInvalidValue;
+  }
+
   hip::DynCO* dynCo = new hip::DynCO();
   hipError_t hip_error = dynCo->loadCodeObject(fname, image);
   if (hip_error != hipSuccess) {
@@ -749,7 +779,7 @@ hipError_t PlatformState::getDynFunc(hipFunction_t* hfunc, hipModule_t hmod,
 
   auto it = dynCO_map_.find(hmod);
   if (it == dynCO_map_.end()) {
-    DevLogPrintfError("Cannot find the module: 0x%x", hmod);
+    LogPrintfError("Cannot find the module: 0x%x", hmod);
     return hipErrorNotFound;
   }
   if (0 == strlen(func_name)) {
@@ -763,9 +793,13 @@ hipError_t PlatformState::getDynGlobalVar(const char* hostVar, hipModule_t hmod,
                                           hipDeviceptr_t* dev_ptr, size_t* size_ptr) {
   amd::ScopedLock lock(lock_);
 
+  if(hostVar == nullptr || dev_ptr == nullptr || size_ptr == nullptr) {
+    return hipErrorInvalidValue;
+  }
+
   auto it = dynCO_map_.find(hmod);
   if (it == dynCO_map_.end()) {
-    DevLogPrintfError("Cannot find the module: 0x%x", hmod);
+    LogPrintfError("Cannot find the module: 0x%x", hmod);
     return hipErrorNotFound;
   }
 
@@ -790,13 +824,13 @@ hipError_t PlatformState::getDynTexGlobalVar(textureReference* texRef, hipDevice
 
   auto tex_it = texRef_map_.find(texRef);
   if (tex_it == texRef_map_.end()) {
-    DevLogPrintfError("Cannot find the texRef Entry: 0x%x", texRef);
+    LogPrintfError("Cannot find the texRef Entry: 0x%x", texRef);
     return hipErrorNotFound;
   }
 
   auto it = dynCO_map_.find(tex_it->second.first);
   if (it == dynCO_map_.end()) {
-    DevLogPrintfError("Cannot find the module: 0x%x", tex_it->second.first);
+    LogPrintfError("Cannot find the module: 0x%x", tex_it->second.first);
     return hipErrorNotFound;
   }
 
@@ -813,7 +847,7 @@ hipError_t PlatformState::getDynTexRef(const char* hostVar, hipModule_t hmod, te
 
   auto it = dynCO_map_.find(hmod);
   if (it == dynCO_map_.end()) {
-    DevLogPrintfError("Cannot find the module: 0x%x", hmod);
+    LogPrintfError("Cannot find the module: 0x%x", hmod);
     return hipErrorNotFound;
   }
 
@@ -845,17 +879,28 @@ hipError_t PlatformState::registerStatGlobalVar(const void* hostVar, hip::Var* v
   return statCO_.registerStatGlobalVar(hostVar, var);
 }
 
+hipError_t PlatformState::registerStatManagedVar(hip::Var* var) {
+  return statCO_.registerStatManagedVar(var);
+}
+
 hipError_t PlatformState::getStatFunc(hipFunction_t* hfunc, const void* hostFunction, int deviceId) {
   return statCO_.getStatFunc(hfunc, hostFunction, deviceId);
 }
 
 hipError_t PlatformState::getStatFuncAttr(hipFuncAttributes* func_attr, const void* hostFunction, int deviceId) {
+  if(func_attr == nullptr || hostFunction == nullptr) {
+    return hipErrorInvalidValue;
+  }
   return statCO_.getStatFuncAttr(func_attr, hostFunction, deviceId);
 }
 
 hipError_t PlatformState::getStatGlobalVar(const void* hostVar, int deviceId, hipDeviceptr_t* dev_ptr,
                                            size_t* size_ptr) {
   return statCO_.getStatGlobalVar(hostVar, deviceId, dev_ptr, size_ptr);
+}
+
+hipError_t PlatformState::initStatManagedVarDevicePtr(int deviceId) {
+  return statCO_.initStatManagedVarDevicePtr(deviceId);
 }
 
 void PlatformState::setupArgument(const void *arg, size_t size, size_t offset) {

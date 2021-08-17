@@ -41,6 +41,7 @@ HIP releases are typically naming convention for each ROCM release to help diffe
 - [HIP Porting Driver Guide](docs/markdown/hip_porting_driver_api.md)
 - [HIP Programming Guide](docs/markdown/hip_programming_guide.md)
 - [HIP Logging ](docs/markdown/hip_logging.md)
+- [Code Object tooling ] (docs/markdown/obj_tooling.md)
 - [HIP Terminology](docs/markdown/hip_terms2.md) (including Rosetta Stone of GPU computing terms across CUDA/HIP/OpenCL)
 - [HIPIFY](https://github.com/ROCm-Developer-Tools/HIPIFY/blob/master/README.md)
 - Supported CUDA APIs:
@@ -92,8 +93,8 @@ template <typename T>
 __global__ void
 vector_square(T *C_d, const T *A_d, size_t N)
 {
-    size_t offset = (hipBlockIdx_x * hipBlockDim_x + hipThreadIdx_x);
-    size_t stride = hipBlockDim_x * hipGridDim_x;
+    size_t offset = (blockIdx.x * blockDim.x + threadIdx.x);
+    size_t stride = blockDim.x * gridDim.x;
 
     for (size_t i=offset; i<N; i+=stride) {
         C_d[i] = A_d[i] * A_d[i];
@@ -119,7 +120,7 @@ provides source portability to either platform.   HIP provides the _hipcc_ compi
 
 ## Examples and Getting Started:
 
-* A sample and [blog](http://gpuopen.com/hip-to-be-squared-an-introductory-hip-tutorial) that uses any of [HIPIFY](https://github.com/ROCm-Developer-Tools/HIPIFY/blob/master/README.md) tools to convert a simple app from CUDA to HIP:
+* A sample and [blog](https://github.com/ROCm-Developer-Tools/HIP/tree/main/samples/0_Intro/square) that uses any of [HIPIFY](https://github.com/ROCm-Developer-Tools/HIPIFY/blob/master/README.md) tools to convert a simple app from CUDA to HIP:
 
 
 ```shell
@@ -127,25 +128,21 @@ cd samples/01_Intro/square
 # follow README / blog steps to hipify the application.
 ```
 
-* A sample and [blog](http://gpuopen.com/platform-aware-coding-inside-hip/) demonstrating platform specialization:
-```shell
-cd samples/01_Intro/bit_extract
-make
-```
-
 * Guide to [Porting a New Cuda Project](docs/markdown/hip_porting_guide.md#porting-a-new-cuda-project")
 
- 
+
 ## More Examples
 The GitHub repository [HIP-Examples](https://github.com/ROCm-Developer-Tools/HIP-Examples.git) contains a hipified version of the popular Rodinia benchmark suite.
 The README with the procedures and tips the team used during this porting effort is here: [Rodinia Porting Guide](https://github.com/ROCm-Developer-Tools/HIP-Examples/blob/master/rodinia_3.0/hip/README.hip_porting)
 
 ## Tour of the HIP Directories
 * **include**:
-    * **hip_runtime_api.h** : Defines HIP runtime APIs and can be compiled with many standard Linux compilers (hcc, GCC, ICC, CLANG, etc), in either C or C++ mode.
-    * **hip_runtime.h** : Includes everything in hip_runtime_api.h PLUS hipLaunchKernel and syntax for writing device kernels and device functions.  hip_runtime.h can only be compiled with hcc.
-    * **hcc_detail/**** , **nvcc_detail/**** : Implementation details for specific platforms. HIP applications should not include these files directly.
-    * **hcc.h** : Includes interop APIs for HIP and HCC
+    * **hip_runtime_api.h** : Defines HIP runtime APIs and can be compiled with many standard Linux compilers (GCC, ICC, CLANG, etc), in either C or C++ mode.
+    * **hip_runtime.h** : Includes everything in hip_runtime_api.h PLUS hipLaunchKernel and syntax for writing device kernels and device functions.  hip_runtime.h can be compiled using a standard C++ compiler but will expose a subset of the available functions.
+    * **amd_detail/*** : Implementation details for AMD platform. HIP applications should not include these files directly.
+Note, in previous releases, this include derectory was defined as "hcc_detail", it is deprecated in ROCM4.2 relase.
+    * **nvidia_detail/*** : Implementation details for nvidia platform. HIP applications should not include these files directly.
+Note, in previous releases, this directory was defined as "nvcc_detail", it is deprecated in ROCM4.2 relase.
 
 * **bin**: Tools and scripts to help with hip porting
     * **hipify-perl** : Script based tool to convert CUDA code to portable CPP. Converts CUDA APIs and kernel builtins.

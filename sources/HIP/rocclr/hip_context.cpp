@@ -25,19 +25,6 @@
 #include "utils/flags.hpp"
 #include "utils/versions.hpp"
 
-// Pull in some junk needed to issue our ioctls.
-#include <errno.h>
-#include <fcntl.h>
-#include <stdio.h>
-#include <stdlib.h>
-#include <string.h>
-#include <sys/ioctl.h>
-#include <sys/stat.h>
-#include <sys/types.h>
-#include <unistd.h>
-// Ensure this is an exact copy from the running version of the module.
-#include "gpu_locking_module.h"
-
 std::vector<hip::Device*> g_devices;
 
 namespace hip {
@@ -48,58 +35,7 @@ thread_local hipError_t g_lastError = hipSuccess;
 std::once_flag g_ihipInitialized;
 Device* host_device = nullptr;
 
-int gpu_lock_fd = -1;
-int gpu_lock_id = 0;
-int simple_hip_trace = 0;
-
-// Takes the name of an environment variable expected to contain a single
-// integer. The integer may be specified in hex or octal (it must be a format
-// that strtol can handle).  If the variable exists and contains a valid
-// integer, then *value will be set to the integer's value and this function
-// will return true. In any other case this will return false.
-static bool GetEnvVarValue(const char *name, long *value) {
-  char *s = getenv(name);
-  char *end = NULL;
-  long v = 0;
-  if (!s) return false;
-  v = strtol(s, &end, 0);
-  // The string was either empty or contained a non-numeric character.
-  if ((s == end) || (*end != 0)) {
-    printf("Env var %s was defined, but wasn't a valid number!\n", name);
-    return false;
-  }
-  *value = v;
-  return true;
-}
-
 void init() {
-  // (otternes): Hacky code to connect to my kernel-module chardev for
-  // priority-based locking of the GPU. We check for the chardev's presence as
-  // well as the environment-variable settings here.
-  long v;
-  bool found_env_var;
-  gpu_lock_fd = -1;
-  gpu_lock_id = 0;
-  found_env_var = GetEnvVarValue("IGNORE_GPU_LOCK_CHARDEV", &v);
-  if (!found_env_var || (v <= 0)) {
-    gpu_lock_fd = open("/dev/gpu_locking_module", O_RDWR);
-    if (gpu_lock_fd < 0) {
-      printf("Error opening /dev/gpu_locking_module: %s\n", strerror(errno));
-      gpu_lock_fd = -1;
-    } else {
-      printf("/dev/gpu_locking_module is available. Will try to use it.\n");
-    }
-  }
-  if (GetEnvVarValue("GPU_LOCK_ID", &v)) {
-    gpu_lock_id = v;
-    if (gpu_lock_id < 0) {
-      printf("Likely error: Setting a negative GPU lock ID %d\n", gpu_lock_id);
-    }
-  }
-  if (GetEnvVarValue("SIMPLE_HIP_TRACE", &v)) {
-    simple_hip_trace = 1;
-  }
-
   if (!amd::Runtime::initialized()) {
     amd::IS_HIP = true;
     GPU_NUM_MEM_DEPENDENCY = 0;
@@ -132,37 +68,6 @@ void init() {
   host_device = new Device(hContext, -1);
 
   PlatformState::instance().init();
-}
-
-// Used to acquire a lock before any kernel launch. See hip_internal.hpp.
-void AcquireGPULock() {
-  // Silently do nothing if the locking module wasn't loaded.
-  if (gpu_lock_fd < 0) return;
-  GPULockArgs args;
-  int result;
-  // This lock id was set using the GPU_LOCK_ID env var in hip::init().
-  args.lock_id = gpu_lock_id;
-  result = ioctl(gpu_lock_fd, GPU_LOCK_ACQUIRE_IOC, &args);
-  if (result != 0) {
-    printf("AcquireGPULock failed for PID %d: %s\n", getpid(),
-      strerror(errno));
-    exit(1);
-  }
-}
-
-// Releases the GPU lock. Must be called after a kernel completes. See
-// hip_internal.hpp.
-void ReleaseGPULock() {
-  if (gpu_lock_fd < 0) return;
-  GPULockArgs args;
-  int result;
-  // See comment in AcquireGPULock.
-  args.lock_id = gpu_lock_id;
-  result = ioctl(gpu_lock_fd, GPU_LOCK_RELEASE_IOC, &args);
-  if (result != 0) {
-    printf("ReleaseGPULock failed: %s\n", strerror(errno));
-    exit(1);
-  }
 }
 
 Device* getCurrentDevice() {
@@ -309,12 +214,10 @@ hipError_t hipCtxPopCurrent(hipCtx_t* ctx) {
   HIP_INIT_API(hipCtxPopCurrent, ctx);
 
   hip::Device** dev = reinterpret_cast<hip::Device**>(ctx);
-  if (dev == nullptr) {
-    HIP_RETURN(hipErrorInvalidContext);
-  }
-
   if (!g_ctxtStack.empty()) {
-    *dev = g_ctxtStack.top();
+    if (dev != nullptr) {
+      *dev = g_ctxtStack.top();
+    }
     g_ctxtStack.pop();
   } else {
     DevLogError("Context Stack empty \n");

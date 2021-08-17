@@ -40,7 +40,7 @@ will sleep on the barrier waiting for the last warp to finally catch up.
 */
 
 /* HIT_START
- * BUILD: %t %s ../../test_common.cpp NVCC_OPTIONS -rdc=true -gencode arch=compute_60,code=sm_60
+ * BUILD: %t %s ../../test_common.cpp NVCC_OPTIONS -rdc=true -gencode arch=compute_70,code=sm_70
  * TEST: %t
  * HIT_END
  */
@@ -318,7 +318,7 @@ int main(int argc, char** argv) {
     /*************************************************************************/
     /* Read back the buffers and print out its data **************************/
     for (int dev = 0; dev < 2; dev++) {
-      HIPCHECK(hipMemcpy(host_buffer[d + dev], kernel_buffer[d + dev],
+      HIPCHECK(hipMemcpy(host_buffer[dev], kernel_buffer[dev],
                          total_buffer_len * sizeof(unsigned int),
                          hipMemcpyDeviceToHost));
     }

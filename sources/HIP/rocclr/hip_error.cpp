@@ -78,6 +78,8 @@ const char *hipGetErrorName(hipError_t hip_error)
         return "hipErrorNoDevice";
     case hipErrorInvalidDevice:
         return "hipErrorInvalidDevice";
+    case hipErrorInvalidPitchValue:
+        return "hipErrorInvalidPitchValue";
     case hipErrorInvalidImage:
         return "hipErrorInvalidImage";
     case hipErrorInvalidContext:
@@ -158,6 +160,8 @@ const char *hipGetErrorName(hipError_t hip_error)
         return "hipErrorRuntimeMemory";
     case hipErrorRuntimeOther:
         return "hipErrorRuntimeOther";
+    case hipErrorCooperativeLaunchTooLarge:
+        return "hipErrorCooperativeLaunchTooLarge";
     case hipErrorTbd:
         return "hipErrorTbd";
     default:

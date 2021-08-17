@@ -351,7 +351,6 @@ class VirtualGPU : public device::VirtualDevice {
   void releaseMemory(GpuMemoryReference* mem);
 
   void flush(amd::Command* list = nullptr, bool wait = false);
-  bool terminate() { return true; }
 
   //! Returns GPU device object associated with this kernel
   const Device& dev() const { return gpuDevice_; }
@@ -393,7 +392,12 @@ class VirtualGPU : public device::VirtualDevice {
                                const amd::Event* waitingEvent  //!< Waiting event
   );
 
-  //! Adds a memory handle into the GSL memory array for Virtual Heap
+  //! Embeds memory handle info into the CB associated with this VGPU
+  inline void logVmMemory(const std::string name, //!< Brief description of the memory object
+                          const Memory* memory //!< GPU memory object
+  );
+
+  //! Adds a memory handle into the PAL memory array for Virtual Heap
   inline void addVmMemory(const Memory* memory  //!< GPU memory object
   );
 
@@ -484,7 +488,7 @@ class VirtualGPU : public device::VirtualDevice {
     Pal::BarrierTransition trans = {cacheMask,
                                     cacheMask,
                                     {nullptr,
-                                     {{Pal::ImageAspect::Color, 0, 0}, 0, 0},
+                                     {{0, 0, 0}, 0, 0, 0},
                                      Pal::LayoutShaderRead,
                                      Pal::LayoutShaderRead}};
     barrier.pTransitions = &trans;
@@ -547,6 +551,8 @@ class VirtualGPU : public device::VirtualDevice {
       events_[MainEngine].invalidate();
     }
   }
+
+  void* getOrCreateHostcallBuffer();
 
  protected:
   void profileEvent(EngineType engine, bool type) const;
@@ -669,7 +675,26 @@ class VirtualGPU : public device::VirtualDevice {
   Queue* queues_[AllEngines];               //!< HW queues for all engines
   MemoryRange sdmaRange_;                   //!< SDMA memory range for write access
   std::vector<Image*> wrtBackImageBuffer_;  //!< Array of images for write back
+
+  void* hostcallBuffer_;  //!< Hostcall buffer
 };
+
+inline void VirtualGPU::logVmMemory(const std::string name, const Memory* memory) {
+  if (PAL_EMBED_KERNEL_MD || (AMD_LOG_LEVEL >= amd::LOG_INFO)) {
+    char buf[256];
+    sprintf(buf,
+            "%s = ptr:[%p-%p] obj:[%p-%p]",
+            name.c_str(),
+            reinterpret_cast<void*>(memory->vmAddress()),
+            reinterpret_cast<void*>(memory->vmAddress() + memory->size()),
+            reinterpret_cast<void*>(memory->iMem()->Desc().gpuVirtAddr),
+            reinterpret_cast<void*>(memory->iMem()->Desc().gpuVirtAddr + memory->iMem()->Desc().size));
+    if (PAL_EMBED_KERNEL_MD) {
+      iCmd()->CmdCommentString(buf);
+    }
+    LogPrintfInfo("%s threadId : %zx\n", buf, std::this_thread::get_id());
+  }
+}
 
 inline void VirtualGPU::addVmMemory(const Memory* memory) {
   queues_[MainEngine]->addCmdMemRef(memory->memRef());

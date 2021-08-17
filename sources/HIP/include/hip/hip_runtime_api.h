@@ -114,11 +114,12 @@ typedef struct hipDeviceProp_t {
     size_t maxSharedMemoryPerMultiProcessor;  ///< Maximum Shared Memory Per Multiprocessor.
     int isMultiGpuBoard;                      ///< 1 if device is on a multi-GPU board, 0 if not.
     int canMapHostMemory;                     ///< Check whether HIP can map host memory
-    int gcnArch;                              ///< AMD GCN Arch Value. Eg: 803, 701
+    int gcnArch;                              ///< DEPRECATED: use gcnArchName instead
     char gcnArchName[256];                    ///< AMD GCN Arch Name.
     int integrated;            ///< APU vs dGPU
     int cooperativeLaunch;            ///< HIP device supports cooperative launch
     int cooperativeMultiDeviceLaunch; ///< HIP device supports cooperative launch on multiple devices
+    int maxTexture1DLinear;    ///< Maximum size for 1D textures bound to linear memory
     int maxTexture1D;          ///< Maximum number of elements in 1D images
     int maxTexture2D[2];       ///< Maximum dimensions (width, height) of 2D images, in image elements
     int maxTexture3D[3];       ///< Maximum dimensions (width, height, depth) of 3D images, in image elements
@@ -215,6 +216,7 @@ typedef enum __HIP_NODISCARD hipError_t {
     hipErrorProfilerAlreadyStarted = 7,
     hipErrorProfilerAlreadyStopped = 8,
     hipErrorInvalidConfiguration = 9,
+    hipErrorInvalidPitchValue = 12,
     hipErrorInvalidSymbol = 13,
     hipErrorInvalidDevicePointer = 17,  ///< Invalid Device Pointer
     hipErrorInvalidMemcpyDirection = 21,  ///< Invalid memory copy direction
@@ -365,6 +367,9 @@ typedef enum hipDeviceAttribute_t {
                                                 /// without calling hipHostRegister on it
     hipDeviceAttributePageableMemoryAccessUsesHostPageTables, ///< Device accesses pageable memory via
                                                               /// the host's page tables
+    hipDeviceAttributeCanUseStreamWaitValue ///< '1' if Device supports hipStreamWaitValue32() and
+                                            ///< hipStreamWaitValue64() , '0' otherwise.
+
 } hipDeviceAttribute_t;
 
 enum hipComputeMode {
@@ -378,12 +383,12 @@ enum hipComputeMode {
  *     @}
  */
 
-#if defined(__HIP_PLATFORM_HCC__) && !defined(__HIP_PLATFORM_NVCC__)
-#include "hip/hcc_detail/hip_runtime_api.h"
-#elif defined(__HIP_PLATFORM_NVCC__) && !defined(__HIP_PLATFORM_HCC__)
-#include "hip/nvcc_detail/hip_runtime_api.h"
+#if (defined(__HIP_PLATFORM_HCC__) || defined(__HIP_PLATFORM_AMD__)) && !(defined(__HIP_PLATFORM_NVCC__) || defined(__HIP_PLATFORM_NVIDIA__))
+#include "hip/amd_detail/hip_runtime_api.h"
+#elif !(defined(__HIP_PLATFORM_HCC__) || defined(__HIP_PLATFORM_AMD__)) && (defined(__HIP_PLATFORM_NVCC__) || defined(__HIP_PLATFORM_NVIDIA__))
+#include "hip/nvidia_detail/hip_runtime_api.h"
 #else
-#error("Must define exactly one of __HIP_PLATFORM_HCC__ or __HIP_PLATFORM_NVCC__");
+#error("Must define exactly one of __HIP_PLATFORM_AMD__ or __HIP_PLATFORM_NVIDIA__");
 #endif
 
 

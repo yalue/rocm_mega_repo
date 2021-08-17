@@ -314,6 +314,10 @@ hipError_t hipDeviceGetAttribute(int* pi, hipDeviceAttribute_t attr, int device)
   case hipDeviceAttributePageableMemoryAccessUsesHostPageTables:
     *pi = prop.pageableMemoryAccessUsesHostPageTables;
     break;
+  case hipDeviceAttributeCanUseStreamWaitValue:
+    // hipStreamWaitValue64() and hipStreamWaitValue32() support
+    *pi = g_devices[device]->devices()[0]->info().aqlBarrierValue_;
+    break;
   default:
     HIP_RETURN(hipErrorInvalidValue);
   }
@@ -332,7 +336,7 @@ hipError_t hipDeviceGetByPCIBusId(int* device, const char*pciBusIdstr) {
   int pciBusID = -1;
   int pciDeviceID = -1;
   int pciDomainID = -1;
-
+  bool found = false;
   if (sscanf (pciBusIdstr, "%04x:%02x:%02x", &pciDomainID, &pciBusID, &pciDeviceID) == 0x3) {
     int count = 0;
     ihipDeviceGetCount(&count);
@@ -345,9 +349,13 @@ hipError_t hipDeviceGetByPCIBusId(int* device, const char*pciBusIdstr) {
       if ((pciBusID == prop.pciBusID) && (pciDomainID == prop.pciDomainID)
                     && (pciDeviceID == prop.pciDeviceID)) {
         *device = i;
+        found = true;
         break;
       }
     }
+  }
+  if (!found) {
+    HIP_RETURN(hipErrorInvalidValue);
   }
 
   HIP_RETURN(hipSuccess);
@@ -389,11 +397,11 @@ hipError_t hipDeviceGetPCIBusId ( char* pciBusId, int  len, int  device ) {
 
   int count;
   ihipDeviceGetCount(&count);
-  if (device < 0 || device > count) {
+  if (device < 0 || device >= count) {
     HIP_RETURN(hipErrorInvalidDevice);
   }
 
-  if (pciBusId == nullptr || len < 0) {
+  if (pciBusId == nullptr || len <= 0) {
     HIP_RETURN(hipErrorInvalidValue);
   }
 
@@ -410,7 +418,9 @@ hipError_t hipDeviceGetPCIBusId ( char* pciBusId, int  len, int  device ) {
 
 hipError_t hipDeviceGetSharedMemConfig ( hipSharedMemConfig * pConfig ) {
   HIP_INIT_API(hipDeviceGetSharedMemConfig, pConfig);
-
+  if (pConfig == nullptr) {
+    return HIP_RETURN(hipErrorInvalidValue);
+  }
   *pConfig = hipSharedMemBankSizeFourByte;
 
   HIP_RETURN(hipSuccess);
@@ -496,22 +506,6 @@ hipError_t hipGetDeviceFlags ( unsigned int* flags ) {
   }
   *flags = hip::getCurrentDevice()->getFlags();
   HIP_RETURN(hipSuccess);
-}
-
-hipError_t hipIpcGetEventHandle ( hipIpcEventHandle_t* handle, hipEvent_t event ) {
-  HIP_INIT_API(hipIpcGetEventHandle, handle, event);
-
-  assert(0 && "Unimplemented");
-
-  HIP_RETURN(hipErrorNotSupported);
-}
-
-hipError_t hipIpcOpenEventHandle ( hipEvent_t* event, hipIpcEventHandle_t handle ) {
-  HIP_INIT_API(hipIpcOpenEventHandle, event, handle);
-
-  assert(0 && "Unimplemented");
-
-  HIP_RETURN(hipErrorNotSupported);
 }
 
 hipError_t hipSetDevice ( int  device ) {

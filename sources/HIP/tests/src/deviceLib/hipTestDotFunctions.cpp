@@ -22,7 +22,7 @@ THE SOFTWARE.
 
 /* HIT_START
  * BUILD: %t %s ../test_common.cpp NVCC_OPTIONS -std=c++11
- * TEST: %t EXCLUDE_HIP_PLATFORM nvcc
+ * TEST: %t EXCLUDE_HIP_PLATFORM nvidia
  * HIT_END
  */
 
@@ -32,7 +32,7 @@ THE SOFTWARE.
 
 
 __global__ void DotFunctions(bool* result) {
-    #if (__hcc_workweek__ >= 19015) || __HIP_CLANG_ONLY__
+    #if __HIP_CLANG_ONLY__
     // Dot Functions
     short2 sa{1}, sb{1};
     result[0] = amd_mixed_dot(sa, sb, 1, result[0]) && result[0];

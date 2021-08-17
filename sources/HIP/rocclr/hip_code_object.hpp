@@ -1,8 +1,31 @@
+/*
+Copyright (c) 2015-2020 - present Advanced Micro Devices, Inc. All rights reserved.
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in
+all copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.  IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
+THE SOFTWARE.
+*/
+
 #ifndef HIP_CODE_OBJECT_HPP
 #define HIP_CODE_OBJECT_HPP
 
 #include "hip_global.hpp"
 
+#include <cstring>
 #include <unordered_map>
 
 #include "hip/hip_runtime.h"
@@ -18,54 +41,38 @@ namespace hip {
 
 //Code Object base class
 class CodeObject {
-public:
+ public:
   virtual ~CodeObject() {}
 
-  //ClangOFFLOADBundle info
-  #define CLANG_OFFLOAD_BUNDLER_MAGIC_STR "__CLANG_OFFLOAD_BUNDLE__"
-  #define HIP_AMDGCN_AMDHSA_TRIPLE "hip-amdgcn-amd-amdhsa"
-  #define HCC_AMDGCN_AMDHSA_TRIPLE "hcc-amdgcn-amd-amdhsa-"
-
-  //Clang Offload bundler description & Header
-  struct __ClangOffloadBundleDesc {
-    uint64_t offset;
-    uint64_t size;
-    uint64_t tripleSize;
-    const char triple[1];
-  };
-
-  struct __ClangOffloadBundleHeader {
-    const char magic[sizeof(CLANG_OFFLOAD_BUNDLER_MAGIC_STR) - 1];
-    uint64_t numBundles;
-    __ClangOffloadBundleDesc desc[1];
-  };
-
+  // Functions to add_dev_prog and build
+  static hipError_t add_program(int deviceId, hipModule_t hmod, const void* binary_ptr,
+                                size_t binary_size);
+  static hipError_t build_module(hipModule_t hmod, const std::vector<amd::Device*>& devices);
 
   // Given an file desc and file size, extracts to code object for corresponding devices,
   // return code_objs{binary_ptr, binary_size}, which could be used to determine foffset
   static hipError_t ExtractCodeObjectFromFile(amd::Os::FileDesc fdesc, size_t fsize,
-                    const std::vector<const char*>& device_names,
+                    const void ** image, const std::vector<std::string>& device_names,
                     std::vector<std::pair<const void*, size_t>>& code_objs);
 
   // Given an ptr to memory, extracts to code object for corresponding devices,
   // returns code_objs{binary_ptr, binary_size} and uniform resource indicator
   static hipError_t ExtractCodeObjectFromMemory(const void* data,
-                    const std::vector<const char*>& device_names,
+                    const std::vector<std::string>& device_names,
                     std::vector<std::pair<const void*, size_t>>& code_objs,
                     std::string& uri);
 
   static uint64_t ElfSize(const void* emi);
 
 protected:
+  //Given an ptr to image or file, extracts to code object
+  //for corresponding devices
   static hipError_t extractCodeObjectFromFatBinary(const void*,
-                    const std::vector<const char*>&,
+                    const std::vector<std::string>&,
                     std::vector<std::pair<const void*, size_t>>&);
 
   CodeObject() {}
 private:
-  static bool isCompatibleCodeObject(const std::string& codeobj_target_id,
-                                     const char* device_name);
-
   friend const std::vector<hipModule_t>& modules();
 };
 
@@ -88,7 +95,7 @@ public:
   // Device ID Check to check if module is launched in the same device it was loaded.
   inline void CheckDeviceIdMatch() {
     if (device_id_ != ihipGetDevice()) {
-      guarantee(false && "Device mismatch from where this module is loaded");
+      guarantee(false, "Device mismatch from where this module is loaded");
     }
   }
 
@@ -117,9 +124,10 @@ public:
   hipError_t removeFatBinary(FatBinaryInfo** module);
   hipError_t digestFatBinary(const void* data, FatBinaryInfo*& programs);
 
-  //Register vars/funcs given to use from __hipRegister[Var/Func]
+  //Register vars/funcs given to use from __hipRegister[Var/Func/ManagedVar]
   hipError_t registerStatFunction(const void* hostFunction, Function* func);
   hipError_t registerStatGlobalVar(const void* hostVar, Var* var);
+  hipError_t registerStatManagedVar(Var *var);
 
   //Retrive Vars/Funcs for a given hostSidePtr(const void*), unless stated otherwise.
   hipError_t getStatFunc(hipFunction_t* hfunc, const void* hostFunction, int deviceId);
@@ -127,6 +135,9 @@ public:
   hipError_t getStatGlobalVar(const void* hostVar, int deviceId, hipDeviceptr_t* dev_ptr,
                               size_t* size_ptr);
 
+  //Managed variable is a defined symbol in code object
+  //pointer to the alocated managed memory has to be copied to the address of symbol
+  hipError_t initStatManagedVarDevicePtr(int deviceId);
 private:
   friend class ::PlatformState;
   //Populated during __hipRegisterFatBinary
@@ -135,8 +146,11 @@ private:
   std::unordered_map<const void*, Function*> functions_;
   //Populated during __hipRegisterVars
   std::unordered_map<const void*, Var*> vars_;
+  //Populated during __hipRegisterManagedVar
+  std::vector<Var*> managedVars_;
+  std::unordered_map<int, bool> managedVarsDevicePtrInitalized_;
 };
 
-}; //namespace: hip
+}; // namespace hip
 
 #endif /* HIP_CODE_OBJECT_HPP */

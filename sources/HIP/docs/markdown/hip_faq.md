@@ -27,6 +27,10 @@
 - [How do I trace HIP application flow?](#how-do-i-trace-hip-application-flow)
 - [What if HIP generates an error of "symbol multiply defined!" only on AMD machine?](#what-if-hip-generates-error-of-symbol-multiply-defined-only-on-amd-machine)
 - [What is maximum limit of Generic kernel launching parameter?](#what-is-maximum-limit-of-generic-kernel-launching-parameter)
+- [Are _shfl_*_sync functions supported on HIP platform?](#are-_shfl_*_sync-functions-supported-on-hip-platform)
+- [How to create a guard for code that is specific to the host or the GPU?](#how-to-create-a-guard-for-code-that-is-specific-to-the-host-or-the-gpu)
+- [Why _OpenMP is undefined when compiling with -fopenmp?](#why-_openmp-is-undefined-when-compiling-with--fopenmp)
+- [Does the HIP-Clang compiler support extern shared declarations?](#does-the-hip-clang-compiler-support-extern-shared-declarations)
 <!-- tocstop -->
 
 ### What APIs and features does HIP support?
@@ -108,8 +112,7 @@ The hip interfaces support both ROCm and CUDA paths, with familiar library inter
 - [hipsparse](https://github.com/ROCmSoftwarePlatform/hcSPARSE)
 - [hiprng](https://github.com/ROCmSoftwarePlatform/hcrng)
 
-Additionally, some of the cublas routines are automatically converted to hipblas equivalents by the HIPIFY tools. These APIs use cublas or hcblas depending on the platform and replace the need
-to use conditional compilation.
+Additionally, some of the cublas routines are automatically converted to hipblas equivalents by the HIPIFY tools. These APIs use cublas or hcblas depending on the platform and replace the need to use conditional compilation.
 
 ### How does HIP compare with OpenCL?
 Both AMD and Nvidia support OpenCL 1.2 on their devices so that developers can write portable code.
@@ -127,13 +130,11 @@ Both HIP and CUDA are dialects of C++, and thus porting between them is relative
 Both dialects support templates, classes, lambdas, and other C++ constructs.
 As one example, the hipify-perl tool was originally a Perl script that used simple text conversions from CUDA to HIP.
 HIP and CUDA provide similar math library calls as well.  In summary, the HIP philosophy was to make the HIP language close enough to CUDA that the porting effort is relatively simple.
-This reduces the potential for error, and also makes it easy to automate the translation.  HIP's goal is to quickly get the ported program running on both platforms with little manual intervention,
-so that the programmer can focus on performance optimizations.
+This reduces the potential for error, and also makes it easy to automate the translation.  HIP's goal is to quickly get the ported program running on both platforms with little manual intervention, so that the programmer can focus on performance optimizations.
 
 There have been several tools that have attempted to convert CUDA into OpenCL, such as CU2CL.  OpenCL is a C99-based kernel language (rather than C++) and also does not support single-source compilation.
 As a result, the OpenCL syntax is different from CUDA, and the porting tools have to perform some heroic transformations to bridge this gap.
 The tools also struggle with more complex CUDA applications, in particular, those that use templates, classes, or other C++ features inside the kernel.
-
 
 ### What hardware does HIP support?
 - For AMD platforms, see the [ROCm documentation](https://github.com/RadeonOpenCompute/ROCm#supported-gpus) for the list of supported platforms.
@@ -169,7 +170,7 @@ Yes. HIP's HIP-Clang path only exposes the APIs and functions that work on AMD r
 
 ### How to use HIP-Clang to build HIP programs?
 The environment variable can be used to set compiler path:
-- HIP_CLANG_PATH: path to hip-clang. When set, this variable let hipcc to use hip-clang for compilation/linking
+- HIP_CLANG_PATH: path to hip-clang. When set, this variable let hipcc to use hip-clang for compilation/linking.
 
 There is an alternative environment variable to set compiler path:
 - HIP_ROCCLR_HOME: path to root directory of the HIP-ROCclr runtime. When set, this variable let hipcc use hip-clang from the ROCclr distribution.
@@ -192,12 +193,22 @@ Yes. You can use HIP_PLATFORM to choose which path hipcc targets.  This configur
 
 
 ### HIP detected my platform (HIP-Clang vs nvcc) incorrectly - what should I do?
-HIP will set the platform to HIP-Clang if it sees that the AMD graphics driver is installed and has detected an AMD GPU.
+HIP will set the platform to AMD and use HIP-Clang as compiler if it sees that the AMD graphics driver is installed and has detected an AMD GPU.
 Sometimes this isn't what you want - you can force HIP to recognize the platform by setting the following,
 ```
-export HIP_COMPILER=clang
-export HIP_PLATFORM=rocclr
+export HIP_PLATFORM=amd
 ```
+HIP then set and use correct AMD compiler and runtime,
+HIP_COMPILER=clang
+HIP_RUNTIME=rocclr
+
+To choose NVIDIA platform, you can set,
+```
+export HIP_PLATFORM=nvidia
+```
+In this case, HIP will set and use the following,
+HIP_COMPILER=nvcc
+HIP_RUNTIME=cuda
 
 One symptom of this problem is the message "error: 'unknown error'(11) at square.hipref.cpp:56".  This can occur if you have a CUDA installation on an AMD platform, and HIP incorrectly detects the platform as nvcc.  HIP may be able to compile the application using the nvcc tool-chain but will generate this error at runtime since the platform does not have a CUDA device.
 
@@ -209,10 +220,10 @@ hipErrorToCudaError
 hipCUDAErrorTohipError
 hipCUResultTohipError
 
-If platform portability is important, use #ifdef __HIP_PLATFORM_NVCC__ to guard the CUDA-specific code.
+If platform portability is important, use #ifdef __HIP_PLATFORM_NVIDIA__ to guard the CUDA-specific code.
 
 ### How do I trace HIP application flow?
-See the [HIP Profiling Guide](hip_porting_guide.md) for more information.
+See the [HIP Logging](hip_logging.md) for more information.
 
 ### What is maximum limit of kernel launching parameter?
 Product of block.x, block.y, and block.z should be less than 1024.
@@ -225,3 +236,10 @@ The compiler defines the `__HIP_DEVICE_COMPILE__` macro only when compiling the 
 
 ### Why _OpenMP is undefined when compiling with -fopenmp?
 When compiling an OpenMP source file with `hipcc -fopenmp`, the compiler may generate error if there is a reference to the `_OPENMP` macro.  This is due to a limitation in hipcc that treats any source file type (e.g., `.cpp`) as an HIP translation unit leading to some conflicts with the OpenMP language switch.  If the OpenMP source file doesn't contain any HIP language construct, you could workaround this issue by adding the `-x c++` switch to force the compiler to treat the file as regular C++.  Another approach would be to guard the OpenMP code with `#ifdef _OPENMP` so that the code block is disabled when compiling for the GPU.  The `__HIP_DEVICE_COMPILE__` macro defined by the HIP compiler when compiling GPU code could also be used for guarding code paths specific to the host or the GPU.
+
+### Does the HIP-Clang compiler support extern shared declarations?
+
+Previously, it was essential to declare dynamic shared memory using the HIP_DYNAMIC_SHARED macro for accuracy, as using static shared memory in the same kernel could result in overlapping memory ranges and data-races.
+
+Now, the HIP-Clang compiler provides support for extern shared declarations, and the HIP_DYNAMIC_SHARED option is no longer required. You may use the standard extern definition:
+extern __shared__ type var[];

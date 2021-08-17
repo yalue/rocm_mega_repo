@@ -21,8 +21,8 @@ THE SOFTWARE.
 */
 
 /* HIT_START
- * BUILD: %t %s EXCLUDE_HIP_PLATFORM nvcc EXCLUDE_HIP_RUNTIME HCC EXCLUDE_HIP_COMPILER hcc
- * TEST: %t EXCLUDE_HIP_PLATFORM nvcc EXCLUDE_HIP_RUNTIME HCC EXCLUDE_HIP_COMPILER hcc
+ * BUILD: %t %s EXCLUDE_HIP_PLATFORM nvidia
+ * TEST: %t EXCLUDE_HIP_PLATFORM nvidia
  * HIT_END
  */
 
@@ -57,11 +57,14 @@ xyzzy
         00000042
 )here");
 
-  CaptureStream captured(stdout);
+  CaptureStream capture(stdout);
+
+  capture.Begin();
   hipLaunchKernelGGL(test_kernel, dim3(1), dim3(1), 0, 0);
   hipStreamSynchronize(0);
-  auto CapturedData = captured.getCapturedData();
-  std::string device_output = gulp(CapturedData);
+  capture.End();
+
+  std::string device_output = capture.getData();
 
   HIPASSERT(device_output == reference);
   passed();

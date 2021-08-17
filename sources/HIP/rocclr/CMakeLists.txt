@@ -1,11 +1,39 @@
+# Copyright (c) 2020-2021 Advanced Micro Devices, Inc. All rights reserved.
+#
+# Permission is hereby granted, free of charge, to any person obtaining a copy
+# of this software and associated documentation files (the "Software"), to deal
+# in the Software without restriction, including without limitation the rights
+# to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+# copies of the Software, and to permit persons to whom the Software is
+# furnished to do so, subject to the following conditions:
+#
+# The above copyright notice and this permission notice shall be included in
+# all copies or substantial portions of the Software.
+#
+# THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+# IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+# FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.  IN NO EVENT SHALL THE
+# AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+# LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+# OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
+# THE SOFTWARE.
+
 #project("hip")
 cmake_minimum_required(VERSION 3.5.1)
 
-set(CMAKE_SHARED_LINKER_FLAGS "${CMAKE_SHARED_LINKER_FLAGS} -Wl,--no-keep-memory -Wl,-Bsymbolic -Wl,--unresolved-symbols=report-all -Wl,--version-script=${CMAKE_CURRENT_LIST_DIR}/hip_hcc.map.in")
+option(ADDRESS_SANITIZER "Build Address Sanitizer" OFF)
+if (ADDRESS_SANITIZER)
+    set (CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fsanitize=address")
+    if (BUILD_SHARED_LIBS)
+        set (CMAKE_SHARED_LINKER_FLAGS "${CMAKE_SHARED_LINKER_FLAGS}" -fsanitize=address)
+        set (CMAKE_SHARED_LINKER_FLAGS  "${CMAKE_SHARED_LINKER_FLAGS}" -shared-libsan)
+    else ()
+        set (CMAKE_STATIC_LINKER_FLAGS "${CMAKE_STATIC_LINKER_FLAGS}" -fsanitize=address)
+        set (CMAKE_STATIC_LINKER_FLAGS "${CMAKE_STATIC_LINKER_FLAGS}" -static-libsan)
+    endif ()
+endif ()
 
-if(CMAKE_CXX_FLAGS MATCHES "fsanitize=address")
-  set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -shared-libasan")
-endif()
+set(CMAKE_SHARED_LINKER_FLAGS "${CMAKE_SHARED_LINKER_FLAGS} -Wl,--no-keep-memory -Wl,-Bsymbolic -Wl,--unresolved-symbols=report-all -Wl,--version-script=${CMAKE_CURRENT_LIST_DIR}/hip_hcc.map.in")
 
 set (CMAKE_LIBRARY_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/lib)
 set (CMAKE_ARCHIVE_OUTPUT_DIRECTORY  ${CMAKE_BINARY_DIR}/lib)
@@ -15,7 +43,7 @@ set(CONFIG_PACKAGE_INSTALL_DIR ${LIB_INSTALL_DIR}/cmake/hip)
 
 find_package(PythonInterp REQUIRED)
 
-add_definitions(-D__HIP_ROCclr__ -D__HIP_PLATFORM_HCC__ -DLINUX -D__x86_64__ -D__AMD64__ -DUNIX_OS -DqLittleEndian -DOPENCL_MAJOR=2 -DOPENCL_MINOR=0 -DCL_TARGET_OPENCL_VERSION=220 -DWITH_AQL -DWITH_ONLINE_COMPILER -DATI_OS_LINUX -DATI_ARCH_X86 -DLITTLEENDIAN_CPU -DATI_BITS_64 -DATI_COMP_GCC -DWITH_HSA_DEVICE -DWITH_TARGET_AMDGCN -DOPENCL_EXPORTS -DCL_USE_DEPRECATED_OPENCL_1_0_APIS -DCL_USE_DEPRECATED_OPENCL_1_1_APIS -DCL_USE_DEPRECATED_OPENCL_1_2_APIS -DCL_USE_DEPRECATED_OPENCL_2_0_APIS -DVEGA10_ONLY=false -DWITH_LIGHTNING_COMPILER -DUSE_PROF_API)
+add_definitions( -D__HIP_PLATFORM_AMD__ -DLINUX -D__x86_64__ -D__AMD64__ -DUNIX_OS -DqLittleEndian -DOPENCL_MAJOR=2 -DOPENCL_MINOR=0 -DCL_TARGET_OPENCL_VERSION=220 -DWITH_AQL -DWITH_ONLINE_COMPILER -DATI_OS_LINUX -DATI_ARCH_X86 -DLITTLEENDIAN_CPU -DATI_BITS_64 -DATI_COMP_GCC -DWITH_HSA_DEVICE -DWITH_TARGET_AMDGCN -DOPENCL_EXPORTS -DCL_USE_DEPRECATED_OPENCL_1_0_APIS -DCL_USE_DEPRECATED_OPENCL_1_1_APIS -DCL_USE_DEPRECATED_OPENCL_1_2_APIS -DCL_USE_DEPRECATED_OPENCL_2_0_APIS -DVEGA10_ONLY=false -DWITH_LIGHTNING_COMPILER -DUSE_PROF_API)
 
 if(CMAKE_BUILD_TYPE MATCHES "^Debug$")
   add_definitions(-DDEBUG)
@@ -40,18 +68,14 @@ set(USE_PROF_API "1")
 # find package amd_comgr and amd_comgr will find package llvm/clang.
 # Without this, the system llvm/clang at /usr/local may be found.
 list(APPEND CMAKE_PREFIX_PATH ${CMAKE_PREFIX_PATH} "/opt/rocm/llvm")
-
-find_package(ROCclr REQUIRED CONFIG
-  PATHS
-    /opt/rocm
-    /opt/rocm/rocclr)
+find_package(ROCclr REQUIRED CONFIG)
 
 #############################
 # Profiling API support
 #############################
 # Generate profiling API macros/structures header
-set(PROF_API_STR "${PROJECT_BINARY_DIR}/include/hip/hcc_detail/hip_prof_str.h")
-set(PROF_API_HDR "${PROJECT_SOURCE_DIR}/include/hip/hcc_detail/hip_runtime_api.h")
+set(PROF_API_STR "${PROJECT_BINARY_DIR}/include/hip/amd_detail/hip_prof_str.h")
+set(PROF_API_HDR "${PROJECT_SOURCE_DIR}/include/hip/amd_detail/hip_runtime_api.h")
 set(PROF_API_SRC "${CMAKE_CURRENT_SOURCE_DIR}")
 set(PROF_API_GEN "${CMAKE_CURRENT_SOURCE_DIR}/hip_prof_gen.py")
 set(PROF_API_LOG "${PROJECT_BINARY_DIR}/hip_prof_gen.log.txt")
@@ -82,23 +106,7 @@ list( APPEND CMAKE_PREFIX_PATH ${CMAKE_PREFIX_PATH} "/opt/rocm")
 list ( APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/cmake/modules" )
 set(CMAKE_MODULE_PATH${CMAKE_MODULE_PATH} "${CMAKE_CURRENT_SOURCE_DIR}/cmake" "${CMAKE_CURRENT_SOURCE_DIR}/cmake/modules")
 
-add_definitions(-DUSE_COMGR_LIBRARY -DCOMGR_DYN_DLL)
-
-
-find_package(hsa-runtime64 REQUIRED CONFIG
-   PATHS
-     /opt/rocm/lib
-   PATH_SUFFIXES
-     cmake/hsa-runtime64
-)
-
-find_package(amd_comgr REQUIRED CONFIG
-  PATHS
-    /opt/rocm/
-  PATH_SUFFIXES
-    cmake/amd_comgr
-    lib/cmake/amd_comgr)
-
+message(STATUS "Hsa runtime found at ${hsa-runtime64_DIR}.")
 message(STATUS "Code Object Manager found at ${amd_comgr_DIR}.")
 
 find_package(LLVM REQUIRED CONFIG
@@ -125,6 +133,7 @@ add_library(hip64 OBJECT
  hip_platform.cpp
  hip_profile.cpp
  hip_stream.cpp
+ hip_stream_ops.cpp
  hip_surface.cpp
  hip_texture.cpp
  hip_activity.cpp
@@ -151,6 +160,7 @@ target_compile_definitions(hip64
    $<TARGET_PROPERTY:amd_comgr,INTERFACE_COMPILE_DEFINITIONS>)
 
 if(ROCclr_FOUND)
+  message(STATUS "ROCclr found at ${ROCclr_DIR}")
   target_include_directories(hip64
     PRIVATE
       $<TARGET_PROPERTY:amdrocclr_static,INTERFACE_INCLUDE_DIRECTORIES>)
@@ -162,7 +172,7 @@ endif()
 # Short-Term solution for pre-compiled headers for online compilation
 # Enable pre compiled header
 if(__HIP_ENABLE_PCH)
-    execute_process(COMMAND sh -c "${CMAKE_CURRENT_SOURCE_DIR}/../bin/hip_embed_pch.sh ${PROJECT_BINARY_DIR}/include ${PROJECT_SOURCE_DIR}/include ${LLVM_DIR} ${HSA_PATH}" COMMAND_ECHO STDERR RESULT_VARIABLE EMBED_PCH_RC)
+    execute_process(COMMAND sh -c "${CMAKE_CURRENT_SOURCE_DIR}/../bin/hip_embed_pch.sh ${PROJECT_BINARY_DIR}/include ${PROJECT_SOURCE_DIR}/include ${LLVM_DIR} ${HSA_PATH}" COMMAND_ECHO STDERR  RESULT_VARIABLE EMBED_PCH_RC)
     if (EMBED_PCH_RC AND NOT EMBED_PCH_RC EQUAL 0)
       message(FATAL_ERROR "Failed to embed PCH")
     endif()
@@ -175,7 +185,7 @@ if(USE_PROF_API EQUAL 1)
     HINTS
       ${PROF_API_HEADER_PATH}
     PATHS
-      /opt/rocm/roctracer
+      ${ROCM_PATH}/roctracer
     PATH_SUFFIXES
       include/ext)
 
@@ -225,7 +235,7 @@ endif()
 set_target_properties(amdhip64 PROPERTIES LINK_FLAGS_RELEASE -s)
 set_target_properties(amdhip64 PROPERTIES PUBLIC_HEADER ${PROF_API_STR})
 add_library(host INTERFACE)
-target_link_libraries(host INTERFACE hip::amdhip64)
+target_link_libraries(host INTERFACE amdhip64)
 
 add_library(device INTERFACE)
 target_link_libraries(device INTERFACE host)
@@ -235,37 +245,38 @@ if(__HIP_ENABLE_PCH)
   target_sources(amdhip64 PRIVATE ${CMAKE_BINARY_DIR}/hip_pch.o)
 endif()
 
-# TODO: we may create host_static and device_static to let app
-# link amdhip64_static
+target_link_libraries(amdhip64 PRIVATE amdrocclr_static Threads::Threads dl hsa-runtime64::hsa-runtime64)
+add_custom_command(TARGET amdhip64 POST_BUILD COMMAND
+    ${CMAKE_COMMAND} -E copy ${PROJECT_BINARY_DIR}/.hipInfo ${PROJECT_BINARY_DIR}/lib/.hipInfo)
+add_custom_command(TARGET amdhip64 POST_BUILD COMMAND cp -rf
+    ${PROJECT_SOURCE_DIR}/include ${PROJECT_BINARY_DIR}/)
 
-# FIXME: Linux convention is to create static library with same base
-# filename.
-if(${BUILD_SHARED_LIBS})
-    target_link_libraries(amdhip64 PRIVATE amdrocclr_static Threads::Threads dl hsa-runtime64::hsa-runtime64)
-
-    add_custom_command(TARGET amdhip64 POST_BUILD COMMAND
-        ${CMAKE_COMMAND} -E copy ${PROJECT_BINARY_DIR}/.hipInfo ${PROJECT_BINARY_DIR}/lib/.hipInfo)
-    add_custom_command(TARGET amdhip64 POST_BUILD COMMAND ${CMAKE_COMMAND} -E copy_directory
-        ${PROJECT_SOURCE_DIR}/include ${PROJECT_BINARY_DIR}/include)
-
-    INSTALL(PROGRAMS $<TARGET_FILE:amdhip64> DESTINATION lib COMPONENT MAIN)
-else()
-    target_link_libraries(amdhip64 PRIVATE Threads::Threads dl hsa-runtime64::hsa-runtime64 amd_comgr)
-    # combine objects of vid and hip into amdhip64_static
-    add_custom_target(
-       amdhip64_static_combiner
-       ALL
-       COMMAND rm -rf  static_lib_temp && mkdir static_lib_temp && cd static_lib_temp # Create temp folder to contain *.o
-       COMMAND ${CMAKE_AR} -x $<TARGET_FILE:amdrocclr_static> # Extract *.o from amdrocclr_static
-       COMMAND ${CMAKE_AR} -rcs $<TARGET_FILE:amdhip64> *.o # Append *.o to amdhip64_static
-       COMMAND cd .. && rm -rf  static_lib_temp # Remove temp folder
-       DEPENDS amdhip64 amdrocclr_static # To make sure this is the last step
-       COMMENT "Combining static libs into amdhip64_static"
-    )
-    INSTALL(PROGRAMS $<TARGET_FILE:amdhip64> DESTINATION lib COMPONENT MAIN)
-endif()
-
+INSTALL(PROGRAMS $<TARGET_FILE:amdhip64> DESTINATION lib COMPONENT MAIN)
 
 INSTALL(TARGETS amdhip64 host device EXPORT hip-targets DESTINATION ${LIB_INSTALL_DIR})
 INSTALL(EXPORT hip-targets DESTINATION ${CONFIG_PACKAGE_INSTALL_DIR} NAMESPACE hip::)
 
+INSTALL(TARGETS amdhip64 host device EXPORT hip-lang-targets DESTINATION ${LIB_INSTALL_DIR})
+INSTALL(EXPORT hip-lang-targets DESTINATION ${CONFIG_LANG_PACKAGE_INSTALL_DIR} NAMESPACE hip-lang::)
+
+include(CMakePackageConfigHelpers)
+
+configure_package_config_file(
+    ${PROJECT_SOURCE_DIR}/hip-lang-config.cmake.in
+    ${CMAKE_CURRENT_BINARY_DIR}/hip-lang-config.cmake
+    INSTALL_DESTINATION ${CONFIG_LANG_PACKAGE_INSTALL_DIR}
+    PATH_VARS LIB_INSTALL_DIR INCLUDE_INSTALL_DIR BIN_INSTALL_DIR
+    )
+
+write_basic_package_version_file(
+    ${CMAKE_CURRENT_BINARY_DIR}/hip-lang-config-version.cmake
+    VERSION "${HIP_VERSION_MAJOR}.${HIP_VERSION_MINOR}.${HIP_VERSION_GITDATE}"
+    COMPATIBILITY SameMajorVersion
+    )
+install(
+    FILES
+    ${CMAKE_CURRENT_BINARY_DIR}/hip-lang-config.cmake
+    ${CMAKE_CURRENT_BINARY_DIR}/hip-lang-config-version.cmake
+    DESTINATION
+    ${CONFIG_LANG_PACKAGE_INSTALL_DIR}/
+    )

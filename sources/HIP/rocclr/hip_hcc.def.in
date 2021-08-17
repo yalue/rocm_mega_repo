@@ -76,12 +76,15 @@ hipInit
 hipIpcCloseMemHandle
 hipIpcGetMemHandle
 hipIpcOpenMemHandle
+hipIpcGetEventHandle
+hipIpcOpenEventHandle
 hipMalloc
 hipMalloc3D
 hipMalloc3DArray
 hipMallocManaged
 hipArrayCreate
 hipArray3DCreate
+hipArrayDestroy
 hipMallocArray
 hipMemAdvise
 hipMemAllocPitch
@@ -177,6 +180,7 @@ __hipRegisterFunction
 __hipRegisterVar
 __hipRegisterSurface
 __hipRegisterTexture
+__hipRegisterManagedVar
 __hipUnregisterFatBinary
 hipConfigureCall
 hipSetupArgument
@@ -261,8 +265,10 @@ hipExtStreamCreateWithCUMask
 hipStreamGetPriority
 hipMemcpy2DFromArray
 hipMemcpy2DFromArrayAsync
+hipDrvMemcpy2DUnaligned
 hipMemcpyAtoH
 hipMemcpyHtoA
 hipMemcpyParam2DAsync
 __gnu_h2f_ieee
 __gnu_f2h_ieee
+hipExtStreamGetCUMask

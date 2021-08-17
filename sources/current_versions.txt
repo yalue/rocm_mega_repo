@@ -1,14 +1,14 @@
-Here are the versions of the source code I checked out, on 13 January 2021:
+Here are the versions of the source code I checked out, on 17 August 2021:
 
-git clone -b rocm-4.0.x https://github.com/ROCm-Developer-Tools/ROCclr.git
-(commit 90af834)
+git clone -b rocm-4.2.x https://github.com/ROCm-Developer-Tools/ROCclr.git
+(commit f343e8ffe98fb)
 
-git clone -b rocm-4.0.x https://github.com/RadeonOpenCompute/ROCm-OpenCL-Runtime.git
-(commit 875c1f8)
+git clone -b rocm-4.2.x https://github.com/RadeonOpenCompute/ROCm-OpenCL-Runtime.git
+(commit 549af90fdd391)
 
-git clone -b rocm-4.0.x https://github.com/ROCm-Developer-Tools/HIP.git
-(commit 4f163c6)
+git clone -b rocm-4.2.x https://github.com/ROCm-Developer-Tools/HIP.git
+(commit 37cb3a34938af)
 
-git clone -b rocm-4.0.0 https://github.com/RadeonOpenCompute/ROCR-Runtime.git
-(commit ceae52f)
+git clone -b rocm-4.2.x https://github.com/RadeonOpenCompute/ROCR-Runtime.git
+(commit 337e3e55d09cd)
 

@@ -21,8 +21,8 @@ THE SOFTWARE.
 */
 
 /* HIT_START
- * BUILD: %t %s EXCLUDE_HIP_PLATFORM nvcc EXCLUDE_HIP_RUNTIME HCC EXCLUDE_HIP_COMPILER hcc
- * TEST: %t EXCLUDE_HIP_PLATFORM nvcc EXCLUDE_HIP_RUNTIME HCC EXCLUDE_HIP_COMPILER hcc
+ * BUILD: %t %s EXCLUDE_HIP_PLATFORM nvidia
+ * TEST: %t EXCLUDE_HIP_PLATFORM nvidia
  * HIT_END
  */
 
@@ -58,6 +58,7 @@ __global__ void test_kernel() {
 }
 
 int main(int argc, char **argv) {
+#if !defined(_WIN32)
   std::string reference(R"here(xyzzy
 %
 hello % world
@@ -78,12 +79,37 @@ x
 (nil)
 3.14159000    hello 0xf01dab1eca55e77e
 )here");
+#else
+  std::string reference(R"here(xyzzy
+%
+hello % world
+%s
+%sF01DAB1ECA55E77E
+%cxyzzy
+sep
+-42
+42
+123.456000
+-123.456000
+-1.234560e+02
+1.234560E+02
+123.456
+-123.456
+x
 
-  CaptureStream captured(stdout);
+0000000000000000
+3.14159000    hello F01DAB1ECA55E77E
+)here");
+#endif
+
+  CaptureStream capture(stdout);
+
+  capture.Begin();
   hipLaunchKernelGGL(test_kernel, dim3(1), dim3(1), 0, 0);
   hipStreamSynchronize(0);
-  auto CapturedData = captured.getCapturedData();
-  std::string device_output = gulp(CapturedData);
+  capture.End();
+
+  std::string device_output = capture.getData();
 
   HIPASSERT(device_output == reference);
   passed();

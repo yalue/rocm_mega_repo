@@ -32,6 +32,7 @@
 #include "device/pal/palblit.hpp"
 #include "device/pal/paldebugger.hpp"
 #include "device/appprofile.hpp"
+#include "device/devhostcall.hpp"
 #include "hsa.h"
 #include "amd_hsa_kernel_code.h"
 #include "amd_hsa_queue.h"
@@ -1032,6 +1033,9 @@ bool VirtualGPU::create(bool profiling, uint deviceQueueSize, uint rtCUs,
                                               &dbg_vmid);
   }
 
+  // The hostcall buffer for this vqueue is initialized on demand.
+  hostcallBuffer_ = nullptr;
+
   return true;
 }
 
@@ -1141,6 +1145,14 @@ VirtualGPU::~VirtualGPU() {
     for (auto it : dev().vgpus()) {
       it->execution().unlock();
     }
+  }
+
+  if (hostcallBuffer_ != nullptr) {
+    ClPrint(amd::LOG_INFO, amd::LOG_QUEUE,
+            "deleting hostcall buffer %p for virtual queue %p",
+            hostcallBuffer_, this);
+    disableHostcalls(hostcallBuffer_);
+    dev().context().svmFree(hostcallBuffer_);
   }
 }
 
@@ -2331,10 +2343,10 @@ void VirtualGPU::PostDeviceEnqueue(const amd::Kernel& kernel, const HSAILKernel&
 // ================================================================================================
 void VirtualGPU::submitKernel(amd::NDRangeKernelCommand& vcmd) {
   if (vcmd.cooperativeGroups()) {
-    uint32_t workgroups = 0;
+    uint32_t workgroups = 1;
     for (uint i = 0; i < vcmd.sizes().dimensions(); i++) {
-      if ((vcmd.sizes().local()[i] != 0) && (vcmd.sizes().global()[i] != 1)) {
-        workgroups += (vcmd.sizes().global()[i] / vcmd.sizes().local()[i]);
+      if (vcmd.sizes().local()[i] != 0) {
+        workgroups *= (vcmd.sizes().global()[i] / vcmd.sizes().local()[i]);
       }
     }
 
@@ -2428,7 +2440,19 @@ bool VirtualGPU::submitKernelInternal(const amd::NDRangeContainer& sizes, const 
   }
   size_t ldsSize;
 
-  ClPrint(amd::LOG_INFO, amd::LOG_KERN, "!\tShaderName : %s\n", hsaKernel.name().c_str());
+  ClPrint(amd::LOG_INFO, amd::LOG_KERN, "!\tkernel : %s\n", hsaKernel.name().c_str());
+
+  if (PAL_EMBED_KERNEL_MD) {
+    char buf[256];
+    sprintf(buf,
+            "kernel: %s\n"
+            "private mem size: %x\n"
+            "group mem size: %x\n",
+            hsaKernel.name().c_str(),
+            hsaKernel.spillSegSize(),
+            hsaKernel.ldsSize());
+    iCmd()->CmdCommentString(buf);
+  }
 
   // Check memory dependency and SVM objects
   if (!processMemObjectsHSA(kernel, parameters, nativeMem, ldsSize)) {
@@ -3414,11 +3438,7 @@ bool VirtualGPU::processMemObjectsHSA(const amd::Kernel& kernel, const_address p
 
           addVmMemory(gpuMem);
           const void* globalAddress = *reinterpret_cast<const void* const*>(params + desc.offset_);
-          ClPrint(amd::LOG_INFO, amd::LOG_KERN, "!\targ%d: %s %s = ptr:%p obj:[%p-%p] threadId : %zx\n", index,
-                  desc.typeName_.c_str(), desc.name_.c_str(), globalAddress,
-                  reinterpret_cast<void*>(gpuMem->vmAddress()),
-                  reinterpret_cast<void*>(gpuMem->vmAddress() + gpuMem->size()),
-                  std::this_thread::get_id());
+          logVmMemory(desc.name_, gpuMem);
 
           //! Check if compiler expects read/write.
           //! Note: SVM with subbuffers has an issue with tracking.
@@ -3542,6 +3562,7 @@ bool VirtualGPU::processMemObjectsHSA(const amd::Kernel& kernel, const_address p
        memoryDependency().validate(*this, scratch->memObj_, IsReadOnly);
     }
     addVmMemory(scratch->memObj_);
+    logVmMemory("scratch", scratch->memObj_);
   }
 
   // Synchronize dispatches unconditionally in case memory tracking is disabled
@@ -3771,5 +3792,42 @@ void VirtualGPU::submitTransferBufferFromFile(amd::TransferBufferFileCommand& cm
       copySize -= srcSize;
     }
   }
+}
+
+void* VirtualGPU::getOrCreateHostcallBuffer() {
+  if (hostcallBuffer_ != nullptr) {
+    return hostcallBuffer_;
+  }
+
+  // The number of packets required in each buffer is at least equal to the
+  // maximum number of waves supported by the device.
+  auto wavesPerCu = dev().info().maxThreadsPerCU_ / dev().info().wavefrontWidth_;
+  auto numPackets = dev().info().maxComputeUnits_ * wavesPerCu;
+
+  auto size = getHostcallBufferSize(numPackets);
+  auto align = getHostcallBufferAlignment();
+
+  hostcallBuffer_ = dev().context().svmAlloc(size, align, CL_MEM_SVM_FINE_GRAIN_BUFFER | CL_MEM_SVM_ATOMICS);
+  if (!hostcallBuffer_) {
+    ClPrint(amd::LOG_ERROR, amd::LOG_QUEUE,
+            "Failed to create hostcall buffer");
+    return nullptr;
+  }
+
+  ClPrint(amd::LOG_INFO, amd::LOG_QUEUE,
+          "Created hostcall buffer %p (numPackets == %d, size == %d, align == %d) for virtual queue %p\n",
+          hostcallBuffer_,
+          numPackets,
+          size,
+          align,
+          this);
+
+  if (!enableHostcalls(dev(), hostcallBuffer_, numPackets)) {
+    ClPrint(amd::LOG_ERROR, amd::LOG_QUEUE,
+            "Failed to register hostcall buffer %p with listener",
+            hostcallBuffer_);
+    return nullptr;
+  }
+  return hostcallBuffer_;
 }
 }  // namespace pal

@@ -842,7 +842,7 @@ bool Os::GetFileHandle(const char* fname, FileDesc* fd_ptr, size_t* sz_ptr) {
   }
 
   *fd_ptr = INVALID_HANDLE_VALUE;
-  *fd_ptr = CreateFileA(fname, GENERIC_READ, 0, NULL, OPEN_EXISTING,
+  *fd_ptr = CreateFileA(fname, GENERIC_READ, 0x1, NULL, OPEN_EXISTING,
                         FILE_ATTRIBUTE_READONLY, NULL);
   if (*fd_ptr == INVALID_HANDLE_VALUE) {
     return false;
@@ -911,6 +911,10 @@ bool Os::MemoryMapFile(const char* fname, const void** mmap_ptr, size_t* mmap_si
   return true;
 }
 
+bool Os::MemoryMapFileTruncated(const char* fname, const void** mmap_ptr, size_t mmap_size) {
+  //TODO: fix with proper implementation
+  return false;
+}
 }  // namespace amd
 
 #endif  // _WIN32 || __CYGWIN__

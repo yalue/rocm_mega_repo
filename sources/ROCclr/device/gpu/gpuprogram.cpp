@@ -27,26 +27,24 @@
 #include "device/gpu/gpublit.hpp"
 #include "macrodata.h"
 #include "MDParser/AMDILMDInterface.h"
-#include <fstream>
-#include <sstream>
-#include <cstdio>
-#include <algorithm>
-#include <iterator>
 #include "utils/options.hpp"
 #include "hsa.h"
 #include "hsa_ext_image.h"
 #include "amd_hsa_loader.hpp"
 
+#include <algorithm>
+#include <cstdio>
+#include <fstream>
+#include <iterator>
+#include <memory>
+#include <sstream>
+
 namespace gpu {
 
-const aclTargetInfo& NullProgram::info(const char* str) {
+const aclTargetInfo& NullProgram::info() {
   acl_error err;
-  std::string arch = "amdil";
-  if (dev().settings().use64BitPtr_) {
-    arch += "64";
-  }
-  info_ = aclGetTargetInfo(arch.c_str(),
-                           (str && str[0] == '\0' ? dev().hwInfo()->targetName_ : str), &err);
+  info_ = aclGetTargetInfo(gpuNullDevice().settings().use64BitPtr_ ? "amdil64" : "amdil",
+                           device().isa().amdIlName(), &err);
   if (err != ACL_SUCCESS) {
     LogWarning("aclGetTargetInfo failed");
   }
@@ -114,7 +112,7 @@ NullKernel* Program::createKernel(const std::string& name, const Kernel::InitDat
 
   *created = false;
   // Create a GPU kernel
-  Kernel* gpuKernel = new Kernel(name, static_cast<const gpu::Device&>(device()), *this, initData);
+  Kernel* gpuKernel = new Kernel(name, gpuDevice(), *this, initData);
 
   if (gpuKernel == NULL) {
     buildLog_ += "new Kernel() failed";
@@ -511,7 +509,7 @@ bool NullProgram::linkImpl(const std::vector<device::Program*>& inputPrograms,
     } else {
       aclTypeUsed = aclLLVMIR;
     }
-    err = aclInsertSection(dev().amdilCompiler(), libs[i], llvmBinaries[i]->data(),
+    err = aclInsertSection(gpuNullDevice().amdilCompiler(), libs[i], llvmBinaries[i]->data(),
                            llvmBinaries[i]->size(), aclTypeUsed);
     if (err != ACL_SUCCESS) {
       LogWarning("aclInsertSection failed");
@@ -528,10 +526,10 @@ bool NullProgram::linkImpl(const std::vector<device::Program*>& inputPrograms,
       unsigned int numLibs = libs.size() - 1;
 
       if (numLibs > 0) {
-        err = aclLink(dev().amdilCompiler(), libs[0], numLibs, &libs[1], ACL_TYPE_LLVMIR_BINARY,
+        err = aclLink(gpuNullDevice().amdilCompiler(), libs[0], numLibs, &libs[1], ACL_TYPE_LLVMIR_BINARY,
                       "-create-library", NULL);
 
-        buildLog_ += aclGetCompilerLog(dev().amdilCompiler());
+        buildLog_ += aclGetCompilerLog(gpuNullDevice().amdilCompiler());
 
         if (err != ACL_SUCCESS) {
           LogWarning("aclLink failed");
@@ -548,7 +546,7 @@ bool NullProgram::linkImpl(const std::vector<device::Program*>& inputPrograms,
       } else {
         aclTypeUsed = aclLLVMIR;
       }
-      const void* llvmir = aclExtractSection(dev().amdilCompiler(), libs[0], &size, aclTypeUsed, &err);
+      const void* llvmir = aclExtractSection(gpuNullDevice().amdilCompiler(), libs[0], &size, aclTypeUsed, &err);
       if (err != ACL_SUCCESS) {
         LogWarning("aclExtractSection failed");
         break;
@@ -1455,13 +1453,13 @@ bool Program::allocGlobalData(const void* globalData, size_t dataSize, uint inde
     // so possible reallocation won't occur twice or
     // another thread could destroy a heap block,
     // while we didn't finish allocation
-    amd::ScopedLock k(dev().lockAsyncOps());
+    amd::ScopedLock k(gpuDevice().lockAsyncOps());
 
     // Allocate memory for the global data store
-    glbData_ = dev().createScratchBuffer(amd::alignUp(dataSize, 0x1000));
+    glbData_ = gpuDevice().createScratchBuffer(amd::alignUp(dataSize, 0x1000));
     dataStore = glbData_;
   } else {
-    dataStore = new Memory(dev(), amd::alignUp(dataSize, ConstBuffer::VectorSize));
+    dataStore = new Memory(gpuDevice(), amd::alignUp(dataSize, ConstBuffer::VectorSize));
 
     // Initialize constant buffer
     if ((dataStore == NULL) || !dataStore->create(Resource::RemoteUSWC)) {
@@ -1477,7 +1475,7 @@ bool Program::allocGlobalData(const void* globalData, size_t dataSize, uint inde
     static const bool Entire = true;
     amd::Coord3D origin(0, 0, 0);
     amd::Coord3D region(dataSize);
-    result = dev().xferMgr().writeBuffer(globalData, *dataStore, origin, region, Entire);
+    result = gpuDevice().xferMgr().writeBuffer(globalData, *dataStore, origin, region, Entire);
   }
 
   return result;
@@ -1504,7 +1502,7 @@ HSAILProgram::HSAILProgram(Device& device, amd::Program& owner)
       maxScratchRegs_(0),
       executable_(NULL),
       loaderContext_(this) {
-  machineTarget_ = dev().hwInfo()->targetName_;
+  assert(device.isOnline());
   loader_ = amd::hsa::loader::Loader::Create(&loaderContext_);
 }
 
@@ -1515,9 +1513,11 @@ HSAILProgram::HSAILProgram(NullDevice& device, amd::Program& owner)
       maxScratchRegs_(0),
       executable_(NULL),
       loaderContext_(this) {
+  assert(!device.isOnline());
   isNull_ = true;
-  machineTarget_ = dev().hwInfo()->targetName_;
-  loader_ = amd::hsa::loader::Loader::Create(&loaderContext_);
+
+  // Cannot load onto a NullDevice.
+  loader_ = nullptr;
 }
 
 HSAILProgram::~HSAILProgram() {
@@ -1577,9 +1577,9 @@ bool HSAILProgram::linkImpl(amd::option::Options* options) {
     // 1. if the program is created with binary and contains only hsail text
     case ACL_TYPE_HSAIL_TEXT: {
       std::string curOptions = options->origOptionStr + hsailOptions();
-      errorCode = aclCompile(dev().hsaCompiler(), binaryElf_, curOptions.c_str(),
+      errorCode = aclCompile(gpuNullDevice().hsaCompiler(), binaryElf_, curOptions.c_str(),
                              continueCompileFrom, ACL_TYPE_CG, NULL);
-      buildLog_ += aclGetCompilerLog(dev().hsaCompiler());
+      buildLog_ += aclGetCompilerLog(gpuNullDevice().hsaCompiler());
       if (errorCode != ACL_SUCCESS) {
         buildLog_ += "Error: BRIG code generation failed.\n";
         return false;
@@ -1601,20 +1601,19 @@ bool HSAILProgram::linkImpl(amd::option::Options* options) {
     std::string fin_options(options->origOptionStr + hsailOptions());
     // Append an option so that we can selectively enable a SCOption on CZ
     // whenever IOMMUv2 is enabled.
-    if (dev().settings().svmFineGrainSystem_) {
+    if (gpuNullDevice().settings().svmFineGrainSystem_) {
       fin_options.append(" -sc-xnack-iommu");
     }
-    errorCode = aclCompile(dev().hsaCompiler(), binaryElf_, fin_options.c_str(), ACL_TYPE_CG,
+    errorCode = aclCompile(gpuNullDevice().hsaCompiler(), binaryElf_, fin_options.c_str(), ACL_TYPE_CG,
                            ACL_TYPE_ISA, NULL);
-    buildLog_ += aclGetCompilerLog(dev().hsaCompiler());
+    buildLog_ += aclGetCompilerLog(gpuNullDevice().hsaCompiler());
     if (errorCode != ACL_SUCCESS) {
       buildLog_ += "Error: BRIG finalization to ISA failed.\n";
       return false;
     }
   }
   // ACL_TYPE_CG stage is not performed for offline compilation
-  hsa_agent_t agent;
-  agent.handle = 1;
+  hsa_agent_t agent = {amd::Device::toHandle(&(device()))};
   if (hsaLoad) {
     executable_ = loader_->CreateExecutable(HSA_PROFILE_FULL, NULL);
     if (executable_ == NULL) {
@@ -1624,7 +1623,7 @@ bool HSAILProgram::linkImpl(amd::option::Options* options) {
     size_t size = 0;
     hsa_code_object_t code_object;
     code_object.handle = reinterpret_cast<uint64_t>(
-        aclExtractSection(dev().hsaCompiler(), binaryElf_, &size, aclTEXT, &errorCode));
+        aclExtractSection(gpuNullDevice().hsaCompiler(), binaryElf_, &size, aclTEXT, &errorCode));
     if (errorCode != ACL_SUCCESS) {
       buildLog_ += "Error: Extracting AMD HSA Code Object from binary failed.\n";
       return false;
@@ -1637,14 +1636,14 @@ bool HSAILProgram::linkImpl(amd::option::Options* options) {
   }
   size_t kernelNamesSize = 0;
   errorCode =
-      aclQueryInfo(dev().hsaCompiler(), binaryElf_, RT_KERNEL_NAMES, NULL, NULL, &kernelNamesSize);
+      aclQueryInfo(gpuNullDevice().hsaCompiler(), binaryElf_, RT_KERNEL_NAMES, NULL, NULL, &kernelNamesSize);
   if (errorCode != ACL_SUCCESS) {
     buildLog_ += "Error: Querying of kernel names size from the binary failed.\n";
     return false;
   }
   if (kernelNamesSize > 0) {
     char* kernelNames = new char[kernelNamesSize];
-    errorCode = aclQueryInfo(dev().hsaCompiler(), binaryElf_, RT_KERNEL_NAMES, NULL, kernelNames,
+    errorCode = aclQueryInfo(gpuNullDevice().hsaCompiler(), binaryElf_, RT_KERNEL_NAMES, NULL, kernelNames,
                              &kernelNamesSize);
     if (errorCode != ACL_SUCCESS) {
       buildLog_ += "Error: Querying of kernel names from the binary failed.\n";
@@ -1660,7 +1659,7 @@ bool HSAILProgram::linkImpl(amd::option::Options* options) {
     for (const auto& it : vKernels) {
       std::string kernelName(it);
       std::string openclKernelName = Kernel::openclMangledName(kernelName);
-      errorCode = aclQueryInfo(dev().hsaCompiler(), binaryElf_, RT_NUM_KERNEL_HIDDEN_ARGS,
+      errorCode = aclQueryInfo(gpuNullDevice().hsaCompiler(), binaryElf_, RT_NUM_KERNEL_HIDDEN_ARGS,
                                openclKernelName.c_str(), &md.numHiddenKernelArgs,
                                &sizeOfnumHiddenKernelArgs);
       if (errorCode != ACL_SUCCESS) {
@@ -1697,7 +1696,7 @@ bool HSAILProgram::linkImpl(amd::option::Options* options) {
   }
   // Save the binary in the interface class
   saveBinaryAndSetType(TYPE_EXECUTABLE);
-  buildLog_ += aclGetCompilerLog(dev().hsaCompiler());
+  buildLog_ += aclGetCompilerLog(gpuNullDevice().hsaCompiler());
   return true;
 }
 
@@ -1707,13 +1706,13 @@ std::string HSAILProgram::hsailOptions() {
   std::string hsailOptions;
   // Set options for the standard device specific options
   // All our devices support these options now
-  if (dev().settings().reportFMAF_) {
+  if (gpuNullDevice().settings().reportFMAF_) {
     hsailOptions.append(" -DFP_FAST_FMAF=1");
   }
-  if (dev().settings().reportFMA_) {
+  if (gpuNullDevice().settings().reportFMA_) {
     hsailOptions.append(" -DFP_FAST_FMA=1");
   }
-  if (!dev().settings().singleFpDenorm_) {
+  if (!gpuNullDevice().settings().singleFpDenorm_) {
     hsailOptions.append(" -cl-denorms-are-zero");
   }
 
@@ -1735,9 +1734,14 @@ std::string HSAILProgram::hsailOptions() {
 }
 
 bool HSAILProgram::allocKernelTable() {
+  if (isNull()) {
+    // Cannot create a kernel table for offline devices.
+    return false;
+  }
+
   uint size = kernels().size() * sizeof(size_t);
 
-  kernels_ = new gpu::Memory(dev(), size);
+  kernels_ = new gpu::Memory(gpuDevice(), size);
   // Initialize kernel table
   if ((kernels_ == NULL) || !kernels_->create(Resource::RemoteUSWC)) {
     delete kernels_;
@@ -1759,14 +1763,10 @@ void HSAILProgram::fillResListWithKernels(std::vector<const Memory*>& memList) c
   }
 }
 
-const aclTargetInfo& HSAILProgram::info(const char* str) {
+const aclTargetInfo& HSAILProgram::info() {
   acl_error err;
-  std::string arch = "hsail";
-  if (dev().settings().use64BitPtr_) {
-    arch = "hsail64";
-  }
-  info_ = aclGetTargetInfo(arch.c_str(),
-                           (str && str[0] == '\0' ? dev().hwInfo()->targetName_ : str), &err);
+  info_ = aclGetTargetInfo(gpuNullDevice().settings().use64BitPtr_ ? "hsail64" : "hsail",
+                           device().isa().hsailName(), &err);
   if (err != ACL_SUCCESS) {
     LogWarning("aclGetTargetInfo failed");
   }
@@ -1792,106 +1792,23 @@ bool HSAILProgram::saveBinaryAndSetType(type_t type) {
 }
 
 hsa_isa_t ORCAHSALoaderContext::IsaFromName(const char* name) {
-  hsa_isa_t isa = {0};
-  if (!strcmp(Gfx700, name)) {
-    isa.handle = gfx700;
-    return isa;
-  }
-  if (!strcmp(Gfx701, name)) {
-    isa.handle = gfx701;
-    return isa;
-  }
-  if (!strcmp(Gfx800, name)) {
-    isa.handle = gfx800;
-    return isa;
-  }
-  if (!strcmp(Gfx801, name)) {
-    isa.handle = gfx801;
-    return isa;
-  }
-  if (!strcmp(Gfx804, name)) {
-    isa.handle = gfx804;
-    return isa;
-  }
-  if (!strcmp(Gfx810, name)) {
-    isa.handle = gfx810;
-    return isa;
-  }
-  if (!strcmp(Gfx900, name)) {
-    isa.handle = gfx900;
-    return isa;
-  }
-  if (!strcmp(Gfx902, name)) {
-      isa.handle = gfx902;
-      return isa;
-  }
-  if (!strcmp(Gfx903, name)) {
-      isa.handle = gfx903;
-      return isa;
-  }
-  if (!strcmp(Gfx904, name)) {
-      isa.handle = gfx904;
-      return isa;
-  }
-  if (!strcmp(Gfx906, name)) {
-      isa.handle = gfx906;
-      return isa;
-  }
-
-  return isa;
+  const amd::Isa* isa_p = amd::Isa::findIsa(name);
+  return {amd::Isa::toHandle(isa_p)};
 }
 
 bool ORCAHSALoaderContext::IsaSupportedByAgent(hsa_agent_t agent, hsa_isa_t isa) {
-  switch (program_->dev().hwInfo()->gfxipVersion_) {
-    default:
-      LogError("Unsupported gfxip version");
-      return false;
-    case gfx700:
-    case gfx701:
-    case gfx702:
-      // gfx701 only differs from gfx700 by faster fp operations and can be loaded on either device.
-      return isa.handle == gfx700 || isa.handle == gfx701;
-    case gfx800:
-      switch (program_->dev().hwInfo()->machine_) {
-        case ED_ATI_CAL_MACHINE_ICELAND_ISA:
-        case ED_ATI_CAL_MACHINE_TONGA_ISA:
-          return isa.handle == gfx800;
-        case ED_ATI_CAL_MACHINE_CARRIZO_ISA:
-          return isa.handle == gfx801;
-        case ED_ATI_CAL_MACHINE_FIJI_ISA:
-        case ED_ATI_CAL_MACHINE_ELLESMERE_ISA:
-        case ED_ATI_CAL_MACHINE_BAFFIN_ISA:
-        case ED_ATI_CAL_MACHINE_LEXA_ISA:
-        case ED_ATI_CAL_MACHINE_POLARIS22_ISA:
-          // gfx800 ISA has only sgrps limited and can be loaded.
-          // gfx801 ISA has XNACK limitations and can be loaded.
-          return isa.handle == gfx800 || isa.handle == gfx801 || isa.handle == gfx804;
-        case ED_ATI_CAL_MACHINE_STONEY_ISA:
-          return isa.handle == gfx810;
-        default:
-          assert(0);
-          return false;
-      }
-    case gfx900:
-    case gfx902:
-    case gfx903:
-    case gfx904:
-    case gfx906:
-      switch (program_->dev().hwInfo()->machine_) {
-        case ED_ATI_CAL_MACHINE_GREENLAND_ISA:
-          return isa.handle == gfx900;
-        case ED_ATI_CAL_MACHINE_RAVEN_ISA:
-        case ED_ATI_CAL_MACHINE_RENOIR_ISA:
-            return isa.handle == gfx902 || isa.handle == gfx903;
-        case ED_ATI_CAL_MACHINE_VEGA12_ISA:
-            return isa.handle == gfx904;
-        case ED_ATI_CAL_MACHINE_VEGA20_ISA:
-            return isa.handle == gfx906;
-        default:
-          assert(0);
-          return false;
-      }
+  // The HSA loader uses a handle value of 0 to indicate the ISA is invalid.
+  const amd::Isa* code_object_isa_p = amd::Isa::fromHandle(isa.handle);
+  if (!code_object_isa_p || !code_object_isa_p->runtimeGslSupported()) {
+    // The ISA is either not supported because ORCAHSALoaderContext::IsaFromName
+    // could not find it, or the PAL runtime does not support it.
+    return false;
   }
+  if (program_->isNull()) {
+    // Cannot load code onto offline devices.
+    return false;
+  }
+  return amd::Isa::isCompatible(*code_object_isa_p, program_->device().isa());
 }
 
 void* ORCAHSALoaderContext::SegmentAlloc(amdgpu_hsa_elf_segment_t segment, hsa_agent_t agent,
@@ -1966,6 +1883,7 @@ void* ORCAHSALoaderContext::SegmentAddress(amdgpu_hsa_elf_segment_t segment, hsa
 hsa_status_t ORCAHSALoaderContext::SamplerCreate(
     hsa_agent_t agent, const hsa_ext_sampler_descriptor_t* sampler_descriptor,
     hsa_ext_sampler_t* sampler_handle) {
+  sampler_handle->handle = 0;
   if (!agent.handle) {
     return HSA_STATUS_ERROR_INVALID_AGENT;
   }
@@ -1974,7 +1892,7 @@ hsa_status_t ORCAHSALoaderContext::SamplerCreate(
   }
 
   if (program_->isNull()) {
-    // Offline compilation. Provide a fake handle to avoid an assert
+    // Offline compilation. Provide a fake non-null handle.
     sampler_handle->handle = 1;
     return HSA_STATUS_SUCCESS;
   }
@@ -2022,13 +1940,12 @@ hsa_status_t ORCAHSALoaderContext::SamplerCreate(
       assert(false);
       return HSA_STATUS_ERROR_INVALID_ARGUMENT;
   }
-  gpu::Sampler* sampler = new gpu::Sampler(program_->dev());
+  std::unique_ptr<gpu::Sampler> sampler(new gpu::Sampler(program_->gpuDevice()));
   if (!sampler || !sampler->create(state)) {
-    delete sampler;
     return HSA_STATUS_ERROR;
   }
-  program_->addSampler(sampler);
   sampler_handle->handle = sampler->hwSrd();
+  program_->addSampler(sampler.release());
   return HSA_STATUS_SUCCESS;
 }
 
@@ -2040,6 +1957,7 @@ hsa_status_t ORCAHSALoaderContext::SamplerDestroy(hsa_agent_t agent,
   if (!sampler_handle.handle) {
     return HSA_STATUS_ERROR_INVALID_ARGUMENT;
   }
+  // Samplers will be destroyed by the pal::HSAILProgam destructor.
   return HSA_STATUS_SUCCESS;
 }
 
@@ -2073,15 +1991,15 @@ void* ORCAHSALoaderContext::GpuMemAlloc(size_t size, size_t align, bool zero) {
     return new char[size];
   }
 
-  gpu::Memory* mem = new gpu::Memory(program_->dev(), amd::alignUp(size, align));
+  gpu::Memory* mem = new gpu::Memory(program_->gpuDevice(), amd::alignUp(size, align));
   if (!mem || !mem->create(gpu::Resource::Local)) {
     delete mem;
     return NULL;
   }
-  assert(program_->dev().xferQueue());
+  assert(program_->gpuDevice().xferQueue());
   if (zero) {
     char pattern = 0;
-    program_->dev().xferMgr().fillBuffer(*mem, &pattern, sizeof(pattern), amd::Coord3D(0),
+    program_->gpuDevice().xferMgr().fillBuffer(*mem, &pattern, sizeof(pattern), amd::Coord3D(0),
                                          amd::Coord3D(size));
   }
   program_->addGlobalStore(mem);
@@ -2100,9 +2018,9 @@ bool ORCAHSALoaderContext::GpuMemCopy(void* dst, size_t offset, const void* src,
     memcpy(reinterpret_cast<address>(dst) + offset, src, size);
     return true;
   }
-  assert(program_->dev().xferQueue());
+  assert(program_->gpuDevice().xferQueue());
   gpu::Memory* mem = reinterpret_cast<gpu::Memory*>(dst);
-  return program_->dev().xferMgr().writeBuffer(src, *mem, amd::Coord3D(offset), amd::Coord3D(size),
+  return program_->gpuDevice().xferMgr().writeBuffer(src, *mem, amd::Coord3D(offset), amd::Coord3D(size),
                                                true);
   return true;
 }

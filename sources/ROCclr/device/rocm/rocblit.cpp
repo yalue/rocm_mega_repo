@@ -62,12 +62,14 @@ bool DmaBlitManager::readMemoryStaged(Memory& srcMemory, void* dstHost, Memory& 
 bool DmaBlitManager::readBuffer(device::Memory& srcMemory, void* dstHost,
                                 const amd::Coord3D& origin, const amd::Coord3D& size,
                                 bool entire) const {
-  // HSA copy functionality with a possible async operaiton, hence make sure GPU is done
-  gpu().releaseGpuMemoryFence();
+  // HSA copy functionality with a possible async operation
+  gpu().releaseGpuMemoryFence(kIgnoreBarrier, kSkipCpuWait);
 
   // Use host copy if memory has direct access
   if (setup_.disableReadBuffer_ ||
       (srcMemory.isHostMemDirectAccess() && !srcMemory.isCpuUncached())) {
+    // Stall GPU before CPU access
+    gpu().Barriers().WaitCurrent();
     return HostBlitManager::readBuffer(srcMemory, dstHost, origin, size, entire);
   } else {
     size_t srcSize = size[0];
@@ -149,12 +151,14 @@ bool DmaBlitManager::readBuffer(device::Memory& srcMemory, void* dstHost,
 bool DmaBlitManager::readBufferRect(device::Memory& srcMemory, void* dstHost,
                                     const amd::BufferRect& bufRect, const amd::BufferRect& hostRect,
                                     const amd::Coord3D& size, bool entire) const {
-  // HSA copy functionality with a possible async operaiton, hence make sure GPU is done
+  // HSA copy functionality with a possible async operation
   gpu().releaseGpuMemoryFence();
 
   // Use host copy if memory has direct access
   if (setup_.disableReadBufferRect_ ||
       (srcMemory.isHostMemDirectAccess() && !srcMemory.isCpuUncached())) {
+    // Stall GPU before CPU access
+    gpu().Barriers().WaitCurrent();
     return HostBlitManager::readBufferRect(srcMemory, dstHost, bufRect, hostRect, size, entire);
   } else {
     Memory& xferBuf = dev().xferRead().acquire();
@@ -187,7 +191,7 @@ bool DmaBlitManager::readBufferRect(device::Memory& srcMemory, void* dstHost,
 bool DmaBlitManager::readImage(device::Memory& srcMemory, void* dstHost, const amd::Coord3D& origin,
                                const amd::Coord3D& size, size_t rowPitch, size_t slicePitch,
                                bool entire) const {
-  // HSA copy functionality with a possible async operaiton, hence make sure GPU is done
+  // HSA copy functionality with a possible async operation
   gpu().releaseGpuMemoryFence();
 
   if (setup_.disableReadImage_) {
@@ -219,14 +223,16 @@ bool DmaBlitManager::writeMemoryStaged(const void* srcHost, Memory& dstMemory, M
 bool DmaBlitManager::writeBuffer(const void* srcHost, device::Memory& dstMemory,
                                  const amd::Coord3D& origin, const amd::Coord3D& size,
                                  bool entire) const {
-  // HSA copy functionality with a possible async operaiton, hence make sure GPU is done
-  gpu().releaseGpuMemoryFence();
-
   // Use host copy if memory has direct access
   if (setup_.disableWriteBuffer_ || dstMemory.isHostMemDirectAccess() ||
       gpuMem(dstMemory).IsPersistentDirectMap()) {
+    // Stall GPU before CPU access
+    gpu().releaseGpuMemoryFence();
     return HostBlitManager::writeBuffer(srcHost, dstMemory, origin, size, entire);
   } else {
+    // HSA copy functionality with a possible async operation
+    gpu().releaseGpuMemoryFence(kIgnoreBarrier, kSkipCpuWait);
+
     size_t dstSize = size[0];
     size_t tmpSize = 0;
     size_t offset = 0;
@@ -309,7 +315,7 @@ bool DmaBlitManager::writeBufferRect(const void* srcHost, device::Memory& dstMem
                                      const amd::BufferRect& hostRect,
                                      const amd::BufferRect& bufRect, const amd::Coord3D& size,
                                      bool entire) const {
-  // HSA copy functionality with a possible async operaiton, hence make sure GPU is done
+  // HSA copy functionality with a possible async operation
   gpu().releaseGpuMemoryFence();
 
   // Use host copy if memory has direct access
@@ -347,7 +353,7 @@ bool DmaBlitManager::writeBufferRect(const void* srcHost, device::Memory& dstMem
 bool DmaBlitManager::writeImage(const void* srcHost, device::Memory& dstMemory,
                                 const amd::Coord3D& origin, const amd::Coord3D& size,
                                 size_t rowPitch, size_t slicePitch, bool entire) const {
-  // HSA copy functionality with a possible async operaiton, hence make sure GPU is done
+  // HSA copy functionality with a possible async operation
   gpu().releaseGpuMemoryFence();
 
   if (setup_.disableWriteImage_) {
@@ -365,12 +371,11 @@ bool DmaBlitManager::writeImage(const void* srcHost, device::Memory& dstMemory,
 bool DmaBlitManager::copyBuffer(device::Memory& srcMemory, device::Memory& dstMemory,
                                 const amd::Coord3D& srcOrigin, const amd::Coord3D& dstOrigin,
                                 const amd::Coord3D& size, bool entire) const {
-  // HSA copy functionality with a possible async operaiton, hence make sure GPU is done
-  gpu().releaseGpuMemoryFence();
-
   if (setup_.disableCopyBuffer_ ||
       (srcMemory.isHostMemDirectAccess() && !srcMemory.isCpuUncached() &&
       (dev().agent_profile() != HSA_PROFILE_FULL) && dstMemory.isHostMemDirectAccess())) {
+    // Stall GPU before CPU access
+    gpu().releaseGpuMemoryFence();
     return HostBlitManager::copyBuffer(srcMemory, dstMemory, srcOrigin, dstOrigin, size);
   } else {
     return hsaCopy(gpuMem(srcMemory), gpuMem(dstMemory), srcOrigin, dstOrigin, size);
@@ -383,14 +388,15 @@ bool DmaBlitManager::copyBuffer(device::Memory& srcMemory, device::Memory& dstMe
 bool DmaBlitManager::copyBufferRect(device::Memory& srcMemory, device::Memory& dstMemory,
                                     const amd::BufferRect& srcRect, const amd::BufferRect& dstRect,
                                     const amd::Coord3D& size, bool entire) const {
-  // HSA copy functionality with a possible async operaiton, hence make sure GPU is done
-  gpu().releaseGpuMemoryFence();
-
   if (setup_.disableCopyBufferRect_ ||
       (srcMemory.isHostMemDirectAccess() && !srcMemory.isCpuUncached() &&
        dstMemory.isHostMemDirectAccess())) {
+    // Stall GPU before CPU access
+    gpu().releaseGpuMemoryFence();
     return HostBlitManager::copyBufferRect(srcMemory, dstMemory, srcRect, dstRect, size, entire);
   } else {
+    bool force_barrier = !dev().settings().barrier_sync_ && !gpu().isLastCommandSDMA();
+    gpu().releaseGpuMemoryFence(force_barrier, kSkipCpuWait);
 
     void* src = gpuMem(srcMemory).getDeviceMemory();
     void* dst = gpuMem(dstMemory).getDeviceMemory();
@@ -428,33 +434,44 @@ bool DmaBlitManager::copyBufferRect(device::Memory& srcMemory, device::Memory& d
     hsa_dim3_t offset = { 0, 0 ,0 };
 
 
-    if ((srcRect.rowPitch_ % 4 != 0)     ||
-        (srcRect.slicePitch_ % 4 != 0)    ||
-        (dstRect.rowPitch_ % 4 != 0)     ||
+    if ((srcRect.rowPitch_ % 4 != 0)    ||
+        (srcRect.slicePitch_ % 4 != 0)  ||
+        (dstRect.rowPitch_ % 4 != 0)    ||
         (dstRect.slicePitch_ % 4 != 0)) {
       isSubwindowRectCopy = false;
     }
 
+    HwQueueEngine engine = HwQueueEngine::Unknown;
+    if ((srcAgent.handle == dev().getCpuAgent().handle) &&
+        (dstAgent.handle != dev().getCpuAgent().handle)) {
+      engine = HwQueueEngine::SdmaWrite;
+    } else if ((srcAgent.handle != dev().getCpuAgent().handle) &&
+              (dstAgent.handle == dev().getCpuAgent().handle)) {
+      engine = HwQueueEngine::SdmaRead;
+    }
+
+    hsa_signal_t* wait_event = gpu().Barriers().WaitingSignal(engine);
+    uint32_t num_wait_events = (wait_event == nullptr) ? 0 : 1;
+
     if (isSubwindowRectCopy ) {
-      hsa_signal_store_relaxed(completion_signal_, kInitSignalValueOne);
+      hsa_signal_t active = gpu().Barriers().ActiveSignal(kInitSignalValueOne, gpu().timestamp());
 
       // Copy memory line by line
-      hsa_status_t status =
-          hsa_amd_memory_async_copy_rect(&dstMem, &offset, &srcMem, &offset, &dim, agent,
-                                    direction, 0, nullptr, completion_signal_);
+      ClPrint(amd::LOG_DEBUG, amd::LOG_COPY,
+              "[%zx]!\t HSA Asycn Copy Rect  wait_event=0x%zx, completion_signal=0x%zx\n",
+              std::this_thread::get_id(), (wait_event != nullptr) ? wait_event->handle : 0,
+              active.handle);
+      hsa_status_t status = hsa_amd_memory_async_copy_rect(&dstMem, &offset,
+          &srcMem, &offset, &dim, agent, direction, num_wait_events, wait_event, active);
       if (status != HSA_STATUS_SUCCESS) {
+        gpu().Barriers().ResetCurrentSignal();
         LogPrintfError("DMA buffer failed with code %d", status);
-        return false;
-      }
-
-      if (!WaitForSignal(completion_signal_)) {
-        LogError("Async copy failed");
         return false;
       }
     } else {
       // Fall to line by line copies
       const hsa_signal_value_t kInitVal = size[2] * size[1];
-      hsa_signal_store_relaxed(completion_signal_, kInitVal);
+      hsa_signal_t active = gpu().Barriers().ActiveSignal(kInitVal, gpu().timestamp());
 
       for (size_t z = 0; z < size[2]; ++z) {
         for (size_t y = 0; y < size[1]; ++y) {
@@ -462,24 +479,26 @@ bool DmaBlitManager::copyBufferRect(device::Memory& srcMemory, device::Memory& d
           size_t dstOffset = dstRect.offset(0, y, z);
 
           // Copy memory line by line
-          hsa_status_t status =
-              hsa_amd_memory_async_copy((reinterpret_cast<address>(dst) + dstOffset), dstAgent,
-                                        (reinterpret_cast<const_address>(src) + srcOffset), srcAgent,
-                                        size[0], 0, nullptr, completion_signal_);
+          ClPrint(amd::LOG_DEBUG, amd::LOG_COPY,
+                  "[%zx]!\t HSA Asycn Copy wait_event=0x%zx, completion_signal=0x%zx\n",
+                  std::this_thread::get_id(), (wait_event != nullptr) ? wait_event->handle : 0,
+                  active.handle);
+          hsa_status_t status = hsa_amd_memory_async_copy(
+              (reinterpret_cast<address>(dst) + dstOffset), dstAgent,
+              (reinterpret_cast<const_address>(src) + srcOffset), srcAgent,
+              size[0], num_wait_events, wait_event, active);
           if (status != HSA_STATUS_SUCCESS) {
+            gpu().Barriers().ResetCurrentSignal();
             LogPrintfError("DMA buffer failed with code %d", status);
             return false;
+          } else {
+            gpu().setLastCommandSDMA(true);
           }
         }
       }
-
-      if (!WaitForSignal(completion_signal_)) {
-        LogError("Async copy failed");
-        return false;
-      }
     }
-
   }
+
   return true;
 }
 
@@ -488,8 +507,9 @@ bool DmaBlitManager::copyImageToBuffer(device::Memory& srcMemory, device::Memory
                                        const amd::Coord3D& srcOrigin, const amd::Coord3D& dstOrigin,
                                        const amd::Coord3D& size, bool entire, size_t rowPitch,
                                        size_t slicePitch) const {
-  // HSA copy functionality with a possible async operaiton, hence make sure GPU is done
-  gpu().releaseGpuMemoryFence();
+  // HSA copy functionality with a possible async operation, hence make sure GPU is done
+  bool force_barrier = !dev().settings().barrier_sync_ && !gpu().isLastCommandSDMA();
+  gpu().releaseGpuMemoryFence(force_barrier);
 
   bool result = false;
 
@@ -499,9 +519,6 @@ bool DmaBlitManager::copyImageToBuffer(device::Memory& srcMemory, device::Memory
   } else {
     Image& srcImage = static_cast<roc::Image&>(srcMemory);
     Buffer& dstBuffer = static_cast<roc::Buffer&>(dstMemory);
-
-    // Use ROC path for a transfer
-    // Note: it doesn't support SDMA
     address dstHost = reinterpret_cast<address>(dstBuffer.getDeviceMemory()) + dstOrigin[0];
 
     // Use ROCm path for a transfer.
@@ -535,8 +552,9 @@ bool DmaBlitManager::copyBufferToImage(device::Memory& srcMemory, device::Memory
                                        const amd::Coord3D& srcOrigin, const amd::Coord3D& dstOrigin,
                                        const amd::Coord3D& size, bool entire, size_t rowPitch,
                                        size_t slicePitch) const {
-  // HSA copy functionality with a possible async operaiton, hence make sure GPU is done
-  gpu().releaseGpuMemoryFence();
+  // HSA copy functionality with a possible async operation, hence make sure GPU is done
+  bool force_barrier = !dev().settings().barrier_sync_ && !gpu().isLastCommandSDMA();
+  gpu().releaseGpuMemoryFence(force_barrier);
 
   bool result = false;
 
@@ -579,7 +597,7 @@ bool DmaBlitManager::copyBufferToImage(device::Memory& srcMemory, device::Memory
 bool DmaBlitManager::copyImage(device::Memory& srcMemory, device::Memory& dstMemory,
                                const amd::Coord3D& srcOrigin, const amd::Coord3D& dstOrigin,
                                const amd::Coord3D& size, bool entire) const {
-  // HSA copy functionality with a possible async operaiton, hence make sure GPU is done
+  // HSA copy functionality with a possible async operation, hence make sure GPU is done
   gpu().releaseGpuMemoryFence();
 
   bool result = false;
@@ -601,12 +619,17 @@ bool DmaBlitManager::hsaCopy(const Memory& srcMemory, const Memory& dstMemory,
   address src = reinterpret_cast<address>(srcMemory.getDeviceMemory());
   address dst = reinterpret_cast<address>(dstMemory.getDeviceMemory());
 
+  bool force_barrier = !dev().settings().barrier_sync_ && !gpu().isLastCommandSDMA();
+  gpu().releaseGpuMemoryFence(force_barrier, kSkipCpuWait);
+
   src += srcOrigin[0];
   dst += dstOrigin[0];
 
   // Just call copy function for full profile
   hsa_status_t status;
   if (dev().agent_profile() == HSA_PROFILE_FULL) {
+    // Stall GPU, sicne CPU copy is possible
+    gpu().Barriers().WaitCurrent();
     status = hsa_memory_copy(dst, src, size[0]);
     if (status != HSA_STATUS_SUCCESS) {
       LogPrintfError("Hsa copy of data failed with code %d", status);
@@ -636,22 +659,32 @@ bool DmaBlitManager::hsaCopy(const Memory& srcMemory, const Memory& dstMemory,
     srcAgent = dstAgent = dev().getBackendDevice();
   }
 
-  hsa_signal_store_relaxed(completion_signal_, kInitSignalValueOne);
+  HwQueueEngine engine = HwQueueEngine::Unknown;
+  if ((srcAgent.handle == dev().getCpuAgent().handle) &&
+      (dstAgent.handle != dev().getCpuAgent().handle)) {
+    engine = HwQueueEngine::SdmaWrite;
+  } else if ((srcAgent.handle != dev().getCpuAgent().handle) &&
+             (dstAgent.handle == dev().getCpuAgent().handle)) {
+    engine = HwQueueEngine::SdmaRead;
+  }
+
+  hsa_signal_t* wait_event = gpu().Barriers().WaitingSignal(engine);
+  uint32_t num_wait_events = (wait_event == nullptr) ? 0 : 1;
+  hsa_signal_t      active = gpu().Barriers().ActiveSignal(kInitSignalValueOne, gpu().timestamp());
 
   // Use SDMA to transfer the data
-  status = hsa_amd_memory_async_copy(dst, dstAgent, src, srcAgent, size[0], 0, nullptr,
-                                     completion_signal_);
+  ClPrint(amd::LOG_DEBUG, amd::LOG_COPY,
+          "[%zx]!\t HSA Asycn Copy wait_event=0x%zx, completion_signal=0x%zx\n",
+          std::this_thread::get_id(), (wait_event != nullptr) ? wait_event->handle : 0,
+          active.handle);
 
+  status = hsa_amd_memory_async_copy(dst, dstAgent, src, srcAgent,
+      size[0], num_wait_events, wait_event, active);
   if (status == HSA_STATUS_SUCCESS) {
-    hsa_signal_value_t val;
-
-    if (!WaitForSignal(completion_signal_)) {
-      LogError("Async copy failed");
-      status = HSA_STATUS_ERROR;
-    } else {
-      gpu().addSystemScope();
-    }
+    gpu().setLastCommandSDMA(true);
+    gpu().addSystemScope();
   } else {
+    gpu().Barriers().ResetCurrentSignal();
     LogPrintfError("Hsa copy from host to device failed with code %d", status);
   }
 
@@ -661,6 +694,10 @@ bool DmaBlitManager::hsaCopy(const Memory& srcMemory, const Memory& dstMemory,
 // ================================================================================================
 bool DmaBlitManager::hsaCopyStaged(const_address hostSrc, address hostDst, size_t size,
                                    address staging, bool hostToDev) const {
+  // Stall GPU, sicne CPU copy is possible
+  bool force_barrier = !dev().settings().barrier_sync_ && !gpu().isLastCommandSDMA();
+  gpu().releaseGpuMemoryFence(force_barrier);
+
   // No allocation is necessary for Full Profile
   hsa_status_t status;
   if (dev().agent_profile() == HSA_PROFILE_FULL) {
@@ -679,7 +716,6 @@ bool DmaBlitManager::hsaCopyStaged(const_address hostSrc, address hostDst, size_
   // Allocate requested size of memory
   while (totalSize > 0) {
     size = std::min(totalSize, dev().settings().stagedXferSize_);
-    hsa_signal_silent_store_relaxed(completion_signal_, kInitSignalValueOne);
 
     // Copy data from Host to Device
     if (hostToDev) {
@@ -689,18 +725,27 @@ bool DmaBlitManager::hsaCopyStaged(const_address hostSrc, address hostDst, size_
       const hsa_agent_t srcAgent =
           (size <= dev().settings().sdmaCopyThreshold_) ? dev().getBackendDevice() : dev().getCpuAgent();
 
+      HwQueueEngine engine = HwQueueEngine::Unknown;
+      if (srcAgent.handle == dev().getBackendDevice().handle) {
+        engine = HwQueueEngine::SdmaWrite;
+      }
+      gpu().Barriers().SetActiveEngine(engine);
+      hsa_signal_t active = gpu().Barriers().ActiveSignal(kInitSignalValueOne, gpu().timestamp());
+
       memcpy(hsaBuffer, hostSrc + offset, size);
+      ClPrint(amd::LOG_DEBUG, amd::LOG_COPY,
+              "[%zx]!\t HSA Async Copy completion_signal=0x%zx\n",
+              std::this_thread::get_id(), active.handle);
       status = hsa_amd_memory_async_copy(hostDst + offset, dev().getBackendDevice(), hsaBuffer,
-                                         srcAgent, size, 0, nullptr, completion_signal_);
-      if (status == HSA_STATUS_SUCCESS) {
-        if (!WaitForSignal(completion_signal_)) {
-          LogError("Async copy failed");
-          return false;
-        }
-      } else {
+                                         srcAgent, size, 0, nullptr, active);
+      if (status != HSA_STATUS_SUCCESS) {
+        gpu().Barriers().ResetCurrentSignal();
         LogPrintfError("Hsa copy from host to device failed with code %d", status);
         return false;
+      } else {
+        gpu().setLastCommandSDMA(true);
       }
+      gpu().Barriers().WaitCurrent();
       totalSize -= size;
       offset += size;
       continue;
@@ -712,17 +757,25 @@ bool DmaBlitManager::hsaCopyStaged(const_address hostSrc, address hostDst, size_
     const hsa_agent_t dstAgent =
         (size <= dev().settings().sdmaCopyThreshold_) ? dev().getBackendDevice() : dev().getCpuAgent();
 
+    HwQueueEngine engine = HwQueueEngine::Unknown;
+    if (dstAgent.handle == dev().getBackendDevice().handle) {
+      engine = HwQueueEngine::SdmaRead;
+    }
+    gpu().Barriers().SetActiveEngine(engine);
+    hsa_signal_t active = gpu().Barriers().ActiveSignal(kInitSignalValueOne, gpu().timestamp());
+
     // Copy data from Device to Host
-    status =
-        hsa_amd_memory_async_copy(hsaBuffer, dstAgent, hostSrc + offset,
-                                  dev().getBackendDevice(), size, 0, nullptr, completion_signal_);
+    ClPrint(amd::LOG_DEBUG, amd::LOG_COPY,
+            "[%zx]!\t HSA Async Copy completion_signal=0x%zx\n",
+            std::this_thread::get_id(), active.handle);
+    status = hsa_amd_memory_async_copy(hsaBuffer, dstAgent, hostSrc + offset,
+        dev().getBackendDevice(), size, 0, nullptr, active);
     if (status == HSA_STATUS_SUCCESS) {
-      if (!WaitForSignal(completion_signal_)) {
-        LogError("Async copy failed");
-        return false;
-      }
+      gpu().setLastCommandSDMA(true);
+      gpu().Barriers().WaitCurrent();
       memcpy(hostDst + offset, hsaBuffer, size);
     } else {
+      gpu().Barriers().ResetCurrentSignal();
       LogPrintfError("Hsa copy from device to host failed with code %d", status);
       return false;
     }
@@ -940,7 +993,7 @@ bool KernelBlitManager::copyBufferToImageKernel(device::Memory& srcMemory,
   amd::Image* srcImage = static_cast<amd::Image*>(srcMemory.owner());
   amd::Image::Format newFormat(dstImage->getImageFormat());
   bool swapLayer =
-    (dstImage->getType() == CL_MEM_OBJECT_IMAGE1D_ARRAY) && (dev().info().gfxipMajor_ >= 10);
+    (dstImage->getType() == CL_MEM_OBJECT_IMAGE1D_ARRAY) && (dev().isa().versionMajor() >= 10);
 
   // Find unsupported formats
   for (uint i = 0; i < RejectedFormatDataTotal; ++i) {
@@ -1065,7 +1118,8 @@ bool KernelBlitManager::copyBufferToImageKernel(device::Memory& srcMemory,
   releaseArguments(parameters);
   if (releaseView) {
     // todo SRD programming could be changed to avoid a stall
-    gpu().releaseGpuMemoryFence();
+    bool force_barrier = !dev().settings().barrier_sync_ && !gpu().isLastCommandSDMA();
+    gpu().releaseGpuMemoryFence(force_barrier);
     dstView->owner()->release();
   }
 
@@ -1132,7 +1186,7 @@ bool KernelBlitManager::copyImageToBufferKernel(device::Memory& srcMemory,
   amd::Image* srcImage = static_cast<amd::Image*>(srcMemory.owner());
   amd::Image::Format newFormat(srcImage->getImageFormat());
   bool swapLayer =
-    (srcImage->getType() == CL_MEM_OBJECT_IMAGE1D_ARRAY) && (dev().info().gfxipMajor_ >= 10);
+    (srcImage->getType() == CL_MEM_OBJECT_IMAGE1D_ARRAY) && (dev().isa().versionMajor() >= 10);
 
   // Find unsupported formats
   for (uint i = 0; i < RejectedFormatDataTotal; ++i) {
@@ -1263,7 +1317,8 @@ bool KernelBlitManager::copyImageToBufferKernel(device::Memory& srcMemory,
   releaseArguments(parameters);
   if (releaseView) {
     // todo SRD programming could be changed to avoid a stall
-    gpu().releaseGpuMemoryFence();
+    bool force_barrier = !dev().settings().barrier_sync_ && !gpu().isLastCommandSDMA();
+    gpu().releaseGpuMemoryFence(force_barrier);
     srcView->owner()->release();
   }
 
@@ -1370,14 +1425,14 @@ bool KernelBlitManager::copyImage(device::Memory& srcMemory, device::Memory& dst
 
   // Program source origin
   int32_t srcOrg[4] = {(int32_t)srcOrigin[0], (int32_t)srcOrigin[1], (int32_t)srcOrigin[2], 0};
-  if ((srcImage->getType() == CL_MEM_OBJECT_IMAGE1D_ARRAY) && (dev().info().gfxipMajor_ >= 10)) {
+  if ((srcImage->getType() == CL_MEM_OBJECT_IMAGE1D_ARRAY) && (dev().isa().versionMajor() >= 10)) {
     srcOrg[3] = 1;
   }
   setArgument(kernels_[blitType], 2, sizeof(srcOrg), srcOrg);
 
   // Program destinaiton origin
   int32_t dstOrg[4] = {(int32_t)dstOrigin[0], (int32_t)dstOrigin[1], (int32_t)dstOrigin[2], 0};
-  if ((dstImage->getType() == CL_MEM_OBJECT_IMAGE1D_ARRAY) && (dev().info().gfxipMajor_ >= 10)) {
+  if ((dstImage->getType() == CL_MEM_OBJECT_IMAGE1D_ARRAY) && (dev().isa().versionMajor() >= 10)) {
     dstOrg[3] = 1;
   }
   setArgument(kernels_[blitType], 3, sizeof(dstOrg), dstOrg);
@@ -1394,7 +1449,8 @@ bool KernelBlitManager::copyImage(device::Memory& srcMemory, device::Memory& dst
   releaseArguments(parameters);
   if (releaseView) {
     // todo SRD programming could be changed to avoid a stall
-    gpu().releaseGpuMemoryFence();
+    bool force_barrier = !dev().settings().barrier_sync_ && !gpu().isLastCommandSDMA();
+    gpu().releaseGpuMemoryFence(force_barrier);
     srcView->owner()->release();
     dstView->owner()->release();
   }
@@ -1439,6 +1495,8 @@ bool KernelBlitManager::readImage(device::Memory& srcMemory, void* dstHost,
 
   // Use host copy if memory has direct access
   if (setup_.disableReadImage_ || (srcMemory.isHostMemDirectAccess() && !srcMemory.isCpuUncached())) {
+    // Stall GPU before CPU access
+    gpu().releaseGpuMemoryFence();
     result = HostBlitManager::readImage(srcMemory, dstHost, origin, size, rowPitch, slicePitch, entire);
     synchronize();
     return result;
@@ -1484,6 +1542,8 @@ bool KernelBlitManager::writeImage(const void* srcHost, device::Memory& dstMemor
 
   // Use host copy if memory has direct access
   if (setup_.disableWriteImage_ || dstMemory.isHostMemDirectAccess()) {
+    // Stall GPU before CPU access
+    gpu().releaseGpuMemoryFence();
     result = HostBlitManager::writeImage(srcHost, dstMemory, origin, size, rowPitch, slicePitch, entire);
     synchronize();
     return result;
@@ -1630,6 +1690,17 @@ bool KernelBlitManager::copyBufferRect(device::Memory& srcMemory, device::Memory
   address parameters = captureArguments(kernels_[blitType]);
   result = gpu().submitKernelInternal(ndrange, *kernels_[blitType], parameters, nullptr);
   releaseArguments(parameters);
+
+  if (amd::IS_HIP) {
+    // Update the command type for ROC profiler
+    if (srcMemory.isHostMemDirectAccess()) {
+      gpu().SetCopyCommandType(CL_COMMAND_WRITE_BUFFER_RECT);
+    }
+    if (dstMemory.isHostMemDirectAccess()) {
+      gpu().SetCopyCommandType(CL_COMMAND_READ_BUFFER_RECT);
+    }
+  }
+
   synchronize();
 
   return result;
@@ -1643,20 +1714,32 @@ bool KernelBlitManager::readBuffer(device::Memory& srcMemory, void* dstHost,
   bool result = false;
 
   if (dev().info().largeBar_ && size[0] <= kMaxD2hMemcpySize) {
-    if ((srcMemory.owner()->getHostMem() == nullptr) && (srcMemory.owner()->getSvmPtr() != nullptr)) {
+    if ((srcMemory.owner()->getHostMem() == nullptr) &&
+        (srcMemory.owner()->getSvmPtr() != nullptr)) {
       // CPU read ahead, hence release GPU memory and force barrier to make sure L2 flush
       constexpr bool ForceBarrier = true;
       gpu().releaseGpuMemoryFence(ForceBarrier);
       char* src = reinterpret_cast<char*>(srcMemory.owner()->getSvmPtr());
       std::memcpy(dstHost, src + origin[0], size[0]);
-      // The first dispatch will invalidate L2
-      gpu().addSystemScope();
+      // Force HDP Read cache invalidation somewhere in the AQL barrier flags...
+      // @note: This is a workaround for an issue in ROCr/ucode, when the following SDMA transfer
+      //        won't invalidate HDP read and later CPU will receive the old values.
+      //        It's unclear if AQL has the same issue and runtime needs to track extra AQL flags
+      //        if this workaround will be removed in the future
+      // 1. H->D: SDMA
+      // 2. D->H: CPU Read  HDP read cache was updated
+      // 3. H->D: SDMA      Memory updated, ROCr/ucode doesn't invalidate HDP read cache after
+      //                    transfer
+      // 4. D->H: CPU Read  CPU receives the old values from HDP read cache
+      gpu().hasPendingDispatch();
       return true;
     }
   }
 
   // Use host copy if memory has direct access
   if (setup_.disableReadBuffer_ || (srcMemory.isHostMemDirectAccess() && !srcMemory.isCpuUncached())) {
+    // Stall GPU before CPU access
+    gpu().releaseGpuMemoryFence();
     result = HostBlitManager::readBuffer(srcMemory, dstHost, origin, size, entire);
     synchronize();
     return result;
@@ -1706,6 +1789,8 @@ bool KernelBlitManager::readBufferRect(device::Memory& srcMemory, void* dstHost,
   // Use host copy if memory has direct access
   if (setup_.disableReadBufferRect_ ||
       (srcMemory.isHostMemDirectAccess() && !srcMemory.isCpuUncached())) {
+    // Stall GPU before CPU access
+    gpu().releaseGpuMemoryFence();
     result = HostBlitManager::readBufferRect(srcMemory, dstHost, bufRect, hostRect, size, entire);
     synchronize();
     return result;
@@ -1767,6 +1852,8 @@ bool KernelBlitManager::writeBuffer(const void* srcHost, device::Memory& dstMemo
   // Use host copy if memory has direct access
   if (setup_.disableWriteBuffer_ || dstMemory.isHostMemDirectAccess() ||
       gpuMem(dstMemory).IsPersistentDirectMap()) {
+    // Stall GPU before CPU access
+    gpu().releaseGpuMemoryFence();
     result = HostBlitManager::writeBuffer(srcHost, dstMemory, origin, size, entire);
     synchronize();
     return result;
@@ -1817,6 +1904,8 @@ bool KernelBlitManager::writeBufferRect(const void* srcHost, device::Memory& dst
   // Use host copy if memory has direct access
   if (setup_.disableWriteBufferRect_ || dstMemory.isHostMemDirectAccess() ||
       gpuMem(dstMemory).IsPersistentDirectMap()) {
+    // Stall GPU before CPU access
+    gpu().releaseGpuMemoryFence();
     result = HostBlitManager::writeBufferRect(srcHost, dstMemory, hostRect, bufRect, size, entire);
     synchronize();
     return result;
@@ -1857,14 +1946,17 @@ bool KernelBlitManager::writeBufferRect(const void* srcHost, device::Memory& dst
   return result;
 }
 
+// ================================================================================================
 bool KernelBlitManager::fillBuffer(device::Memory& memory, const void* pattern, size_t patternSize,
                                    const amd::Coord3D& origin, const amd::Coord3D& size,
-                                   bool entire) const {
+                                   bool entire, bool forceBlit) const {
   amd::ScopedLock k(lockXferOps_);
   bool result = false;
 
   // Use host fill if memory has direct access
-  if (setup_.disableFillBuffer_ || memory.isHostMemDirectAccess()) {
+  if (setup_.disableFillBuffer_ || (!forceBlit && memory.isHostMemDirectAccess())) {
+    // Stall GPU before CPU access
+    gpu().releaseGpuMemoryFence();
     result = HostBlitManager::fillBuffer(memory, pattern, patternSize, origin, size, entire);
     synchronize();
     return result;
@@ -1919,6 +2011,7 @@ bool KernelBlitManager::fillBuffer(device::Memory& memory, const void* pattern, 
   return result;
 }
 
+// ================================================================================================
 bool KernelBlitManager::copyBuffer(device::Memory& srcMemory, device::Memory& dstMemory,
                                    const amd::Coord3D& srcOrigin, const amd::Coord3D& dstOrigin,
                                    const amd::Coord3D& sizeIn, bool entire) const {
@@ -1975,12 +2068,10 @@ bool KernelBlitManager::copyBuffer(device::Memory& srcMemory, device::Memory& ds
     setArgument(kernels_[blitType], 1, sizeof(cl_mem), &mem);
     // Program source origin
     uint64_t srcOffset = srcOrigin[0] / CopyBuffAlignment[i];
-    ;
     setArgument(kernels_[blitType], 2, sizeof(srcOffset), &srcOffset);
 
     // Program destinaiton origin
     uint64_t dstOffset = dstOrigin[0] / CopyBuffAlignment[i];
-    ;
     setArgument(kernels_[blitType], 3, sizeof(dstOffset), &dstOffset);
 
     uint64_t copySize = size[0];
@@ -2001,7 +2092,15 @@ bool KernelBlitManager::copyBuffer(device::Memory& srcMemory, device::Memory& ds
     result = gpu().submitKernelInternal(ndrange, *kernels_[blitType], parameters, nullptr);
     releaseArguments(parameters);
   } else {
-    //printf("rocm!\n");
+    if (amd::IS_HIP) {
+      // Update the command type for ROC profiler
+      if (srcMemory.isHostMemDirectAccess()) {
+        gpu().SetCopyCommandType(CL_COMMAND_WRITE_BUFFER);
+      }
+      if (dstMemory.isHostMemDirectAccess()) {
+        gpu().SetCopyCommandType(CL_COMMAND_READ_BUFFER);
+      }
+    }
     result = DmaBlitManager::copyBuffer(srcMemory, dstMemory, srcOrigin, dstOrigin, sizeIn, entire);
   }
 
@@ -2010,6 +2109,7 @@ bool KernelBlitManager::copyBuffer(device::Memory& srcMemory, device::Memory& ds
   return result;
 }
 
+// ================================================================================================
 bool KernelBlitManager::fillImage(device::Memory& memory, const void* pattern,
                                   const amd::Coord3D& origin, const amd::Coord3D& size,
                                   bool entire) const {
@@ -2018,6 +2118,8 @@ bool KernelBlitManager::fillImage(device::Memory& memory, const void* pattern,
 
   // Use host fill if memory has direct access
   if (setup_.disableFillImage_ || memory.isHostMemDirectAccess()) {
+    // Stall GPU before CPU access
+    gpu().releaseGpuMemoryFence();
     result = HostBlitManager::fillImage(memory, pattern, origin, size, entire);
     synchronize();
     return result;
@@ -2032,7 +2134,7 @@ bool KernelBlitManager::fillImage(device::Memory& memory, const void* pattern,
   amd::Image* image = static_cast<amd::Image*>(memory.owner());
   amd::Image::Format newFormat(image->getImageFormat());
   bool swapLayer =
-    (image->getType() == CL_MEM_OBJECT_IMAGE1D_ARRAY) && (dev().info().gfxipMajor_ >= 10);
+    (image->getType() == CL_MEM_OBJECT_IMAGE1D_ARRAY) && (dev().isa().versionMajor() >= 10);
 
   // Program the kernels workload depending on the fill dimensions
   fillType = FillImage;
@@ -2171,7 +2273,8 @@ bool KernelBlitManager::fillImage(device::Memory& memory, const void* pattern,
   releaseArguments(parameters);
   if (releaseView) {
     // todo SRD programming could be changed to avoid a stall
-    gpu().releaseGpuMemoryFence();
+    bool force_barrier = !dev().settings().barrier_sync_ && !gpu().isLastCommandSDMA();
+    gpu().releaseGpuMemoryFence(force_barrier);
     memView->owner()->release();
   }
 

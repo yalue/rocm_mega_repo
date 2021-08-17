@@ -66,7 +66,7 @@ bool ClBinary::loadKernels(NullProgram& program, bool* hasRecompiled) {
   if (platform == amd::Elf::COMPLIB_PLATFORM) {
     // BIF 3.0
     uint32_t flag;
-    aclTargetInfo tgtInfo = aclGetTargetInfo("amdil", dev().hwInfo()->targetName_, NULL);
+    aclTargetInfo tgtInfo = aclGetTargetInfo("amdil", dev().isa().amdIlName(), NULL);
     if (!elfIn()->getFlags(flag)) {
       LogError("The OCL binary image loading failed: incorrect format");
       return false;
@@ -96,7 +96,7 @@ bool ClBinary::loadKernels(NullProgram& program, bool* hasRecompiled) {
 
     ~TempWrapper() {
       for (const auto& it : functionNameMap) {
-        delete[] it.second;
+        delete it.second;
       }
 
       kernelILs.clear();

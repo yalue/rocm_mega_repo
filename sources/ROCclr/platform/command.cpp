@@ -45,7 +45,7 @@ namespace amd {
 Event::Event(HostQueue& queue)
     : callbacks_(NULL),
       status_(CL_INT_MAX),
-      profilingInfo_(queue.properties().test(CL_QUEUE_PROFILING_ENABLE) ||
+      profilingInfo_(IS_PROFILER_ON || queue.properties().test(CL_QUEUE_PROFILING_ENABLE) ||
                      Agent::shouldPostEventEvents()) {
   notified_.clear();
 }
@@ -105,13 +105,26 @@ bool Event::setStatus(int32_t status, uint64_t timeStamp) {
     }
   }
 
-  if (!status_.compare_exchange_strong(currentStatus, status, std::memory_order_relaxed)) {
-    // Somebody else beat us to it, let them deal with the release/signal.
-    return false;
-  }
-
-  if (callbacks_ != (CallBackEntry*)0) {
-    processCallbacks(status);
+  if (amd::IS_HIP) {
+    // HIP API doesn't have any event, associated with a callback. Hence the SW status of
+    // the event is irrelevant, during the actual callback. At the same time HIP API requires
+    // to finish the callback before HIP stream can continue. Hence runtime has to process
+    // the callback first and then update the status.
+    if (callbacks_ != (CallBackEntry*)0) {
+      processCallbacks(status);
+    }
+    if (!status_.compare_exchange_strong(currentStatus, status, std::memory_order_relaxed)) {
+      // Somebody else beat us to it, let them deal with the release/signal.
+      return false;
+    }
+  } else {
+    if (!status_.compare_exchange_strong(currentStatus, status, std::memory_order_relaxed)) {
+      // Somebody else beat us to it, let them deal with the release/signal.
+      return false;
+    }
+    if (callbacks_ != (CallBackEntry*)0) {
+      processCallbacks(status);
+    }
   }
 
   if (Agent::shouldPostEventEvents() && command().type() != 0) {
@@ -123,7 +136,7 @@ bool Event::setStatus(int32_t status, uint64_t timeStamp) {
     // status, we release all the resources associated with this instance.
     releaseResources();
 
-    activity_.ReportEventTimestamps(*this);
+    activity_.ReportEventTimestamps(command());
     // Broadcast all the waiters.
     if (referenceCount() > 1) {
       signal();
@@ -210,9 +223,20 @@ bool Event::awaitCompletion() {
   return status() == CL_COMPLETE;
 }
 
+// ================================================================================================
 bool Event::notifyCmdQueue() {
   HostQueue* queue = command().queue();
-  if ((NULL != queue) && !notified_.test_and_set()) {
+  if ((status() > CL_COMPLETE) && (nullptr != queue) &&
+      (!AMD_DIRECT_DISPATCH ||
+       // Don't need to notify any marker with direct dispatch,
+       // because all markers are blocking.
+       ((command().type() != CL_COMMAND_MARKER) &&
+        (command().type() != 0)) ||
+        // Don't need to notify if the current batch is empty,
+        // because that means the command was processed and extra notification
+        // will cause a stall on the host.
+        (queue->GetSubmittionBatch() != nullptr)) &&
+        !notified_.test_and_set()) {
     // Make sure the queue is draining the enqueued commands.
     amd::Command* command = new amd::Marker(*queue, false, nullWaitList, this);
     if (command == NULL) {
@@ -228,14 +252,14 @@ bool Event::notifyCmdQueue() {
 
 const Event::EventWaitList Event::nullWaitList(0);
 
+// ================================================================================================
 Command::Command(HostQueue& queue, cl_command_type type,
                  const EventWaitList& eventWaitList, uint32_t commandWaitBits)
     : Event(queue),
       queue_(&queue),
-      next_(NULL),
+      next_(nullptr),
       type_(type),
-      exception_(0),
-      data_(NULL),
+      data_(nullptr),
       eventWaitList_(eventWaitList),
       commandWaitBits_(commandWaitBits) {
   // Retain the commands from the event wait list.
@@ -243,6 +267,7 @@ Command::Command(HostQueue& queue, cl_command_type type,
   if (type != 0) activity_.Initialize(type, queue.vdev()->index(), queue.device().index());
 }
 
+// ================================================================================================
 void Command::releaseResources() {
   const Command::EventWaitList& events = eventWaitList();
 
@@ -250,6 +275,7 @@ void Command::releaseResources() {
   std::for_each(events.begin(), events.end(), std::mem_fun(&Command::release));
 }
 
+// ================================================================================================
 void Command::enqueue() {
   assert(queue_ != NULL && "Cannot be enqueued");
 
@@ -258,14 +284,45 @@ void Command::enqueue() {
   }
 
   ClPrint(LOG_DEBUG, LOG_CMD, "command is enqueued: %p", this);
-  queue_->append(*this);
-  queue_->flush();
+
+  // Direct dispatch logic below will submit the command immediately, but the command status
+  // update will occur later after flush() with a wait
+  if (AMD_DIRECT_DISPATCH) {
+    setStatus(CL_QUEUED);
+    // The wait should be performed before the lock,
+    // otherwise signal handler may have a deadlock, but awaitCompletion() is thread safe itself
+    std::for_each(eventWaitList().begin(), eventWaitList().end(),
+        std::mem_fun(&Command::awaitCompletion));
+
+    // The batch update must be lock protected to avoid a race condition
+    // when multiple threads submit/flush/update the batch at the same time
+    ScopedLock sl(queue_->vdev()->execution());
+    queue_->FormSubmissionBatch(this);
+    if ((type() == CL_COMMAND_MARKER || type() == 0) && !profilingInfo().marker_ts_) {
+      // The current HSA signal tracking logic requires profiling enabled for the markers
+      EnableProfiling();
+      // Update batch head for the current marker. Hence the status of all commands can be
+      // updated upon the marker completion
+      SetBatchHead(queue_->GetSubmittionBatch());
+      // Flush the current batch, but skip the wait on CPU if possible to avoid a stall
+      queue_->vdev()->flush(queue_->GetSubmittionBatch());
+      // The batch will be tracked with the marker now
+      queue_->ResetSubmissionBatch();
+    } else {
+      setStatus(CL_SUBMITTED);
+      submit(*queue_->vdev());
+    }
+  } else {
+    queue_->append(*this);
+    queue_->flush();
+  }
   if ((queue_->device().settings().waitCommand_ && (type_ != 0)) ||
       ((commandWaitBits_ & 0x2) != 0)) {
     awaitCompletion();
   }
 }
 
+// ================================================================================================
 const Context& Command::context() const { return queue_->context(); }
 
 NDRangeKernelCommand::NDRangeKernelCommand(HostQueue& queue, const EventWaitList& eventWaitList,
@@ -340,6 +397,27 @@ int32_t NativeFnCommand::invoke() {
   return CL_SUCCESS;
 }
 
+bool OneMemoryArgCommand::validatePeerMemory() {
+  amd::Device* queue_device = &queue()->device();
+  // Rocr backend maps memory from different devices by default and runtime doesn't need to track
+  // extra memory objects.
+  if (queue_device->settings().rocr_backend_) {
+    const std::vector<Device*>& srcDevices = memory_->getContext().devices();
+    if (srcDevices.size() == 1 && queue_device != srcDevices[0]) {
+      // current device and source device are not same hence
+      // explicit allow access is needed for P2P access
+      device::Memory* mem = memory_->getDeviceMemory(*srcDevices[0]);
+      if (!mem->getAllowedPeerAccess()) {
+        void* dst = reinterpret_cast<void*>(mem->virtualAddress());
+        bool status = srcDevices[0]->deviceAllowAccess(dst);
+        mem->setAllowedPeerAccess(true);
+        return status;
+      }
+    }
+  }
+  return true;
+}
+
 bool OneMemoryArgCommand::validateMemory() {
   // Runtime disables deferred memory allocation for single device.
   // Hence ignore memory validations
@@ -352,6 +430,44 @@ bool OneMemoryArgCommand::validateMemory() {
     return false;
   }
   return true;
+}
+
+bool TwoMemoryArgsCommand::validatePeerMemory(){
+  bool accessAllowed = true;
+  amd::Device* queue_device = &queue()->device();
+  // Explicite Allow access is needed when first time memory is accessed from other device.
+  // Rules : Remote device has to provide access to current device
+  // --------------------------------------------------------------------
+  // Crr_Dev = src  | Allow access will be called for dst memory        |
+  // --------------------------------------------------------------------
+  // Crr_Dev = dst  | Allow access will be called for src memory        |
+  // --------------------------------------------------------------------
+  // Crr_dev = other| Allow access will be called for dst and src memory|
+  // --------------------------------------------------------------------
+  if (queue_device->settings().rocr_backend_) {
+    const std::vector<Device*>& srcDevices = memory1_->getContext().devices();
+    const std::vector<Device*>& dstDevices = memory2_->getContext().devices();
+    // destination and source devices are not same hence
+    // explicit allow access is needed for P2P access
+    if (srcDevices.size() == 1 &&
+        dstDevices.size() == 1 &&
+        srcDevices[0] != dstDevices[0]) {
+      device::Memory* mem1 = memory1_->getDeviceMemory(*srcDevices[0]);
+      if (!mem1->getAllowedPeerAccess()) {
+        void* src = reinterpret_cast<void*>(mem1->virtualAddress());
+        accessAllowed = srcDevices[0]->deviceAllowAccess(src);
+        mem1->setAllowedPeerAccess(true);
+      }
+
+      device::Memory* mem2 = memory2_->getDeviceMemory(*dstDevices[0]);
+      if (!mem2->getAllowedPeerAccess()) {
+        void* dst = reinterpret_cast<void*>(mem2->virtualAddress());
+        accessAllowed &= dstDevices[0]->deviceAllowAccess(dst);
+        mem2->setAllowedPeerAccess(true);
+      }
+    }
+  }
+  return accessAllowed;
 }
 
 bool TwoMemoryArgsCommand::validateMemory() {
@@ -599,19 +715,7 @@ bool CopyMemoryP2PCommand::validateMemory() {
   // Rocr backend maps memory from different devices by default and runtime doesn't need to track
   // extra memory objects. Also P2P staging buffer always allocated
   if (queue_device->settings().rocr_backend_) {
-    // Explicit allow access is needed for P2P access
-    const std::vector<Device*>& srcDevices = memory1_->getContext().devices();
-    const std::vector<Device*>& dstDevices = memory2_->getContext().devices();
-    if (srcDevices.size() == 1 && dstDevices.size() == 1) {
-      device::Memory* mem2 = memory2_->getDeviceMemory(*dstDevices[0]);
-      if (!mem2->getAllowedPeerAccess()) {
-        void* dst = mem2->owner()->getSvmPtr();
-        bool status = dstDevices[0]->deviceAllowAccess(dst);
-        mem2->setAllowedPeerAccess(true);
-        return status;
-      }
-    }
-    return true;
+    return validatePeerMemory();
   }
 
   const std::vector<Device*>& devices = memory1_->getContext().devices();

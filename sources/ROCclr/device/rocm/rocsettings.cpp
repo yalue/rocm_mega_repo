@@ -28,6 +28,7 @@
 
 namespace roc {
 
+// ================================================================================================
 Settings::Settings() {
   // Initialize the HSA device default settings
 
@@ -87,13 +88,21 @@ Settings::Settings() {
   lcWavefrontSize64_ = true;
   imageBufferWar_ = false;
 
-  hmmFlags_ = (!flagIsDefault(ROC_HMM_FLAGS)) ? ROC_HMM_FLAGS : Hmm::EnableSystemMemory;
+  hmmFlags_ = (!flagIsDefault(ROC_HMM_FLAGS)) ? ROC_HMM_FLAGS : Hmm::EnableSvmTracking;
 
   rocr_backend_ = true;
   barrier_sync_ = (!flagIsDefault(ROC_BARRIER_SYNC)) ? ROC_BARRIER_SYNC : true;
+
+  cpu_wait_for_signal_ = !AMD_DIRECT_DISPATCH;
+  cpu_wait_for_signal_ = (!flagIsDefault(ROC_CPU_WAIT_FOR_SIGNAL)) ?
+                          ROC_CPU_WAIT_FOR_SIGNAL : cpu_wait_for_signal_;
+  system_scope_signal_ = ROC_SYSTEM_SCOPE_SIGNAL;
+  skip_copy_sync_      = ROC_SKIP_COPY_SYNC;
 }
 
-bool Settings::create(bool fullProfile, int gfxipMajor, int gfxipMinor, bool coop_groups) {
+// ================================================================================================
+bool Settings::create(bool fullProfile, uint32_t gfxipMajor, uint32_t gfxipMinor, bool enableXNACK,
+                      bool coop_groups) {
   customHostAllocator_ = false;
 
   if (fullProfile) {
@@ -105,7 +114,8 @@ bool Settings::create(bool fullProfile, int gfxipMajor, int gfxipMinor, bool coo
     pinnedXferSize_ = std::max(pinnedXferSize_, pinnedMinXferSize_);
     stagedXferSize_ = std::max(stagedXferSize_, pinnedMinXferSize_ + 4 * Ki);
   }
-  enableXNACK_ = apuSystem_ ? 1 : 0 ;   // enable xnack for APU system
+  enableXNACK_ = enableXNACK;
+  hsailExplicitXnack_ = enableXNACK;
 
   // Enable extensions
   enableExtension(ClKhrByteAddressableStore);
@@ -119,9 +129,13 @@ bool Settings::create(bool fullProfile, int gfxipMajor, int gfxipMinor, bool coo
   enableExtension(ClAmdMediaOps);
   enableExtension(ClAmdMediaOps2);
   enableExtension(ClKhrImage2dFromBuffer);
+
+#ifdef ROCCLR_ENABLE_GL_SHARING
   if (MesaInterop::Supported()) {
     enableExtension(ClKhrGlSharing);
   }
+#endif
+
   // Enable platform extension
   enableExtension(ClAmdDeviceAttributeQuery);
 
@@ -167,6 +181,7 @@ bool Settings::create(bool fullProfile, int gfxipMajor, int gfxipMinor, bool coo
   return true;
 }
 
+// ================================================================================================
 void Settings::override() {
   // Limit reported workgroup size
   if (GPU_MAX_WORKGROUP_SIZE != 0) {

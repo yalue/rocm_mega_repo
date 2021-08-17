@@ -42,6 +42,7 @@
 #include "platform/perfctr.hpp"
 #include "platform/threadtrace.hpp"
 #include "platform/activity.hpp"
+#include "platform/command_utils.hpp"
 
 #include "CL/cl_ext.h"
 
@@ -97,7 +98,7 @@ class Event : public RuntimeObject {
   static const EventWaitList nullWaitList;
 
   struct ProfilingInfo {
-    ProfilingInfo(bool enabled = false) : enabled_(enabled), waves_(0) {
+    ProfilingInfo(bool enabled = false) : enabled_(enabled), waves_(0), marker_ts_(false) {
       if (enabled) {
         clear();
         callback_ = nullptr;
@@ -111,6 +112,7 @@ class Event : public RuntimeObject {
     bool enabled_;    //!< Profiling enabled for the wave limiter
     uint32_t waves_;  //!< The number of waves used in a dispatch
     ProfilingCallback* callback_;
+    bool marker_ts_;
     void clear() {
       queued_ = 0ULL;
       submitted_ = 0ULL;
@@ -126,7 +128,6 @@ class Event : public RuntimeObject {
       clear();
       callback_ = callback;
     }
-
   } profilingInfo_;
 
   activity_prof::ActivityProf activity_;  //!< Activity profiling
@@ -150,6 +151,13 @@ class Event : public RuntimeObject {
 
   //! Process the callbacks for the given \a status change.
   void processCallbacks(int32_t status) const;
+
+  //! Enable profiling for this command
+  void EnableProfiling() {
+    profilingInfo_.enabled_ = true;
+    profilingInfo_.clear();
+    profilingInfo_.callback_ = nullptr;
+  }
 
  public:
   //! Return the context for this event.
@@ -196,6 +204,9 @@ class Event : public RuntimeObject {
 
   //! RTTI internal implementation
   virtual ObjectType objectType() const { return ObjectTypeEvent; }
+
+  //! Returns the callback for this event
+  const CallBackEntry* Callback() const { return callbacks_; }
 };
 
 /*! \brief An operation that is submitted to a command queue.
@@ -204,17 +215,13 @@ class Event : public RuntimeObject {
  *  submitted to a HostQueue for execution. Classes derived from
  *  %Command must implement the submit() function.
  *
-
  */
 class Command : public Event {
  private:
-  //! The command queue this command is enqueue into. NULL if not yet enqueue.
-  HostQueue* queue_;
-  //! Next GPU command in the queue list
-  Command* next_;
-
-  const cl_command_type type_;  //!< This command's OpenCL type.
-  volatile int32_t exception_;   //!< The first raised exception.
+  HostQueue* queue_;              //!< The command queue this command is enqueue into
+  Command* next_;                 //!< Next GPU command in the queue list
+  Command* batch_head_ = nullptr; //!< The head of the batch commands
+  cl_command_type     type_;      //!< This command's OpenCL type.
   void* data_;
 
  protected:
@@ -232,11 +239,10 @@ class Command : public Event {
   //! Construct a new command of the given OpenCL type.
   Command(cl_command_type type)
       : Event(),
-        queue_(NULL),
-        next_(NULL),
+        queue_(nullptr),
+        next_(nullptr),
         type_(type),
-        exception_(0),
-        data_(NULL),
+        data_(nullptr),
         eventWaitList_(nullWaitList),
         commandWaitBits_(0) {}
 
@@ -263,12 +269,6 @@ class Command : public Event {
 
   //! Return this command's OpenCL type.
   cl_command_type type() const { return type_; }
-
-  //! Return the first raised exception or 0 if none.
-  int32_t exception() const { return exception_; }
-
-  //! Set the exception for this command.
-  void setException(int32_t exception) { exception_ = exception; }
 
   //! Return the opaque, device specific data for this command.
   void* data() const { return data_; }
@@ -298,6 +298,14 @@ class Command : public Event {
 
   //! Get command wait bits
   uint32_t getWaitBits() const { return commandWaitBits_; }
+
+  void OverrrideCommandType(cl_command_type type) { type_ = type; }
+
+  //! Updates the batch head, associated with this command(marker)
+  void SetBatchHead(Command* command) { batch_head_ = command; }
+
+  //! Returns the current batch head
+  Command* GetBatchHead() const { return batch_head_; }
 };
 
 class UserEvent : public Command {
@@ -357,6 +365,7 @@ class OneMemoryArgCommand : public Command {
   }
 
   bool validateMemory();
+  bool validatePeerMemory();
 };
 
 //! A memory command that holds a single memory object reference.
@@ -384,6 +393,7 @@ class TwoMemoryArgsCommand : public Command {
   }
 
   bool validateMemory();
+  bool validatePeerMemory();
 };
 
 /*!  \brief     A generic read memory command.
@@ -589,6 +599,58 @@ class FillMemoryCommand : public OneMemoryArgCommand {
 
   //! Return true if the entire memory object is written.
   bool isEntireMemory() const;
+};
+
+/*! \brief      A stream operation command.
+ *
+ *  \details    Used to perform a stream wait or strem write operations.
+ *              Wait: All the commands issued after stream wait are not executed until the wait
+ *              condition is true.
+ *              Write: Writes a 32 or 64 bit vaue to the memeory using a GPU Blit.
+ */
+
+class StreamOperationCommand : public OneMemoryArgCommand {
+ private:
+  int64_t value_;       // !< Value to Wait on or to Write.
+  uint64_t mask_;       // !< Mask to be applied on signal value for Wait operation.
+  unsigned int flags_;  // !< Flags defining the Wait condition.
+  size_t offset_;       // !< Offset into memory for Write
+  size_t sizeBytes_;    // !< Size in bytes to Write.
+
+  // NOTE: mask_ is only used for wait operation and
+  // offset and sizeBytes are only used for write.
+
+ public:
+  StreamOperationCommand(HostQueue& queue, cl_command_type cmdType,
+                         const EventWaitList& eventWaitList, Memory& memory, const int64_t value,
+                         const uint64_t mask, unsigned int flags, size_t offset, size_t sizeBytes)
+      : OneMemoryArgCommand(queue, cmdType, eventWaitList, memory),
+        value_(value),
+        mask_(mask),
+        flags_(flags),
+        offset_(offset),
+        sizeBytes_(sizeBytes) {
+    // Sanity check
+    assert((cmdType == ROCCLR_COMMAND_STREAM_WRITE_VALUE ||
+            (cmdType == ROCCLR_COMMAND_STREAM_WAIT_VALUE &&
+             memory_->getMemFlags() & ROCCLR_MEM_HSA_SIGNAL_MEMORY)) &&
+           "Invalid Stream Operation");
+  }
+
+  virtual void submit(device::VirtualDevice& device) { device.submitStreamOperation(*this); }
+
+  //! Returns the value
+  const int64_t value() const { return value_; }
+  //! Returns the wait mask
+  const uint64_t mask() const { return mask_; }
+  //! Return the wait flags
+  const unsigned int flags() const { return flags_; }
+  //! Return the memory object.
+  Memory& memory() const { return *memory_; }
+  //! Return the write offset.
+  const size_t offset() const { return offset_; }
+  //! Return the write size.
+  const size_t sizeBytes() const { return sizeBytes_; }
 };
 
 /*! \brief      A generic copy memory command

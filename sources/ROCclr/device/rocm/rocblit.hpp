@@ -49,19 +49,10 @@ class DmaBlitManager : public device::HostBlitManager {
                  );
 
   //! Destructor
-  virtual ~DmaBlitManager() {
-    if (completion_signal_.handle != 0) {
-      hsa_signal_destroy(completion_signal_);
-    }
-  }
+  virtual ~DmaBlitManager() {}
 
   //! Creates DmaBlitManager object
-  virtual bool create(amd::Device& device) {
-    if (HSA_STATUS_SUCCESS != hsa_signal_create(0, 0, nullptr, &completion_signal_)) {
-      return false;
-    }
-    return true;
-  }
+  virtual bool create(amd::Device& device) { return true; }
 
   //! Copies a buffer object to system memory
   virtual bool readBuffer(device::Memory& srcMemory,   //!< Source memory object
@@ -225,9 +216,6 @@ class DmaBlitManager : public device::HostBlitManager {
                          size_t xferSize       //!< Transfer size
                          ) const;
 
-  //! Handle of ROC Device object
-  hsa_signal_t completion_signal_;
-
   //! Assits in transferring data from Host to Local or vice versa
   //! taking into account the Hsail profile supported by Hsa Agent
   bool hsaCopyStaged(const_address hostSrc,  //!< Contains source data to be copied
@@ -376,9 +364,10 @@ class KernelBlitManager : public DmaBlitManager {
                           const void* pattern,         //!< Pattern data
                           size_t patternSize,          //!< Pattern size
                           const amd::Coord3D& origin,  //!< Destination origin
-                          const amd::Coord3D& size,    //!< Size of the copy region
-                          bool entire = false          //!< Entire buffer will be updated
-                          ) const;
+                          const amd::Coord3D& size,    //!< Size of the fill region
+                          bool entire = false,         //!< Entire buffer will be updated
+                          bool forceBlit = false       //!< Force GPU Blit for fill
+  ) const;
 
   //! Fills an image memory with a pattern data
   virtual bool fillImage(device::Memory& dstMemory,   //!< Memory object to fill with pattern
@@ -463,7 +452,7 @@ class KernelBlitManager : public DmaBlitManager {
   //! Disable operator=
   KernelBlitManager& operator=(const KernelBlitManager&);
 
-  amd::Program* program_;             //!< GPU program obejct
+  amd::Program* program_;             //!< GPU program object
   amd::Kernel* kernels_[BlitTotal];   //!< GPU kernels for blit
   amd::Memory* constantBuffer_;       //!< An internal CB for blits
   mutable uint32_t constantBufferOffset_; //!< Current offset in the constant buffer

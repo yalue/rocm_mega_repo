@@ -17,6 +17,7 @@
  LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
  OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
  THE SOFTWARE. */
+
 #include <hip/hip_runtime.h>
 #include <elf/elf.hpp>
 #include <fstream>
@@ -77,15 +78,18 @@ hipError_t hipModuleLoadDataEx(hipModule_t *module, const void *image,
 }
 
 extern hipError_t __hipExtractCodeObjectFromFatBinary(const void* data,
-                                                const std::vector<const char*>& devices,
+                                                const std::vector<std::string>& devices,
                                                 std::vector<std::pair<const void*, size_t>>& code_objs);
 
 hipError_t hipModuleGetFunction(hipFunction_t *hfunc, hipModule_t hmod, const char *name) {
   HIP_INIT_API(hipModuleGetFunction, hfunc, hmod, name);
 
+  if(hfunc == nullptr || name == nullptr) {
+    HIP_RETURN(hipErrorInvalidValue);
+  }
+
   if (hipSuccess != PlatformState::instance().getDynFunc(hfunc, hmod, name)) {
-    DevLogPrintfError("Cannot find the function: %s for module: 0x%x \n",
-                      name, hmod);
+    LogPrintfError("Cannot find the function: %s for module: 0x%x \n", name, hmod);
     HIP_RETURN(hipErrorNotFound);
   }
 
@@ -96,10 +100,14 @@ hipError_t hipModuleGetGlobal(hipDeviceptr_t* dptr, size_t* bytes, hipModule_t h
 {
   HIP_INIT_API(hipModuleGetGlobal, dptr, bytes, hmod, name);
 
+  if(dptr == nullptr || bytes == nullptr || name == nullptr) {
+    return hipErrorInvalidValue;
+  }
+
   /* Get address and size for the global symbol */
   if (hipSuccess != PlatformState::instance().getDynGlobalVar(name, hmod, dptr, bytes)) {
-    DevLogPrintfError("Cannot find global Var: %s for module: 0x%x at device: %d \n",
-                       name, hmod, ihipGetDevice());
+    LogPrintfError("Cannot find global Var: %s for module: 0x%x at device: %d \n", name, hmod,
+                   ihipGetDevice());
     HIP_RETURN(hipErrorNotFound);
   }
 
@@ -201,47 +209,6 @@ hipError_t hipFuncSetSharedMemConfig ( const void* func, hipSharedMemConfig conf
   HIP_RETURN(hipSuccess);
 }
 
-// Called when a kernel completes, in order to "release" the GPU lock. (In
-// reality, with the preemptive locks, this will only decrease the counter of
-// pending operations.)
-static void CL_CALLBACK releaseGPULockCallback(cl_event event, cl_int status,
-    void *user_data) {
-  auto command = reinterpret_cast<amd::NDRangeKernelCommand*>(user_data);
-  hip::ReleaseGPULock();
-  command->release();
-}
-
-// The user data passed to traceKernelCallback.
-typedef struct {
-  hipFunction_t f;
-  double start_time;
-  int block_x, block_y, block_z;
-  int grid_x, grid_y, grid_z;
-  amd::NDRangeKernelCommand *command;
-} SimpleTraceKernelInfo;
-
-static double CurrentSeconds(void) {
-  struct timespec ts;
-  if (clock_gettime(CLOCK_MONOTONIC_RAW, &ts) != 0) {
-    printf("Error getting time.\n");
-    exit(1);
-  }
-  return ((double) ts.tv_sec) + (((double) ts.tv_nsec) / 1e9);
-}
-
-// Called when a kernel completes, in order to print information about how long
-// it took, etc.
-static void CL_CALLBACK traceKernelCallback(cl_event event, cl_int status,
-    void *user_data) {
-  auto info = reinterpret_cast<SimpleTraceKernelInfo*>(user_data);
-  double elapsed = CurrentSeconds() - info->start_time;
-  printf("Kernel %s completed in %f seconds. Block dims = [%d, %d, %d], Grid dims = [%d, %d, %d].\n",
-    FunctionName(info->f).c_str(), elapsed, info->block_x, info->block_y, info->block_z,
-    info->grid_x, info->grid_y, info->grid_z);
-  info->command->release();
-  delete info;
-}
-
 hipError_t ihipModuleLaunchKernel(hipFunction_t f, uint32_t globalWorkSizeX,
                                  uint32_t globalWorkSizeY, uint32_t globalWorkSizeZ,
                                  uint32_t blockDimX, uint32_t blockDimY, uint32_t blockDimZ,
@@ -254,13 +221,29 @@ hipError_t ihipModuleLaunchKernel(hipFunction_t f, uint32_t globalWorkSizeX,
     blockDimX, blockDimY, blockDimZ, sharedMemBytes, hStream, kernelParams, extra, startEvent,
     stopEvent, flags, params);
 
+  HIP_RETURN_ONFAIL(PlatformState::instance().initStatManagedVarDevicePtr(ihipGetDevice()));
+
+  if (f == nullptr) {
+    LogPrintfError("%s", "Function passed is null");
+    return hipErrorInvalidImage;
+  }
+  if ((kernelParams != nullptr) && (extra != nullptr)) {
+    LogPrintfError(
+        "%s", "Both, kernelParams and extra Params are provided, only one should be provided");
+    return hipErrorInvalidValue;
+  }
+  if (globalWorkSizeX == 0 || globalWorkSizeY == 0 || globalWorkSizeZ == 0 ||
+      blockDimX == 0 || blockDimY == 0 || blockDimZ == 0) {
+    return hipErrorInvalidValue;
+  }
+  
   hip::DeviceFunc* function = hip::DeviceFunc::asFunction(f);
   amd::Kernel* kernel = function->kernel();
+
   amd::ScopedLock lock(function->dflock_);
 
   hip::Event* eStart = reinterpret_cast<hip::Event*>(startEvent);
   hip::Event* eStop = reinterpret_cast<hip::Event*>(stopEvent);
-
   amd::HostQueue* queue = hip::getQueue(hStream);
   const amd::Device& device = queue->vdev()->device();
 
@@ -347,37 +330,6 @@ hipError_t ihipModuleLaunchKernel(hipFunction_t f, uint32_t globalWorkSizeX,
     return hipErrorOutOfMemory;
   }
 
-  // (otternes) Acquire the GPU lock before enqueuing the command, and have it
-  // call the release-lock callback when it completes.
-  if (hip::gpu_lock_fd >= 0) {
-    hip::AcquireGPULock();
-    command->retain();
-    if (!command->setCallback(CL_COMPLETE, releaseGPULockCallback,
-        reinterpret_cast<void*>(command))) {
-      printf("Error! Failed adding command-completion callback!\n");
-      exit(1);
-    }
-  }
-
-  if (hip::simple_hip_trace != 0) {
-    command->retain();
-    auto info = new SimpleTraceKernelInfo;
-    info->start_time = CurrentSeconds();
-    info->f = f;
-    info->command = command;
-    info->block_x = blockDimX;
-    info->block_y = blockDimY;
-    info->block_z = blockDimZ;
-    info->grid_x = globalWorkSizeX / blockDimX;
-    info->grid_y = globalWorkSizeY / blockDimY;
-    info->grid_z = globalWorkSizeZ / blockDimZ;
-    if (!command->setCallback(CL_COMPLETE, traceKernelCallback,
-      reinterpret_cast<void*>(info))) {
-      printf("Failed setting kernel-trace callback!\n");
-      exit(1);
-    }
-  }
-
   command->enqueue();
 
   if (startEvent != nullptr) {
@@ -388,7 +340,6 @@ hipError_t ihipModuleLaunchKernel(hipFunction_t f, uint32_t globalWorkSizeX,
     eStop->addMarker(queue, command, false);
     command->retain();
   }
-
   command->release();
 
   return hipSuccess;
@@ -404,9 +355,9 @@ hipError_t hipModuleLaunchKernel(hipFunction_t f,
                blockDimX, blockDimY, blockDimZ,
                sharedMemBytes, hStream,
                kernelParams, extra);
-  size_t globalWorkSizeX = gridDimX * blockDimX;
-  size_t globalWorkSizeY = gridDimY * blockDimY;
-  size_t globalWorkSizeZ = gridDimZ * blockDimZ;
+  size_t globalWorkSizeX = static_cast<size_t>(gridDimX) * blockDimX;
+  size_t globalWorkSizeY = static_cast<size_t>(gridDimY) * blockDimY;
+  size_t globalWorkSizeZ = static_cast<size_t>(gridDimZ) * blockDimZ;
   if (globalWorkSizeX > std::numeric_limits<uint32_t>::max() ||
       globalWorkSizeY > std::numeric_limits<uint32_t>::max() ||
       globalWorkSizeZ > std::numeric_limits<uint32_t>::max()) {
@@ -506,9 +457,9 @@ hipError_t hipLaunchCooperativeKernel(const void* f,
   int deviceId = ihipGetDevice();
   hipFunction_t func = nullptr;
   HIP_RETURN_ONFAIL(PlatformState::instance().getStatFunc(&func, f, deviceId));
-  size_t globalWorkSizeX = gridDim.x * blockDim.x;
-  size_t globalWorkSizeY = gridDim.y * blockDim.y;
-  size_t globalWorkSizeZ = gridDim.z * blockDim.z;
+  size_t globalWorkSizeX = static_cast<size_t>(gridDim.x) * blockDim.x;
+  size_t globalWorkSizeY = static_cast<size_t>(gridDim.y) * blockDim.y;
+  size_t globalWorkSizeZ = static_cast<size_t>(gridDim.z) * blockDim.z;
   if (globalWorkSizeX > std::numeric_limits<uint32_t>::max() ||
       globalWorkSizeY > std::numeric_limits<uint32_t>::max() ||
       globalWorkSizeZ > std::numeric_limits<uint32_t>::max()) {
@@ -593,9 +544,9 @@ hipError_t ihipLaunchCooperativeKernelMultiDevice(hipLaunchParams* launchParamsL
       result = hipErrorInvalidDeviceFunction;
       HIP_RETURN(result);
     }
-    size_t globalWorkSizeX = launch.gridDim.x * launch.blockDim.x;
-    size_t globalWorkSizeY = launch.gridDim.y * launch.blockDim.y;
-    size_t globalWorkSizeZ = launch.gridDim.z * launch.blockDim.z;
+    size_t globalWorkSizeX = static_cast<size_t>(launch.gridDim.x) * launch.blockDim.x;
+    size_t globalWorkSizeY = static_cast<size_t>(launch.gridDim.y) * launch.blockDim.y;
+    size_t globalWorkSizeZ = static_cast<size_t>(launch.gridDim.z) * launch.blockDim.z;
     if (globalWorkSizeX > std::numeric_limits<uint32_t>::max() ||
         globalWorkSizeY > std::numeric_limits<uint32_t>::max() ||
         globalWorkSizeZ > std::numeric_limits<uint32_t>::max()) {
@@ -651,8 +602,7 @@ hipError_t hipModuleGetTexRef(textureReference** texRef, hipModule_t hmod, const
 
    /* Get address and size for the global symbol */
   if (hipSuccess != PlatformState::instance().getDynTexRef(name, hmod, texRef)) {
-    DevLogPrintfError("Cannot get texRef for name: %s at module:0x%x \n",
-                      name, hmod);
+    LogPrintfError("Cannot get texRef for name: %s at module:0x%x \n", name, hmod);
     HIP_RETURN(hipErrorNotFound);
   }
 

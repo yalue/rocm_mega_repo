@@ -199,8 +199,9 @@ void Memory::cpuUnmap(device::VirtualDevice& vDev) {
                                     amd::Coord3D(size()), true)) {
       LogError("[OCL] Fail sync the device memory on cpuUnmap");
     }
+    // Wait on CPU for the transfer
+    static_cast<roc::VirtualGPU&>(vDev).releaseGpuMemoryFence();
   }
-
   decIndMapCount();
 }
 
@@ -258,10 +259,13 @@ bool Memory::createInteropBuffer(GLenum targetType, int miplevel) {
   size_t metadata_size = 0;
   void* metadata;
   hsa_status_t status = hsa_amd_interop_map_buffer(
-      1, &agent, out.dmabuf_fd, 0, &size, &deviceMemory_, &metadata_size, (const void**)&metadata);
+      1, &agent, out.dmabuf_fd, 0, &size, &interop_deviceMemory_,
+      &metadata_size, (const void**)&metadata);
   close(out.dmabuf_fd);
 
-  deviceMemory_ = static_cast<char*>(deviceMemory_) + out.buf_offset;
+  ClPrint(amd::LOG_DEBUG, amd::LOG_MEM, "Map GL memory %p, size 0x%zx, offset=0x%llx",
+          interop_deviceMemory_, size, out.buf_offset);
+  deviceMemory_ = static_cast<char*>(interop_deviceMemory_) + out.buf_offset;
 
   if (status != HSA_STATUS_SUCCESS) return false;
 
@@ -282,7 +286,8 @@ bool Memory::createInteropBuffer(GLenum targetType, int miplevel) {
 
 void Memory::destroyInteropBuffer() {
   assert(kind_ == MEMORY_KIND_INTEROP && "Memory must be interop type.");
-  hsa_amd_interop_unmap_buffer(deviceMemory_);
+  hsa_amd_interop_unmap_buffer(interop_deviceMemory_);
+  ClPrint(amd::LOG_DEBUG, amd::LOG_MEM, "Unmap GL memory %p", deviceMemory_);
   deviceMemory_ = nullptr;
 }
 
@@ -634,6 +639,12 @@ void Buffer::destroy() {
   #else
           dev().hostFree(deviceMemory_, size());;
   #endif // AMD_HMM_SUPPORT
+        } else if (memFlags & ROCCLR_MEM_HSA_SIGNAL_MEMORY) {
+          if (HSA_STATUS_SUCCESS != hsa_signal_destroy(signal_)) {
+            ClPrint(amd::LOG_DEBUG, amd::LOG_MEM,
+                    "[ROCClr] ROCCLR_MEM_HSA_SIGNAL_MEMORY signal destroy failed \n");
+          }
+          deviceMemory_ = nullptr;
         } else {
           dev().hostFree(deviceMemory_, size());
         }
@@ -671,11 +682,13 @@ void Buffer::destroy() {
         const_cast<Device&>(dev()).updateFreeMemory(size(), true);
       }
     }
-    else if (dev().settings().apuSystem_) {
+    else {
       if (!(memFlags & (CL_MEM_USE_HOST_PTR | CL_MEM_ALLOC_HOST_PTR | CL_MEM_COPY_HOST_PTR))) {
         dev().memFree(deviceMemory_, size());
+        if (dev().settings().apuSystem_) {
+          const_cast<Device&>(dev()).updateFreeMemory(size(), true);
+        }
       }
-      const_cast<Device&>(dev()).updateFreeMemory(size(), true);
     }
   }
 
@@ -689,7 +702,7 @@ void Buffer::destroy() {
 // ================================================================================================
 bool Buffer::create() {
   if (owner() == nullptr) {
-    deviceMemory_ = dev().hostAlloc(size(), 1, false);
+    deviceMemory_ = dev().hostAlloc(size(), 1, Device::MemorySegment::kNoAtomics);
     if (deviceMemory_ != nullptr) {
       flags_ |= HostMemoryDirectAccess;
       return true;
@@ -723,12 +736,36 @@ bool Buffer::create() {
           // GPU accessible or prefetch memory into GPU
           dev().SvmAllocInit(deviceMemory_, size());
 #else
-          deviceMemory_ = dev().hostAlloc(size(), 1, false);
+          deviceMemory_ = dev().hostAlloc(size(), 1, Device::MemorySegment::kNoAtomics);
 #endif // AMD_HMM_SUPPORT
         } else if (memFlags & CL_MEM_FOLLOW_USER_NUMA_POLICY) {
           deviceMemory_ = dev().hostNumaAlloc(size(), 1, (memFlags & CL_MEM_SVM_ATOMICS) != 0);
+        } else if (memFlags & ROCCLR_MEM_HSA_SIGNAL_MEMORY) {
+          // TODO: ROCr will introduce a new attribute enum that implies a non-blocking signal,
+          // replace "HSA_AMD_SIGNAL_AMD_GPU_ONLY" with this new enum when it is ready.
+          if (HSA_STATUS_SUCCESS !=
+              hsa_amd_signal_create(kInitSignalValueOne, 0, nullptr, HSA_AMD_SIGNAL_AMD_GPU_ONLY,
+                                    &signal_)) {
+            ClPrint(amd::LOG_ERROR, amd::LOG_MEM,
+                    "[ROCclr] ROCCLR_MEM_HSA_SIGNAL_MEMORY signal creation failed");
+            return false;
+          }
+          volatile hsa_signal_value_t* signalValuePtr = nullptr;
+          if (HSA_STATUS_SUCCESS != hsa_amd_signal_value_pointer(signal_, &signalValuePtr)) {
+            ClPrint(amd::LOG_ERROR, amd::LOG_MEM,
+                    "[ROCclr] ROCCLR_MEM_HSA_SIGNAL_MEMORY pointer query failed");
+            return false;
+          }
+
+          deviceMemory_ = const_cast<long int*>(signalValuePtr);  // conversion to void * is
+                                                                  // implicit
+
+          // Disable host access to force blit path for memeory writes.
+          flags_ &= ~HostMemoryDirectAccess;
         } else {
-          deviceMemory_ = dev().hostAlloc(size(), 1, (memFlags & CL_MEM_SVM_ATOMICS) != 0);
+          deviceMemory_ = dev().hostAlloc(size(), 1, ((memFlags & CL_MEM_SVM_ATOMICS) != 0)
+                                                       ? Device::MemorySegment::kAtomics
+                                                       : Device::MemorySegment::kNoAtomics);
         }
       } else {
         assert(!isHostMemDirectAccess() && "Runtime doesn't support direct access to GPU memory!");
@@ -738,14 +775,6 @@ bool Buffer::create() {
     } else {
       deviceMemory_ = owner()->getSvmPtr();
       kind_ = MEMORY_KIND_PTRGIVEN;
-#if AMD_HMM_SUPPORT
-      if (memFlags & CL_MEM_ALLOC_HOST_PTR) {
-        // Currently HMM requires cirtain initial calls to mark sysmem allocation as
-        // GPU accessible or prefetch memory into the current device
-        // @note: Skip any allocaiton here, since sysmem was allocated on another device.
-        dev().SvmAllocInit(deviceMemory_, size());
-      }
-#endif // AMD_HMM_SUPPORT
     }
 
     if ((deviceMemory_ != nullptr) && (dev().settings().apuSystem_ || !isFineGrain)) {
@@ -811,7 +840,7 @@ bool Buffer::create() {
         return true;
       }
 
-      deviceMemory_ = dev().hostAlloc(size(), 1, false);
+      deviceMemory_ = dev().hostAlloc(size(), 1, Device::MemorySegment::kNoAtomics);
       owner()->setHostMem(deviceMemory_);
 
       if ((deviceMemory_ != nullptr) && dev().settings().apuSystem_) {
@@ -1050,7 +1079,7 @@ bool Image::createInteropImage() {
   }
 
   if (obj->getGLTarget() == GL_TEXTURE_CUBE_MAP) {
-    desc.setFace(obj->getCubemapFace(), dev().deviceInfo().gfxipMajor_);
+    desc.setFace(obj->getCubemapFace(), dev().isa().versionMajor());
   }
 
   hsa_status_t err =
@@ -1103,14 +1132,19 @@ bool Image::create() {
   }
 
   if (originalDeviceMemory_ == nullptr) {
-    originalDeviceMemory_ = dev().hostAlloc(alloc_size, 1, false);
-    if ((originalDeviceMemory_ != nullptr) && dev().settings().apuSystem_) {
-      const_cast<Device&>(dev()).updateFreeMemory(alloc_size, false);
+    originalDeviceMemory_ = dev().hostAlloc(alloc_size, 1, Device::MemorySegment::kNoAtomics);
+    if (originalDeviceMemory_ != nullptr) {
+      kind_ = MEMORY_KIND_HOST;
+      if (dev().settings().apuSystem_) {
+        const_cast<Device&>(dev()).updateFreeMemory(alloc_size, false);
+      }
     }
   }
   else {
     const_cast<Device&>(dev()).updateFreeMemory(alloc_size, false);
   }
+  //record real size of the buffer so we will release and count it correctly.
+  deviceImageInfo_.size = alloc_size;
 
   deviceMemory_ = reinterpret_cast<void*>(
       amd::alignUp(reinterpret_cast<uintptr_t>(originalDeviceMemory_), deviceImageInfo_.alignment));
@@ -1287,7 +1321,13 @@ void Image::destroy() {
 
   if (originalDeviceMemory_ != nullptr) {
     dev().memFree(originalDeviceMemory_, deviceImageInfo_.size);
-    const_cast<Device&>(dev()).updateFreeMemory(size(), true);
+    if (kind_ == MEMORY_KIND_HOST) {
+      if (dev().settings().apuSystem_) {
+        const_cast<Device&>(dev()).updateFreeMemory(deviceImageInfo_.size, true);
+      }
+    } else {
+      const_cast<Device&>(dev()).updateFreeMemory(deviceImageInfo_.size, true);
+    }
   }
 }
 

@@ -36,6 +36,7 @@
 #include "device/pal/palsettings.hpp"
 #include "device/pal/palappprofile.hpp"
 #include "device/pal/palgpuopen.hpp"
+#include "device/pal/palsignal.hpp"
 #include "acl.h"
 #include "memory"
 
@@ -64,21 +65,22 @@ class NullDevice : public amd::Device {
   NullDevice();
 
   //! Creates an offline device with the specified target
-  bool create(Pal::AsicRevision asicRevision,  //!< GPU ASIC revision
+  bool create(const char* palName,             //!< Device name
+              const amd::Isa& isa,             //!< Device ISA
               Pal::GfxIpLevel ipLevel,         //!< GPU ip level
-              uint xNACKSupported = 0          //!< GPU xNACKSupported
+              Pal::AsicRevision asicRevision   //!< PAL ASIC revision
   );
 
   //! Instantiate a new virtual device
-  virtual device::VirtualDevice* createVirtualDevice(amd::CommandQueue* queue = NULL) {
-    return NULL;
+  virtual device::VirtualDevice* createVirtualDevice(amd::CommandQueue* queue = nullptr) {
+    return nullptr;
   }
 
   //! Compile the given source code.
-  virtual device::Program* createProgram(amd::Program& owner, amd::option::Options* options = NULL);
+  virtual device::Program* createProgram(amd::Program& owner, amd::option::Options* options = nullptr);
 
   //! Just returns NULL for the dummy device
-  virtual device::Memory* createMemory(amd::Memory& owner) const { return NULL; }
+  virtual device::Memory* createMemory(amd::Memory& owner) const { return nullptr; }
 
   //! Sampler object allocation
   virtual bool createSampler(const amd::Sampler& owner,  //!< abstraction layer sampler object
@@ -93,7 +95,12 @@ class NullDevice : public amd::Device {
       amd::Memory& owner,           //!< Owner memory object
       const device::Memory& parent  //!< Parent device memory object for the view
       ) const {
-    return NULL;
+    return nullptr;
+  }
+
+  //! Signal object allocation
+  virtual device::Signal* createSignal() const {
+    return nullptr;
   }
 
   //! Acquire external graphics API object in the host thread
@@ -114,8 +121,6 @@ class NullDevice : public amd::Device {
 
   Pal::GfxIpLevel ipLevel() const { return ipLevel_; }
   Pal::AsicRevision asicRevision() const { return asicRevision_; }
-
-  const AMDDeviceInfo* hwInfo() const { return hwInfo_; }
 
   //! Empty implementation on Null device
   virtual bool globalFreeMemory(size_t* freeMemory) const { return false; }
@@ -140,7 +145,7 @@ class NullDevice : public amd::Device {
 
   Pal::AsicRevision asicRevision_;  //!< ASIC revision
   Pal::GfxIpLevel ipLevel_;         //!< Device IP level
-  const AMDDeviceInfo* hwInfo_;     //!< Device HW info structure
+  const char* palName_;             //!< Device name
 
   //! Fills OpenCL device info structure
   void fillDeviceInfo(const Pal::DeviceProperties& palProp,  //!< PAL device properties
@@ -355,6 +360,11 @@ class Device : public NullDevice {
       const device::Memory& parent  //!< Parent device memory object for the view
       ) const;
 
+  //! Signal object allocation
+  virtual device::Signal* createSignal() const {
+    return new pal::Signal();
+  }
+
   //! Create the device program.
   virtual device::Program* createProgram(amd::Program& owner, amd::option::Options* options = NULL);
 
@@ -431,9 +441,9 @@ class Device : public NullDevice {
   }
 
   //! Returns the number of available compute rings
-  uint numExclusiveComputeEngines() const { 
+  uint numExclusiveComputeEngines() const {
     return exclusiveComputeEnginesId_.size() +
-     ((exclusiveComputeEnginesId().find(ExclusiveQueueType::RealTime1) == 
+     ((exclusiveComputeEnginesId().find(ExclusiveQueueType::RealTime1) ==
        exclusiveComputeEnginesId().end()) ? 1 : 0); }
 
   //! Returns the map of available exclusive compute rings with the engine index
@@ -474,7 +484,7 @@ class Device : public NullDevice {
                      ) const;
 
   //! host memory alloc
-  virtual void* hostAlloc(size_t size, size_t alignment, bool atomics = false) const;
+  virtual void* hostAlloc(size_t size, size_t alignment, MemorySegment mem_seg = kNoAtomics) const;
 
   //! SVM allocation
   virtual void* svmAlloc(amd::Context& context, size_t size, size_t alignment,

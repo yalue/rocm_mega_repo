@@ -480,9 +480,7 @@ int Os::printf(const char* fmt, ...) {
 // command-line arguments with arguments containing spaces between double-quotes.
 //
 // In order to avoid duplication of memory, we use vfork()+exec(). vfork() has
-// potiential security risks; read the following for details:
-//
-//     https://www.securecoding.cert.org/confluence/display/seccode/POS33-C.+Do+not+use+vfork()
+// potiential security risks;
 //
 // In spite of these risks, the alternatives (system() or fork()) create resource
 // issues when running conformance test_allocation which stretches the system
@@ -803,6 +801,31 @@ bool Os::MemoryMapFile(const char* fname, const void** mmap_ptr, size_t* mmap_si
 
   *mmap_size = stat_buf.st_size;
   *mmap_ptr = mmap(NULL, stat_buf.st_size, PROT_READ, MAP_SHARED, fd, 0);
+
+  close(fd);
+
+  if (*mmap_ptr == nullptr) {
+    return false;
+  }
+
+  return true;
+}
+
+bool Os::MemoryMapFileTruncated(const char* fname, const void** mmap_ptr, size_t mmap_size) {
+  if (mmap_ptr == nullptr) {
+    return false;
+  }
+
+  struct stat stat_buf;
+  int fd = shm_open(fname, O_RDWR|O_CREAT, S_IRWXU|S_IRWXG|S_IRWXO);
+  if (fd < 0 ) {
+    return false;
+  }
+
+  if (ftruncate(fd, mmap_size) != 0) {
+    return false;
+  }
+  *mmap_ptr = mmap(NULL, mmap_size, PROT_READ|PROT_WRITE, MAP_SHARED, fd, 0);
 
   close(fd);
 

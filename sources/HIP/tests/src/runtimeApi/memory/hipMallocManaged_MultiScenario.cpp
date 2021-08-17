@@ -24,8 +24,8 @@ THE SOFTWARE.
  * TEST_NAMED: %t hipMallocManaged2 --tests 2
  * TEST_NAMED: %t hipMallocManagedNegativeTests --tests 3
  * TEST_NAMED: %t hipMallocManagedMultiChunkSingleDevice --tests 4
- * TEST_NAMED: %t hipMallocManagedMultiChunkMultiDevice --tests 5 EXCLUDE_HIP_PLATFORM nvcc
- * TEST_NAMED: %t hipMallocManagedOversubscription --tests 6 EXCLUDE_HIP_PLATFORM rocclr nvcc
+ * TEST_NAMED: %t hipMallocManagedMultiChunkMultiDevice --tests 5 EXCLUDE_HIP_PLATFORM nvidia
+ * TEST_NAMED: %t hipMallocManagedOversubscription --tests 6 EXCLUDE_HIP_PLATFORM nvidia EXCLUDE_HIP_RUNTIME rocclr
  * HIT_END
  */
 
@@ -206,7 +206,7 @@ bool NegativeTestsMallocManaged(int NumDevices) {
     IfTestPassed = false;
   }
 
-#ifdef __HIP_PLATFORM_HCC__
+#ifdef __HIP_PLATFORM_AMD__
   // The flag hipMemAttachHost is currently not supported therefore
   // api should return "hipErrorInvalidValue" for now
   err = hipMallocManaged(&A, 1024, hipMemAttachHost);
@@ -215,7 +215,7 @@ bool NegativeTestsMallocManaged(int NumDevices) {
            hipGetErrorString(err));
     IfTestPassed = false;
   }
-#endif  // __HIP_PLATFORM_HCC__
+#endif  // __HIP_PLATFORM_AMD__
 
   err = hipMallocManaged(NULL, 0, 0);
   if (hipErrorInvalidValue != err) {

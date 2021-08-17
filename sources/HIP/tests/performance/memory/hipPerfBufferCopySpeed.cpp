@@ -1,3 +1,28 @@
+/*
+Copyright (c) 2015-present Advanced Micro Devices, Inc. All rights reserved.
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+The above copyright notice and this permission notice shall be included in
+all copies or substantial portions of the Software.
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.  IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
+THE SOFTWARE.
+*/
+
+/* HIT_START
+ * BUILD: %t %s ../../src/test_common.cpp ../../src/timer.cpp EXCLUDE_HIP_PLATFORM nvidia
+ * TEST: %t
+ * HIT_END
+ */
+
 #include <stdio.h>
 #include <assert.h>
 #include <string.h>
@@ -6,12 +31,6 @@
 #include "timer.h"
 #include "test_common.h"
 
-/* HIT_START
- * BUILD: %t %s ../../src/test_common.cpp ../../src/timer.cpp EXCLUDE_HIP_PLATFORM nvcc
- * TEST: %t
- * HIT_END
- */
-
 // Quiet pesky warnings
 #ifdef WIN_OS
 #define SNPRINTF sprintf_s
@@ -19,9 +38,9 @@
 #define SNPRINTF snprintf
 #endif
 
-#define NUM_SIZES 8
+#define NUM_SIZES 9
 //4KB, 8KB, 64KB, 256KB, 1 MB, 4MB, 16 MB, 16MB+10
-static const unsigned int Sizes[NUM_SIZES] = {4096, 8192, 65536, 262144, 1048576, 4194304, 16777216, 16777216+10};
+static const unsigned int Sizes[NUM_SIZES] = {4096, 8192, 65536, 262144, 524288, 1048576, 4194304, 16777216, 16777216+10};
 
 static const unsigned int Iterations[2] = {1, 1000};
 

@@ -18,7 +18,7 @@ THE SOFTWARE.
 */
 
 #include "hip/hip_runtime.h"
-#ifdef __HIP_PLATFORM_HCC__
+#ifdef __HIP_PLATFORM_AMD__
 #include "hip/hip_ext.h"
 #endif
 #include <iostream>
@@ -107,16 +107,6 @@ int main() {
     /* Single dispatch execution latency using HIP events:                             */   
     /* Measures latency to start & finish executing a kernel with GPU-scope visibility    */ 
     /***********************************************************************************/
-
-    //Timing directly the dispatch
-#if defined(__HIP_PLATFORM_HCC__) && GENERIC_GRID_LAUNCH == 1 && defined(__HCC__)
-    for (auto i = 0; i < TOTAL_RUN_COUNT; ++i) {
-        hipExtLaunchKernelGGL((EmptyKernel), dim3(NUM_GROUPS), dim3(GROUP_SIZE), 0, stream0, start, stop, 0);
-        hipEventSynchronize(stop);
-        hipEventElapsedTime(&results[i], start, stop);
-    }
-    print_timing("Timing directly single dispatch latency", results);
-#endif
 
     //Timing around the dispatch
     for (auto i = 0; i < TOTAL_RUN_COUNT; ++i) {

@@ -22,6 +22,7 @@ THE SOFTWARE.
  * should be added into CPP section
  *
  */
+#pragma once
 
 #ifdef __cplusplus
     #include <iostream>
@@ -50,9 +51,12 @@ THE SOFTWARE.
 #define KCYN "\x1B[36m"
 #define KWHT "\x1B[37m"
 
-  // HIP Skip Return code set at cmake
+// HIP Skip Return code set at cmake
 #define HIP_SKIP_RETURN_CODE 127
 #define HIP_ENABLE_SKIP_TESTS 0
+
+// Recommended thresholds for Tests
+#define MAX_THREADS 100
 
 inline bool hip_skip_tests_enabled() {
   return HIP_ENABLE_SKIP_TESTS;
@@ -113,6 +117,14 @@ inline int hip_skip_retcode() {
         }                                                                                          \
     }
 
+#define HIPCHECK_RETURN_ONFAIL(func)         \
+  do {                                   \
+    hipError_t herror = (func);          \
+    if (herror != hipSuccess) {          \
+      return herror;                     \
+    }                                    \
+  } while (0);
+
 #ifdef _WIN64
 #include <tchar.h>
 #define aligned_alloc(x,y) _aligned_malloc(y,x)
@@ -125,6 +137,7 @@ inline int hip_skip_retcode() {
 #define dup(x) _dup(x)
 #define dup2(x,y) _dup2(x,y)
 #define close(x) _close(x)
+#define pipe(x,y,z) _pipe(x,y,z)
 #else
 #define aligned_free(x) free(x)
 #endif
@@ -141,6 +154,7 @@ extern unsigned threadsPerBlock;
 extern int p_gpuDevice;
 extern unsigned p_verbose;
 extern int p_tests;
+extern int debug_test;
 extern const char* HIP_VISIBLE_DEVICES_STR;
 extern const char* CUDA_VISIBLE_DEVICES_STR;
 extern const char* PATH_SEPERATOR_STR;
@@ -154,6 +168,9 @@ extern const char* NULL_DEVICE;
 #else
 #define TYPENAME(T) "?"
 #endif
+
+// Get Optimal Thread count size
+size_t getHostThreadCount(const size_t memPerThread = 200 /* MB */, const size_t maxThreads = 0);
 
 namespace HipTest {
 
@@ -179,14 +196,14 @@ int parseStandardArguments(int argc, char* argv[], bool failOnUndefinedArg);
 unsigned setNumBlocks(unsigned blocksPerCU, unsigned threadsPerBlock, size_t N);
 
 template<typename T> // pointer type
-void checkArray(T hData, T hOutputData, size_t width, size_t height,size_t depth)
-{
+void checkArray(T hData, T hOutputData, size_t width, size_t height,size_t depth) {
    for (int i = 0; i < depth; i++) {
       for (int j = 0; j < height; j++) {
           for (int k = 0; k < width; k++) {
               int offset = i*width*height + j*width + k;
               if (hData[offset] != hOutputData[offset]) {
-                  std::cerr << '[' << i << ',' << j << ',' << k << "]:" << hData[offset] << "----" << hOutputData[offset]<<"  ";
+          std::cerr << '[' << i << ',' << j << ',' << k << "]:" << hData[offset] << "----"
+                    << hOutputData[offset]<<"  ";
                   failed("mistmatch at:%d %d %d",i,j,k);
               }
           }
@@ -195,13 +212,13 @@ void checkArray(T hData, T hOutputData, size_t width, size_t height,size_t depth
 }
 
 template<typename T> 
-void checkArray(T input, T output, size_t height, size_t width)
-{
+void checkArray(T input, T output, size_t height, size_t width) {
     for(int i=0; i<height; i++ ){
         for(int j=0; j<width; j++ ){
             int offset = i*width + j;
             if( input[offset] !=  output[offset] ){
-                 std::cerr << '[' << i << ',' << j << ',' << "]:" << input[offset] << "----" << output[offset]<<"  ";
+        std::cerr << '[' << i << ',' << j << ',' << "]:" << input[offset]
+                  << "----" << output[offset]<<"  ";
                  failed("mistmatch at:%d %d",i,j);
             }
         }
@@ -288,13 +305,13 @@ void initArraysForHost(T** A_h, T** B_h, T** C_h, size_t N, bool usePinnedHost =
 
     if (usePinnedHost) {
         if (A_h) {
-            HIPCHECK(hipHostMalloc((void**)A_h, Nbytes));
+      HIPCHECK(hipHostMalloc(reinterpret_cast<void**>(A_h), Nbytes));
         }
         if (B_h) {
-            HIPCHECK(hipHostMalloc((void**)B_h, Nbytes));
+      HIPCHECK(hipHostMalloc(reinterpret_cast<void**>(B_h), Nbytes));
         }
         if (C_h) {
-            HIPCHECK(hipHostMalloc((void**)C_h, Nbytes));
+      HIPCHECK(hipHostMalloc(reinterpret_cast<void**>(C_h), Nbytes));
         }
     } else {
         if (A_h) {
@@ -376,7 +393,7 @@ void freeArrays(T* A_d, T* B_d, T* C_d, T* A_h, T* B_h, T* C_h, bool usePinnedHo
     freeArraysForHost(A_h, B_h, C_h, usePinnedHost);
 }
 
-#if defined(__HIP_PLATFORM_HCC__)
+#if defined(__HIP_PLATFORM_AMD__)
 template <typename T>
 void initArrays2DPitch(T** A_d, T** B_d, T** C_d, size_t* pitch_A, size_t* pitch_B, size_t* pitch_C,
                        size_t numW, size_t numH) {

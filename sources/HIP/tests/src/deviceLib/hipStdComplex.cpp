@@ -18,7 +18,7 @@ THE SOFTWARE.
 */
 /* HIT_START
  * BUILD: %t %s NVCC_OPTIONS -std=c++11
- * TEST: %t EXCLUDE_HIP_PLATFORM nvcc
+ * TEST: %t EXCLUDE_HIP_PLATFORM nvidia
  * HIT_END
  */
 #include "test_common.h"
@@ -151,11 +151,8 @@ void test() {
 }
 
 int main() {
-// ToDo: Fix bug in HCC causing linking error at -O0.
-#ifndef __HCC__
   test<float>();
   test<double>();
-#endif
   passed();
   return 0;
 }

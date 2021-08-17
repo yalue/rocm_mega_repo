@@ -345,9 +345,10 @@ class KernelBlitManager : public DmaBlitManager {
                           const void* pattern,         //!< Pattern data
                           size_t patternSize,          //!< Pattern size
                           const amd::Coord3D& origin,  //!< Destination origin
-                          const amd::Coord3D& size,    //!< Size of the copy region
-                          bool entire = false          //!< Entire buffer will be updated
-                          ) const;
+                          const amd::Coord3D& size,    //!< Size of the fill region
+                          bool entire = false,         //!< Entire buffer will be updated
+                          bool forceBlit = false       //!< Force GPU Blit for fill
+  ) const;
 
   //! Fills an image memory with a pattern data
   virtual bool fillImage(device::Memory& dstMemory,   //!< Memory object to fill with pattern
@@ -405,7 +406,7 @@ class KernelBlitManager : public DmaBlitManager {
   //! Disable operator=
   KernelBlitManager& operator=(const KernelBlitManager&);
 
-  amd::Program* program_;                     //!< GPU program obejct
+  amd::Program* program_;                     //!< GPU program object
   amd::Kernel* kernels_[BlitTotal];           //!< GPU kernels for blit
   amd::Memory* constantBuffer_;               //!< An internal CB for blits
   amd::Memory* xferBuffers_[MaxXferBuffers];  //!< Transfer buffers for images
