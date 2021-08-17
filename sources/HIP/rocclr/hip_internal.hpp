@@ -245,8 +245,13 @@ namespace hip {
   //    isn't available.
   //  - GPU_LOCK_ID: Set this environment variable to an integer of the lock
   //    ID to be used by this process.
+  //
+  // On top of this, the simple_hip_trace is controlled by the SIMPLE_HIP_TRACE
+  // environment variable. If it's set and nonzero, then a line is printed to
+  // stdout with information about various events as programs run.
   extern int gpu_lock_fd;
   extern int gpu_lock_id;
+  extern int simple_hip_trace;
   extern void AcquireGPULock();
   extern void ReleaseGPULock();
 };

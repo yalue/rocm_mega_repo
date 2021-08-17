@@ -50,6 +50,7 @@ Device* host_device = nullptr;
 
 int gpu_lock_fd = -1;
 int gpu_lock_id = 0;
+int simple_hip_trace = 0;
 
 // Takes the name of an environment variable expected to contain a single
 // integer. The integer may be specified in hex or octal (it must be a format
@@ -94,6 +95,9 @@ void init() {
     if (gpu_lock_id < 0) {
       printf("Likely error: Setting a negative GPU lock ID %d\n", gpu_lock_id);
     }
+  }
+  if (GetEnvVarValue("SIMPLE_HIP_TRACE", &v)) {
+    simple_hip_trace = 1;
   }
 
   if (!amd::Runtime::initialized()) {

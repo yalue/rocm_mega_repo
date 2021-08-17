@@ -17,7 +17,6 @@
  LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
  OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
  THE SOFTWARE. */
-
 #include <hip/hip_runtime.h>
 #include <elf/elf.hpp>
 #include <fstream>
@@ -212,6 +211,37 @@ static void CL_CALLBACK releaseGPULockCallback(cl_event event, cl_int status,
   command->release();
 }
 
+// The user data passed to traceKernelCallback.
+typedef struct {
+  hipFunction_t f;
+  double start_time;
+  int block_x, block_y, block_z;
+  int grid_x, grid_y, grid_z;
+  amd::NDRangeKernelCommand *command;
+} SimpleTraceKernelInfo;
+
+static double CurrentSeconds(void) {
+  struct timespec ts;
+  if (clock_gettime(CLOCK_MONOTONIC_RAW, &ts) != 0) {
+    printf("Error getting time.\n");
+    exit(1);
+  }
+  return ((double) ts.tv_sec) + (((double) ts.tv_nsec) / 1e9);
+}
+
+// Called when a kernel completes, in order to print information about how long
+// it took, etc.
+static void CL_CALLBACK traceKernelCallback(cl_event event, cl_int status,
+    void *user_data) {
+  auto info = reinterpret_cast<SimpleTraceKernelInfo*>(user_data);
+  double elapsed = CurrentSeconds() - info->start_time;
+  printf("Kernel %s completed in %f seconds. Block dims = [%d, %d, %d], Grid dims = [%d, %d, %d].\n",
+    FunctionName(info->f).c_str(), elapsed, info->block_x, info->block_y, info->block_z,
+    info->grid_x, info->grid_y, info->grid_z);
+  info->command->release();
+  delete info;
+}
+
 hipError_t ihipModuleLaunchKernel(hipFunction_t f, uint32_t globalWorkSizeX,
                                  uint32_t globalWorkSizeY, uint32_t globalWorkSizeZ,
                                  uint32_t blockDimX, uint32_t blockDimY, uint32_t blockDimZ,
@@ -325,6 +355,25 @@ hipError_t ihipModuleLaunchKernel(hipFunction_t f, uint32_t globalWorkSizeX,
     if (!command->setCallback(CL_COMPLETE, releaseGPULockCallback,
         reinterpret_cast<void*>(command))) {
       printf("Error! Failed adding command-completion callback!\n");
+      exit(1);
+    }
+  }
+
+  if (hip::simple_hip_trace != 0) {
+    command->retain();
+    auto info = new SimpleTraceKernelInfo;
+    info->start_time = CurrentSeconds();
+    info->f = f;
+    info->command = command;
+    info->block_x = blockDimX;
+    info->block_y = blockDimY;
+    info->block_z = blockDimZ;
+    info->grid_x = globalWorkSizeX / blockDimX;
+    info->grid_y = globalWorkSizeY / blockDimY;
+    info->grid_z = globalWorkSizeZ / blockDimZ;
+    if (!command->setCallback(CL_COMPLETE, traceKernelCallback,
+      reinterpret_cast<void*>(info))) {
+      printf("Failed setting kernel-trace callback!\n");
       exit(1);
     }
   }
