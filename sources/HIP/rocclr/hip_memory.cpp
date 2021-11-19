@@ -140,6 +140,152 @@ hipError_t ihipMalloc(void** ptr, size_t sizeBytes, unsigned int flags)
   return hipSuccess;
 }
 
+// Returns a pointer at the given offset past the base. Basically wraps some
+// casting.
+static void* OffsetPtr(const void* base, size_t offset) {
+  uintptr_t tmp = ((uintptr_t) base) + offset;
+  return (void *) tmp;
+}
+
+// Returns a command to copy memory from src to dst at the given offset. Sets
+// *copied to the actual size of the chunk used. Returns nullptr on error. Do
+// *not* use for host-to-host copies; will return an error.
+static amd::Command* GetMemcpyChunkCommand(void *dst, const void *src,
+    size_t bytesRemaining, size_t offset, size_t *copied, hipMemcpyKind kind,
+    amd::HostQueue& queue, bool *isAsync,
+    amd::Command::EventWaitList &waitList) {
+  size_t sizeBytes = bytesRemaining;
+  if (hip::memcpy_chunk_size != 0) {
+    sizeBytes = hip::memcpy_chunk_size;
+  }
+  if (sizeBytes > bytesRemaining) {
+    sizeBytes = bytesRemaining;
+  }
+  *copied = sizeBytes;
+  amd::Command *command = nullptr;
+  size_t sOffset = offset;
+  amd::Memory *srcMemory = getMemoryObject(src, sOffset);
+  size_t dOffset = offset;
+  amd::Memory *dstMemory = getMemoryObject(dst, dOffset);
+  amd::Device* queueDevice = &queue.device();
+
+  if (hip::simple_hip_trace != 0) {
+    printf("HIP memory copy of %d bytes (%d remaining). Kind = %d\n",
+      (int) sizeBytes, (int) bytesRemaining, (int) kind);
+  }
+  if ((srcMemory == nullptr) && (dstMemory == nullptr)) {
+    printf("Internal error: got HtoH copy for memcpy chunk.\n");
+    return nullptr;
+  }
+
+  if ((srcMemory == nullptr) && (dstMemory != nullptr)) {
+    if (hip::simple_hip_trace != 0) {
+      printf("HIP memory copy HtoD, not pinned memory.\n");
+    }
+    amd::HostQueue* pQueue = &queue;
+    if (queueDevice != dstMemory->getContext().devices()[0]) {
+      pQueue = hip::getNullStream(dstMemory->getContext());
+      amd::Command* cmd = queue.getLastQueuedCommand(true);
+      if (cmd != nullptr) {
+        waitList.push_back(cmd);
+      }
+    }
+    command = new amd::WriteMemoryCommand(*pQueue, CL_COMMAND_WRITE_BUFFER,
+      waitList, *dstMemory->asBuffer(), dOffset, sizeBytes,
+      OffsetPtr(src, sOffset));
+    *isAsync = false;
+    return command;
+  } else if ((srcMemory != nullptr) && (dstMemory == nullptr)) {
+    if (hip::simple_hip_trace != 0) {
+      printf("HIP memory copy DtoH, not pinned memory.\n");
+    }
+    amd::HostQueue* pQueue = &queue;
+    if (queueDevice != srcMemory->getContext().devices()[0]) {
+      pQueue = hip::getNullStream(srcMemory->getContext());
+      amd::Command* cmd = queue.getLastQueuedCommand(true);
+      if (cmd != nullptr) {
+        waitList.push_back(cmd);
+      }
+    }
+    command = new amd::ReadMemoryCommand(*pQueue, CL_COMMAND_READ_BUFFER,
+      waitList, *srcMemory->asBuffer(), sOffset, sizeBytes,
+      OffsetPtr(dst, dOffset));
+    *isAsync = false;
+    return command;
+  }
+  if ((srcMemory == nullptr) || (dstMemory == nullptr)) {
+    printf("Internal error: Bad case for HIP memory copy.\n");
+    return nullptr;
+  }
+
+  // Check if the queue device doesn't match the device on any memory object.
+  // And any of them are not host allocation.
+  // Hence it's a P2P transfer, because the app has requested access to another GPU
+  if ((srcMemory->getContext().devices()[0] != dstMemory->getContext().devices()[0]) &&
+      ((srcMemory->getContext().devices().size() == 1) &&
+       (dstMemory->getContext().devices().size() == 1))) {
+    if (hip::simple_hip_trace != 0) {
+      printf("HIP memory copy DtoD.\n");
+    }
+    command = new amd::CopyMemoryP2PCommand(queue, CL_COMMAND_COPY_BUFFER, waitList,
+        *srcMemory->asBuffer(), *dstMemory->asBuffer(), sOffset, dOffset, sizeBytes);
+    if (command == nullptr) {
+      return nullptr;
+    }
+    // Make sure runtime has valid memory for the command execution. P2P access
+    // requires page table mapping on the current device to another GPU memory
+    if (!static_cast<amd::CopyMemoryP2PCommand*>(command)->validateMemory()) {
+      delete command;
+      return nullptr;
+    }
+    return command;
+  }
+  amd::HostQueue* pQueue = &queue;
+  if ((srcMemory->getContext().devices()[0] == dstMemory->getContext().devices()[0]) &&
+      (queueDevice != srcMemory->getContext().devices()[0])) {
+    if (hip::simple_hip_trace != 0) {
+      printf("HIP memory copy w/ queue on other device.\n");
+    }
+    pQueue = hip::getNullStream(srcMemory->getContext());
+    amd::Command* cmd = queue.getLastQueuedCommand(true);
+    if (cmd != nullptr) {
+      waitList.push_back(cmd);
+    }
+  } else if (srcMemory->getContext().devices()[0] != dstMemory->getContext().devices()[0]) {
+    // Scenarios such as DtoH where dst is pinned memory
+    if ((queueDevice != srcMemory->getContext().devices()[0]) &&
+        (dstMemory->getContext().devices().size() != 1)) {
+      if (hip::simple_hip_trace != 0) {
+        printf("HIP memory copy DtoH w/ pinned dst.\n");
+      }
+      pQueue = hip::getNullStream(srcMemory->getContext());
+      amd::Command* cmd = queue.getLastQueuedCommand(true);
+      if (cmd != nullptr) {
+        waitList.push_back(cmd);
+      }
+    // Scenarios such as HtoD where src is pinned memory
+    } else if ((queueDevice != dstMemory->getContext().devices()[0]) &&
+               (srcMemory->getContext().devices().size() != 1)) {
+      if (hip::simple_hip_trace != 0) {
+        printf("HIP memory copy HtoD w/ pinned src.\n");
+      }
+      pQueue = hip::getNullStream(dstMemory->getContext());
+      amd::Command* cmd = queue.getLastQueuedCommand(true);
+      if (cmd != nullptr) {
+        waitList.push_back(cmd);
+      }
+    }
+  }
+
+  if (hip::simple_hip_trace != 0) {
+    printf("HIP memory copy final case.\n");
+  }
+  command = new amd::CopyMemoryCommand(*pQueue, CL_COMMAND_COPY_BUFFER,
+    waitList, *srcMemory->asBuffer(), *dstMemory->asBuffer(), sOffset,
+    dOffset, sizeBytes);
+  return command;
+}
+
 // ================================================================================================
 hipError_t ihipMemcpy(void* dst, const void* src, size_t sizeBytes, hipMemcpyKind kind,
                       amd::HostQueue& queue, bool isAsync = false) {
@@ -150,6 +296,9 @@ hipError_t ihipMemcpy(void* dst, const void* src, size_t sizeBytes, hipMemcpyKin
   if (dst == nullptr || src == nullptr) {
     return hipErrorInvalidValue;
   }
+  if (hip::simple_hip_trace != 0) {
+    printf("HIP memory copy. Kind = %d, size = %u\n", (int) kind, (unsigned) sizeBytes);
+  }
 
   amd::Command* command = nullptr;
   amd::Command::EventWaitList waitList;
@@ -159,97 +308,53 @@ hipError_t ihipMemcpy(void* dst, const void* src, size_t sizeBytes, hipMemcpyKin
   size_t dOffset = 0;
   amd::Memory *dstMemory = getMemoryObject(dst, dOffset);
   amd::Device* queueDevice = &queue.device();
+
   if ((srcMemory == nullptr) && (dstMemory == nullptr)) {
+    if (hip::simple_hip_trace != 0) {
+      printf("HIP memory copy HtoH.\n");
+    }
     if ((kind == hipMemcpyHostToHost) || (kind == hipMemcpyDefault)) {
       queue.finish();
       memcpy(dst, src, sizeBytes);
       return hipSuccess;
-    } else {
-      return hipErrorInvalidValue;
     }
-  } else if ((srcMemory == nullptr) && (dstMemory != nullptr)) {
-    amd::HostQueue* pQueue = &queue;
-    if (queueDevice != dstMemory->getContext().devices()[0]) {
-      pQueue = hip::getNullStream(dstMemory->getContext());
-      amd::Command* cmd = queue.getLastQueuedCommand(true);
-      if (cmd != nullptr) {
-        waitList.push_back(cmd);
-      }
-    }
-    command = new amd::WriteMemoryCommand(*pQueue, CL_COMMAND_WRITE_BUFFER, waitList,
-              *dstMemory->asBuffer(), dOffset, sizeBytes, src);
-    isAsync = false;
-  } else if ((srcMemory != nullptr) && (dstMemory == nullptr)) {
-    amd::HostQueue* pQueue = &queue;
-    if (queueDevice != srcMemory->getContext().devices()[0]) {
-      pQueue = hip::getNullStream(srcMemory->getContext());
-      amd::Command* cmd = queue.getLastQueuedCommand(true);
-      if (cmd != nullptr) {
-        waitList.push_back(cmd);
-      }
-    }
-    command = new amd::ReadMemoryCommand(*pQueue, CL_COMMAND_READ_BUFFER, waitList,
-              *srcMemory->asBuffer(), sOffset, sizeBytes, dst);
-    isAsync = false;
-  } else if ((srcMemory != nullptr) && (dstMemory != nullptr)) {
-    // Check if the queue device doesn't match the device on any memory object.
-    // And any of them are not host allocation.
-    // Hence it's a P2P transfer, because the app has requested access to another GPU
-    if ((srcMemory->getContext().devices()[0] != dstMemory->getContext().devices()[0]) &&
-        ((srcMemory->getContext().devices().size() == 1) &&
-         (dstMemory->getContext().devices().size() == 1))) {
-      command = new amd::CopyMemoryP2PCommand(queue, CL_COMMAND_COPY_BUFFER, waitList,
-          *srcMemory->asBuffer(), *dstMemory->asBuffer(), sOffset, dOffset, sizeBytes);
-      if (command == nullptr) {
-        return hipErrorOutOfMemory;
-      }
-      // Make sure runtime has valid memory for the command execution. P2P access
-      // requires page table mapping on the current device to another GPU memory
-      if (!static_cast<amd::CopyMemoryP2PCommand*>(command)->validateMemory()) {
-        delete command;
-        return hipErrorInvalidValue;
-      }
-    } else {
-      amd::HostQueue* pQueue = &queue;
-      if ((srcMemory->getContext().devices()[0] == dstMemory->getContext().devices()[0]) &&
-          (queueDevice != srcMemory->getContext().devices()[0])) {
-        pQueue = hip::getNullStream(srcMemory->getContext());
-        amd::Command* cmd = queue.getLastQueuedCommand(true);
-        if (cmd != nullptr) {
-          waitList.push_back(cmd);
-        }
-      } else if (srcMemory->getContext().devices()[0] != dstMemory->getContext().devices()[0]) {
-        // Scenarios such as DtoH where dst is pinned memory
-        if ((queueDevice != srcMemory->getContext().devices()[0]) &&
-            (dstMemory->getContext().devices().size() != 1)) {
-          pQueue = hip::getNullStream(srcMemory->getContext());
-          amd::Command* cmd = queue.getLastQueuedCommand(true);
-          if (cmd != nullptr) {
-            waitList.push_back(cmd);
-          }
-        // Scenarios such as HtoD where src is pinned memory
-        } else if ((queueDevice != dstMemory->getContext().devices()[0]) &&
-                   (srcMemory->getContext().devices().size() != 1)) {
-          pQueue = hip::getNullStream(dstMemory->getContext());
-          amd::Command* cmd = queue.getLastQueuedCommand(true);
-          if (cmd != nullptr) {
-            waitList.push_back(cmd);
-          }
-        }
-      }
-      command = new amd::CopyMemoryCommand(*pQueue, CL_COMMAND_COPY_BUFFER, waitList,
-          *srcMemory->asBuffer(), *dstMemory->asBuffer(), sOffset, dOffset, sizeBytes);
-    }
+    return hipErrorInvalidValue;
   }
-  if (command == nullptr) {
+
+  // (otternes): Create a list of memcpy commands, one command per chunk.
+  std::vector<amd::Command*> commands;
+  size_t bytesRemaining = sizeBytes;
+  size_t copied = 0, currentOffset = 0;
+  while (bytesRemaining != 0) {
+    command = GetMemcpyChunkCommand(dst, src, bytesRemaining, currentOffset,
+      &copied, kind, queue, &isAsync, waitList);
+    if (!command) {
+      printf("Internal error getting memcpy command.\n");
+      for (unsigned int i = 0; i < commands.size(); i++) {
+        commands[i]->release();
+      }
+      return hipErrorOutOfMemory;
+    }
+    commands.push_back(command);
+    bytesRemaining -= copied;
+    currentOffset += copied;
+  }
+  if (commands.size() == 0) {
+    printf("Internal error getting memcpy commands.\n");
     return hipErrorOutOfMemory;
   }
 
-  command->enqueue();
-  if (!isAsync) {
-    command->awaitCompletion();
+  // (otternes): Enqueue all commands, and wait for the last one to complete if
+  // needed. Afterwards, release them all.
+  for (unsigned int i = 0; i < commands.size(); i++) {
+    commands[i]->enqueue();
   }
-  command->release();
+  if (!isAsync) {
+    commands[commands.size() - 1]->awaitCompletion();
+  }
+  for (unsigned int i = 0; i < commands.size(); i++) {
+    commands[i]->release();
+  }
 
   if (waitList.size() > 0) {
     waitList[0]->release();
@@ -357,7 +462,6 @@ hipError_t hipMemPtrGetInfo(void *ptr, size_t *size) {
 
 hipError_t hipHostFree(void* ptr) {
   HIP_INIT_API(hipHostFree, ptr);
-
   HIP_RETURN(ihipFree(ptr));
 }
 
@@ -2401,7 +2505,6 @@ hipError_t hipMallocHost(void** ptr,
 
 hipError_t hipFreeHost(void *ptr) {
   HIP_INIT_API(hipFreeHost, ptr);
-
   HIP_RETURN(ihipFree(ptr));
 }
 

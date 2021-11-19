@@ -51,6 +51,7 @@ Device* host_device = nullptr;
 int gpu_lock_fd = -1;
 int gpu_lock_id = 0;
 int simple_hip_trace = 0;
+size_t memcpy_chunk_size;
 
 // Takes the name of an environment variable expected to contain a single
 // integer. The integer may be specified in hex or octal (it must be a format
@@ -98,6 +99,16 @@ void init() {
   }
   if (GetEnvVarValue("SIMPLE_HIP_TRACE", &v)) {
     simple_hip_trace = 1;
+  }
+  memcpy_chunk_size = 0;
+  if (GetEnvVarValue("HIP_MEMCPY_CHUNK_SIZE", &v)) {
+    if (v < 0) {
+      printf("Likely error: Ignoring negative memcpy chunk size.\n");
+    } else {
+      printf("Requiring memory transfers to use %ld-byte chunks.\n",
+        (long int) v);
+      memcpy_chunk_size = v;
+    }
   }
 
   if (!amd::Runtime::initialized()) {

@@ -41,9 +41,11 @@ HostQueue::HostQueue(Context& context, Device& device, cl_command_queue_properti
       head_(nullptr),
       tail_(nullptr) {
   if (AMD_DIRECT_DISPATCH) {
+    printf("Created host queue. Using direct dispatch!\n");
     // Initialize the queue
     thread_.Init(this);
   } else {
+    printf("Created host queue. Not using direct dispatch.\n");
     if (thread_.state() >= Thread::INITIALIZED) {
       ScopedLock sl(queueLock_);
       thread_.start(this);
