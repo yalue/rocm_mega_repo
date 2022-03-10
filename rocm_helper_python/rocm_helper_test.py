@@ -5,7 +5,7 @@ import rocm_helper
 import torch
 import time
 
-# Create a stream that uses 20 CUs only
+# Create a stream that uses 8 CUs only
 s = rocm_helper.create_stream_with_cu_mask(0, 0xff)
 print("In python. Stream ptr = 0x%x" % (s, ))
 
