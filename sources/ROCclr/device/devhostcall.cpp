@@ -18,6 +18,9 @@
  OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
  THE SOFTWARE. */
 
+#include <sys/syscall.h>
+#include <unistd.h>
+
 #include "utils/debug.hpp"
 #include "top.hpp"
 #include "utils/flags.hpp"
@@ -35,6 +38,11 @@
 #include <assert.h>
 #include <string.h>
 #include <set>
+
+static pid_t GetTID(void) {
+  pid_t to_return = syscall(SYS_gettid);
+  return to_return;
+}
 
 namespace {  // anonymous
 
@@ -309,7 +317,9 @@ amd::Monitor listenerLock("Hostcall listener lock");
 void HostcallListener::consumePackets() {
   uint64_t timeout = 1024 * 1024;
   uint64_t signal_value = SIGNAL_INIT;
+  pid_t tid = GetTID();
 
+  printf("HostcallListener thread %d consuming packets.\n", (int) tid);
   while (true) {
     while (true) {
       uint64_t new_value = doorbell_->Wait(signal_value, device::Signal::Condition::Ne, timeout);
@@ -330,6 +340,7 @@ void HostcallListener::consumePackets() {
       ii->processPackets(messages_);
     }
   }
+  printf("HostcallListener thread %d done consuming packets.\n", (int) tid);
 
   return;
 }

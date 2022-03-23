@@ -1,12 +1,12 @@
 # This test script simply tries creating and using a stream with a CU mask in
 # conjunction with PyTorch.
 
-import rocm_helper
 import torch
+import rocm_helper
 import time
 
 # Create a stream that uses 8 CUs only
-s = rocm_helper.create_stream_with_cu_mask(0, 0xff)
+s = rocm_helper.create_stream_with_cu_mask(0x11111111, 0)
 print("In python. Stream ptr = 0x%x" % (s, ))
 
 a = torch.rand((2, 100000, 1000), device="cuda:0")

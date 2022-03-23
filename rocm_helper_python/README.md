@@ -26,3 +26,6 @@ hip_stream = rocm_helper.create_stream_with_cu_mask(0xffff0000, 0x0000ffff)
 rocm_helper.destroy_stream(hip_stream)
 ```
 
+If you have my modified PyTorch HIP version installed, you can run
+`rocm_helper_test.py` to check whether the CU-masked stream is slower than the
+non-masked stream. (It should be.)

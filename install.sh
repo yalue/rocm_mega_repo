@@ -56,7 +56,7 @@ rm -rf build
 mkdir build
 cd build
 cmake \
-	-DCMAKE_BUILD_TYPE=Release \
+	-DCMAKE_BUILD_TYPE=RelWithDebInfo \
 	-DHIP_COMPILER=clang \
 	-DHIP_PLATFORM=rocclr \
 	-DCMAKE_PREFIX_PATH="$ROCclr_DIR/build" \
@@ -66,6 +66,8 @@ sudo make install
 check_install_error "HIP"
 cd "$PROJECT_TOP_DIR"
 
+echo "Updating symlinks to new libraries."
 # Make sure the ld.so knows if we've updated any shared libraries.
 sudo ldconfig
+sudo bash fix_symlinks.sh
 

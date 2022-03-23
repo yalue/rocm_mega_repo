@@ -40,6 +40,9 @@
 //
 ////////////////////////////////////////////////////////////////////////////////
 
+#include <sys/syscall.h>
+#include <unistd.h>
+
 #include "core/inc/runtime.h"
 
 #include <algorithm>
@@ -66,6 +69,11 @@
 #define HSA_VERSION_MINOR 1
 
 const char rocrbuildid[] __attribute__((used)) = "ROCR BUILD ID: " STRING(ROCR_BUILD_ID);
+
+static pid_t GetTID(void) {
+  pid_t to_return = syscall(SYS_gettid);
+  return to_return;
+}
 
 namespace rocr {
 namespace core {
@@ -1008,6 +1016,8 @@ void Runtime::AsyncEventsLoop(void*) {
   auto& async_events_control_ = runtime_singleton_->async_events_control_;
   auto& async_events_ = runtime_singleton_->async_events_;
   auto& new_async_events_ = runtime_singleton_->new_async_events_;
+  pid_t tid = GetTID();
+  printf("Async events loop TID: %d\n", (int) tid);
 
   while (!async_events_control_.exit) {
     // Wait for a signal
@@ -1078,6 +1088,7 @@ void Runtime::AsyncEventsLoop(void*) {
   for (size_t i = 0; i < new_async_events_.Size(); i++)
     hsa_signal_handle(new_async_events_.signal_[i])->Release();
   new_async_events_.Clear();
+  printf("Async events loop thread (%d) ending.\n", (int) tid);
 }
 
 void Runtime::BindVmFaultHandler() {
