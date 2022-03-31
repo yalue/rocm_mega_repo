@@ -79,3 +79,8 @@ uint32_t getHostcallBufferAlignment(void);
 
 bool enableHostcalls(const amd::Device& dev, void* buffer, uint32_t numPackets);
 void disableHostcalls(void* buffer);
+
+// Consumes hostcalls, returning true if any were processed and false if there
+// weren't.
+// TODO (next): Figure out how or when to call this from HIP.
+bool pollHostcalls(void);

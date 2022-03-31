@@ -309,6 +309,7 @@ class HostcallListener {
 
   void terminate();
   bool initialize(const amd::Device &dev);
+  bool pollOnce();
 };
 
 HostcallListener* hostcallListener = nullptr;
@@ -319,7 +320,6 @@ void HostcallListener::consumePackets() {
   uint64_t signal_value = SIGNAL_INIT;
   pid_t tid = GetTID();
 
-  printf("HostcallListener thread %d consuming packets.\n", (int) tid);
   while (true) {
     while (true) {
       uint64_t new_value = doorbell_->Wait(signal_value, device::Signal::Condition::Ne, timeout);
@@ -340,9 +340,33 @@ void HostcallListener::consumePackets() {
       ii->processPackets(messages_);
     }
   }
-  printf("HostcallListener thread %d done consuming packets.\n", (int) tid);
 
   return;
+}
+
+bool HostcallListener::pollOnce() {
+  amd::ScopedLock lock{listenerLock};
+  // TODO (otterness): more optimizations to figure out if nothing is waiting?
+  if (buffers_.empty()) return false;
+  uint64_t timeout = 1;
+  uint64_t signal_value = SIGNAL_INIT;
+  uint64_t new_value = doorbell_->Wait(signal_value, device::Signal::Condition::Ne, 1);
+  if (new_value != signal_value) {
+    return false;
+  }
+  signal_value = new_value;
+  if (signal_value == SIGNAL_DONE) {
+    return false;
+  }
+  for (auto ii : buffers_) {
+    ii->processPackets(messages_);
+  }
+  return true;
+}
+
+bool pollHostcalls(void) {
+  if (!hostcallListener) return false;
+  return hostcallListener->pollOnce();
 }
 
 void HostcallListener::terminate() {
@@ -378,6 +402,12 @@ bool HostcallListener::initialize(const amd::Device &dev) {
 #else
   auto ws = device::Signal::WaitState::Active;
 #endif
+
+  if (DISABLE_HOSTCALL_THREAD) {
+    printf("Note: Running with hostcall thread disabled!\n");
+    ws = device::Signal::WaitState::Active;
+  }
+
   if ((doorbell_ == nullptr) || !doorbell_->Init(dev, SIGNAL_INIT, ws)) {
     return false;
   }
@@ -389,7 +419,9 @@ bool HostcallListener::initialize(const amd::Device &dev) {
     return false;
   }
 
-  thread_.start(this);
+  if (!DISABLE_HOSTCALL_THREAD) {
+    thread_.start(this);
+  }
   return true;
 }
 
