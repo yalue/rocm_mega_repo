@@ -34,6 +34,7 @@
 #include "utils/util.hpp"
 #include "utils/debug.hpp"
 #include "utils/flags.hpp"
+#include "utils/kutrace_lib/kutrace_lib.h"
 
 #include <assert.h>
 #include <string.h>
@@ -322,11 +323,13 @@ void HostcallListener::consumePackets() {
 
   while (true) {
     while (true) {
+      kutrace::mark_c("poll");
       uint64_t new_value = doorbell_->Wait(signal_value, device::Signal::Condition::Ne, timeout);
       if (new_value != signal_value) {
         signal_value = new_value;
         break;
       }
+      kutrace::mark_c("/poll");
     }
 
     if (signal_value == SIGNAL_DONE) {

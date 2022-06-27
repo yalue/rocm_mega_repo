@@ -118,6 +118,7 @@ find_package(LLVM REQUIRED CONFIG
 message(STATUS "llvm found at ${LLVM_DIR}.")
 
 add_library(hip64 OBJECT
+ kutrace_lib/kutrace_lib.cc
  hip_context.cpp
  hip_code_object.cpp
  hip_device.cpp

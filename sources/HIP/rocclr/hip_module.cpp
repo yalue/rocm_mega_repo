@@ -26,6 +26,7 @@
 #include "platform/program.hpp"
 #include "hip_event.hpp"
 #include "hip_platform.hpp"
+#include "kutrace_lib/kutrace_lib.h"
 
 hipError_t ihipModuleLoadData(hipModule_t* module, const void* mmap_ptr, size_t mmap_size);
 
@@ -209,16 +210,6 @@ hipError_t hipFuncSetSharedMemConfig ( const void* func, hipSharedMemConfig conf
   HIP_RETURN(hipSuccess);
 }
 
-// Called when a kernel completes, in order to "release" the GPU lock. (In
-// reality, with the preemptive locks, this will only decrease the counter of
-// pending operations.)
-static void CL_CALLBACK releaseGPULockCallback(cl_event event, cl_int status,
-    void *user_data) {
-  auto command = reinterpret_cast<amd::NDRangeKernelCommand*>(user_data);
-  hip::ReleaseGPULock();
-  command->release();
-}
-
 // The user data passed to traceKernelCallback.
 typedef struct {
   hipFunction_t f;
@@ -250,6 +241,16 @@ static void CL_CALLBACK traceKernelCallback(cl_event event, cl_int status,
   delete info;
 }
 
+/*
+// Called when a kernel completes; inserts a KUtrace marker.
+static void CL_CALLBACK kutraceKernelDone(cl_event event, cl_int status,
+    void *user_data) {
+  kutrace::mark_b("gpu-dn");
+  auto cmd = reinterpret_cast<amd::NDRangeKernelCommand*>(user_data);
+  cmd->release();
+}
+*/
+
 hipError_t ihipModuleLaunchKernel(hipFunction_t f, uint32_t globalWorkSizeX,
                                  uint32_t globalWorkSizeY, uint32_t globalWorkSizeZ,
                                  uint32_t blockDimX, uint32_t blockDimY, uint32_t blockDimZ,
@@ -277,7 +278,7 @@ hipError_t ihipModuleLaunchKernel(hipFunction_t f, uint32_t globalWorkSizeX,
       blockDimX == 0 || blockDimY == 0 || blockDimZ == 0) {
     return hipErrorInvalidValue;
   }
-  
+
   hip::DeviceFunc* function = hip::DeviceFunc::asFunction(f);
   amd::Kernel* kernel = function->kernel();
 
@@ -338,8 +339,8 @@ hipError_t ihipModuleLaunchKernel(hipFunction_t f, uint32_t globalWorkSizeX,
   }
 
     const amd::KernelSignature& signature = kernel->signature();
-    for (size_t i = 0; i < signature.numParameters(); ++i) {
-      const amd::KernelParameterDescriptor& desc = signature.at(i);
+  for (size_t i = 0; i < signature.numParameters(); ++i) {
+    const amd::KernelParameterDescriptor& desc = signature.at(i);
     if (kernelParams == nullptr) {
       assert(kernargs != nullptr);
       kernel->parameters().set(i, desc.size_, kernargs + desc.offset_,
@@ -371,17 +372,6 @@ hipError_t ihipModuleLaunchKernel(hipFunction_t f, uint32_t globalWorkSizeX,
     return hipErrorOutOfMemory;
   }
 
-  // (otternes) Acquire the GPU lock before enqueuing the command, and have it
-  // call the release-lock callback when it completes.
-  if (hip::gpu_lock_fd >= 0) {
-    hip::AcquireGPULock();
-    command->retain();
-    if (!command->setCallback(CL_COMPLETE, releaseGPULockCallback,
-        reinterpret_cast<void*>(command))) {
-      printf("Error! Failed adding command-completion callback!\n");
-      exit(1);
-    }
-  }
   if (hip::simple_hip_trace != 0) {
     command->retain();
     auto info = new SimpleTraceKernelInfo;
@@ -399,6 +389,18 @@ hipError_t ihipModuleLaunchKernel(hipFunction_t f, uint32_t globalWorkSizeX,
       printf("Failed setting kernel-trace callback!\n");
       exit(1);
     }
+  }
+
+  if (kutrace::test()) {
+    kutrace::mark_a("gpu-st");
+    /*
+    command->retain();
+    if (!command->setCallback(CL_COMPLETE, kutraceKernelDone,
+      reinterpret_cast<void*>(command))) {
+      printf("Failed setting kernel-complete kutrace callback!\n");
+      exit(1);
+    }
+    */
   }
 
   command->enqueue();

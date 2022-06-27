@@ -200,7 +200,7 @@ hsa_signal_value_t InterruptSignal::WaitRelaxed(
     }
 
     if (time - start_time < kMaxElapsed) {
-    //  os::uSleep(20);
+      os::uSleep(20);
       continue;
     }
 

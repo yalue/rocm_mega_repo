@@ -25,6 +25,7 @@
 #include "platform/context.hpp"
 #include "platform/command.hpp"
 #include "platform/memory.hpp"
+#include "kutrace_lib/kutrace_lib.h"
 
 // ================================================================================================
 amd::Memory* getMemoryObject(const void* ptr, size_t& offset) {
@@ -325,6 +326,8 @@ hipError_t ihipMemcpy(void* dst, const void* src, size_t sizeBytes, hipMemcpyKin
   std::vector<amd::Command*> commands;
   size_t bytesRemaining = sizeBytes;
   size_t copied = 0, currentOffset = 0;
+  kutrace::mark_a("g-mem");
+  kutrace::mark_d(sizeBytes);
   while (bytesRemaining != 0) {
     command = GetMemcpyChunkCommand(dst, src, bytesRemaining, currentOffset,
       &copied, kind, queue, &isAsync, waitList);
@@ -351,6 +354,7 @@ hipError_t ihipMemcpy(void* dst, const void* src, size_t sizeBytes, hipMemcpyKin
   }
   if (!isAsync) {
     commands[commands.size() - 1]->awaitCompletion();
+    kutrace::mark_b("/g-mem");
   }
   for (unsigned int i = 0; i < commands.size(); i++) {
     commands[i]->release();

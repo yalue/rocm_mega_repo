@@ -159,6 +159,7 @@ set(oclruntime_src
   thread/semaphore.cpp
   utils/flags.cpp
   utils/debug.cpp
+  utils/kutrace_lib/kutrace_lib.cc
   device/appprofile.cpp
   device/device.cpp
   device/hwdebug.cpp
