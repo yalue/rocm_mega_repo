@@ -2,10 +2,44 @@
 
 #include <stdio.h>
 #include <hip/hip_runtime.h>
+#include <roctracer/roctracer_ext.h>
+#include <roctracer/roctx.h>
 #include <Python.h>
 
 extern "C" {
   PyMODINIT_FUNC PyInit_rocm_helper(void);
+}
+
+__global__ void FakeKernelA(uint64_t *dummy) {
+  if (dummy) dummy[threadIdx.x] = 1337;
+}
+
+__global__ void FakeKernelB(uint64_t *dummy) {
+  if (dummy) dummy[threadIdx.x] = 1338;
+}
+
+static PyObject* LaunchFakeKernelA(PyObject *self, PyObject *args) {
+  hipError_t result = hipSuccess;
+  hipLaunchKernelGGL(FakeKernelA, 1, 1, 0, NULL, (uint64_t *) NULL);
+  result = hipDeviceSynchronize();
+  if (result != hipSuccess) {
+    PyErr_Format(PyExc_OSError, "Failed launching fake kernel: %d",
+      (int) result);
+    return NULL;
+  }
+  Py_RETURN_NONE;
+}
+
+static PyObject* LaunchFakeKernelB(PyObject *self, PyObject *args) {
+  hipError_t result = hipSuccess;
+  hipLaunchKernelGGL(FakeKernelB, 1, 1, 0, NULL, (uint64_t *) NULL);
+  result = hipDeviceSynchronize();
+  if (result != hipSuccess) {
+    PyErr_Format(PyExc_OSError, "Failed launching fake kernel: %d",
+      (int) result);
+    return NULL;
+  }
+  Py_RETURN_NONE;
 }
 
 static PyObject* CreateStreamWithCUMask(PyObject *self, PyObject *args) {
@@ -54,8 +88,24 @@ static PyObject* DestroyHIPStream(PyObject *self, PyObject *args) {
   printf("In C: Destroying HIP stream @%p\n", (void *) toDestroy);
   hipStreamDestroy(toDestroy);
 
-  Py_INCREF(Py_None);
-  return Py_None;
+  Py_RETURN_NONE;
+}
+
+static PyObject* ROCTracerStart(PyObject *self, PyObject *args) {
+  roctracer_start();
+  Py_RETURN_NONE;
+}
+
+static PyObject* ROCTracerStop(PyObject *self, PyObject *args) {
+  roctracer_stop();
+  Py_RETURN_NONE;
+}
+
+static PyObject* ROCTXMark(PyObject *self, PyObject *args) {
+  const char *mark = NULL;
+  if (!PyArg_ParseTuple(args, "s", &mark)) return NULL;
+  roctxMark(mark);
+  Py_RETURN_NONE;
 }
 
 static PyMethodDef rocm_helper_methods[] = {
@@ -73,6 +123,37 @@ static PyMethodDef rocm_helper_methods[] = {
     METH_VARARGS,
     "Destroys a HIP stream returned by create_stream_with_cu_mask. Requires "
       "one arg: the value returned by create_stream_with_cu_mask.",
+  },
+  {
+    "roctracer_start",
+    ROCTracerStart,
+    METH_NOARGS,
+    "Starts the ROCm tracer.",
+  },
+  {
+    "roctracer_stop",
+    ROCTracerStop,
+    METH_NOARGS,
+    "Stops the ROCm tracer.",
+  },
+  {
+    "fake_kernel_a",
+    LaunchFakeKernelA,
+    METH_NOARGS,
+    "Launches a fake kernel, FakeKernelA, that does nothing but can be used "
+      "as a simple mark in the trace logs.",
+  },
+  {
+    "fake_kernel_b",
+    LaunchFakeKernelB,
+    METH_NOARGS,
+    "Same as fake_kernel_a, but launches FakeKernelB.",
+  },
+  {
+    "roctx_mark",
+    ROCTXMark,
+    METH_VARARGS,
+    "Inserts a mark into the roctracer log. Takes a string.",
   },
   {NULL, NULL, 0, NULL},
 };
