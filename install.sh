@@ -71,3 +71,37 @@ echo "Updating symlinks to new libraries."
 sudo ldconfig
 sudo bash fix_symlinks.sh
 
+echo -e "\nInstalling roctracer\n"
+cd sources/roctracer
+rm -rf build
+mkdir build
+cd build
+CMAKE_PREFIX_PATH=/opt/rocm/ HIP_PATH=/opt/rocm/hip/ cmake \
+	-DCMAKE_INSTALL_PREFIX=/opt/rocm \
+	-DHIP_VDI=1 \
+	..
+make -j4
+sudo make install
+check_install_error "roctracer"
+cd $PROJECT_TOP_DIR
+
+sudo ldconfig
+sudo bash fix_symlinks.sh
+
+echo -e "\nInstalling rocprofiler\n"
+cd sources/rocprofiler
+rm -rf build
+mkdir build
+cd build
+CMAKE_PREFIX_PATH=/opt/rocm/:/opt/rocm/include/hsa cmake \
+	-DCMAKE_INSTALL_PREFIX=/opt/rocm \
+	-DCMAKE_BUILD_TYPE=release \
+	..
+make -j4
+sudo make install
+check_install_error "rocprofiler"
+cd $PROJECT_TOP_DIR
+
+sudo ldconfig
+sudo bash fix_symlinks.sh
+

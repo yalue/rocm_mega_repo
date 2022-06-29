@@ -1,0 +1,3 @@
+BUILD_DIR=build
+TO_CLEAN=yes
+HIP_VDI=1

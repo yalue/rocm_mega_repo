@@ -241,15 +241,13 @@ static void CL_CALLBACK traceKernelCallback(cl_event event, cl_int status,
   delete info;
 }
 
-/*
 // Called when a kernel completes; inserts a KUtrace marker.
-static void CL_CALLBACK kutraceKernelDone(cl_event event, cl_int status,
-    void *user_data) {
-  kutrace::mark_b("gpu-dn");
-  auto cmd = reinterpret_cast<amd::NDRangeKernelCommand*>(user_data);
-  cmd->release();
-}
-*/
+//static void CL_CALLBACK kutraceKernelDone(cl_event event, cl_int status,
+//    void *user_data) {
+//  kutrace::mark_b("/kern");
+//  auto cmd = reinterpret_cast<amd::NDRangeKernelCommand*>(user_data);
+//  cmd->release();
+//}
 
 hipError_t ihipModuleLaunchKernel(hipFunction_t f, uint32_t globalWorkSizeX,
                                  uint32_t globalWorkSizeY, uint32_t globalWorkSizeZ,
@@ -392,15 +390,13 @@ hipError_t ihipModuleLaunchKernel(hipFunction_t f, uint32_t globalWorkSizeX,
   }
 
   if (kutrace::test()) {
-    kutrace::mark_a("gpu-st");
-    /*
-    command->retain();
-    if (!command->setCallback(CL_COMPLETE, kutraceKernelDone,
-      reinterpret_cast<void*>(command))) {
-      printf("Failed setting kernel-complete kutrace callback!\n");
-      exit(1);
-    }
-    */
+    kutrace::mark_a("kern");
+    //command->retain();
+    //if (!command->setCallback(CL_COMPLETE, kutraceKernelDone,
+    //  reinterpret_cast<void*>(command))) {
+    //  printf("Failed setting kernel-complete kutrace callback!\n");
+    //  exit(1);
+    //}
   }
 
   command->enqueue();

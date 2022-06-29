@@ -1,0 +1,10 @@
+.*
+!.gitignore
+*.o
+*.exe
+*.swp
+*.Po
+build
+test/hsa
+test/MatrixTranspose/MatrixTranspose
+test/MatrixTranspose_test/MatrixTranspose
