@@ -370,6 +370,12 @@ hipError_t ihipModuleLaunchKernel(hipFunction_t f, uint32_t globalWorkSizeX,
     return hipErrorOutOfMemory;
   }
 
+  // (otternes) Acquire the GPU lock before enqueuing the command, and have it
+  // call the release-lock callback when it completes.
+  if (hip::kfmlp_lock_fd >= 0) {
+    hip::AcquireGPULock();
+  }
+
   if (hip::simple_hip_trace != 0) {
     command->retain();
     auto info = new SimpleTraceKernelInfo;
@@ -408,6 +414,12 @@ hipError_t ihipModuleLaunchKernel(hipFunction_t f, uint32_t globalWorkSizeX,
   if (stopEvent != nullptr) {
     eStop->addMarker(queue, command, false);
     command->retain();
+  }
+
+  // (otternes) Release the GPU lock after the kernel completes.
+  if (hip::kfmlp_lock_fd >= 0) {
+    command->awaitCompletion();
+    hip::ReleaseGPULock();
   }
   command->release();
 

@@ -35,6 +35,7 @@
 #include <sys/stat.h>
 #include <sys/types.h>
 #include <unistd.h>
+#include "kfmlp_module.h"
 
 std::vector<hip::Device*> g_devices;
 
@@ -47,6 +48,7 @@ std::once_flag g_ihipInitialized;
 Device* host_device = nullptr;
 
 int simple_hip_trace = 0;
+int kfmlp_lock_fd = -1;
 size_t memcpy_chunk_size;
 
 // Takes the name of an environment variable expected to contain a single
@@ -78,6 +80,16 @@ void init() {
   if (GetEnvVarValue("SIMPLE_HIP_TRACE", &v)) {
     simple_hip_trace = 1;
   }
+  found_env_var = GetEnvVarValue("USE_KFMLP_LOCKING", &v);
+  if (found_env_var && (v != 0)) {
+    kfmlp_lock_fd = open("/dev/" DEVICE_NAME, O_RDWR);
+    if (kfmlp_lock_fd < 0) {
+      printf("Error: Failed opening KFMLP module.\n");
+    } else {
+      printf("Trying to use KFMLP locking.\n");
+    }
+  }
+
   memcpy_chunk_size = 0;
   if (GetEnvVarValue("HIP_MEMCPY_CHUNK_SIZE", &v)) {
     if (v < 0) {
@@ -121,6 +133,26 @@ void init() {
   host_device = new Device(hContext, -1);
 
   PlatformState::instance().init();
+}
+
+void AcquireGPULock() {
+  // TODO (and export)
+  if (kfmlp_lock_fd < 0) return;
+  AcquireKFMLPLockArgs args;
+  int result;
+  result = ioctl(kfmlp_lock_fd, KFMLP_LOCK_ACQUIRE_IOC, &args);
+  if (result != 0) {
+    printf("Failed acquiring KFMLP lock!!\n");
+  }
+}
+
+void ReleaseGPULock() {
+  // TODO (and export)
+  if (kfmlp_lock_fd < 0) return;
+  int result = ioctl(kfmlp_lock_fd, KFMLP_LOCK_RELEASE_IOC);
+  if (result != 0) {
+    printf("Failed releasing KFMLP lock!!\n");
+  }
 }
 
 Device* getCurrentDevice() {

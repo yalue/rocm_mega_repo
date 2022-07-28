@@ -251,6 +251,10 @@ namespace hip {
   // (otternes): Tacked-on addition to control memory-transfer subdivision
   // using the HIP_MEMCPY_CHUNK_SIZE environment variable.
   extern size_t memcpy_chunk_size;
+
+  extern int kfmlp_lock_fd;
+  extern void AcquireGPULock();
+  extern void ReleaseGPULock();
 };
 
 struct ihipExec_t {
